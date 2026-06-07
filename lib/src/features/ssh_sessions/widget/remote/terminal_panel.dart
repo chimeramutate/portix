@@ -4,9 +4,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:portix/src/core/widgets/index.dart';
-import 'package:xterm/xterm.dart';
-
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/connection_manager/session_models.dart'
     as session_models;
@@ -14,10 +11,13 @@ import 'package:portix/src/connection_manager/ssh_profile.dart'
     as manager_profile;
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
+import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart' as domain;
 import 'package:portix/src/domain/repositories/settings/index.dart';
 import 'package:portix/src/features/ssh_profiles/bloc/index.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+import 'package:xterm/xterm.dart';
+
 import '../../controller/index.dart';
 import 'terminal_status_footer.dart';
 import 'terminal_workspace_view.dart';
@@ -225,7 +225,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(error.message),
+          content: Text(
+            error.message,
+            style: TextStyle(color: AppColors.danger),
+          ),
           backgroundColor: AppColors.surfaceCard,
           behavior: SnackBarBehavior.floating,
         ),
