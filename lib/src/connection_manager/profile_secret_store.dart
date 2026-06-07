@@ -2,15 +2,20 @@ import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
+import 'package:portix/src/security/security_policy.dart';
 
 class ProfileSecretStore {
   const ProfileSecretStore({
     FlutterSecureStorage storage = const FlutterSecureStorage(),
-  }) : _storage = storage;
+    SecurityPolicy? policy,
+  }) : _storage = storage,
+       _policy = policy;
 
   final FlutterSecureStorage _storage;
+  final SecurityPolicy? _policy;
 
   Future<void> savePassword(String profileId, String password) async {
+    _policy?.ensureSecretReadable();
     try {
       await _storage.write(key: _passwordKey(profileId), value: password);
     } on PlatformException catch (error) {
@@ -24,6 +29,7 @@ class ProfileSecretStore {
   }
 
   Future<String?> readPassword(String profileId) async {
+    _policy?.ensureSecretReadable();
     try {
       final password = await _storage.read(key: _passwordKey(profileId));
       if (password != null || !Platform.isMacOS) {
@@ -41,6 +47,7 @@ class ProfileSecretStore {
   }
 
   Future<void> deletePassword(String profileId) async {
+    _policy?.ensureSecretReadable();
     try {
       await _storage.delete(key: _passwordKey(profileId));
       if (Platform.isMacOS) {

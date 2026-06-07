@@ -75,7 +75,7 @@ class _ChmodDialogState extends State<_ChmodDialog> {
   @override
   void initState() {
     super.initState();
-    _setFromMode(widget.file.folder ? '755' : '644');
+    _setFromMode(widget.file.chmodMode ?? (widget.file.folder ? '755' : '644'));
     _modeController = TextEditingController(text: _modeString());
   }
 

@@ -104,202 +104,282 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                 .toSet()
                 .toList()
               ..sort();
-        return Column(
-          children: [
-            Expanded(
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 250,
-                    child: Container(
-                      color: AppColors.surface,
-                      padding: const EdgeInsets.all(20),
-                      child: FormSteps(state: state),
-                    ),
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final screenSize = MediaQuery.sizeOf(context);
+            final availableWidth = constraints.hasBoundedWidth
+                ? constraints.maxWidth
+                : screenSize.width;
+            final availableHeight = constraints.hasBoundedHeight
+                ? constraints.maxHeight
+                : screenSize.height;
+            final compact = availableWidth < 920;
+            final twoColumn = availableWidth >= 1080;
+            final showSidePanel =
+                availableWidth >= 1320 && state.isProfileFormComplete;
+            final contentMaxWidth = showSidePanel ? 920.0 : 1080.0;
+            final identitySection = _FormSection(
+              title: 'Profile Identity',
+              subtitle: 'Nama dan group wajib. Tag opsional untuk filter.',
+              children: [
+                AppTextField(
+                  controller: _name,
+                  label: 'Profile name',
+                  icon: Icons.dns_outlined,
+                  onChanged: (_) => _changed(context),
+                ),
+                _AutocompleteTextField(
+                  controller: _group,
+                  label: 'Group',
+                  icon: Icons.layers_outlined,
+                  options: groupOptions,
+                  onChanged: (_) => _changed(context),
+                ),
+                _TagSelector(
+                  controller: _tags,
+                  options: tagOptions,
+                  onChanged: () => _changed(context),
+                ),
+                _ProfileColorPicker(
+                  color: profile?.color ?? ProfileColor.green,
+                ),
+              ],
+            );
+            final endpointSection = _FormSection(
+              title: 'Connection Endpoint',
+              subtitle: 'Data utama untuk membuka SSH session.',
+              children: [
+                AppTextField(
+                  controller: _host,
+                  label: 'Host / IP',
+                  icon: Icons.language_rounded,
+                  onChanged: (_) => _changed(context),
+                ),
+                AppTextField(
+                  controller: _port,
+                  label: 'Port',
+                  icon: Icons.tag_rounded,
+                  onChanged: (_) => _changed(context),
+                ),
+                AppTextField(
+                  controller: _username,
+                  label: 'Username',
+                  icon: Icons.person_outline,
+                  onChanged: (_) => _changed(context),
+                ),
+              ],
+            );
+            final authSection = _FormSection(
+              title: 'Authentication',
+              subtitle: 'Pilih password atau SSH key.',
+              children: [
+                _AuthSegments(profile: profile),
+                if (profile?.authMethod == AuthMethod.password)
+                  AppTextField(
+                    controller: _credential,
+                    label: 'Password',
+                    icon: Icons.lock_outline_rounded,
+                    obscureText: true,
+                    onChanged: (_) => _changed(context),
+                  )
+                else ...[
+                  AppTextField(
+                    controller: _credential,
+                    label: 'SSH key label / path',
+                    icon: Icons.key_rounded,
+                    onChanged: (_) => _changed(context),
                   ),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(24, 24, 18, 28),
-                      child: Column(
+                  _UploadBox(
+                    onTap: () {
+                      _credential.text = 'id_prod_ed25519';
+                      _changed(context);
+                    },
+                  ),
+                ],
+              ],
+            );
+            final advancedSection = _FormSection(
+              title: 'Advanced Defaults',
+              subtitle: 'Opsional untuk session pertama kali dibuka.',
+              children: [
+                AppTextField(
+                  controller: _startup,
+                  label: 'Startup command',
+                  icon: Icons.terminal_rounded,
+                  onChanged: (_) => _changed(context),
+                ),
+                AppTextField(
+                  controller: _fontSize,
+                  label: 'Terminal font size',
+                  icon: Icons.text_fields_rounded,
+                  onChanged: (_) => _changed(context),
+                ),
+              ],
+            );
+            final form = SizedBox(
+              height: availableHeight,
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  compact ? 14 : 24,
+                  compact ? 14 : 24,
+                  compact ? 14 : 18,
+                  28,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _CompactFormHeader(state: state),
+                    const SizedBox(height: 14),
+                    if (compact) ...[
+                      AppPanel(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        child: FormSteps(state: state),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    if (twoColumn) ...[
+                      Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Wrap(
+                          Expanded(child: identitySection),
+                          const SizedBox(width: 14),
+                          Expanded(child: endpointSection),
+                        ],
+                      ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: authSection),
+                          const SizedBox(width: 14),
+                          Expanded(child: advancedSection),
+                        ],
+                      ),
+                    ] else ...[
+                      identitySection,
+                      endpointSection,
+                      authSection,
+                      advancedSection,
+                    ],
+                    AppPanel(
+                      margin: const EdgeInsets.only(top: 2),
+                      padding: const EdgeInsets.all(18),
+                      child: LayoutBuilder(
+                        builder: (context, footerConstraints) {
+                          final stackActions = footerConstraints.maxWidth < 760;
+                          final summary = Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Review and save profile',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: portixTitle(16),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Test connection validates host, port, and auth before the profile returns to the SSH gallery.',
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                                style: portixMuted(),
+                              ),
+                            ],
+                          );
+                          final actions = Wrap(
                             spacing: 8,
                             runSpacing: 8,
+                            alignment: WrapAlignment.end,
                             children: [
-                              AppPill(
-                                label: 'Desktop flow',
-                                color: AppColors.cyan,
+                              AppButton(
+                                icon: Icons.close_rounded,
+                                label: 'Cancel',
+                                onPressed: () =>
+                                    context.read<SshWorkspaceBloc>().add(
+                                      const NavigationChanged(
+                                        WorkspaceView.gallery,
+                                      ),
+                                    ),
                               ),
-                              AppPill(
-                                label: 'Encrypted',
-                                color: AppColors.green,
+                              AppButton(
+                                icon: Icons.monitor_heart_outlined,
+                                label: stackActions
+                                    ? 'Test'
+                                    : 'Test Connection',
+                                onPressed: () => context
+                                    .read<SshWorkspaceBloc>()
+                                    .add(const ProfileTestRequested()),
+                              ),
+                              AppButton(
+                                icon: Icons.save_outlined,
+                                label: stackActions ? 'Save' : 'Save Profile',
+                                primary: true,
+                                onPressed: () => context
+                                    .read<SshWorkspaceBloc>()
+                                    .add(const ProfileSaved()),
                               ),
                             ],
-                          ),
-                          const SizedBox(height: 18),
-                          _FormSection(
-                            title: 'Profile Identity',
-                            subtitle:
-                                'Nama, group, dan tag menentukan bagaimana profile muncul di gallery.',
-                            children: [
-                              AppTextField(
-                                controller: _name,
-                                label: 'Profile name',
-                                icon: Icons.dns_outlined,
-                                onChanged: (_) => _changed(context),
-                              ),
-                              _AutocompleteTextField(
-                                controller: _group,
-                                label: 'Group',
-                                icon: Icons.layers_outlined,
-                                options: groupOptions,
-                                onChanged: (_) => _changed(context),
-                              ),
-                              _TagSelector(
-                                controller: _tags,
-                                options: tagOptions,
-                                onChanged: () => _changed(context),
-                              ),
-                              _ProfileColorPicker(
-                                color: profile?.color ?? ProfileColor.green,
-                              ),
-                            ],
-                          ),
-                          _FormSection(
-                            title: 'Connection Endpoint',
-                            subtitle: 'Data utama untuk membuka SSH session.',
-                            children: [
-                              AppTextField(
-                                controller: _host,
-                                label: 'Host / IP',
-                                icon: Icons.language_rounded,
-                                onChanged: (_) => _changed(context),
-                              ),
-                              AppTextField(
-                                controller: _port,
-                                label: 'Port',
-                                icon: Icons.tag_rounded,
-                                onChanged: (_) => _changed(context),
-                              ),
-                              AppTextField(
-                                controller: _username,
-                                label: 'Username',
-                                icon: Icons.person_outline,
-                                onChanged: (_) => _changed(context),
-                              ),
-                            ],
-                          ),
-                          _FormSection(
-                            title: 'Authentication',
-                            subtitle:
-                                'Pilih password atau SSH key. Upload key tidak membuka SFTP session.',
-                            children: [
-                              _AuthSegments(profile: profile),
-                              if (profile?.authMethod == AuthMethod.password)
-                                AppTextField(
-                                  controller: _credential,
-                                  label: 'Password',
-                                  icon: Icons.lock_outline_rounded,
-                                  obscureText: true,
-                                  onChanged: (_) => _changed(context),
-                                )
-                              else ...[
-                                AppTextField(
-                                  controller: _credential,
-                                  label: 'SSH key label / path',
-                                  icon: Icons.key_rounded,
-                                  onChanged: (_) => _changed(context),
-                                ),
-                                _UploadBox(
-                                  onTap: () {
-                                    _credential.text = 'id_prod_ed25519';
-                                    _changed(context);
-                                  },
-                                ),
-                              ],
-                            ],
-                          ),
-                          _FormSection(
-                            title: 'Advanced Session Defaults',
-                            subtitle:
-                                'Opsional, dipakai saat terminal session pertama kali dibuka.',
-                            children: [
-                              AppTextField(
-                                controller: _startup,
-                                label: 'Startup command',
-                                icon: Icons.terminal_rounded,
-                                onChanged: (_) => _changed(context),
-                              ),
-                              AppTextField(
-                                controller: _fontSize,
-                                label: 'Terminal font size',
-                                icon: Icons.text_fields_rounded,
-                                onChanged: (_) => _changed(context),
-                              ),
-                            ],
-                          ),
-                          AppPanel(
-                            margin: const EdgeInsets.only(top: 2),
-                            padding: const EdgeInsets.all(18),
-                            child: Row(
+                          );
+
+                          if (stackActions) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Review and save profile',
-                                        style: portixTitle(16),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'Test connection validates host, port, and auth before the profile returns to the SSH gallery.',
-                                        style: portixMuted(),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                AppButton(
-                                  icon: Icons.close_rounded,
-                                  label: 'Cancel',
-                                  onPressed: () =>
-                                      context.read<SshWorkspaceBloc>().add(
-                                        const NavigationChanged(
-                                          WorkspaceView.gallery,
-                                        ),
-                                      ),
-                                ),
-                                const SizedBox(width: 8),
-                                AppButton(
-                                  icon: Icons.monitor_heart_outlined,
-                                  label: 'Test Connection',
-                                  onPressed: () => context
-                                      .read<SshWorkspaceBloc>()
-                                      .add(const ProfileTestRequested()),
-                                ),
-                                const SizedBox(width: 8),
-                                AppButton(
-                                  icon: Icons.save_outlined,
-                                  label: 'Save Profile',
-                                  primary: true,
-                                  onPressed: () => context
-                                      .read<SshWorkspaceBloc>()
-                                      .add(const ProfileSaved()),
+                                summary,
+                                const SizedBox(height: 14),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: actions,
                                 ),
                               ],
-                            ),
-                          ),
-                        ],
+                            );
+                          }
+
+                          return Row(
+                            children: [
+                              Expanded(child: summary),
+                              const SizedBox(width: 16),
+                              actions,
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                    if (!showSidePanel && state.isProfileFormComplete) ...[
+                      const SizedBox(height: 16),
+                      ProfilePreview(state: state),
+                      TestConnectionPanel(state: state),
+                    ],
+                  ],
+                ),
+              ),
+            );
+
+            return SizedBox(
+              width: availableWidth,
+              height: availableHeight,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                        child: form,
                       ),
                     ),
                   ),
-                  SizedBox(width: 360, child: _AnimatedSidePanel(state: state)),
+                  if (showSidePanel)
+                    SizedBox(
+                      width: 360,
+                      height: availableHeight,
+                      child: _AnimatedSidePanel(state: state),
+                    ),
                 ],
               ),
-            ),
-          ],
+            );
+          },
         );
       },
     );
@@ -335,6 +415,83 @@ class _AnimatedSidePanel extends StatelessWidget {
   }
 }
 
+class _CompactFormHeader extends StatelessWidget {
+  const _CompactFormHeader({required this.state});
+
+  final SshWorkspaceState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final steps = [
+      (
+        label: 'Identity',
+        done: state.isIdentityComplete,
+        active: !state.isIdentityComplete,
+      ),
+      (
+        label: 'Endpoint',
+        done: state.isEndpointComplete,
+        active: state.isIdentityComplete && !state.isEndpointComplete,
+      ),
+      (
+        label: 'Auth',
+        done: state.isAuthComplete,
+        active: state.isEndpointComplete && !state.isAuthComplete,
+      ),
+    ];
+    return AppPanel(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 620;
+          return Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            alignment: WrapAlignment.spaceBetween,
+            children: [
+              SizedBox(
+                width: compact ? constraints.maxWidth : 330,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('New SSH Profile', style: portixTitle(16)),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Isi yang wajib saja dulu. Advanced boleh dibiarkan default.',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: portixMuted(11),
+                    ),
+                  ],
+                ),
+              ),
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: [
+                  for (final step in steps)
+                    AppPill(
+                      label: step.label,
+                      color: step.done
+                          ? AppColors.green
+                          : step.active
+                          ? AppColors.amber
+                          : AppColors.muted,
+                      icon: step.done
+                          ? Icons.check_rounded
+                          : Icons.circle_rounded,
+                    ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _FormSection extends StatelessWidget {
   const _FormSection({
     required this.title,
@@ -354,9 +511,24 @@ class _FormSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: portixTitle(19)),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final titleSize = constraints.maxWidth < 340 ? 16.0 : 19.0;
+              return Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: portixTitle(titleSize),
+              );
+            },
+          ),
           const SizedBox(height: 5),
-          Text(subtitle, style: portixMuted()),
+          Text(
+            subtitle,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: portixMuted(),
+          ),
           const SizedBox(height: 14),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -437,7 +609,14 @@ class _AutocompleteTextFieldState extends State<_AutocompleteTextField> {
               children: [
                 Icon(widget.icon, color: AppColors.muted, size: 15),
                 const SizedBox(width: 8),
-                Text(widget.label, style: portixLabel()),
+                Expanded(
+                  child: Text(
+                    widget.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: portixLabel(),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 7),
@@ -556,7 +735,14 @@ class _TagSelectorState extends State<_TagSelector> {
           children: [
             const Icon(Icons.sell_outlined, color: AppColors.muted, size: 15),
             const SizedBox(width: 8),
-            Text('Tags', style: portixLabel()),
+            Expanded(
+              child: Text(
+                'Tags',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: portixLabel(),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 7),
@@ -628,7 +814,14 @@ class _ProfileColorPicker extends StatelessWidget {
               size: 15,
             ),
             const SizedBox(width: 8),
-            Text('Terminal color', style: portixLabel()),
+            Expanded(
+              child: Text(
+                'Terminal color',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: portixLabel(),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 7),
@@ -645,6 +838,7 @@ class _ProfileColorPicker extends StatelessWidget {
                 DropdownMenuItem(
                   value: item,
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Container(
                         width: 10,
@@ -655,7 +849,11 @@ class _ProfileColorPicker extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Text(_profileColorLabel(item)),
+                      Text(
+                        _profileColorLabel(item),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
                   ),
                 ),
@@ -677,33 +875,45 @@ class _AuthSegments extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 40,
-      child: Row(
-        children: [
-          Expanded(
-            child: _Segment(
-              selected: profile?.authMethod != AuthMethod.password,
-              icon: Icons.key_rounded,
-              label: 'SSH Key',
-              onTap: () => context.read<SshWorkspaceBloc>().add(
-                const AuthMethodChanged(AuthMethod.sshKey),
-              ),
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stack = constraints.maxWidth < 360;
+        final keySegment = _Segment(
+          selected: profile?.authMethod != AuthMethod.password,
+          icon: Icons.key_rounded,
+          label: 'SSH Key',
+          onTap: () => context.read<SshWorkspaceBloc>().add(
+            const AuthMethodChanged(AuthMethod.sshKey),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _Segment(
-              selected: profile?.authMethod == AuthMethod.password,
-              icon: Icons.lock_outline_rounded,
-              label: 'Password',
-              onTap: () => context.read<SshWorkspaceBloc>().add(
-                const AuthMethodChanged(AuthMethod.password),
-              ),
-            ),
+        );
+        final passwordSegment = _Segment(
+          selected: profile?.authMethod == AuthMethod.password,
+          icon: Icons.lock_outline_rounded,
+          label: 'Password',
+          onTap: () => context.read<SshWorkspaceBloc>().add(
+            const AuthMethodChanged(AuthMethod.password),
           ),
-        ],
-      ),
+        );
+        if (stack) {
+          return Column(
+            children: [
+              SizedBox(height: 40, child: keySegment),
+              const SizedBox(height: 8),
+              SizedBox(height: 40, child: passwordSegment),
+            ],
+          );
+        }
+        return SizedBox(
+          height: 40,
+          child: Row(
+            children: [
+              Expanded(child: keySegment),
+              const SizedBox(width: 10),
+              Expanded(child: passwordSegment),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -743,11 +953,15 @@ class _Segment extends StatelessWidget {
               size: 18,
             ),
             const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                color: selected ? AppColors.text : AppColors.muted,
-                fontWeight: FontWeight.w900,
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected ? AppColors.text : AppColors.muted,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
           ],
@@ -763,58 +977,100 @@ class _UploadBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        height: 92,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceDark,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 520;
+        return InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Row(
-          children: [
-            Container(
-              height: 48,
-              width: 48,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.cyan),
-              ),
-              child: const Icon(Icons.upload_rounded, color: AppColors.cyan),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 92),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceDark,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.border),
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Drop SSH key here or select from vault',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: portixTitle(14),
+            child: compact
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          _UploadIconBox(),
+                          const SizedBox(width: 12),
+                          Expanded(child: _UploadBoxText()),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: AppButton(
+                          icon: Icons.folder_open_rounded,
+                          label: 'Select Key',
+                          onPressed: onTap,
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      _UploadIconBox(),
+                      const SizedBox(width: 14),
+                      const Expanded(child: _UploadBoxText()),
+                      const SizedBox(width: 12),
+                      AppButton(
+                        icon: Icons.folder_open_rounded,
+                        label: 'Select Key',
+                        onPressed: onTap,
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Supported: ed25519, rsa, pem. You can type the key label above or choose a vault key.',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: portixMuted(),
-                  ),
-                ],
-              ),
-            ),
-            AppButton(
-              icon: Icons.folder_open_rounded,
-              label: 'Select Key',
-              onPressed: onTap,
-            ),
-          ],
-        ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _UploadIconBox extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 48,
+      width: 48,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.cyan),
       ),
+      child: const Icon(Icons.upload_rounded, color: AppColors.cyan),
+    );
+  }
+}
+
+class _UploadBoxText extends StatelessWidget {
+  const _UploadBoxText();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Drop SSH key here or select from vault',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: portixTitle(14),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Supported: ed25519, rsa, pem. You can type the key label above or choose a vault key.',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: portixMuted(),
+        ),
+      ],
     );
   }
 }

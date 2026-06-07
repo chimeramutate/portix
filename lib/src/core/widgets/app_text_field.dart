@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/app_theme.dart';
 import 'app_panel.dart';
@@ -25,6 +26,7 @@ class AppTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compactTouch = MediaQuery.sizeOf(context).width < 720;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -41,16 +43,16 @@ class AppTextField extends StatelessWidget {
           const SizedBox(height: 7),
         ],
         SizedBox(
-          height: 40,
+          height: compactTouch ? 46 : 40,
           child: TextField(
             controller: controller,
             readOnly: readOnly,
             obscureText: obscureText,
             onChanged: onChanged,
-            style: const TextStyle(
+            style: GoogleFonts.inter(
               color: AppColors.text,
               fontWeight: FontWeight.w800,
-              fontSize: 13,
+              fontSize: compactTouch ? 14 : 13,
             ),
             decoration: InputDecoration(
               hintText: hint,

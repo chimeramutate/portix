@@ -16,7 +16,7 @@ class RustBridgeBackend implements ConnectionBackend {
   RustBridgeBackend._({
     required Stream<TerminalOutputEvent> outputStream,
     required Stream<ConnectionStatusEvent> statusStream,
-    required Stream<String> errorStream,
+    required Stream<ConnectionErrorEvent> errorStream,
   }) : _outputStream = outputStream,
        _statusStream = statusStream,
        _errorStream = errorStream;
@@ -56,7 +56,7 @@ class RustBridgeBackend implements ConnectionBackend {
 
   final Stream<TerminalOutputEvent> _outputStream;
   final Stream<ConnectionStatusEvent> _statusStream;
-  final Stream<String> _errorStream;
+  final Stream<ConnectionErrorEvent> _errorStream;
 
   @override
   Stream<TerminalOutputEvent> get terminalOutputStream => _outputStream;
@@ -65,7 +65,7 @@ class RustBridgeBackend implements ConnectionBackend {
   Stream<ConnectionStatusEvent> get connectionStatusStream => _statusStream;
 
   @override
-  Stream<String> get errorEventStream => _errorStream;
+  Stream<ConnectionErrorEvent> get errorEventStream => _errorStream;
 
   @override
   Future<String> connect(SshProfile profile) async {
@@ -103,6 +103,37 @@ class RustBridgeBackend implements ConnectionBackend {
   Future<RemoteSystemSnapshot> remoteSystemSnapshot(String sessionId) async {
     final snapshot = await rust_api.remoteSystemSnapshot(sessionId: sessionId);
     return snapshot.toAppSnapshot();
+  }
+
+  @override
+  Future<List<String>> commandHelpSuggestions(String sessionId, String input) {
+    return rust_api.commandHelpSuggestions(sessionId: sessionId, input: input);
+  }
+
+  @override
+  Future<List<TerminalCompletionCandidate>> commandCompletions(
+    String sessionId,
+    String input,
+  ) async {
+    final suggestions = await commandHelpSuggestions(sessionId, input);
+    return suggestions
+        .map(TerminalCompletionCandidate.fromWire)
+        .where((candidate) => candidate.replacement.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<TerminalCompleteResponse> terminalComplete(
+    TerminalCompleteRequest request,
+  ) async {
+    final response = await rust_api.terminalComplete(
+      reqJson: jsonEncode(request.toJson()),
+    );
+    final decoded = jsonDecode(response);
+    if (decoded is! Map) {
+      return const TerminalCompleteResponse();
+    }
+    return TerminalCompleteResponse.fromJson(decoded.cast<String, Object?>());
   }
 
   @override
@@ -205,11 +236,11 @@ ConnectionStatusEvent _connectionStatusFromJson(String source) {
   );
 }
 
-String _errorMessageFromJson(String source) {
+ConnectionErrorEvent _errorMessageFromJson(String source) {
   final json = jsonDecode(source) as Map<String, Object?>;
   final message = json['message'] as String? ?? 'Unknown Rust backend error';
   final sessionId = json['session_id'] as String?;
-  return sessionId == null ? message : '$message ($sessionId)';
+  return ConnectionErrorEvent(message: message, sessionId: sessionId);
 }
 
 ConnectionStatus _statusFromRust(String status) {

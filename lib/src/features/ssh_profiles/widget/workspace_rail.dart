@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-
 import 'package:portix/src/core/theme/app_theme.dart';
+
 import '../bloc/index.dart';
 
 class WorkspaceRail extends StatelessWidget {
@@ -17,14 +17,14 @@ class WorkspaceRail extends StatelessWidget {
       (WorkspaceView.settings, Icons.settings_outlined, 'Settings'),
     ];
     return Container(
-      width: 80,
+      width: 68,
       decoration: const BoxDecoration(
         color: AppColors.surfaceDark,
         border: Border(right: BorderSide(color: AppColors.border)),
       ),
       child: Column(
         children: [
-          const SizedBox(height: 18),
+          const SizedBox(height: 12),
           Expanded(
             child: Column(
               children: [
@@ -41,20 +41,20 @@ class WorkspaceRail extends StatelessWidget {
             ),
           ),
           const Padding(
-            padding: EdgeInsets.only(bottom: 18),
+            padding: EdgeInsets.only(bottom: 14),
             child: Column(
               children: [
                 Icon(
                   Icons.verified_user_outlined,
                   color: AppColors.green,
-                  size: 22,
+                  size: 18,
                 ),
-                SizedBox(height: 7),
+                SizedBox(height: 5),
                 Text(
                   'Secure',
                   style: TextStyle(
                     color: AppColors.green,
-                    fontSize: 11,
+                    fontSize: 10,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -83,13 +83,13 @@ class _RailItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          width: 56,
-          height: 62,
+          width: 50,
+          height: 54,
           decoration: BoxDecoration(
             color: selected ? AppColors.surfaceCard : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
@@ -103,16 +103,16 @@ class _RailItem extends StatelessWidget {
               Icon(
                 icon,
                 color: selected ? AppColors.cyan : AppColors.muted,
-                size: 22,
+                size: 18,
               ),
-              const SizedBox(height: 5),
+              const SizedBox(height: 4),
               Text(
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: selected ? AppColors.text : AppColors.muted,
-                  fontSize: 10,
+                  fontSize: 9,
                   fontWeight: FontWeight.w800,
                 ),
               ),

@@ -32,13 +32,40 @@ class InMemorySshProfileRepository implements SshProfileRepository {
     try {
       final source = jsonDecode(file.readAsStringSync());
       if (source is! List) return List.of(_seedProfiles);
-      return source
-          .whereType<Map>()
-          .map((item) => _profileFromJson(Map<String, Object?>.from(item)))
-          .toList();
+      return _dedupeProfileIds(
+        source
+            .whereType<Map>()
+            .map((item) => _profileFromJson(Map<String, Object?>.from(item)))
+            .toList(),
+      );
     } catch (_) {
       return List.of(_seedProfiles);
     }
+  }
+
+  static List<SshProfile> _dedupeProfileIds(List<SshProfile> profiles) {
+    final usedIds = <String>{};
+    return [
+      for (var index = 0; index < profiles.length; index += 1)
+        profiles[index].copyWith(
+          id: _uniqueProfileId(profiles[index].id, usedIds, index),
+        ),
+    ];
+  }
+
+  static String _uniqueProfileId(
+    String candidate,
+    Set<String> usedIds,
+    int index,
+  ) {
+    final normalized = candidate.trim();
+    if (normalized.isNotEmpty && !usedIds.contains(normalized)) {
+      usedIds.add(normalized);
+      return normalized;
+    }
+    final generated = 'profile-${DateTime.now().microsecondsSinceEpoch}-$index';
+    usedIds.add(generated);
+    return generated;
   }
 
   Future<void> _persistProfiles() async {
@@ -127,6 +154,7 @@ class InMemorySshProfileRepository implements SshProfileRepository {
       'startupCommand': profile.startupCommand,
       'terminalFontSize': profile.terminalFontSize,
       'lastUsedLabel': profile.lastUsedLabel,
+      'osIconAsset': profile.osIconAsset,
     };
   }
 
@@ -165,6 +193,7 @@ class InMemorySshProfileRepository implements SshProfileRepository {
       terminalFontSize:
           int.tryParse(json['terminalFontSize']?.toString() ?? '') ?? 14,
       lastUsedLabel: json['lastUsedLabel']?.toString() ?? 'recently',
+      osIconAsset: json['osIconAsset']?.toString() ?? '',
     );
   }
 }

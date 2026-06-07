@@ -45,6 +45,17 @@ Future<RemoteSystemSnapshot> remoteSystemSnapshot({
   required String sessionId,
 }) => RustLib.instance.api.crateApiRemoteSystemSnapshot(sessionId: sessionId);
 
+Future<List<String>> commandHelpSuggestions({
+  required String sessionId,
+  required String input,
+}) => RustLib.instance.api.crateApiCommandHelpSuggestions(
+  sessionId: sessionId,
+  input: input,
+);
+
+Future<String> terminalComplete({required String reqJson}) =>
+    RustLib.instance.api.crateApiTerminalComplete(reqJson: reqJson);
+
 Future<List<RemoteFileEntry>> listRemoteDirectory({
   required String sessionId,
   required String path,

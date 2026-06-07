@@ -5,7 +5,6 @@ enum _FileAction {
   edit,
   openWith,
   download,
-  uploadHere,
   newFile,
   newFolder,
   rename,
@@ -62,10 +61,6 @@ class _FileActionMenu extends StatelessWidget {
         if (isRemote && file.folder) ...const [
           PopupMenuDivider(),
           PopupMenuItem(
-            value: _FileAction.uploadHere,
-            child: _MenuItem(icon: Icons.upload_rounded, label: 'Upload here'),
-          ),
-          PopupMenuItem(
             value: _FileAction.newFile,
             child: _MenuItem(icon: Icons.note_add_outlined, label: 'New file'),
           ),
@@ -78,7 +73,7 @@ class _FileActionMenu extends StatelessWidget {
           ),
         ],
         const PopupMenuDivider(),
-        if (isRemote || !file.folder)
+        if (isRemote)
           const PopupMenuItem(
             value: _FileAction.download,
             child: _MenuItem(icon: Icons.download_rounded, label: 'Download'),
@@ -90,21 +85,26 @@ class _FileActionMenu extends StatelessWidget {
             label: 'Rename',
           ),
         ),
-        const PopupMenuItem(
-          value: _FileAction.duplicate,
-          child: _MenuItem(icon: Icons.copy_rounded, label: 'Duplicate'),
-        ),
-        const PopupMenuItem(
-          value: _FileAction.move,
-          child: _MenuItem(icon: Icons.drive_file_move_rounded, label: 'Move'),
-        ),
-        const PopupMenuItem(
-          value: _FileAction.chmod,
-          child: _MenuItem(
-            icon: Icons.lock_outline_rounded,
-            label: 'Permissions (CHMOD)',
+        if (isRemote) ...const [
+          PopupMenuItem(
+            value: _FileAction.duplicate,
+            child: _MenuItem(icon: Icons.copy_rounded, label: 'Duplicate'),
           ),
-        ),
+          PopupMenuItem(
+            value: _FileAction.move,
+            child: _MenuItem(
+              icon: Icons.drive_file_move_rounded,
+              label: 'Move',
+            ),
+          ),
+          PopupMenuItem(
+            value: _FileAction.chmod,
+            child: _MenuItem(
+              icon: Icons.lock_outline_rounded,
+              label: 'Permissions (CHMOD)',
+            ),
+          ),
+        ],
         const PopupMenuDivider(),
         const PopupMenuItem(
           value: _FileAction.delete,
@@ -139,6 +139,8 @@ class _FileRow extends StatelessWidget {
     required this.isRemote,
     required this.onAction,
     required this.onOpenFolder,
+    required this.onSelected,
+    required this.dragEntries,
   });
 
   final SftpFileEntry data;
@@ -146,11 +148,15 @@ class _FileRow extends StatelessWidget {
   final bool isRemote;
   final void Function(_FileAction action, SftpFileEntry data) onAction;
   final void Function(SftpFileEntry data) onOpenFolder;
+  final VoidCallback onSelected;
+  final List<SftpFileEntry> dragEntries;
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 720;
     final row = GestureDetector(
       behavior: HitTestBehavior.opaque,
+      onTap: onSelected,
       onDoubleTap: () {
         if (data.folder || data.name == '..') {
           onOpenFolder(data);
@@ -159,94 +165,156 @@ class _FileRow extends StatelessWidget {
         }
       },
       child: Container(
-        height: 34,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        height: compact
+            ? data.location == null
+                  ? 52
+                  : 58
+            : data.location == null
+            ? 34
+            : 44,
+        padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
         decoration: BoxDecoration(
           color: selected ? const Color(0xFF123B63) : Colors.transparent,
           border: Border(
             bottom: BorderSide(color: AppColors.border.withValues(alpha: .65)),
           ),
         ),
-        child: Row(
-          children: [
-            Expanded(
-              flex: 5,
-              child: Row(
-                children: [
-                  Icon(
-                    data.folder
-                        ? Icons.folder_outlined
-                        : Icons.insert_drive_file_outlined,
-                    color: data.folder ? AppColors.cyan : AppColors.muted,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 9),
-                  Expanded(
-                    child: Text(
-                      data.name,
-                      overflow: TextOverflow.ellipsis,
-                      style: portixTitle(12),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Text(
-                isRemote ? data.type : data.size,
-                style: portixMuted(11),
-              ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Text(
-                isRemote ? data.size : data.modified,
-                style: portixMuted(11),
-              ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      isRemote ? data.modified : '',
-                      overflow: TextOverflow.ellipsis,
-                      style: portixMuted(11),
-                    ),
-                  ),
-                  _FileActionMenu(
-                    file: data,
-                    isRemote: isRemote,
-                    onSelected: (action) => onAction(action, data),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+        child: compact ? _compactRow() : _desktopRow(),
       ),
     );
 
     if (data.name == '..') return row;
 
     return Draggable<SftpFileTransfer>(
-      data: SftpFileTransfer(file: data, fromRemote: isRemote),
+      data: SftpFileTransfer(
+        file: data,
+        files: dragEntries,
+        fromRemote: isRemote,
+      ),
       feedback: Material(
         color: Colors.transparent,
-        child: _DragFeedback(data: data, fromRemote: isRemote),
+        child: _DragFeedback(
+          data: data,
+          fromRemote: isRemote,
+          count: dragEntries.length,
+        ),
       ),
       childWhenDragging: Opacity(opacity: .45, child: row),
       child: row,
     );
   }
+
+  Widget _nameCell({required bool compact}) {
+    final meta = [
+      if (data.location != null) data.location!,
+      if (data.location == null && data.size.trim().isNotEmpty) data.size,
+      if (data.location == null && data.modified.trim().isNotEmpty)
+        data.modified,
+    ].where((item) => item.trim().isNotEmpty && item != '-').join(' · ');
+    return Row(
+      children: [
+        Icon(
+          data.folder
+              ? Icons.folder_outlined
+              : Icons.insert_drive_file_outlined,
+          color: data.folder ? AppColors.cyan : AppColors.muted,
+          size: compact ? 18 : 16,
+        ),
+        SizedBox(width: compact ? 10 : 9),
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                data.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: portixTitle(compact ? 13 : 12),
+              ),
+              if (compact && meta.isNotEmpty) ...[
+                const SizedBox(height: 3),
+                Text(
+                  meta,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: portixMuted(10),
+                ),
+              ] else if (!compact && data.location != null)
+                Text(
+                  data.location!,
+                  overflow: TextOverflow.ellipsis,
+                  style: portixMuted(9),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _compactRow() {
+    return Row(
+      children: [
+        Expanded(child: _nameCell(compact: true)),
+        const SizedBox(width: 8),
+        _FileActionMenu(
+          file: data,
+          isRemote: isRemote,
+          onSelected: (action) => onAction(action, data),
+        ),
+      ],
+    );
+  }
+
+  Widget _desktopRow() {
+    return Row(
+      children: [
+        Expanded(flex: 5, child: _nameCell(compact: false)),
+        Expanded(
+          flex: 2,
+          child: Text(isRemote ? data.type : data.size, style: portixMuted(11)),
+        ),
+        Expanded(
+          flex: 2,
+          child: Text(
+            isRemote ? data.size : data.modified,
+            style: portixMuted(11),
+          ),
+        ),
+        Expanded(
+          flex: 2,
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  isRemote ? data.modified : '',
+                  overflow: TextOverflow.ellipsis,
+                  style: portixMuted(11),
+                ),
+              ),
+              _FileActionMenu(
+                file: data,
+                isRemote: isRemote,
+                onSelected: (action) => onAction(action, data),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _DragFeedback extends StatelessWidget {
-  const _DragFeedback({required this.data, required this.fromRemote});
+  const _DragFeedback({
+    required this.data,
+    required this.fromRemote,
+    required this.count,
+  });
   final SftpFileEntry data;
   final bool fromRemote;
+  final int count;
 
   @override
   Widget build(BuildContext context) {
@@ -276,7 +344,7 @@ class _DragFeedback extends StatelessWidget {
           const SizedBox(width: 9),
           Expanded(
             child: Text(
-              data.name,
+              count > 1 ? '$count items' : data.name,
               overflow: TextOverflow.ellipsis,
               style: portixTitle(12),
             ),

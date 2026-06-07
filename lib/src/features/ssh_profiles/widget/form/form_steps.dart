@@ -16,7 +16,7 @@ class FormSteps extends StatelessWidget {
     final steps = [
       _StepVm(
         title: 'Profile identity',
-        subtitle: 'Name, group, tags',
+        subtitle: 'Name and group',
         state: state.isIdentityComplete
             ? FormStepVisualState.completed
             : FormStepVisualState.current,
@@ -54,7 +54,11 @@ class FormSteps extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 6),
-        Text('New Profile', style: portixTitle(23)),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text('New Profile', style: portixTitle(23)),
+        ),
         const SizedBox(height: 24),
         for (final step in steps)
           Padding(
@@ -68,9 +72,19 @@ class FormSteps extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(step.title, style: portixTitle(13)),
+                      Text(
+                        step.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: portixTitle(13),
+                      ),
                       const SizedBox(height: 4),
-                      Text(step.subtitle, style: portixMuted()),
+                      Text(
+                        step.subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: portixMuted(),
+                      ),
                     ],
                   ),
                 ),

@@ -112,6 +112,9 @@ class TerminalSessionTab extends StatelessWidget {
     if (!draggable) return tab;
     return Draggable<String>(
       data: sessionId,
+      onDragStarted: () => PaneDragHandle.dragging.value = true,
+      onDragEnd: (_) => PaneDragHandle.dragging.value = false,
+      onDraggableCanceled: (_, _) => PaneDragHandle.dragging.value = false,
       feedback: Material(color: Colors.transparent, child: tab),
       childWhenDragging: Opacity(opacity: .45, child: tab),
       child: tab,

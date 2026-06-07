@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_svg/svg.dart';
 import 'package:portix/src/core/widgets/index.dart';
 
+import 'package:portix/src/connection_manager/connection_manager.dart';
+import 'package:portix/src/connection_manager/session_models.dart'
+    as session_models;
+import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
 import '../../bloc/index.dart';
 
 class ProfileCard extends StatelessWidget {
@@ -20,7 +26,8 @@ class ProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusColor = statusColorFor(profile.status);
+    final status = effectiveProfileStatus(profile);
+    final statusColor = statusColorFor(status);
     return InkWell(
       onTap: previewMode
           ? null
@@ -37,7 +44,7 @@ class ProfileCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                ServerIcon(color: profileColorFor(profile.color), size: 34),
+                ProfileOsIcon(profile: profile, size: 34),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -145,10 +152,7 @@ class ProfileCard extends StatelessWidget {
                 for (final tag in profile.tags.take(previewMode ? 3 : 1))
                   AppPill(label: tag, color: AppColors.green),
                 if (!previewMode)
-                  AppPill(
-                    label: statusLabelFor(profile.status),
-                    color: statusColor,
-                  ),
+                  AppPill(label: statusLabelFor(status), color: statusColor),
               ],
             ),
             const SizedBox(height: 10),
@@ -170,8 +174,11 @@ class ProfileCard extends StatelessWidget {
                       child: AppButton(
                         icon: Icons.terminal_rounded,
                         label: 'Open SSH',
-                        onPressed: () => context.read<SshWorkspaceBloc>().add(
-                          ProfileConnectRequested(profile.id),
+                        onPressed: () => context.read<SshSessionBloc>().add(
+                          SshSessionOpenRequested(
+                            profile: profile,
+                            target: SshSessionTarget.remoteFolder,
+                          ),
                         ),
                       ),
                     ),
@@ -179,8 +186,11 @@ class ProfileCard extends StatelessWidget {
                   const SizedBox(width: 10),
                   AppIconButton(
                     icon: Icons.folder_copy_outlined,
-                    onPressed: () => context.read<SshWorkspaceBloc>().add(
-                      ProfileSftpRequested(profile.id),
+                    onPressed: () => context.read<SshSessionBloc>().add(
+                      SshSessionOpenRequested(
+                        profile: profile,
+                        target: SshSessionTarget.sftp,
+                      ),
                     ),
                   ),
                 ],
@@ -240,6 +250,60 @@ class ServerIcon extends StatelessWidget {
       child: Icon(Icons.dns_rounded, color: color, size: size * .58),
     );
   }
+}
+
+class ProfileOsIcon extends StatelessWidget {
+  const ProfileOsIcon({required this.profile, super.key, this.size = 38});
+
+  final SshProfile profile;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = profile.osIconAsset.trim();
+    if (asset.isEmpty) {
+      return ServerIcon(color: profileColorFor(profile.color), size: size);
+    }
+    return Container(
+      width: size,
+      height: size,
+      padding: EdgeInsets.all(size * .16),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCard.withValues(alpha: .55),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: SvgPicture.asset(
+        asset,
+        fit: BoxFit.contain,
+        placeholderBuilder: (_) =>
+            ServerIcon(color: profileColorFor(profile.color), size: size),
+      ),
+    );
+  }
+}
+
+ConnectionStatus effectiveProfileStatus(SshProfile profile) {
+  final sessions = sl<ConnectionManager>().sessions
+      .where((session) => session.profileId == profile.id)
+      .toList(growable: false);
+  if (sessions.isEmpty) return profile.status;
+  if (sessions.any(
+    (session) => session.status == session_models.ConnectionStatus.connected,
+  )) {
+    return ConnectionStatus.online;
+  }
+  if (sessions.any(
+    (session) => session.status == session_models.ConnectionStatus.connecting,
+  )) {
+    return ConnectionStatus.online;
+  }
+  if (sessions.any(
+    (session) => session.status == session_models.ConnectionStatus.error,
+  )) {
+    return ConnectionStatus.error;
+  }
+  return ConnectionStatus.offline;
 }
 
 Color statusColorFor(ConnectionStatus status) {

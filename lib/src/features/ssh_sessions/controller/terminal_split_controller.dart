@@ -31,10 +31,12 @@ class SplitLeaf extends SplitNode {
 }
 
 class SplitBranch extends SplitNode {
-  const SplitBranch(this.axis, this.children);
+  const SplitBranch(this.axis, this.children, {List<double>? weights})
+    : weights = weights ?? const [];
 
   final Axis axis;
   final List<SplitNode> children;
+  final List<double> weights;
 
   @override
   List<String> get sessionIds => [
@@ -69,7 +71,14 @@ class TerminalSplitController {
         .toList();
     if (children.isEmpty) return null;
     if (children.length == 1) return children.first;
-    return SplitBranch(branch.axis, children);
+    final oldWeights = branch.normalizedWeights;
+    final nextWeights = <double>[];
+    for (var index = 0; index < branch.children.length; index += 1) {
+      if (removeSession(branch.children[index], sessionId) != null) {
+        nextWeights.add(oldWeights[index]);
+      }
+    }
+    return SplitBranch(branch.axis, children, weights: nextWeights);
   }
 
   SplitNode insertSplit(
@@ -87,13 +96,13 @@ class TerminalSplitController {
         SplitDirection.left || SplitDirection.top => [newLeaf, targetLeaf],
         SplitDirection.right || SplitDirection.bottom => [targetLeaf, newLeaf],
       };
-      return SplitBranch(axis, children);
+      return SplitBranch(axis, children, weights: const [1, 1]);
     }
     final branch = node as SplitBranch;
     return SplitBranch(branch.axis, [
       for (final child in branch.children)
         insertSplit(child, targetSessionId, newSessionId, direction),
-    ]);
+    ], weights: branch.normalizedWeights);
   }
 
   SplitNode replaceSessionIds(
@@ -107,6 +116,58 @@ class TerminalSplitController {
     return SplitBranch(branch.axis, [
       for (final child in branch.children)
         replaceSessionIds(child, replacements),
-    ]);
+    ], weights: branch.normalizedWeights);
+  }
+
+  SplitNode replaceBranch(
+    SplitNode node,
+    SplitBranch target,
+    SplitBranch replacement,
+  ) {
+    if (node is SplitBranch &&
+        node.axis == target.axis &&
+        _sameSessionIds(node.sessionIds, target.sessionIds)) {
+      return replacement;
+    }
+    if (node is SplitLeaf) return node;
+    final branch = node as SplitBranch;
+    return SplitBranch(branch.axis, [
+      for (final child in branch.children)
+        replaceBranch(child, target, replacement),
+    ], weights: branch.normalizedWeights);
+  }
+
+  bool _sameSessionIds(List<String> first, List<String> second) {
+    if (first.length != second.length) return false;
+    for (var index = 0; index < first.length; index += 1) {
+      if (first[index] != second[index]) return false;
+    }
+    return true;
+  }
+}
+
+extension SplitBranchWeights on SplitBranch {
+  List<double> get normalizedWeights {
+    if (weights.length != children.length) {
+      return List<double>.filled(children.length, 1);
+    }
+    return [
+      for (final weight in weights) weight.isFinite ? weight.clamp(.18, 8) : 1,
+    ];
+  }
+
+  SplitBranch withAdjustedDivider(int dividerIndex, double delta) {
+    if (dividerIndex < 0 || dividerIndex >= children.length - 1) return this;
+    final next = normalizedWeights;
+    final leftIndex = dividerIndex;
+    final rightIndex = dividerIndex + 1;
+    final pairTotal = next[leftIndex] + next[rightIndex];
+    final adjustment = delta.clamp(-pairTotal + .36, pairTotal - .36);
+    next[leftIndex] = (next[leftIndex] + adjustment).clamp(
+      .18,
+      pairTotal - .18,
+    );
+    next[rightIndex] = pairTotal - next[leftIndex];
+    return SplitBranch(axis, children, weights: next);
   }
 }

@@ -23,7 +23,7 @@ class _TransferQueue extends StatelessWidget {
                 Text('Transfer Queue', style: portixTitle(12)),
                 const Spacer(),
                 Text(
-                  '${jobs.where((job) => !job.queued).length} running / ${jobs.where((job) => job.queued).length} waiting',
+                  '${jobs.where((job) => !job.done && !job.failed).length} running / ${jobs.where((job) => job.queued).length} waiting',
                   style: portixMuted(10),
                 ),
                 const SizedBox(width: 8),
@@ -58,8 +58,20 @@ class _QueueRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final color = job.failed
+        ? AppColors.danger
+        : job.done
+        ? AppColors.green
+        : AppColors.cyan;
+    final label = job.failed
+        ? 'failed'
+        : job.done
+        ? 'done'
+        : job.queued
+        ? 'queued'
+        : '${(job.value * 100).round()}%';
     return Container(
-      height: 32,
+      height: 42,
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
@@ -72,7 +84,7 @@ class _QueueRow extends StatelessWidget {
             job.direction.startsWith('Local')
                 ? Icons.upload_rounded
                 : Icons.download_rounded,
-            color: AppColors.cyan,
+            color: color,
             size: 15,
           ),
           const SizedBox(width: 8),
@@ -87,15 +99,20 @@ class _QueueRow extends StatelessWidget {
                   style: portixTitle(11),
                 ),
                 Text(job.direction, style: portixMuted(9)),
+                const SizedBox(height: 3),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    minHeight: 3,
+                    value: job.failed ? 1 : job.value.clamp(0, 1),
+                    backgroundColor: AppColors.border.withValues(alpha: .55),
+                    color: color,
+                  ),
+                ),
               ],
             ),
           ),
-          Text(
-            job.queued ? 'queued' : '${(job.value * 100).round()}%',
-            style: portixMuted(
-              10,
-            ).copyWith(color: job.queued ? AppColors.muted : AppColors.cyan),
-          ),
+          Text(label, style: portixMuted(10).copyWith(color: color)),
         ],
       ),
     );

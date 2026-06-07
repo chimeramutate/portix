@@ -18,7 +18,12 @@ class ProfilePreview extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Profile Preview', style: portixTitle(19)),
+          Text(
+            'Profile Preview',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: portixTitle(19),
+          ),
           const SizedBox(height: 14),
           if (profile != null) _PreviewProfileCard(profile: profile),
         ],
@@ -40,7 +45,12 @@ class TestConnectionPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Test Connection', style: portixTitle(19)),
+          Text(
+            'Test Connection',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: portixTitle(19),
+          ),
           const SizedBox(height: 18),
           _StatusLine(
             icon: state.isEndpointComplete
@@ -91,6 +101,7 @@ class TestConnectionPanel extends StatelessWidget {
                   : state.isEndpointComplete
                   ? r'$ ssh -i key user@host'
                   : r'$ waiting for endpoint...',
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: AppColors.green,
                 fontFamily: 'monospace',
@@ -249,9 +260,19 @@ class _StatusLine extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: portixTitle(13)),
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: portixTitle(13),
+                ),
                 const SizedBox(height: 3),
-                Text(subtitle, style: portixMuted()),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: portixMuted(),
+                ),
               ],
             ),
           ),

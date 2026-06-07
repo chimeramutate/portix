@@ -22,6 +22,7 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
     on<NavigationChanged>(_onNavigationChanged);
     on<GroupFilterChanged>(_onGroupFilterChanged);
     on<SearchChanged>(_onSearchChanged);
+    on<TagFilterChanged>(_onTagFilterChanged);
     on<ProfileSelected>(_onProfileSelected);
     on<ProfileSelectionCleared>(_onProfileSelectionCleared);
     on<NewProfileRequested>(_onNewProfileRequested);
@@ -32,11 +33,9 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
     on<ProfileColorChanged>(_onProfileColorChanged);
     on<ProfileTestRequested>(_onProfileTestRequested);
     on<ProfileSaved>(_onProfileSaved);
+    on<ProfilesImported>(_onProfilesImported);
+    on<ProfileOsDetected>(_onProfileOsDetected);
     on<ProfileDeleted>(_onProfileDeleted);
-    on<ProfileConnectRequested>(_onProfileConnectRequested);
-    on<ProfileSftpRequested>(_onProfileSftpRequested);
-    on<ActiveTerminalSessionChanged>(_onActiveTerminalSessionChanged);
-    on<ActiveTerminalSessionCleared>(_onActiveTerminalSessionCleared);
   }
 
   final GetProfiles _getProfiles;
@@ -62,8 +61,6 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
           status: WorkspaceStatus.ready,
           profiles: profiles,
           clearSelection: true,
-          clearTerminalProfile: true,
-          clearActiveSession: true,
         ),
       ),
     );
@@ -85,6 +82,13 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
 
   void _onSearchChanged(SearchChanged event, Emitter<SshWorkspaceState> emit) {
     emit(state.copyWith(searchQuery: event.query, message: ''));
+  }
+
+  void _onTagFilterChanged(
+    TagFilterChanged event,
+    Emitter<SshWorkspaceState> emit,
+  ) {
+    emit(state.copyWith(tagFilter: event.tag, message: ''));
   }
 
   void _onProfileSelected(
@@ -239,6 +243,11 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
   ) async {
     final profile = state.editingProfile ?? state.selectedProfile;
     if (profile == null) return;
+    final validationMessage = _profileValidationMessage(profile);
+    if (validationMessage != null) {
+      emit(state.copyWith(message: validationMessage));
+      return;
+    }
     emit(state.copyWith(isBusy: true, message: 'Testing connection...'));
     final result = await _testConnection(profile);
     result.fold(
@@ -260,6 +269,11 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
   ) async {
     final profile = state.editingProfile;
     if (profile == null) return;
+    final validationMessage = _profileValidationMessage(profile);
+    if (validationMessage != null) {
+      emit(state.copyWith(message: validationMessage));
+      return;
+    }
     emit(state.copyWith(isBusy: true, message: 'Saving profile...'));
     final result = await _saveProfile(profile);
     result.fold(
@@ -277,6 +291,7 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
             selectedId: saved.id,
             searchQuery: '',
             groupFilter: 'All profiles',
+            tagFilter: '',
             editingProfile: null,
             clearEditingProfile: true,
             activeView: WorkspaceView.gallery,
@@ -285,6 +300,73 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
         );
       },
     );
+  }
+
+  Future<void> _onProfilesImported(
+    ProfilesImported event,
+    Emitter<SshWorkspaceState> emit,
+  ) async {
+    if (event.profiles.isEmpty) return;
+    emit(state.copyWith(isBusy: true, message: 'Importing profiles...'));
+
+    final savedProfiles = <SshProfile>[];
+    for (final profile in event.profiles) {
+      final result = await _saveProfile(profile);
+      final failure = result.fold((failure) => failure, (_) => null);
+      if (failure != null) {
+        emit(state.copyWith(isBusy: false, message: failure.message));
+        return;
+      }
+      final saved = result.fold((_) => null, (profile) => profile);
+      if (saved != null) savedProfiles.add(saved);
+    }
+
+    final importedIds = savedProfiles.map((profile) => profile.id).toSet();
+    emit(
+      state.copyWith(
+        isBusy: false,
+        profiles: [
+          ...savedProfiles.reversed,
+          ...state.profiles.where(
+            (profile) => !importedIds.contains(profile.id),
+          ),
+        ],
+        selectedId: savedProfiles.firstOrNull?.id,
+        searchQuery: '',
+        groupFilter: 'All profiles',
+        tagFilter: '',
+        activeView: WorkspaceView.gallery,
+        message:
+            '${savedProfiles.length} profile${savedProfiles.length == 1 ? '' : 's'} imported.',
+      ),
+    );
+  }
+
+  Future<void> _onProfileOsDetected(
+    ProfileOsDetected event,
+    Emitter<SshWorkspaceState> emit,
+  ) async {
+    final icon = event.osIconAsset.trim();
+    if (icon.isEmpty) return;
+    final profile = state.profiles
+        .where((item) => item.id == event.profileId)
+        .firstOrNull;
+    if (profile == null || profile.osIconAsset == icon) return;
+
+    final updated = profile.copyWith(osIconAsset: icon);
+    emit(
+      state.copyWith(
+        profiles: [
+          for (final item in state.profiles)
+            item.id == updated.id ? updated : item,
+        ],
+        editingProfile: state.editingProfile?.id == updated.id
+            ? updated
+            : state.editingProfile,
+        message: '',
+      ),
+    );
+    await _saveProfile(updated);
   }
 
   Future<void> _onProfileDeleted(
@@ -305,8 +387,6 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
             isBusy: false,
             profiles: profiles,
             clearSelection: event.profileId == state.selectedId,
-            clearTerminalProfile: event.profileId == state.terminalProfileId,
-            clearActiveSession: event.profileId == state.activeSessionProfileId,
             message: 'Profile deleted.',
           ),
         );
@@ -314,86 +394,28 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
     );
   }
 
-  Future<void> _onProfileConnectRequested(
-    ProfileConnectRequested event,
-    Emitter<SshWorkspaceState> emit,
-  ) async {
-    await _openProfileSession(
-      event.profileId,
-      emit,
-      targetView: WorkspaceView.remoteFolder,
-      openingMessage: 'Opening SSH session...',
-    );
-  }
-
-  Future<void> _onProfileSftpRequested(
-    ProfileSftpRequested event,
-    Emitter<SshWorkspaceState> emit,
-  ) async {
-    await _openProfileSession(
-      event.profileId,
-      emit,
-      targetView: WorkspaceView.sftp,
-      openingMessage: 'Opening SFTP workspace...',
-    );
-  }
-
-  void _onActiveTerminalSessionChanged(
-    ActiveTerminalSessionChanged event,
-    Emitter<SshWorkspaceState> emit,
-  ) {
-    emit(
-      state.copyWith(
-        activeSessionId: event.sessionId,
-        activeSessionProfileId: event.profileId,
-        terminalProfileId: event.profileId,
-        selectedId: event.profileId,
-        activeSessionConnected: event.connected,
-        message: '',
-      ),
-    );
-  }
-
-  void _onActiveTerminalSessionCleared(
-    ActiveTerminalSessionCleared event,
-    Emitter<SshWorkspaceState> emit,
-  ) {
-    emit(
-      state.copyWith(
-        clearActiveSession: true,
-        clearTerminalProfile: true,
-        message: '',
-      ),
-    );
-  }
-
-  Future<void> _openProfileSession(
-    String profileId,
-    Emitter<SshWorkspaceState> emit, {
-    required WorkspaceView targetView,
-    required String openingMessage,
-  }) async {
-    final profile = state.profiles.firstWhere((item) => item.id == profileId);
-    if (!profile.isConnectable || profile.status == ConnectionStatus.draft) {
-      emit(
-        state.copyWith(
-          isBusy: false,
-          selectedId: profile.id,
-          message: 'Complete host, username, port, and auth before connecting.',
-        ),
-      );
-      return;
+  String? _profileValidationMessage(SshProfile profile) {
+    if (profile.name.trim().isEmpty) {
+      return 'Profile name is required.';
     }
-    emit(
-      state.copyWith(
-        isBusy: false,
-        selectedId: profile.id,
-        activeView: targetView,
-        terminalProfileId: profile.id,
-        clearActiveSession: true,
-        message: openingMessage,
-      ),
-    );
+    if (profile.group.trim().isEmpty) {
+      return 'Profile group is required.';
+    }
+    if (profile.host.trim().isEmpty) {
+      return 'Host / IP is required.';
+    }
+    if (profile.port <= 0 || profile.port > 65535) {
+      return 'Port must be between 1 and 65535.';
+    }
+    if (profile.username.trim().isEmpty) {
+      return 'Username is required.';
+    }
+    if (profile.credentialLabel.trim().isEmpty) {
+      return profile.authMethod == AuthMethod.password
+          ? 'Password is required.'
+          : 'SSH key path or label is required.';
+    }
+    return null;
   }
 }
 

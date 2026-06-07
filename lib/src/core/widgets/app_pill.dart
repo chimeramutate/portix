@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class AppPill extends StatelessWidget {
   const AppPill({
@@ -18,8 +19,8 @@ class AppPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       constraints: const BoxConstraints(maxWidth: 180),
-      height: 22,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      height: 20,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color: background ?? color.withValues(alpha: .16),
         borderRadius: BorderRadius.circular(99),
@@ -28,17 +29,17 @@ class AppPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 7, color: color),
-          const SizedBox(width: 6),
+          Icon(icon, size: 6, color: color),
+          const SizedBox(width: 5),
           Flexible(
             child: Text(
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
+              style: GoogleFonts.inter(
                 color: color,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
+                fontSize: 9,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),

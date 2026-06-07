@@ -10,7 +10,7 @@ class UnavailableConnectionBackend implements ConnectionBackend {
   final Object cause;
   final _output = StreamController<TerminalOutputEvent>.broadcast();
   final _status = StreamController<ConnectionStatusEvent>.broadcast();
-  final _errors = StreamController<String>.broadcast();
+  final _errors = StreamController<ConnectionErrorEvent>.broadcast();
 
   @override
   Stream<TerminalOutputEvent> get terminalOutputStream => _output.stream;
@@ -19,7 +19,7 @@ class UnavailableConnectionBackend implements ConnectionBackend {
   Stream<ConnectionStatusEvent> get connectionStatusStream => _status.stream;
 
   @override
-  Stream<String> get errorEventStream => _errors.stream;
+  Stream<ConnectionErrorEvent> get errorEventStream => _errors.stream;
 
   Never _unavailable() {
     throw StateError(
@@ -43,6 +43,23 @@ class UnavailableConnectionBackend implements ConnectionBackend {
   @override
   Future<RemoteSystemSnapshot> remoteSystemSnapshot(String sessionId) async =>
       _unavailable();
+
+  @override
+  Future<List<String>> commandHelpSuggestions(
+    String sessionId,
+    String input,
+  ) async => _unavailable();
+
+  @override
+  Future<List<TerminalCompletionCandidate>> commandCompletions(
+    String sessionId,
+    String input,
+  ) async => _unavailable();
+
+  @override
+  Future<TerminalCompleteResponse> terminalComplete(
+    TerminalCompleteRequest request,
+  ) async => _unavailable();
 
   @override
   Future<String> resolveRemoteDirectory(String sessionId, String path) async =>

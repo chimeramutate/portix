@@ -23,6 +23,7 @@ class SshProfile extends Equatable {
     this.startupCommand = '',
     this.terminalFontSize = 14,
     this.lastUsedLabel = 'recently',
+    this.osIconAsset = '',
   });
 
   final String id;
@@ -40,6 +41,7 @@ class SshProfile extends Equatable {
   final String startupCommand;
   final int terminalFontSize;
   final String lastUsedLabel;
+  final String osIconAsset;
 
   String get address => '$username@$host:$port';
   bool get isConnectable => host.isNotEmpty && username.isNotEmpty;
@@ -60,6 +62,7 @@ class SshProfile extends Equatable {
     String? startupCommand,
     int? terminalFontSize,
     String? lastUsedLabel,
+    String? osIconAsset,
   }) {
     return SshProfile(
       id: id ?? this.id,
@@ -77,6 +80,7 @@ class SshProfile extends Equatable {
       startupCommand: startupCommand ?? this.startupCommand,
       terminalFontSize: terminalFontSize ?? this.terminalFontSize,
       lastUsedLabel: lastUsedLabel ?? this.lastUsedLabel,
+      osIconAsset: osIconAsset ?? this.osIconAsset,
     );
   }
 
@@ -97,5 +101,6 @@ class SshProfile extends Equatable {
     startupCommand,
     terminalFontSize,
     lastUsedLabel,
+    osIconAsset,
   ];
 }

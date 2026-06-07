@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
 import '../../bloc/index.dart';
 import 'package:portix/src/core/widgets/index.dart';
 import 'profile_card.dart';
@@ -14,6 +15,7 @@ class ProfileInspector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final status = effectiveProfileStatus(profile);
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: const BoxDecoration(
@@ -44,7 +46,7 @@ class ProfileInspector extends StatelessWidget {
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
-                  ServerIcon(color: profileColorFor(profile.color)),
+                  ProfileOsIcon(profile: profile),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -62,8 +64,8 @@ class ProfileInspector extends StatelessWidget {
                         ),
                         const SizedBox(height: 10),
                         AppPill(
-                          label: 'Connected-ready',
-                          color: statusColorFor(profile.status),
+                          label: statusLabelFor(status),
+                          color: statusColorFor(status),
                         ),
                       ],
                     ),
@@ -100,24 +102,33 @@ class ProfileInspector extends StatelessWidget {
               icon: Icons.terminal_rounded,
               label: 'Open SSH Session',
               primary: true,
-              onPressed: () => context.read<SshWorkspaceBloc>().add(
-                ProfileConnectRequested(profile.id),
+              onPressed: () => context.read<SshSessionBloc>().add(
+                SshSessionOpenRequested(
+                  profile: profile,
+                  target: SshSessionTarget.remoteFolder,
+                ),
               ),
             ),
             const SizedBox(height: 10),
             AppButton(
               icon: Icons.folder_open_rounded,
               label: 'Open Remote Folder',
-              onPressed: () => context.read<SshWorkspaceBloc>().add(
-                ProfileConnectRequested(profile.id),
+              onPressed: () => context.read<SshSessionBloc>().add(
+                SshSessionOpenRequested(
+                  profile: profile,
+                  target: SshSessionTarget.remoteFolder,
+                ),
               ),
             ),
             const SizedBox(height: 10),
             AppButton(
               icon: Icons.cable_rounded,
               label: 'Start SFTP Connect',
-              onPressed: () => context.read<SshWorkspaceBloc>().add(
-                ProfileSftpRequested(profile.id),
+              onPressed: () => context.read<SshSessionBloc>().add(
+                SshSessionOpenRequested(
+                  profile: profile,
+                  target: SshSessionTarget.sftp,
+                ),
               ),
             ),
             const SizedBox(height: 18),

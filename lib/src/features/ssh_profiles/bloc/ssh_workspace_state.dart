@@ -10,12 +10,9 @@ class SshWorkspaceState extends Equatable {
     this.activeView = WorkspaceView.gallery,
     this.profiles = const [],
     this.selectedId,
-    this.terminalProfileId,
-    this.activeSessionId,
-    this.activeSessionProfileId,
-    this.activeSessionConnected = false,
     this.searchQuery = '',
     this.groupFilter = 'All profiles',
+    this.tagFilter = '',
     this.editingProfile,
     this.isBusy = false,
     this.message = '',
@@ -25,12 +22,9 @@ class SshWorkspaceState extends Equatable {
   final WorkspaceView activeView;
   final List<SshProfile> profiles;
   final String? selectedId;
-  final String? terminalProfileId;
-  final String? activeSessionId;
-  final String? activeSessionProfileId;
-  final bool activeSessionConnected;
   final String searchQuery;
   final String groupFilter;
+  final String tagFilter;
   final SshProfile? editingProfile;
   final bool isBusy;
   final String message;
@@ -40,52 +34,32 @@ class SshWorkspaceState extends Equatable {
     return profiles.where((item) => item.id == selectedId).firstOrNull;
   }
 
-  SshProfile? get activeSessionProfile {
-    if (profiles.isEmpty || activeSessionProfileId == null) return null;
-    return profiles
-        .where((item) => item.id == activeSessionProfileId)
-        .firstOrNull;
-  }
-
-  SshProfile? get terminalProfile {
-    if (profiles.isEmpty) return null;
-    return activeSessionProfile ??
-        profiles.where((item) => item.id == terminalProfileId).firstOrNull ??
-        selectedProfile;
-  }
-
-  // Compatibility getter untuk file lama yang masih membaca activeTerminalProfile.
-  // Source of truth tetap activeSessionProfile dari tab session aktif.
-  SshProfile? get activeTerminalProfile =>
-      activeSessionProfile ?? terminalProfile;
-
-  bool get hasActiveTerminalSession =>
-      activeSessionId != null &&
-      activeSessionConnected &&
-      activeTerminalProfile != null;
-
-  String get activeTerminalDefaultPath {
-    final profile = activeTerminalProfile;
-    if (profile == null) return '~';
-
-    final startup = profile.startupCommand.trim();
-    final cdMatch = RegExp(r'^cd\s+(.+)$').firstMatch(startup);
-    if (cdMatch != null) return cdMatch.group(1)!.trim();
-
-    final defaultPath = profile.defaultPath.trim();
-    return defaultPath.isEmpty ? '~' : defaultPath;
-  }
-
   List<String> get groups {
     final names = profiles.map((item) => item.group).toSet().toList()..sort();
     return ['All profiles', ...names];
   }
 
+  List<String> get tags {
+    final names =
+        profiles
+            .expand((item) => item.tags)
+            .map((tag) => tag.trim())
+            .where((tag) => tag.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    return names;
+  }
+
   List<SshProfile> get filteredProfiles {
     final normalized = searchQuery.trim().toLowerCase();
+    final normalizedTag = tagFilter.trim().toLowerCase();
     return profiles.where((profile) {
       final matchesGroup =
           groupFilter == 'All profiles' || profile.group == groupFilter;
+      final matchesTag =
+          normalizedTag.isEmpty ||
+          profile.tags.any((tag) => tag.toLowerCase() == normalizedTag);
       final text = [
         profile.name,
         profile.host,
@@ -94,7 +68,7 @@ class SshWorkspaceState extends Equatable {
         ...profile.tags,
       ].join(' ').toLowerCase();
       final matchesSearch = normalized.isEmpty || text.contains(normalized);
-      return matchesGroup && matchesSearch;
+      return matchesGroup && matchesTag && matchesSearch;
     }).toList();
   }
 
@@ -103,16 +77,15 @@ class SshWorkspaceState extends Equatable {
   bool get isIdentityComplete {
     final profile = formProfile;
     if (profile == null) return false;
-    return profile.name.trim().isNotEmpty &&
-        profile.group.trim().isNotEmpty &&
-        profile.tags.isNotEmpty;
+    return profile.name.trim().isNotEmpty && profile.group.trim().isNotEmpty;
   }
 
   bool get isEndpointComplete {
     final profile = formProfile;
     if (profile == null) return false;
     return profile.host.trim().isNotEmpty &&
-        profile.port.toString().trim().isNotEmpty &&
+        profile.port > 0 &&
+        profile.port <= 65535 &&
         profile.username.trim().isNotEmpty;
   }
 
@@ -132,17 +105,12 @@ class SshWorkspaceState extends Equatable {
     WorkspaceView? activeView,
     List<SshProfile>? profiles,
     String? selectedId,
-    String? terminalProfileId,
-    String? activeSessionId,
-    String? activeSessionProfileId,
-    bool? activeSessionConnected,
     String? searchQuery,
     String? groupFilter,
+    String? tagFilter,
     SshProfile? editingProfile,
     bool clearSelection = false,
     bool clearEditingProfile = false,
-    bool clearTerminalProfile = false,
-    bool clearActiveSession = false,
     bool? isBusy,
     String? message,
   }) {
@@ -151,20 +119,9 @@ class SshWorkspaceState extends Equatable {
       activeView: activeView ?? this.activeView,
       profiles: profiles ?? this.profiles,
       selectedId: clearSelection ? null : selectedId ?? this.selectedId,
-      terminalProfileId: clearTerminalProfile
-          ? null
-          : terminalProfileId ?? this.terminalProfileId,
-      activeSessionId: clearActiveSession
-          ? null
-          : activeSessionId ?? this.activeSessionId,
-      activeSessionProfileId: clearActiveSession
-          ? null
-          : activeSessionProfileId ?? this.activeSessionProfileId,
-      activeSessionConnected: clearActiveSession
-          ? false
-          : activeSessionConnected ?? this.activeSessionConnected,
       searchQuery: searchQuery ?? this.searchQuery,
       groupFilter: groupFilter ?? this.groupFilter,
+      tagFilter: tagFilter ?? this.tagFilter,
       editingProfile: clearEditingProfile
           ? null
           : editingProfile ?? this.editingProfile,
@@ -179,12 +136,9 @@ class SshWorkspaceState extends Equatable {
     activeView,
     profiles,
     selectedId,
-    terminalProfileId,
-    activeSessionId,
-    activeSessionProfileId,
-    activeSessionConnected,
     searchQuery,
     groupFilter,
+    tagFilter,
     editingProfile,
     isBusy,
     message,

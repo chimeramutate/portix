@@ -35,6 +35,14 @@ class SearchChanged extends SshWorkspaceEvent {
   List<Object?> get props => [query];
 }
 
+class TagFilterChanged extends SshWorkspaceEvent {
+  const TagFilterChanged(this.tag);
+  final String tag;
+
+  @override
+  List<Object?> get props => [tag];
+}
+
 class ProfileSelected extends SshWorkspaceEvent {
   const ProfileSelected(this.profileId);
   final String profileId;
@@ -133,45 +141,29 @@ class ProfileSaved extends SshWorkspaceEvent {
   const ProfileSaved();
 }
 
+class ProfilesImported extends SshWorkspaceEvent {
+  const ProfilesImported(this.profiles);
+
+  final List<SshProfile> profiles;
+
+  @override
+  List<Object?> get props => [profiles];
+}
+
+class ProfileOsDetected extends SshWorkspaceEvent {
+  const ProfileOsDetected({required this.profileId, required this.osIconAsset});
+
+  final String profileId;
+  final String osIconAsset;
+
+  @override
+  List<Object?> get props => [profileId, osIconAsset];
+}
+
 class ProfileDeleted extends SshWorkspaceEvent {
   const ProfileDeleted(this.profileId);
   final String profileId;
 
   @override
   List<Object?> get props => [profileId];
-}
-
-class ProfileConnectRequested extends SshWorkspaceEvent {
-  const ProfileConnectRequested(this.profileId);
-  final String profileId;
-
-  @override
-  List<Object?> get props => [profileId];
-}
-
-class ProfileSftpRequested extends SshWorkspaceEvent {
-  const ProfileSftpRequested(this.profileId);
-  final String profileId;
-
-  @override
-  List<Object?> get props => [profileId];
-}
-
-class ActiveTerminalSessionChanged extends SshWorkspaceEvent {
-  const ActiveTerminalSessionChanged({
-    required this.sessionId,
-    required this.profileId,
-    required this.connected,
-  });
-
-  final String sessionId;
-  final String profileId;
-  final bool connected;
-
-  @override
-  List<Object?> get props => [sessionId, profileId, connected];
-}
-
-class ActiveTerminalSessionCleared extends SshWorkspaceEvent {
-  const ActiveTerminalSessionCleared();
 }

@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:portix/src/core/widgets/index.dart';
+import 'package:portix/src/core/di/injection.dart';
+import 'package:portix/src/features/sftp/bloc/index.dart';
+import 'package:portix/src/features/settings/page/setting_page.dart';
 import 'package:portix/src/features/sftp/page/index.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+import 'package:portix/src/features/ssh_sessions/page/index.dart';
 
 import 'package:portix/src/core/theme/app_theme.dart';
 import '../bloc/index.dart';
 import '../widget/form/index.dart';
 import '../widget/gallery/index.dart';
-import '../widget/remote/index.dart';
 import '../widget/index.dart';
 
 class PortixWorkspacePage extends StatefulWidget {
@@ -19,6 +22,20 @@ class PortixWorkspacePage extends StatefulWidget {
 
 class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
   final Set<WorkspaceView> _visitedViews = {WorkspaceView.gallery};
+  late final SftpWorkspaceBloc _sftpWorkspaceBloc;
+
+  @override
+  void initState() {
+    super.initState();
+    _sftpWorkspaceBloc = sl<SftpWorkspaceBloc>()
+      ..add(const SftpProfilesRequested());
+  }
+
+  @override
+  void dispose() {
+    _sftpWorkspaceBloc.close();
+    super.dispose();
+  }
 
   int _viewIndex(WorkspaceView view) => WorkspaceView.values.indexOf(view);
 
@@ -28,57 +45,104 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocConsumer<SshWorkspaceBloc, SshWorkspaceState>(
-      listener: (context, state) {
-        if (state.message.isNotEmpty) {
-          final notice = _WorkspaceNotice.fromMessage(state.message);
-          ScaffoldMessenger.of(context)
-            ..hideCurrentSnackBar()
-            ..showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    Icon(notice.icon, color: notice.foreground, size: 18),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        state.message,
-                        style: TextStyle(
-                          color: notice.foreground,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                backgroundColor: notice.background,
-                behavior: SnackBarBehavior.floating,
-                margin: const EdgeInsets.all(18),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  side: BorderSide(color: notice.border),
+    return MultiBlocListener(
+      listeners: [
+        BlocListener<SshWorkspaceBloc, SshWorkspaceState>(
+          listenWhen: (previous, current) =>
+              previous.message != current.message && current.message.isNotEmpty,
+          listener: (context, state) => _showNotice(context, state.message),
+        ),
+        BlocListener<SshWorkspaceBloc, SshWorkspaceState>(
+          listenWhen: (previous, current) =>
+              previous.activeView != current.activeView &&
+              current.activeView != WorkspaceView.remoteFolder,
+          listener: (context, state) {
+            FocusManager.instance.primaryFocus?.unfocus();
+          },
+        ),
+        BlocListener<SshSessionBloc, SshSessionState>(
+          listenWhen: (previous, current) =>
+              previous.message != current.message && current.message.isNotEmpty,
+          listener: (context, state) => _showNotice(context, state.message),
+        ),
+        BlocListener<SshSessionBloc, SshSessionState>(
+          listenWhen: (previous, current) =>
+              previous.pendingTarget != current.pendingTarget &&
+              current.pendingTarget != null,
+          listener: (context, state) {
+            context.read<SshWorkspaceBloc>().add(
+              NavigationChanged(_viewForSessionTarget(state.pendingTarget!)),
+            );
+            context.read<SshSessionBloc>().add(
+              const SshSessionNavigationConsumed(),
+            );
+          },
+        ),
+      ],
+      child: BlocBuilder<SshWorkspaceBloc, SshWorkspaceState>(
+        builder: (context, state) {
+          _visitedViews.add(state.activeView);
+          return BlocProvider.value(
+            value: _sftpWorkspaceBloc,
+            child: WorkspaceShell(
+              state: state,
+              child: IndexedStack(
+                index: _viewIndex(state.activeView),
+                children: [
+                  _lazyView(WorkspaceView.gallery, const GalleryShell()),
+                  _lazyView(WorkspaceView.form, const ProfileFormView()),
+                  _lazyView(
+                    WorkspaceView.remoteFolder,
+                    const RemoteFolderPage(),
+                  ),
+                  _lazyView(WorkspaceView.sftp, const SftpWorkspacePage()),
+                  _lazyView(WorkspaceView.settings, const SettingsView()),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  WorkspaceView _viewForSessionTarget(SshSessionTarget target) {
+    return switch (target) {
+      SshSessionTarget.remoteFolder => WorkspaceView.remoteFolder,
+      SshSessionTarget.sftp => WorkspaceView.sftp,
+    };
+  }
+
+  void _showNotice(BuildContext context, String message) {
+    final notice = _WorkspaceNotice.fromMessage(message);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(notice.icon, color: notice.foreground, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  message,
+                  style: TextStyle(
+                    color: notice.foreground,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
-            );
-        }
-      },
-      builder: (context, state) {
-        _visitedViews.add(state.activeView);
-        return WorkspaceShell(
-          state: state,
-          child: IndexedStack(
-            index: _viewIndex(state.activeView),
-            children: [
-              _lazyView(WorkspaceView.gallery, const GalleryShell()),
-              _lazyView(WorkspaceView.form, const ProfileFormView()),
-              _lazyView(WorkspaceView.remoteFolder, const RemoteFolderView()),
-              _lazyView(WorkspaceView.sftp, const SftpWorkspacePage()),
-              _lazyView(WorkspaceView.settings, const _SettingsView()),
             ],
           ),
-        );
-      },
-    );
+          backgroundColor: notice.background,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(18),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: BorderSide(color: notice.border),
+          ),
+        ),
+      );
   }
 }
 
@@ -118,93 +182,6 @@ class _WorkspaceNotice {
       background: Color(0xFF3A1421),
       border: AppColors.danger,
       foreground: AppColors.danger,
-    );
-  }
-}
-
-class _SettingsView extends StatelessWidget {
-  const _SettingsView();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _UtilityView(
-      icon: Icons.settings_outlined,
-      title: 'Settings',
-      subtitle:
-          'Defaults for secure vault, terminal sessions, and desktop behaviour.',
-      children: [
-        _SettingsTile(
-          title: 'Require vault unlock before connect',
-          value: true,
-        ),
-        _SettingsTile(
-          title: 'Mount remote folder after SSH opens',
-          value: true,
-        ),
-        _SettingsTile(
-          title: 'Keep terminal input direct by default',
-          value: true,
-        ),
-        _SettingsTile(title: 'Use compact profile cards', value: true),
-      ],
-    );
-  }
-}
-
-class _UtilityView extends StatelessWidget {
-  const _UtilityView({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.children,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 820),
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, color: AppColors.cyan, size: 28),
-              const SizedBox(height: 10),
-              Text(title, style: portixTitle(28)),
-              const SizedBox(height: 8),
-              Text(subtitle, style: portixMuted(14)),
-              const SizedBox(height: 24),
-              ...children,
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SettingsTile extends StatelessWidget {
-  const _SettingsTile({required this.title, required this.value});
-  final String title;
-  final bool value;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppPanel(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Expanded(child: Text(title, style: portixTitle(15))),
-          Switch(value: value, onChanged: (_) {}),
-        ],
-      ),
     );
   }
 }

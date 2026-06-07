@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -21,6 +22,7 @@ class ConnectionManager extends ChangeNotifier
        _secretStore = secretStore ?? const ProfileSecretStore() {
     _statusSub = _backend.connectionStatusStream.listen(_handleStatus);
     _outputSub = _backend.terminalOutputStream.listen(_handleTerminalOutput);
+    _errorSub = _backend.errorEventStream.listen(_handleError);
   }
 
   final ConnectionBackend _backend;
@@ -28,10 +30,12 @@ class ConnectionManager extends ChangeNotifier
   final _uuid = const Uuid();
   late final StreamSubscription<ConnectionStatusEvent> _statusSub;
   late final StreamSubscription<TerminalOutputEvent> _outputSub;
+  late final StreamSubscription<ConnectionErrorEvent> _errorSub;
   final Map<String, String> _backendToUiSessionIds = {};
   final Map<String, Future<void>> _pendingSecretWrites = {};
   final Map<String, Object> _secretWriteErrors = {};
   final _terminalOutput = StreamController<TerminalOutputEvent>.broadcast();
+  final _errors = StreamController<ConnectionErrorEvent>.broadcast();
 
   final List<SshProfile> _profiles = [];
 
@@ -45,7 +49,7 @@ class ConnectionManager extends ChangeNotifier
   Stream<TerminalOutputEvent> get terminalOutputStream =>
       _terminalOutput.stream;
   @override
-  Stream<String> get errorEventStream => _backend.errorEventStream;
+  Stream<ConnectionErrorEvent> get errorEventStream => _errors.stream;
 
   @override
   Result<void> upsertProfile(SshProfile profile) {
@@ -235,6 +239,62 @@ class ConnectionManager extends ChangeNotifier
   }
 
   @override
+  Future<Result<List<String>>> commandHelpSuggestions(
+    String sessionId,
+    String input,
+  ) async {
+    try {
+      final suggestions = await _backend.commandHelpSuggestions(
+        _backendSessionIdForUiSession(sessionId) ?? sessionId,
+        input,
+      );
+      return Right(suggestions);
+    } catch (error) {
+      return Left(
+        AppFailure('Failed to load command suggestions', cause: error),
+      );
+    }
+  }
+
+  @override
+  Future<Result<List<TerminalCompletionCandidate>>> commandCompletions(
+    String sessionId,
+    String input,
+  ) async {
+    try {
+      final suggestions = await _backend.commandCompletions(
+        _backendSessionIdForUiSession(sessionId) ?? sessionId,
+        input,
+      );
+      return Right(suggestions);
+    } catch (error) {
+      return Left(
+        AppFailure('Failed to load command completions', cause: error),
+      );
+    }
+  }
+
+  @override
+  Future<Result<TerminalCompleteResponse>> terminalComplete(
+    TerminalCompleteRequest request,
+  ) async {
+    try {
+      final sessionId = request.sessionId;
+      final backendSessionId = sessionId == null
+          ? null
+          : _backendSessionIdForUiSession(sessionId) ?? sessionId;
+      final response = await _backend.terminalComplete(
+        request.copyWith(sessionId: backendSessionId),
+      );
+      return Right(response);
+    } catch (error) {
+      return Left(
+        AppFailure('Failed to load terminal autocomplete', cause: error),
+      );
+    }
+  }
+
+  @override
   Future<Result<String>> resolveRemoteDirectory(
     String sessionId,
     String path,
@@ -263,6 +323,28 @@ class ConnectionManager extends ChangeNotifier
       return Right(entries);
     } catch (error) {
       return Left(AppFailure('Failed to load remote folder', cause: error));
+    }
+  }
+
+  @override
+  Future<Result<List<RemoteFileEntry>>> findRemoteEntries(
+    String sessionId,
+    String basePath,
+    String query, {
+    int maxResults = 120,
+  }) async {
+    final normalizedQuery = query.trim().toLowerCase();
+    if (normalizedQuery.isEmpty) return const Right([]);
+    try {
+      final entries = await _findRemoteEntriesBreadthFirst(
+        backendSessionId: _backendSessionIdForUiSession(sessionId) ?? sessionId,
+        basePath: basePath,
+        query: normalizedQuery,
+        maxResults: maxResults,
+      );
+      return Right(entries);
+    } catch (error) {
+      return Left(AppFailure('Failed to find remote entries', cause: error));
     }
   }
 
@@ -397,6 +479,18 @@ class ConnectionManager extends ChangeNotifier
     );
   }
 
+  void _handleError(ConnectionErrorEvent event) {
+    final sessionId = event.sessionId;
+    _errors.add(
+      ConnectionErrorEvent(
+        message: event.message,
+        sessionId: sessionId == null
+            ? null
+            : _backendToUiSessionIds[sessionId] ?? sessionId,
+      ),
+    );
+  }
+
   String? _backendSessionIdForUiSession(String uiSessionId) {
     for (final entry in _backendToUiSessionIds.entries) {
       if (entry.value == uiSessionId) return entry.key;
@@ -438,11 +532,147 @@ class ConnectionManager extends ChangeNotifier
     }
   }
 
+  static const int _maxRemoteSearchDepth = 18;
+  static const int _maxRemoteSearchDirectories = 2200;
+  static const Set<String> _remoteSearchSkippedDirectories = {
+    '.cache',
+    '.cargo',
+    '.git',
+    '.gradle',
+    '.local',
+    '.npm',
+    '.rustup',
+    'Library',
+    'cache',
+    'dev',
+    'node_modules',
+    'proc',
+    'run',
+    'sys',
+    'tmp',
+  };
+
+  Future<List<RemoteFileEntry>> _findRemoteEntriesBreadthFirst({
+    required String backendSessionId,
+    required String basePath,
+    required String query,
+    required int maxResults,
+  }) async {
+    final results = <RemoteFileEntry>[];
+    final visited = <String>{};
+    final queue = Queue<_RemoteSearchDirectory>()
+      ..add(_RemoteSearchDirectory(basePath, 0));
+
+    while (queue.isNotEmpty &&
+        results.length < maxResults &&
+        visited.length < _maxRemoteSearchDirectories) {
+      final current = queue.removeFirst();
+      if (current.depth > _maxRemoteSearchDepth) continue;
+      final normalizedPath = current.path.trim().isEmpty
+          ? '/'
+          : current.path.trim();
+      if (!visited.add(normalizedPath)) continue;
+
+      final entries = await _listRemoteDirectoryForFind(
+        backendSessionId,
+        normalizedPath,
+        isBasePath: current.depth == 0,
+      );
+
+      final childDirectories = <RemoteFileEntry>[];
+      for (final entry in entries) {
+        if (results.length >= maxResults) break;
+        final haystack = '${entry.name}\n${entry.path}'.toLowerCase();
+        if (haystack.contains(query)) {
+          results.add(entry);
+        }
+        if (entry.isDirectory &&
+            !_shouldSkipRemoteSearchDirectory(entry, basePath)) {
+          childDirectories.add(entry);
+        }
+      }
+
+      childDirectories.sort(
+        (a, b) => _remoteSearchPriority(
+          a,
+          query,
+        ).compareTo(_remoteSearchPriority(b, query)),
+      );
+      for (final directory in childDirectories) {
+        if (visited.length + queue.length >= _maxRemoteSearchDirectories) {
+          break;
+        }
+        queue.add(_RemoteSearchDirectory(directory.path, current.depth + 1));
+      }
+    }
+
+    return results;
+  }
+
+  Future<List<RemoteFileEntry>> _listRemoteDirectoryForFind(
+    String backendSessionId,
+    String path, {
+    required bool isBasePath,
+  }) async {
+    try {
+      return await _backend.listRemoteDirectory(backendSessionId, path);
+    } catch (error) {
+      if (isBasePath) rethrow;
+      return const [];
+    }
+  }
+
+  int _remoteSearchPriority(RemoteFileEntry entry, String query) {
+    final name = entry.name.toLowerCase();
+    final path = entry.path.toLowerCase();
+    var score = 100;
+    if (path.contains(query) || name.contains(query)) score -= 60;
+    if (_looksLikeMediaQuery(query) &&
+        (name.contains('picture') ||
+            name.contains('photo') ||
+            name.contains('image') ||
+            name.contains('screenshot') ||
+            name.contains('download'))) {
+      score -= 35;
+    }
+    if (!name.startsWith('.')) score -= 10;
+    return score;
+  }
+
+  bool _looksLikeMediaQuery(String query) {
+    return query.endsWith('.jpg') ||
+        query.endsWith('.jpeg') ||
+        query.endsWith('.png') ||
+        query.endsWith('.gif') ||
+        query.endsWith('.webp') ||
+        query.endsWith('.heic') ||
+        query.endsWith('.svg');
+  }
+
+  bool _shouldSkipRemoteSearchDirectory(
+    RemoteFileEntry entry,
+    String basePath,
+  ) {
+    final path = entry.path;
+    if (path == '/' || path == basePath) return false;
+    if (_remoteSearchSkippedDirectories.contains(entry.name)) return true;
+    return path == '/proc' ||
+        path.startsWith('/proc/') ||
+        path == '/sys' ||
+        path.startsWith('/sys/') ||
+        path == '/dev' ||
+        path.startsWith('/dev/') ||
+        path == '/run' ||
+        path.startsWith('/run/');
+  }
+
   @override
   void dispose() {
     _statusSub.cancel();
     _outputSub.cancel();
+    _errorSub.cancel();
     _terminalOutput.close();
+    _errors.close();
     if (_backend case MockConnectionBackend mock) {
       mock.dispose();
     }
@@ -451,4 +681,11 @@ class ConnectionManager extends ChangeNotifier
     }
     super.dispose();
   }
+}
+
+class _RemoteSearchDirectory {
+  const _RemoteSearchDirectory(this.path, this.depth);
+
+  final String path;
+  final int depth;
 }

@@ -6,7 +6,7 @@ abstract interface class WorkspaceSessionService {
   List<SshProfile> get profiles;
   List<TerminalSession> get sessions;
   Stream<TerminalOutputEvent> get terminalOutputStream;
-  Stream<String> get errorEventStream;
+  Stream<ConnectionErrorEvent> get errorEventStream;
 
   Result<void> upsertProfile(SshProfile profile);
   Result<void> deleteProfile(String id);
@@ -18,11 +18,28 @@ abstract interface class WorkspaceSessionService {
   Future<Result<void>> sendTerminalInput(String sessionId, String data);
   Future<Result<void>> resizeTerminal(String sessionId, int cols, int rows);
   Future<Result<RemoteSystemSnapshot>> remoteSystemSnapshot(String sessionId);
+  Future<Result<List<String>>> commandHelpSuggestions(
+    String sessionId,
+    String input,
+  );
+  Future<Result<List<TerminalCompletionCandidate>>> commandCompletions(
+    String sessionId,
+    String input,
+  );
+  Future<Result<TerminalCompleteResponse>> terminalComplete(
+    TerminalCompleteRequest request,
+  );
   Future<Result<String>> resolveRemoteDirectory(String sessionId, String path);
   Future<Result<List<RemoteFileEntry>>> listRemoteDirectory(
     String sessionId,
     String path,
   );
+  Future<Result<List<RemoteFileEntry>>> findRemoteEntries(
+    String sessionId,
+    String basePath,
+    String query, {
+    int maxResults = 120,
+  });
   Future<Result<String>> readRemoteFile(String sessionId, String path);
   Future<Result<List<int>>> readRemoteFileBytes(String sessionId, String path);
   Future<Result<void>> writeRemoteFile(

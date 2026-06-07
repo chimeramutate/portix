@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 abstract final class AppColors {
   static const bg = Color(0xFF06111D);
@@ -16,11 +17,16 @@ abstract final class AppColors {
   static const terminal = Color(0xFF020814);
 }
 
+final _baseTextTheme = GoogleFonts.interTextTheme(
+  ThemeData(brightness: Brightness.dark).textTheme,
+);
+
 final appTheme = ThemeData(
   useMaterial3: true,
   brightness: Brightness.dark,
+  visualDensity: VisualDensity.compact,
   scaffoldBackgroundColor: AppColors.bg,
-  fontFamily: 'Inter',
+  fontFamily: GoogleFonts.inter().fontFamily,
   colorScheme: const ColorScheme.dark(
     primary: AppColors.primaryBlue,
     secondary: AppColors.cyan,
@@ -42,17 +48,60 @@ final appTheme = ThemeData(
     foregroundColor: AppColors.text,
     elevation: 0,
   ),
-  textTheme: const TextTheme(
-    bodyMedium: TextStyle(color: AppColors.text, fontWeight: FontWeight.w700),
-    bodySmall: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w600),
-    titleMedium: TextStyle(color: AppColors.text, fontWeight: FontWeight.w900),
-    titleLarge: TextStyle(color: AppColors.text, fontWeight: FontWeight.w900),
+  dialogTheme: DialogThemeData(
+    backgroundColor: AppColors.surface,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    titleTextStyle: GoogleFonts.inter(
+      color: AppColors.text,
+      fontSize: 20,
+      fontWeight: FontWeight.w800,
+    ),
+    contentTextStyle: GoogleFonts.inter(
+      color: AppColors.text,
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+    ),
+  ),
+  popupMenuTheme: PopupMenuThemeData(
+    color: AppColors.surfaceCard,
+    textStyle: GoogleFonts.inter(
+      color: AppColors.text,
+      fontSize: 12,
+      fontWeight: FontWeight.w700,
+    ),
+  ),
+  textTheme: _baseTextTheme.copyWith(
+    bodyLarge: GoogleFonts.inter(
+      color: AppColors.text,
+      fontSize: 13,
+      fontWeight: FontWeight.w700,
+    ),
+    bodyMedium: GoogleFonts.inter(
+      color: AppColors.text,
+      fontSize: 12,
+      fontWeight: FontWeight.w700,
+    ),
+    bodySmall: GoogleFonts.inter(
+      color: AppColors.muted,
+      fontSize: 11,
+      fontWeight: FontWeight.w600,
+    ),
+    titleMedium: GoogleFonts.inter(
+      color: AppColors.text,
+      fontSize: 14,
+      fontWeight: FontWeight.w900,
+    ),
+    titleLarge: GoogleFonts.inter(
+      color: AppColors.text,
+      fontSize: 18,
+      fontWeight: FontWeight.w900,
+    ),
   ),
   inputDecorationTheme: InputDecorationTheme(
     filled: true,
     fillColor: AppColors.surfaceDark,
-    hintStyle: const TextStyle(color: AppColors.muted),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+    hintStyle: GoogleFonts.inter(color: AppColors.muted),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(8),
       borderSide: const BorderSide(color: AppColors.border),
@@ -68,7 +117,7 @@ final appTheme = ThemeData(
       backgroundColor: AppColors.primaryBlue,
       foregroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13),
+      textStyle: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 12),
     ),
   ),
   outlinedButtonTheme: OutlinedButtonThemeData(
@@ -77,7 +126,7 @@ final appTheme = ThemeData(
       foregroundColor: AppColors.text,
       side: const BorderSide(color: AppColors.border),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13),
+      textStyle: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 12),
     ),
   ),
 );

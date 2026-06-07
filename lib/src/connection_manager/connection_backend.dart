@@ -6,13 +6,21 @@ import 'ssh_profile.dart';
 abstract interface class ConnectionBackend {
   Stream<TerminalOutputEvent> get terminalOutputStream;
   Stream<ConnectionStatusEvent> get connectionStatusStream;
-  Stream<String> get errorEventStream;
+  Stream<ConnectionErrorEvent> get errorEventStream;
 
   Future<String> connect(SshProfile profile);
   Future<void> disconnect(String sessionId);
   Future<void> sendTerminalInput(String sessionId, String data);
   Future<void> resizeTerminal(String sessionId, int cols, int rows);
   Future<RemoteSystemSnapshot> remoteSystemSnapshot(String sessionId);
+  Future<List<String>> commandHelpSuggestions(String sessionId, String input);
+  Future<List<TerminalCompletionCandidate>> commandCompletions(
+    String sessionId,
+    String input,
+  );
+  Future<TerminalCompleteResponse> terminalComplete(
+    TerminalCompleteRequest request,
+  );
   Future<String> resolveRemoteDirectory(String sessionId, String path);
   Future<List<RemoteFileEntry>> listRemoteDirectory(
     String sessionId,
