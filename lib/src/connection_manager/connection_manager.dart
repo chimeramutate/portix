@@ -34,6 +34,7 @@ class ConnectionManager extends ChangeNotifier
   final Map<String, String> _backendToUiSessionIds = {};
   final Map<String, Future<void>> _pendingSecretWrites = {};
   final Map<String, Object> _secretWriteErrors = {};
+  final Map<String, _RemoteCommandCapture> _remoteCommandCaptures = {};
   final _terminalOutput = StreamController<TerminalOutputEvent>.broadcast();
   final _errors = StreamController<ConnectionErrorEvent>.broadcast();
 
@@ -203,6 +204,43 @@ class ConnectionManager extends ChangeNotifier
       return const Right(null);
     } catch (error) {
       return Left(AppFailure('Failed to send terminal input', cause: error));
+    }
+  }
+
+  Future<Result<void>> executeRemoteCommand(
+    String sessionId,
+    String command, {
+    String action = 'remote command',
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    final backendSessionId =
+        _backendSessionIdForUiSession(sessionId) ?? sessionId;
+    final token = _uuid.v4().replaceAll('-', '');
+    final marker = '__PORTIX_CMD_${token}_EXIT:';
+    final capture = _RemoteCommandCapture(marker);
+    _remoteCommandCaptures[backendSessionId] = capture;
+    Timer? timer;
+
+    try {
+      timer = Timer(timeout, () {
+        if (!capture.completer.isCompleted) {
+          capture.completer.complete(
+            Left(AppFailure('Timed out while running $action')),
+          );
+        }
+        _remoteCommandCaptures.remove(backendSessionId);
+      });
+
+      final wrappedCommand =
+          '{ $command; }; __portix_status=\$?; printf "\\n$marker%s__\\n" "\$__portix_status"\n';
+      await _backend.sendTerminalInput(backendSessionId, wrappedCommand);
+      return await capture.completer.future;
+    } catch (error) {
+      _remoteCommandCaptures.remove(backendSessionId);
+      return Left(AppFailure('Failed to run $action', cause: error));
+    } finally {
+      timer?.cancel();
+      _remoteCommandCaptures.remove(backendSessionId);
     }
   }
 
@@ -471,6 +509,17 @@ class ConnectionManager extends ChangeNotifier
   }
 
   void _handleTerminalOutput(TerminalOutputEvent event) {
+    final capture = _remoteCommandCaptures[event.sessionId];
+    if (capture != null) {
+      capture.append(event.data);
+      if (capture.isComplete) {
+        if (!capture.completer.isCompleted) {
+          capture.completer.complete(capture.result);
+        }
+        _remoteCommandCaptures.remove(event.sessionId);
+      }
+      return;
+    }
     _terminalOutput.add(
       TerminalOutputEvent(
         sessionId: _backendToUiSessionIds[event.sessionId] ?? event.sessionId,
@@ -688,4 +737,43 @@ class _RemoteSearchDirectory {
 
   final String path;
   final int depth;
+}
+
+class _RemoteCommandCapture {
+  _RemoteCommandCapture(this.marker);
+
+  final String marker;
+  final Completer<Result<void>> completer = Completer<Result<void>>();
+  final StringBuffer _buffer = StringBuffer();
+  bool _complete = false;
+  Result<void> _result = const Right(null);
+
+  bool get isComplete => _complete;
+  Result<void> get result => _result;
+
+  void append(String data) {
+    if (_complete) return;
+    _buffer.write(data);
+    final output = _buffer.toString();
+    final match = RegExp('${RegExp.escape(marker)}(\\d+)__').firstMatch(output);
+    if (match == null) return;
+    final markerIndex = match.start;
+    final status = int.tryParse(match.group(1)!);
+    _complete = true;
+    if (status == 0) {
+      _result = const Right(null);
+      return;
+    }
+    final details = output
+        .substring(0, markerIndex)
+        .replaceAll(RegExp(r'\x1B\[[0-?]*[ -/]*[@-~]'), '')
+        .trim();
+    _result = Left(
+      AppFailure(
+        details.isEmpty
+            ? 'Remote command failed with exit code ${status ?? 'unknown'}'
+            : details,
+      ),
+    );
+  }
 }

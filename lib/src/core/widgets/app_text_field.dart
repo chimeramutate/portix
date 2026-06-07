@@ -26,7 +26,6 @@ class AppTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final compactTouch = MediaQuery.sizeOf(context).width < 720;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -43,7 +42,7 @@ class AppTextField extends StatelessWidget {
           const SizedBox(height: 7),
         ],
         SizedBox(
-          height: compactTouch ? 46 : 40,
+          height: 40,
           child: TextField(
             controller: controller,
             readOnly: readOnly,
@@ -52,7 +51,7 @@ class AppTextField extends StatelessWidget {
             style: GoogleFonts.inter(
               color: AppColors.text,
               fontWeight: FontWeight.w800,
-              fontSize: compactTouch ? 14 : 13,
+              fontSize: 13,
             ),
             decoration: InputDecoration(
               hintText: hint,

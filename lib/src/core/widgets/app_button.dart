@@ -18,18 +18,17 @@ class AppButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final compactTouch = MediaQuery.sizeOf(context).width < 720;
     return SizedBox(
-      height: compactTouch ? 40 : 30,
+      height: 30,
       child: primary
           ? FilledButton.icon(
               onPressed: onPressed,
-              icon: Icon(icon, size: compactTouch ? 17 : 14),
+              icon: Icon(icon, size: 14),
               label: Text(label, overflow: TextOverflow.ellipsis),
             )
           : OutlinedButton.icon(
               onPressed: onPressed,
-              icon: Icon(icon, size: compactTouch ? 17 : 14),
+              icon: Icon(icon, size: 14),
               label: Text(label, overflow: TextOverflow.ellipsis),
               style: OutlinedButton.styleFrom(
                 backgroundColor: AppColors.surfaceCard.withValues(alpha: .55),
@@ -47,13 +46,12 @@ class AppIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final compactTouch = MediaQuery.sizeOf(context).width < 720;
     return SizedBox(
-      width: compactTouch ? 40 : 30,
-      height: compactTouch ? 40 : 30,
+      width: 30,
+      height: 30,
       child: IconButton.outlined(
         onPressed: onPressed,
-        icon: Icon(icon, color: AppColors.cyan, size: compactTouch ? 18 : 15),
+        icon: Icon(icon, color: AppColors.cyan, size: 15),
         style: IconButton.styleFrom(
           side: const BorderSide(color: AppColors.border),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),

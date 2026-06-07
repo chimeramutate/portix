@@ -28,6 +28,11 @@ class _FilePane extends StatelessWidget {
     this.inlineCreateFocusNode,
     this.onInlineCreateSubmit,
     this.onInlineCreateCancel,
+    this.inlineRenameFile,
+    this.inlineRenameController,
+    this.inlineRenameFocusNode,
+    this.onInlineRenameSubmit,
+    this.onInlineRenameCancel,
     this.findQuery = '',
     this.findBase = '/',
     this.findActive = false,
@@ -58,6 +63,11 @@ class _FilePane extends StatelessWidget {
   final FocusNode? inlineCreateFocusNode;
   final Future<void> Function()? onInlineCreateSubmit;
   final VoidCallback? onInlineCreateCancel;
+  final SftpFileEntry? inlineRenameFile;
+  final TextEditingController? inlineRenameController;
+  final FocusNode? inlineRenameFocusNode;
+  final Future<void> Function()? onInlineRenameSubmit;
+  final VoidCallback? onInlineRenameCancel;
   final String findQuery;
   final String findBase;
   final bool findActive;
@@ -79,7 +89,6 @@ class _FilePane extends StatelessWidget {
   final void Function(SftpFileEntry data) onOpenFolder;
   @override
   Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 720;
     return DragTarget<SftpFileTransfer>(
       onWillAcceptWithDetails: (details) => details.data.fromRemote != isRemote,
       onAcceptWithDetails: (details) => onTransferDropped(details.data),
@@ -107,7 +116,7 @@ class _FilePane extends StatelessWidget {
                       title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: portixTitle(compact ? 14 : 16),
+                      style: portixTitle(16),
                     ),
                   ),
                   AppPill(
@@ -178,7 +187,7 @@ class _FilePane extends StatelessWidget {
                         )
                       : Column(
                           children: [
-                            if (!compact) _TableHeader(isRemote: isRemote),
+                            _TableHeader(isRemote: isRemote),
                             Expanded(
                               child: Builder(
                                 builder: (context) {
@@ -188,6 +197,12 @@ class _FilePane extends StatelessWidget {
                                       inlineCreateFocusNode != null &&
                                       onInlineCreateSubmit != null &&
                                       onInlineCreateCancel != null;
+                                  final renameActive =
+                                      inlineRenameFile != null &&
+                                      inlineRenameController != null &&
+                                      inlineRenameFocusNode != null &&
+                                      onInlineRenameSubmit != null &&
+                                      onInlineRenameCancel != null;
                                   return ListView.builder(
                                     itemCount:
                                         items.length + (createActive ? 1 : 0),
@@ -205,6 +220,16 @@ class _FilePane extends StatelessWidget {
                                           items[index - (createActive ? 1 : 0)];
                                       final itemIndex =
                                           index - (createActive ? 1 : 0);
+                                      if (renameActive &&
+                                          item.path == inlineRenameFile!.path) {
+                                        return _SftpInlineRenameItem(
+                                          file: item,
+                                          controller: inlineRenameController!,
+                                          focusNode: inlineRenameFocusNode!,
+                                          onSubmit: onInlineRenameSubmit!,
+                                          onCancel: onInlineRenameCancel!,
+                                        );
+                                      }
                                       return _FileRow(
                                         data: item,
                                         selected:
@@ -584,6 +609,87 @@ class _SftpInlineCreateItem extends StatelessWidget {
               Icons.close_rounded,
               color: AppColors.muted,
               size: 16,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SftpInlineRenameItem extends StatelessWidget {
+  const _SftpInlineRenameItem({
+    required this.file,
+    required this.controller,
+    required this.focusNode,
+    required this.onSubmit,
+    required this.onCancel,
+  });
+
+  final SftpFileEntry file;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final Future<void> Function() onSubmit;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFF143B63),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.primaryBlue),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            file.folder
+                ? Icons.folder_outlined
+                : Icons.insert_drive_file_outlined,
+            color: file.folder ? AppColors.amber : AppColors.muted,
+            size: 16,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Focus(
+              onKeyEvent: (node, event) {
+                if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                if (event.logicalKey == LogicalKeyboardKey.escape) {
+                  onCancel();
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                autofocus: true,
+                onSubmitted: (_) => unawaited(onSubmit()),
+                style: portixTitle(12),
+                decoration: InputDecoration(
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  isDense: true,
+                  hintText: file.folder ? 'Rename folder' : 'Rename file',
+                  hintStyle: portixMuted(12),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'Cancel rename',
+            onPressed: onCancel,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 24, height: 24),
+            icon: const Icon(
+              Icons.close_rounded,
+              color: AppColors.muted,
+              size: 15,
             ),
           ),
         ],

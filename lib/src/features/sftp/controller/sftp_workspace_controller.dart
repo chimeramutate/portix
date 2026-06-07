@@ -407,12 +407,12 @@ class SftpWorkspaceController extends ChangeNotifier {
       throw StateError('Rename only supports a name, not a path.');
     }
     final targetPath = _renameTargetPath(remotePath, trimmed);
-    final result = await _connectionManager.sendTerminalInput(
+    final result = await _connectionManager.executeRemoteCommand(
       sessionId,
-      'mv -- ${_shellQuote(remotePath)} ${_shellQuote(targetPath)}\n',
+      'mv -- ${_shellQuote(remotePath)} ${_shellQuote(targetPath)}',
+      action: 'rename remote path',
     );
     result.fold((failure) => throw StateError(failure.message), (_) {});
-    await Future<void>.delayed(const Duration(milliseconds: 650));
     final oldMode = _remoteChmodModes.remove(remotePath);
     if (oldMode != null) _remoteChmodModes[targetPath] = oldMode;
     await loadRemoteDirectory(_remotePath);
@@ -428,14 +428,14 @@ class SftpWorkspaceController extends ChangeNotifier {
     }
     final targetPath = _renameTargetPath(remotePath, trimmed);
     final command = file.folder
-        ? 'cp -R -- ${_shellQuote(remotePath)} ${_shellQuote(targetPath)}\n'
-        : 'cp -- ${_shellQuote(remotePath)} ${_shellQuote(targetPath)}\n';
-    final result = await _connectionManager.sendTerminalInput(
+        ? 'cp -R -- ${_shellQuote(remotePath)} ${_shellQuote(targetPath)}'
+        : 'cp -- ${_shellQuote(remotePath)} ${_shellQuote(targetPath)}';
+    final result = await _connectionManager.executeRemoteCommand(
       sessionId,
       command,
+      action: 'duplicate remote path',
     );
     result.fold((failure) => throw StateError(failure.message), (_) {});
-    await Future<void>.delayed(const Duration(milliseconds: 650));
     await loadRemoteDirectory(_remotePath);
   }
 
@@ -444,12 +444,12 @@ class SftpWorkspaceController extends ChangeNotifier {
     final remotePath = file.path;
     final trimmed = targetPath.trim();
     if (sessionId == null || remotePath == null || trimmed.isEmpty) return;
-    final result = await _connectionManager.sendTerminalInput(
+    final result = await _connectionManager.executeRemoteCommand(
       sessionId,
-      'mv -- ${_shellQuote(remotePath)} ${_shellQuote(trimmed)}\n',
+      'mv -- ${_shellQuote(remotePath)} ${_shellQuote(trimmed)}',
+      action: 'move remote path',
     );
     result.fold((failure) => throw StateError(failure.message), (_) {});
-    await Future<void>.delayed(const Duration(milliseconds: 650));
     _remoteChmodModes.remove(remotePath);
     await loadRemoteDirectory(_remotePath);
   }
@@ -462,12 +462,12 @@ class SftpWorkspaceController extends ChangeNotifier {
     if (trimmed.isEmpty || trimmed == '/' || trimmed == '~') {
       throw StateError('This remote path cannot be deleted.');
     }
-    final result = await _connectionManager.sendTerminalInput(
+    final result = await _connectionManager.executeRemoteCommand(
       sessionId,
-      'rm -rf -- ${_shellQuote(trimmed)}\n',
+      'rm -rf -- ${_shellQuote(trimmed)}',
+      action: 'delete remote path',
     );
     result.fold((failure) => throw StateError(failure.message), (_) {});
-    await Future<void>.delayed(const Duration(milliseconds: 650));
     _remoteChmodModes.remove(trimmed);
     await loadRemoteDirectory(_remotePath);
   }

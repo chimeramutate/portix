@@ -31,6 +31,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   late final SftpWorkspaceController _controller;
   final TextEditingController _inlineCreateController = TextEditingController();
   final FocusNode _inlineCreateFocusNode = FocusNode(debugLabel: 'SFTP create');
+  final TextEditingController _inlineRenameController = TextEditingController();
+  final FocusNode _inlineRenameFocusNode = FocusNode(debugLabel: 'SFTP rename');
   final Map<String, _SftpLocalEditSession> _localEditSessions = {};
   final Set<String> _selectedLocalPaths = {};
   final Set<String> _selectedRemotePaths = {};
@@ -39,6 +41,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   String? _remoteSyncKey;
   _SftpInlineCreateKind? _inlineCreateKind;
   bool _inlineCreateRemote = true;
+  SftpFileEntry? _renamingFile;
+  bool _renamingRemote = true;
 
   static const Set<String> _codeFileExtensions = {
     'astro',
@@ -101,6 +105,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     }
     _inlineCreateController.dispose();
     _inlineCreateFocusNode.dispose();
+    _inlineRenameController.dispose();
+    _inlineRenameFocusNode.dispose();
     _controller
       ..removeListener(_handleControllerChanged)
       ..dispose();
@@ -296,20 +302,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       case _FileAction.newFolder:
         _startInlineCreate(_SftpInlineCreateKind.folder, remote: isRemote);
       case _FileAction.rename:
-        final newName = await _promptText(
-          context,
-          title: 'Rename ${file.name}',
-          label: 'New name',
-          initialValue: file.name,
-        );
-        if (newName == null || newName == file.name) return;
-        await _runSftpAction(
-          context,
-          () => isRemote
-              ? _controller.renameRemotePath(file, newName)
-              : _controller.renameLocalPath(file, newName),
-          success: 'Renamed ${file.name}',
-        );
+        _startInlineRename(file, remote: isRemote);
       case _FileAction.duplicate:
         if (!isRemote) {
           final newName = await _promptText(
@@ -746,6 +739,13 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                             inlineCreateFocusNode: _inlineCreateFocusNode,
                             onInlineCreateSubmit: _submitInlineCreate,
                             onInlineCreateCancel: _cancelInlineCreate,
+                            inlineRenameFile: _renamingRemote
+                                ? null
+                                : _renamingFile,
+                            inlineRenameController: _inlineRenameController,
+                            inlineRenameFocusNode: _inlineRenameFocusNode,
+                            onInlineRenameSubmit: _submitInlineRename,
+                            onInlineRenameCancel: _cancelInlineRename,
                             onRefreshRequested: () => unawaited(
                               _controller.loadLocalDirectory(
                                 _controller.localPath,
@@ -831,6 +831,13 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                             inlineCreateFocusNode: _inlineCreateFocusNode,
                             onInlineCreateSubmit: _submitInlineCreate,
                             onInlineCreateCancel: _cancelInlineCreate,
+                            inlineRenameFile: !_renamingRemote
+                                ? null
+                                : _renamingFile,
+                            inlineRenameController: _inlineRenameController,
+                            inlineRenameFocusNode: _inlineRenameFocusNode,
+                            onInlineRenameSubmit: _submitInlineRename,
+                            onInlineRenameCancel: _cancelInlineRename,
                             onRefreshRequested: selectedProfile == null
                                 ? null
                                 : () => unawaited(
@@ -901,6 +908,13 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                           inlineCreateFocusNode: _inlineCreateFocusNode,
                           onInlineCreateSubmit: _submitInlineCreate,
                           onInlineCreateCancel: _cancelInlineCreate,
+                          inlineRenameFile: _renamingRemote
+                              ? null
+                              : _renamingFile,
+                          inlineRenameController: _inlineRenameController,
+                          inlineRenameFocusNode: _inlineRenameFocusNode,
+                          onInlineRenameSubmit: _submitInlineRename,
+                          onInlineRenameCancel: _cancelInlineRename,
                           onRefreshRequested: () => unawaited(
                             _controller.loadLocalDirectory(
                               _controller.localPath,
@@ -984,6 +998,13 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                           inlineCreateFocusNode: _inlineCreateFocusNode,
                           onInlineCreateSubmit: _submitInlineCreate,
                           onInlineCreateCancel: _cancelInlineCreate,
+                          inlineRenameFile: !_renamingRemote
+                              ? null
+                              : _renamingFile,
+                          inlineRenameController: _inlineRenameController,
+                          inlineRenameFocusNode: _inlineRenameFocusNode,
+                          onInlineRenameSubmit: _submitInlineRename,
+                          onInlineRenameCancel: _cancelInlineRename,
                           onRefreshRequested: selectedProfile == null
                               ? null
                               : () => unawaited(
@@ -1020,11 +1041,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
               ),
               if (_controller.transferJobs.isNotEmpty)
                 Positioned(
-                  right: MediaQuery.sizeOf(context).width < 520 ? 10 : 16,
-                  bottom: MediaQuery.sizeOf(context).width < 520 ? 10 : 16,
-                  width: MediaQuery.sizeOf(context).width < 520
-                      ? MediaQuery.sizeOf(context).width - 20
-                      : 380,
+                  right: 16,
+                  bottom: 16,
+                  width: 380,
                   child: _TransferQueue(
                     jobs: _controller.transferJobs,
                     onClose: _controller.clearTransfers,
@@ -1039,6 +1058,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   void _startInlineCreate(_SftpInlineCreateKind kind, {required bool remote}) {
     setState(() {
+      _clearInlineRename();
       _inlineCreateKind = kind;
       _inlineCreateRemote = remote;
       _inlineCreateController.clear();
@@ -1054,6 +1074,64 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       _inlineCreateKind = null;
       _inlineCreateController.clear();
     });
+  }
+
+  void _startInlineRename(SftpFileEntry file, {required bool remote}) {
+    if (file.name == '..') return;
+    setState(() {
+      _inlineCreateKind = null;
+      _renamingFile = file;
+      _renamingRemote = remote;
+      _inlineRenameController.text = file.name;
+      final selected = remote ? _selectedRemotePaths : _selectedLocalPaths;
+      final path = file.path;
+      if (path != null) {
+        selected
+          ..clear()
+          ..add(path);
+        if (remote) {
+          _remoteSelectionAnchor = path;
+        } else {
+          _localSelectionAnchor = path;
+        }
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _renamingFile?.path != file.path) return;
+      _inlineRenameFocusNode.requestFocus();
+      _inlineRenameController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _inlineRenameController.text.length,
+      );
+    });
+  }
+
+  void _cancelInlineRename() {
+    setState(_clearInlineRename);
+  }
+
+  void _clearInlineRename() {
+    _renamingFile = null;
+    _inlineRenameController.clear();
+  }
+
+  Future<void> _submitInlineRename() async {
+    final file = _renamingFile;
+    final newName = _inlineRenameController.text.trim();
+    if (file == null) return;
+    if (newName.isEmpty || newName == file.name) {
+      _cancelInlineRename();
+      return;
+    }
+    final remote = _renamingRemote;
+    await _runSftpAction(
+      context,
+      () => remote
+          ? _controller.renameRemotePath(file, newName)
+          : _controller.renameLocalPath(file, newName),
+      success: 'Renamed ${file.name}',
+    );
+    if (mounted) _cancelInlineRename();
   }
 
   Future<void> _submitInlineCreate() async {
