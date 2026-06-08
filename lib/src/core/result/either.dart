@@ -11,4 +11,12 @@ class AppFailure extends Failure {
 
   @override
   List<Object?> get props => [message, cause];
+
+  @override
+  String toString() {
+    if (cause != null) {
+      return '$message: $cause';
+    }
+    return message;
+  }
 }

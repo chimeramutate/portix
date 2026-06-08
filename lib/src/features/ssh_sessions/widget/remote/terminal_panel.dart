@@ -10,6 +10,7 @@ import 'package:portix/src/connection_manager/session_models.dart'
 import 'package:portix/src/connection_manager/ssh_profile.dart'
     as manager_profile;
 import 'package:portix/src/core/di/injection.dart';
+import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart' as domain;
@@ -1030,6 +1031,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
     domain.SshProfile profile,
     Object error,
   ) {
+    final passwordUnavailable = _extractPasswordUnavailable(error);
+    if (passwordUnavailable != null) {
+      return _showPasswordPromptDialog(profile);
+    }
     final bridgeMismatch = _isBridgeContentHashMismatch(error);
     final message = bridgeMismatch
         ? 'Portix Rust bridge was regenerated while the app was still running. Stop the app completely, then run it again so Dart and Rust load the same bridge build.'
@@ -1128,6 +1133,170 @@ class _TerminalPanelState extends State<TerminalPanel> {
         );
       },
     );
+  }
+
+  PasswordUnavailableException? _extractPasswordUnavailable(Object error) {
+    if (error is PasswordUnavailableException) return error;
+    if (error is AppFailure) {
+      final cause = error.cause;
+      if (cause is PasswordUnavailableException) return cause;
+    }
+    return null;
+  }
+
+  Future<void> _showPasswordPromptDialog(domain.SshProfile profile) {
+    final passwordController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppColors.surface,
+          insetPadding: const EdgeInsets.all(16),
+          title: const Text('Enter SSH Password'),
+          content: SizedBox(
+            width: 400,
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Password for ${profile.username}@${profile.host}:${profile.port} '
+                    'is not available on this device. Please enter it manually.',
+                    style: portixMuted(12),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: passwordController,
+                    obscureText: true,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      labelText: 'Password',
+                      hintText: 'Enter SSH password',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      filled: true,
+                      fillColor: AppColors.bg,
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Password is required';
+                      }
+                      return null;
+                    },
+                    onFieldSubmitted: (_) {
+                      if (formKey.currentState!.validate()) {
+                        Navigator.of(context).pop();
+                        _connectWithPassword(
+                          profile,
+                          passwordController.text.trim(),
+                        );
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'The password will be saved to local secure storage.',
+                    style: portixMuted(10),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  Navigator.of(context).pop();
+                  _connectWithPassword(
+                    profile,
+                    passwordController.text.trim(),
+                  );
+                }
+              },
+              icon: const Icon(Icons.login_rounded, size: 16),
+              label: const Text('Connect'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _connectWithPassword(
+    domain.SshProfile profile,
+    String password,
+  ) async {
+    // Save password to secure storage for next time.
+    unawaited(
+      _connectionManager.saveProfilePassword(profile.id, password),
+    );
+    // Build a profile with the password directly set.
+    final managerProfile = manager_profile.SshProfile(
+      id: profile.id,
+      name: profile.name,
+      host: profile.host,
+      port: profile.port,
+      username: profile.username,
+      password: password,
+      hasPassword: true,
+      privateKeyPath: null,
+      group: profile.group,
+      tags: profile.tags,
+    );
+    final existingSessionIds = _sshSessions
+        .map((session) => session.id)
+        .toSet();
+    _connectedProfileId = profile.id;
+
+    try {
+      final result = await _connectionManager.connect(managerProfile);
+      result.fold((failure) {
+        throw failure;
+      }, (_) {});
+      final session = _newSessionForProfile(profile.id, existingSessionIds);
+      if (session == null) {
+        throw StateError('SSH session was not created for ${profile.name}.');
+      }
+      final terminal = _terminalForSession(session.id);
+      terminal.write('\x1b[2J\x1b[H');
+      setState(() {
+        _sessionId = session.id;
+        _connectedProfileId = session.profileId;
+        _activeTabClosed = false;
+        _splitRoot = SplitLeaf(session.id);
+        _workspaceActive = false;
+        _activeWorkspaceId = null;
+        _placeSessionInOrder(session.id);
+      });
+      widget.onSessionChanged?.call(true);
+      _notifyActiveSessionChanged(session.id);
+      await _connectionManager.resizeTerminal(session.id, _cols, _rows);
+    } catch (error) {
+      final failedSession = _newSessionForProfile(
+        profile.id,
+        existingSessionIds,
+      );
+      setState(() {
+        _sessionId = failedSession?.id;
+        _connectedProfileId = failedSession?.profileId;
+        _splitRoot = failedSession == null ? null : SplitLeaf(failedSession.id);
+        if (failedSession != null) _placeSessionInOrder(failedSession.id);
+      });
+      widget.onSessionChanged?.call(failedSession != null);
+      _notifyActiveSessionChanged(failedSession?.id);
+      if (mounted) {
+        unawaited(_showConnectionFailedDialog(profile, error));
+      }
+    }
   }
 
   String _connectionFailureSummary(Object error) {

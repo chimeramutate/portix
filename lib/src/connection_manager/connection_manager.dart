@@ -172,6 +172,11 @@ class ConnectionManager extends ChangeNotifier
 
   Future<void> disconnect(String sessionId) => _backend.disconnect(sessionId);
 
+  /// Save a password to secure storage so future connections can use it.
+  Future<void> saveProfilePassword(String profileId, String password) async {
+    await _secretStore.savePassword(profileId, password);
+  }
+
   @override
   Future<Result<void>> closeSession(String sessionId) async {
     final index = _sessions.indexWhere((session) => session.id == sessionId);
@@ -554,7 +559,7 @@ class ConnectionManager extends ChangeNotifier
     await _waitForSecretWrite(profile.id);
     final password = await _secretStore.readPassword(profile.id);
     if ((password ?? '').isEmpty) {
-      throw StateError('Saved password for ${profile.name} is not available');
+      throw PasswordUnavailableException(profile.name, profile.id);
     }
     return profile.copyWith(password: password);
   }
@@ -776,4 +781,16 @@ class _RemoteCommandCapture {
       ),
     );
   }
+}
+
+class PasswordUnavailableException implements Exception {
+  const PasswordUnavailableException(this.profileName, this.profileId);
+
+  final String profileName;
+  final String profileId;
+
+  @override
+  String toString() =>
+      'Saved password for "$profileName" is not available on this device. '
+      'Please re-enter the password.';
 }

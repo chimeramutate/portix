@@ -91,6 +91,20 @@ jobs:
           cp rust-libs/${{ matrix.rust_asset }} build/linux/x64/release/bundle/${{ matrix.bundled_lib }}
           chmod +x build/linux/x64/release/bundle/${{ matrix.bundled_lib }}
 
+      - name: Bundle system libraries - Linux
+        if: matrix.target == 'linux'
+        run: |
+          BUNDLE_LIB="build/linux/x64/release/bundle/lib"
+          # Bundle libsecret and its dependency libgcrypt so the app works
+          # on systems without libsecret installed.
+          for lib in libsecret-1.so.0 libgcrypt.so.20; do
+            LIB_PATH=$(ldconfig -p | grep "$lib" | head -1 | awk '{print $NF}')
+            if [ -n "$LIB_PATH" ] && [ ! -f "$BUNDLE_LIB/$lib" ]; then
+              cp "$LIB_PATH" "$BUNDLE_LIB/$lib"
+              echo "Bundled $lib from $LIB_PATH"
+            fi
+          done
+
       - name: Bundle Rust library - Windows
         if: matrix.target == 'windows'
         shell: pwsh

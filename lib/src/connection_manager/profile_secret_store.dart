@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:portix/src/security/security_policy.dart';
 
 class ProfileSecretStore {
@@ -19,12 +21,19 @@ class ProfileSecretStore {
     try {
       await _storage.write(key: _passwordKey(profileId), value: password);
     } on PlatformException catch (error) {
-      if (!_shouldUseMacKeychainFallback(error)) {
-        rethrow;
+      if (_shouldUseMacKeychainFallback(error)) {
+        await _writeMacKeychainPassword(profileId, password);
+        return;
       }
-      await _writeMacKeychainPassword(profileId, password);
+      if (Platform.isLinux) {
+        await _writeLinuxFileFallback(profileId, password);
+        return;
+      }
+      rethrow;
     } on MissingPluginException {
-      return;
+      if (Platform.isLinux) {
+        await _writeLinuxFileFallback(profileId, password);
+      }
     }
   }
 
@@ -33,15 +42,24 @@ class ProfileSecretStore {
     try {
       final password = await _storage.read(key: _passwordKey(profileId));
       if (password != null || !Platform.isMacOS) {
+        if (password == null && Platform.isLinux) {
+          return _readLinuxFileFallback(profileId);
+        }
         return password;
       }
       return _readMacKeychainPassword(profileId);
     } on PlatformException catch (error) {
-      if (!_shouldUseMacKeychainFallback(error)) {
-        rethrow;
+      if (_shouldUseMacKeychainFallback(error)) {
+        return _readMacKeychainPassword(profileId);
       }
-      return _readMacKeychainPassword(profileId);
+      if (Platform.isLinux) {
+        return _readLinuxFileFallback(profileId);
+      }
+      rethrow;
     } on MissingPluginException {
+      if (Platform.isLinux) {
+        return _readLinuxFileFallback(profileId);
+      }
       return null;
     }
   }
@@ -53,19 +71,31 @@ class ProfileSecretStore {
       if (Platform.isMacOS) {
         await _deleteMacKeychainPassword(profileId);
       }
-    } on PlatformException catch (error) {
-      if (!_shouldUseMacKeychainFallback(error)) {
-        rethrow;
+      if (Platform.isLinux) {
+        await _deleteLinuxFileFallback(profileId);
       }
-      await _deleteMacKeychainPassword(profileId);
+    } on PlatformException catch (error) {
+      if (_shouldUseMacKeychainFallback(error)) {
+        await _deleteMacKeychainPassword(profileId);
+        return;
+      }
+      if (Platform.isLinux) {
+        await _deleteLinuxFileFallback(profileId);
+        return;
+      }
+      rethrow;
     } on MissingPluginException {
-      return;
+      if (Platform.isLinux) {
+        await _deleteLinuxFileFallback(profileId);
+      }
     }
   }
 
   static String _passwordKey(String profileId) {
     return 'portix.ssh_profile.$profileId.password';
   }
+
+  // --- macOS Keychain fallback ---
 
   static bool _shouldUseMacKeychainFallback(PlatformException error) {
     if (!Platform.isMacOS) {
@@ -124,4 +154,55 @@ class ProfileSecretStore {
   }
 
   static const String _macKeychainService = 'Portix SSH Profile Password';
+
+  // --- Linux file-based fallback ---
+  // Used when libsecret / D-Bus Secret Service is not available.
+  // Stores credentials as base64-encoded values in a user-only readable file.
+  // This is NOT as secure as a proper keyring but allows the app to function.
+
+  static Future<Directory> _linuxSecretDir() async {
+    final appDir = await getApplicationSupportDirectory();
+    final dir = Directory('${appDir.path}/secrets');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+      // Set directory permissions to owner-only (700).
+      await Process.run('chmod', ['700', dir.path]);
+    }
+    return dir;
+  }
+
+  static Future<void> _writeLinuxFileFallback(
+    String profileId,
+    String password,
+  ) async {
+    final dir = await _linuxSecretDir();
+    final file = File('${dir.path}/${_sanitizeFileName(profileId)}');
+    final encoded = base64Encode(utf8.encode(password));
+    await file.writeAsString(encoded);
+    await Process.run('chmod', ['600', file.path]);
+  }
+
+  static Future<String?> _readLinuxFileFallback(String profileId) async {
+    final dir = await _linuxSecretDir();
+    final file = File('${dir.path}/${_sanitizeFileName(profileId)}');
+    if (!await file.exists()) return null;
+    try {
+      final encoded = await file.readAsString();
+      return utf8.decode(base64Decode(encoded.trim()));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _deleteLinuxFileFallback(String profileId) async {
+    final dir = await _linuxSecretDir();
+    final file = File('${dir.path}/${_sanitizeFileName(profileId)}');
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+
+  static String _sanitizeFileName(String id) {
+    return id.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
+  }
 }
