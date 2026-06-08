@@ -90,8 +90,8 @@ jobs:
       - name: Verify Dart-Rust bridge hash sync
         shell: bash
         run: |
-          DART_HASH=$(grep -oP 'int get rustContentHash => \K-?[0-9]+' lib/src/rust/frb_generated.dart)
-          RUST_HASH=$(grep -oP 'FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = \K-?[0-9]+' portix-serv/src/frb_generated.rs)
+          DART_HASH=$(sed -n 's/.*int get rustContentHash => \(-\?[0-9]*\);/\1/p' lib/src/rust/frb_generated.dart)
+          RUST_HASH=$(sed -n 's/.*FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = \(-\?[0-9]*\);/\1/p' portix-serv/src/frb_generated.rs)
           echo "Dart content hash: $DART_HASH"
           echo "Rust content hash: $RUST_HASH"
           if [ "$DART_HASH" != "$RUST_HASH" ]; then
