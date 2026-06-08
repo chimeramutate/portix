@@ -68,10 +68,49 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Download Rust native library
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: gh release download ${{ github.ref_name }} --repo Asepimam/portix-serv --pattern "${{ matrix.rust_asset }}" --dir rust-libs
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: portix-serv
+
+      - name: Checkout Rust backend
+        uses: actions/checkout@v4
+        with:
+          repository: Asepimam/portix-serv
+          token: ${{ secrets.GH_PAT }}
+          ref: master
+          path: portix-serv
+
+      - name: Build Rust native library
+        run: cargo build --release --manifest-path portix-serv/Cargo.toml
+
+      - name: Verify Dart-Rust bridge hash sync
+        shell: bash
+        run: |
+          DART_HASH=$(grep -oP 'int get rustContentHash => \K-?[0-9]+' lib/src/rust/frb_generated.dart)
+          RUST_HASH=$(grep -oP 'FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = \K-?[0-9]+' portix-serv/src/frb_generated.rs)
+          echo "Dart content hash: $DART_HASH"
+          echo "Rust content hash: $RUST_HASH"
+          if [ "$DART_HASH" != "$RUST_HASH" ]; then
+            echo "::error::Content hash mismatch! Dart ($DART_HASH) != Rust ($RUST_HASH). Run flutter_rust_bridge_codegen to sync."
+            exit 1
+          fi
+          echo "✓ Bridge hashes match"
+
+      - name: Prepare Rust library
+        shell: bash
+        run: |
+          mkdir -p rust-libs
+          if [ "${{ matrix.target }}" = "linux" ]; then
+            cp portix-serv/target/release/libportix_serv.so rust-libs/${{ matrix.rust_asset }}
+          elif [ "${{ matrix.target }}" = "macos" ]; then
+            cp portix-serv/target/release/libportix_serv.dylib rust-libs/${{ matrix.rust_asset }}
+          elif [ "${{ matrix.target }}" = "windows" ]; then
+            cp portix-serv/target/release/portix_serv.dll rust-libs/${{ matrix.rust_asset }}
+          fi
 
       - name: Build Flutter
         run: flutter build ${{ matrix.flutter_build_target }} --release --dart-define=PORTIX_BACKEND=rust --dart-define=RUST_LIBRARY_MODE=production
