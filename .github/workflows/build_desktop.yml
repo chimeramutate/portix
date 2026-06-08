@@ -89,6 +89,7 @@ jobs:
         if: matrix.target == 'linux'
         run: |
           cp rust-libs/${{ matrix.rust_asset }} build/linux/x64/release/bundle/${{ matrix.bundled_lib }}
+          chmod +x build/linux/x64/release/bundle/${{ matrix.bundled_lib }}
 
       - name: Bundle Rust library - Windows
         if: matrix.target == 'windows'

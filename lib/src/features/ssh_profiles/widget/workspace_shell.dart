@@ -13,12 +13,13 @@ class WorkspaceShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hideTopBar = state.activeView == WorkspaceView.remoteFolder;
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(
         child: Column(
           children: [
-            WorkspaceTopBar(state: state),
+            if (!hideTopBar) WorkspaceTopBar(state: state),
             Expanded(
               child: Row(
                 children: [

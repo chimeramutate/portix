@@ -1,6 +1,7 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
+#include <gdk-pixbuf/gdk-pixbuf.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
@@ -45,11 +46,26 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "portix_ui");
+    gtk_header_bar_set_title(header_bar, "Portix");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "portix_ui");
+    gtk_window_set_title(window, "Portix");
+  }
+
+  // Set the window icon from the bundled data directory.
+  gchar* exe_path = g_file_read_link("/proc/self/exe", NULL);
+  if (exe_path != NULL) {
+    gchar* exe_dir = g_path_get_dirname(exe_path);
+    gchar* icon_path = g_build_filename(exe_dir, "data", "app_icon.png", NULL);
+    GdkPixbuf* icon = gdk_pixbuf_new_from_file(icon_path, NULL);
+    if (icon != NULL) {
+      gtk_window_set_icon(window, icon);
+      g_object_unref(icon);
+    }
+    g_free(icon_path);
+    g_free(exe_dir);
+    g_free(exe_path);
   }
 
   gtk_window_set_default_size(window, 1280, 720);
