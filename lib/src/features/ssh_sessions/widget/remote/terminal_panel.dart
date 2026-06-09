@@ -76,6 +76,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   String? _sessionId;
   String? _telemetrySessionId;
   String? _connectedProfileId;
+  bool _connectInProgress = false;
   session_models.RemoteSystemSnapshot? _remoteSnapshot;
   String? _telemetryError;
   final List<RemoteMetricSample> _metricSamples = [];
@@ -108,6 +109,11 @@ class _TerminalPanelState extends State<TerminalPanel> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.profile?.id != widget.profile?.id ||
         oldWidget.connectRequestId != widget.connectRequestId) {
+      // Skip if same profile and already have a session or connection in progress.
+      if (oldWidget.profile?.id == widget.profile?.id &&
+          (_sessionId != null || _connectInProgress)) {
+        return;
+      }
       _activeTabClosed = false;
       _connect();
     }
@@ -180,15 +186,23 @@ class _TerminalPanelState extends State<TerminalPanel> {
       return;
     }
     if (_activeTabClosed) return;
+    if (_connectInProgress) return;
     if (_connectedProfileId == profile.id &&
         _sessionId != null &&
         _isSessionReusable(_sessionId!)) {
       return;
     }
 
+    // Look for any existing session for this profile (even disconnected ones).
     final existingSession = _lastSessionForProfile(profile.id);
-    if (existingSession != null && _isSessionReusable(existingSession.id)) {
-      _activateSession(existingSession);
+    if (existingSession != null) {
+      if (_isSessionReusable(existingSession.id)) {
+        _activateSession(existingSession);
+        return;
+      }
+      // Session exists but is disconnected — reconnect it in place
+      // to preserve workspace membership.
+      await _reconnectSession(existingSession.id);
       return;
     }
 
@@ -872,6 +886,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         .firstOrNull;
     if (profile == null) return;
 
+    _workspaceReconnectInProgress = true;
     final orderIndex = _sessionOrder.indexOf(sessionId);
     await _connectionManager.closeSession(sessionId);
     _disposeSessionUi(sessionId);
@@ -880,7 +895,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final result = await _connectionManager.connect(_toManagerProfile(profile));
     final failure = result.fold<Object?>((failure) => failure, (_) => null);
     if (failure != null || !mounted) {
-      if (mounted) unawaited(_showConnectionFailedDialog(profile, failure!));
+      _workspaceReconnectInProgress = false;
+      if (mounted) {
+        _syncSplitTreeWithSessions(_sshSessions);
+        setState(() {});
+        unawaited(_showConnectionFailedDialog(profile, failure!));
+      }
       return;
     }
 
@@ -890,6 +910,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
           session.profileId == profile.id,
     );
     _terminalForSession(newSession.id).write('\x1b[2J\x1b[H');
+    _workspaceReconnectInProgress = false;
     setState(() {
       _sessionOrder.restoreAtOrPlaceLast(newSession.id, orderIndex);
       _replaceSessionIdEverywhere(sessionId, newSession.id);
@@ -965,6 +986,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         .map((session) => session.id)
         .toSet();
     _connectedProfileId = profile.id;
+    _connectInProgress = true;
     _sessionId = null;
     _splitRoot = null;
     _idleTerminal.write('\x1b[2J\x1b[H');
@@ -1010,6 +1032,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
       if (mounted) {
         unawaited(_showConnectionFailedDialog(profile, error));
       }
+    } finally {
+      _connectInProgress = false;
     }
   }
 

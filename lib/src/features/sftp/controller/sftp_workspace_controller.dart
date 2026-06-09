@@ -697,6 +697,18 @@ class SftpWorkspaceController extends ChangeNotifier {
     return _localEditorService.detectEditors();
   }
 
+  /// List remote directory entries without affecting controller state.
+  /// Used by folder picker dialogs.
+  Future<List<SftpFileEntry>> listRemoteDirectoryRaw(String path) async {
+    final sessionId = _remoteSessionId;
+    if (sessionId == null) throw StateError('No remote session');
+    final result = await _connectionManager.listRemoteDirectory(sessionId, path);
+    return result.fold(
+      (failure) => throw StateError(failure.message),
+      (entries) => _mapRemoteRows(path, entries),
+    );
+  }
+
   Future<String> editablePathFor(SftpFileEntry file, bool isRemote) async {
     if (!isRemote) return file.path ?? file.name;
     final sessionId = _remoteSessionId;

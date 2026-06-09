@@ -12,11 +12,7 @@ class LocalEditorService {
           'code',
           svgAsset: 'assets/icons/editor/vscode.svg',
         ),
-        LocalEditor(
-          'Cursor',
-          'cursor',
-          svgAsset: 'assets/icons/editor/cursor.svg',
-        ),
+        LocalEditor('Cursor', 'cursor', icon: Icons.code_rounded),
         LocalEditor('Zed', 'zed', svgAsset: 'assets/icons/editor/zed.svg'),
         LocalEditor(
           'Sublime Text',
@@ -24,10 +20,15 @@ class LocalEditorService {
           svgAsset: 'assets/icons/editor/sublimetext.svg',
         ),
         LocalEditor(
+          'IntelliJ IDEA',
+          'idea',
+          svgAsset: 'assets/icons/editor/intellij.svg',
+        ),
+        LocalEditor(
           'Xcode',
           'open',
           arguments: ['-a', 'Xcode'],
-          svgAsset: 'assets/icons/editor/xcode.svg',
+          svgAsset: 'assets/icons/editor/Xcode.svg',
         ),
         LocalEditor('Default macOS editor', 'open', icon: Icons.edit_rounded),
       ] else if (Platform.isWindows) ...const [
@@ -37,6 +38,12 @@ class LocalEditorService {
           svgAsset: 'assets/icons/editor/vscode.svg',
         ),
         LocalEditor('Cursor', 'cursor.cmd', icon: Icons.code_rounded),
+        LocalEditor(
+          'IntelliJ IDEA',
+          'idea64.exe',
+          svgAsset: 'assets/icons/editor/intellij.svg',
+        ),
+        LocalEditor('Notepad++', 'notepad++', svgAsset: 'assets/icons/editor/notepad_plus.svg'),
         LocalEditor('Notepad', 'notepad.exe', icon: Icons.edit_rounded),
       ] else ...const [
         LocalEditor(
@@ -51,15 +58,90 @@ class LocalEditorService {
           'subl',
           svgAsset: 'assets/icons/editor/sublimetext.svg',
         ),
+        LocalEditor(
+          'IntelliJ IDEA',
+          'idea',
+          svgAsset: 'assets/icons/editor/intellij.svg',
+        ),
         LocalEditor('Gedit', 'gedit', icon: Icons.edit_rounded),
         LocalEditor('Kate', 'kate', icon: Icons.edit_rounded),
         LocalEditor('Nano', 'nano', icon: Icons.edit_rounded),
+        LocalEditor('xdg-open', 'xdg-open', icon: Icons.open_in_new_rounded),
       ],
     ];
 
     final available = <LocalEditor>[];
     for (final editor in candidates) {
       if (await _commandExists(editor.command)) available.add(editor);
+    }
+
+    // Detect Flatpak-installed editors (Linux only).
+    if (!Platform.isWindows && !Platform.isMacOS) {
+      final flatpakEditors = await _detectFlatpakEditors();
+      for (final editor in flatpakEditors) {
+        // Don't add if already found via native command.
+        final alreadyFound = available.any(
+          (e) => e.name.toLowerCase().contains(
+            editor.name.toLowerCase().split(' ').first,
+          ),
+        );
+        if (!alreadyFound) available.add(editor);
+      }
+    }
+
+    return available;
+  }
+
+  Future<List<LocalEditor>> _detectFlatpakEditors() async {
+    const knownFlatpakEditors = [
+      (
+        appId: 'dev.zed.Zed',
+        name: 'Zed (Flatpak)',
+        svgAsset: 'assets/icons/editor/zed.svg',
+      ),
+      (
+        appId: 'com.visualstudio.code',
+        name: 'VS Code (Flatpak)',
+        svgAsset: 'assets/icons/editor/vscode.svg',
+      ),
+      (
+        appId: 'com.jetbrains.IntelliJ-IDEA-Ultimate',
+        name: 'IntelliJ IDEA (Flatpak)',
+        svgAsset: 'assets/icons/editor/intellij.svg',
+      ),
+      (
+        appId: 'com.jetbrains.IntelliJ-IDEA-Community',
+        name: 'IntelliJ CE (Flatpak)',
+        svgAsset: 'assets/icons/editor/intellij.svg',
+      ),
+      (
+        appId: 'com.sublimetext.three',
+        name: 'Sublime Text (Flatpak)',
+        svgAsset: 'assets/icons/editor/sublimetext.svg',
+      ),
+    ];
+
+    final available = <LocalEditor>[];
+    try {
+      final result = await Process.run('flatpak', ['list', '--app', '--columns=application']);
+      if (result.exitCode != 0) return available;
+      final installed = (result.stdout as String)
+          .split('\n')
+          .map((line) => line.trim())
+          .toSet();
+
+      for (final entry in knownFlatpakEditors) {
+        if (installed.contains(entry.appId)) {
+          available.add(LocalEditor(
+            entry.name,
+            'flatpak',
+            arguments: ['run', entry.appId],
+            svgAsset: entry.svgAsset,
+          ));
+        }
+      }
+    } catch (_) {
+      // flatpak not installed or not available.
     }
     return available;
   }

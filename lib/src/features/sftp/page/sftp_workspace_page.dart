@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +14,7 @@ import 'package:portix/src/domain/entities/sftp/index.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart';
 import 'package:portix/src/features/sftp/bloc/index.dart';
 import 'package:portix/src/features/sftp/controller/index.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
 
 part '../widget/sections/sftp_dialogs_section.dart';
 part '../widget/sections/sftp_file_actions_section.dart';
@@ -47,6 +49,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   // Multi-tab state
   final List<_SftpTab> _tabs = [];
   int _activeTabIndex = 0;
+  String? _lastHandledSftpProfileId;
 
   _SftpTab get _activeTab => _tabs[_activeTabIndex];
 
@@ -291,6 +294,41 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     context.read<SftpWorkspaceBloc>().add(SftpProfileSelected(profile));
   }
 
+  void _handleIncomingSftpProfile(
+    SshSessionState sessionState,
+    List<SshProfile> profiles,
+  ) {
+    // Only handle when user explicitly opened SFTP from gallery.
+    if (sessionState.pendingTarget != SshSessionTarget.sftp) return;
+    final targetId = sessionState.targetProfileId;
+    if (targetId == null || targetId == _lastHandledSftpProfileId) return;
+    _lastHandledSftpProfileId = targetId;
+
+    final profile = profiles.where((p) => p.id == targetId).firstOrNull;
+    if (profile == null) return;
+
+    // Find existing tab with this profile.
+    final existingIndex = _tabs.indexWhere(
+      (tab) => tab.selectedProfile?.id == targetId,
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (existingIndex >= 0) {
+        // Switch to existing tab.
+        _switchSftpTab(existingIndex);
+      } else {
+        // Select profile in current tab if it's empty, otherwise create new tab.
+        if (_activeTab.selectedProfile == null) {
+          _selectProfileForActiveTab(context, profile);
+        } else {
+          _addSftpTab();
+          _selectProfileForActiveTab(context, profile);
+        }
+      }
+    });
+  }
+
   String _remotePathForProfile(SshProfile profile) {
     final startup = profile.startupCommand.trim();
     final cdMatch = RegExp(r'^cd\s+(.+)$').firstMatch(startup);
@@ -344,15 +382,12 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           _showSnack(context, 'Download hanya tersedia untuk remote file.');
           return;
         }
-        final defaultPath =
-            '${_controller.defaultDownloadsPath}${Platform.pathSeparator}${file.name}';
-        final localPath = await _promptText(
-          context,
-          title: 'Download to local path',
-          label: 'Local destination',
-          initialValue: defaultPath,
+        final selectedDir = await FilePicker.getDirectoryPath(
+          dialogTitle: 'Download ${file.name} to...',
+          initialDirectory: _controller.defaultDownloadsPath,
         );
-        if (localPath == null) return;
+        if (selectedDir == null || !mounted) return;
+        final localPath = '$selectedDir${Platform.pathSeparator}${file.name}';
         final exists = _controller.localTargetExists(localPath);
         if (exists) {
           final replace = await _confirmReplace(
@@ -413,32 +448,33 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         );
       case _FileAction.move:
         if (!isRemote) {
-          final targetPath = await _promptText(
-            context,
-            title: 'Move ${file.name}',
-            label: 'Target path',
-            initialValue:
-                '${_controller.localPath}${Platform.pathSeparator}${file.name}',
+          final selectedDir = await FilePicker.getDirectoryPath(
+            dialogTitle: 'Move ${file.name} to...',
+            initialDirectory: _controller.localPath,
           );
-          if (targetPath == null) return;
+          if (selectedDir == null || !mounted) return;
+          final targetPath =
+              '$selectedDir${Platform.pathSeparator}${file.name}';
           await _runSftpAction(
             context,
             () => _controller.moveLocalPath(file, targetPath),
-            success: 'Moved ${file.name}',
+            success: 'Moved ${file.name} to $selectedDir',
           );
           return;
         }
-        final targetPath = await _promptText(
+        final moveTarget = await _showRemoteFolderPicker(
           context,
           title: 'Move ${file.name}',
-          label: 'Target path',
-          initialValue: '${_controller.remotePath}/${file.name}',
+          currentPath: _controller.remotePath,
         );
-        if (targetPath == null) return;
+        if (moveTarget == null || !mounted) return;
+        final remoteDest = moveTarget.endsWith('/')
+            ? '$moveTarget${file.name}'
+            : '$moveTarget/${file.name}';
         await _runSftpAction(
           context,
-          () => _controller.moveRemotePath(file, targetPath),
-          success: 'Moved ${file.name}',
+          () => _controller.moveRemotePath(file, remoteDest),
+          success: 'Moved ${file.name} to $moveTarget',
         );
       case _FileAction.chmod:
         final mode = await _showChmodDialog(context, file);
@@ -692,6 +728,21 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     return '${name.substring(0, dotIndex)} copy${name.substring(dotIndex)}';
   }
 
+  Future<String?> _showRemoteFolderPicker(
+    BuildContext context, {
+    required String title,
+    required String currentPath,
+  }) async {
+    return showDialog<String>(
+      context: context,
+      builder: (context) => _RemoteFolderPickerDialog(
+        title: title,
+        initialPath: currentPath,
+        connectionManager: _controller,
+      ),
+    );
+  }
+
   Future<int?> _showChmodDialog(
     BuildContext context,
     SftpFileEntry file,
@@ -766,7 +817,20 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<SftpWorkspaceBloc, SftpWorkspaceState>(
+    return MultiBlocListener(
+      listeners: [
+        BlocListener<SshSessionBloc, SshSessionState>(
+          listenWhen: (previous, current) =>
+              current.pendingTarget == SshSessionTarget.sftp &&
+              previous.targetProfileId != current.targetProfileId &&
+              current.targetProfileId != null,
+          listener: (context, state) {
+            final profiles = context.read<SftpWorkspaceBloc>().state.connectableProfiles;
+            _handleIncomingSftpProfile(state, profiles);
+          },
+        ),
+      ],
+      child: BlocBuilder<SftpWorkspaceBloc, SftpWorkspaceState>(
       builder: (context, state) {
         final profiles = state.connectableProfiles;
         final activeTab = _activeTab;
@@ -837,6 +901,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           ),
         );
       },
+    ),
     );
   }
 
@@ -1716,6 +1781,246 @@ class _SftpTabChip extends StatelessWidget {
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RemoteFolderPickerDialog extends StatefulWidget {
+  const _RemoteFolderPickerDialog({
+    required this.title,
+    required this.initialPath,
+    required this.connectionManager,
+  });
+
+  final String title;
+  final String initialPath;
+  final SftpWorkspaceController connectionManager;
+
+  @override
+  State<_RemoteFolderPickerDialog> createState() =>
+      _RemoteFolderPickerDialogState();
+}
+
+class _RemoteFolderPickerDialogState extends State<_RemoteFolderPickerDialog> {
+  late String _currentPath;
+  List<SftpFileEntry> _entries = const [];
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentPath = widget.initialPath;
+    _loadFolders();
+  }
+
+  Future<void> _loadFolders() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      // Use the controller's connection to list remote directories.
+      final entries = await widget.connectionManager.listRemoteDirectoryRaw(
+        _currentPath,
+      );
+      if (!mounted) return;
+      setState(() {
+        _entries = entries
+            .where((e) => e.name != '..')
+            .toList(growable: false)
+          ..sort((a, b) {
+            if (a.folder != b.folder) return a.folder ? -1 : 1;
+            return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+          });
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = '$e';
+        _loading = false;
+      });
+    }
+  }
+
+  void _navigateInto(String folderName) {
+    setState(() {
+      _currentPath = _currentPath.endsWith('/')
+          ? '$_currentPath$folderName'
+          : '$_currentPath/$folderName';
+    });
+    _loadFolders();
+  }
+
+  void _navigateUp() {
+    final parts = _currentPath.split('/')..removeWhere((p) => p.isEmpty);
+    if (parts.length <= 1) {
+      setState(() => _currentPath = '/');
+    } else {
+      parts.removeLast();
+      setState(() => _currentPath = '/${parts.join('/')}');
+    }
+    _loadFolders();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AppColors.surface,
+      insetPadding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 520),
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.drive_file_move_rounded,
+                    color: AppColors.cyan,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(widget.title, style: portixTitle(16)),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // Current path bar
+              Container(
+                height: 36,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceDark,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.folder_rounded, size: 16, color: AppColors.cyan),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _currentPath,
+                        overflow: TextOverflow.ellipsis,
+                        style: portixTitle(12),
+                      ),
+                    ),
+                    if (_currentPath != '/')
+                      IconButton(
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+                        onPressed: _navigateUp,
+                        icon: const Icon(Icons.arrow_upward_rounded, size: 16, color: AppColors.muted),
+                        tooltip: 'Go up',
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              // Folder list
+              Expanded(
+                child: _loading
+                    ? const Center(
+                        child: SizedBox.square(
+                          dimension: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : _error != null
+                        ? Center(
+                            child: Text(
+                              _error!,
+                              style: portixMuted(12),
+                              textAlign: TextAlign.center,
+                            ),
+                          )
+                        : _entries.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'Empty directory',
+                                  style: portixMuted(12),
+                                ),
+                              )
+                            : ListView.builder(
+                                itemCount: _entries.length,
+                                itemBuilder: (context, index) {
+                                  final entry = _entries[index];
+                                  final isFolder = entry.folder;
+                                  return InkWell(
+                                    onTap: isFolder
+                                        ? () => _navigateInto(entry.name)
+                                        : null,
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 6,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            isFolder
+                                                ? Icons.folder_rounded
+                                                : Icons.insert_drive_file_outlined,
+                                            color: isFolder
+                                                ? AppColors.amber
+                                                : AppColors.muted,
+                                            size: 18,
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              entry.name,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: isFolder
+                                                  ? portixTitle(13)
+                                                  : portixMuted(12),
+                                            ),
+                                          ),
+                                          if (isFolder)
+                                            const Icon(
+                                              Icons.chevron_right_rounded,
+                                              color: AppColors.muted,
+                                              size: 18,
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+              ),
+              const SizedBox(height: 14),
+              // Action buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 10),
+                  FilledButton.icon(
+                    onPressed: () => Navigator.of(context).pop(_currentPath),
+                    icon: const Icon(Icons.check_rounded, size: 16),
+                    label: const Text('Move here'),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -34,7 +34,6 @@ class RemoteFolderPage extends StatefulWidget {
 class _RemoteFolderPageState extends State<RemoteFolderPage> {
   late final ConnectionManager _connectionManager = sl<ConnectionManager>();
   late final LocalEditorService _localEditorService = LocalEditorService();
-  bool _hasTerminalSession = true;
   String? _profileId;
   String? _activeSessionId;
   String _remotePath = '~';
@@ -184,9 +183,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         }
         if (profile?.id != _profileId) {
           _profileId = profile?.id;
-          _hasTerminalSession = profile != null;
           _remotePath = _terminalFolderPath(profile);
-          _remotePanelVisible = true;
           _remoteEntries = const [];
           _remoteError = null;
           _remoteFolderMounted = false;
@@ -198,7 +195,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
             _activeSessionId = null;
           }
         }
-        if (profile == null || !_hasTerminalSession) {
+        if (profile == null) {
           _returnToProfilesWhenInactive(state);
           return const SizedBox.shrink();
         }
@@ -298,11 +295,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
                           profiles: state.profiles,
                           connectRequestId: sessionState.openRequestSerial,
                           keyboardEnabled: isVisible,
-                          onSessionChanged: (active) {
-                            if (mounted) {
-                              setState(() => _hasTerminalSession = active);
-                            }
-                          },
+                          onSessionChanged: (_) {},
                           onActiveSessionChanged: _handleActiveSessionChanged,
                           onLastSessionClosed: () {
                             context.read<SshSessionBloc>().add(
@@ -347,6 +340,11 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
 
   void _returnToProfilesWhenInactive(SshWorkspaceState state) {
     if (state.activeView != WorkspaceView.remoteFolder) return;
+    // Don't auto-redirect if a connection is in progress.
+    final sessionState = context.read<SshSessionBloc>().state;
+    if (sessionState.targetProfileId != null) return;
+    // Don't redirect if there are any sessions (even connecting ones).
+    if (_connectionManager.sessions.isNotEmpty) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<SshSessionBloc>().add(const SshSessionCleared());
@@ -398,19 +396,20 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
   void _handleActiveSessionChanged(String? sessionId) {
     if (!mounted) return;
     if (sessionId == _activeSessionId) return;
-    setState(() {
-      _activeSessionId = sessionId;
-      _hasTerminalSession = sessionId != null;
-      _clearRemoteSelection();
-      _clearInlineRename();
-    });
-    if (sessionId != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || _activeSessionId != sessionId) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || sessionId == _activeSessionId) return;
+      setState(() {
+        _activeSessionId = sessionId;
+        _clearRemoteSelection();
+        _clearInlineRename();
+      });
+      if (sessionId != null) {
         final state = context.read<SshWorkspaceBloc>().state;
         final profile = _activeProfile(state);
         final path = _terminalFolderPath(profile);
-        if (path != _remotePath || !_remoteFolderMounted) {
+        // Only reload if path actually changed. Don't reload when switching
+        // between panes in same workspace/profile.
+        if (path != _remotePath) {
           setState(() {
             _remotePath = path;
             _remoteEntries = const [];
@@ -421,19 +420,26 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
             _remoteLoadToken += 1;
           });
           _maybeAutoLoadRemoteFolder(sessionId, path);
+        } else if (!_remoteFolderMounted && _remoteEntries.isEmpty) {
+          _maybeAutoLoadRemoteFolder(sessionId, path);
         }
-      });
-    }
+      }
+    });
   }
 
   void _handleConnectionManagerChanged() {
     final sessionId = _activeSessionId;
     if (!mounted || sessionId == null) return;
-    if (!_isSessionConnected(sessionId)) {
-      _markRemoteDisconnected();
-      return;
-    }
-    _maybeAutoLoadRemoteFolder(sessionId, _remotePath);
+    // Defer to avoid setState during build when ConnectionManager notifies
+    // synchronously from within a widget update cycle.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _activeSessionId != sessionId) return;
+      if (!_isSessionConnected(sessionId)) {
+        _markRemoteDisconnected();
+        return;
+      }
+      _maybeAutoLoadRemoteFolder(sessionId, _remotePath);
+    });
   }
 
   void _clearFinishedTransfers() {

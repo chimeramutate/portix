@@ -171,6 +171,34 @@ const settingsNavigationGroups = [
         ],
       ),
       SettingsNavigationItem(
+        id: 'editor',
+        title: 'Editor',
+        icon: Icons.code_rounded,
+        headerTitle: 'Code Editor Settings',
+        headerSubtitle: 'Default editor and file associations',
+        profileTitle: 'Editor Profile',
+        profileSubtitle:
+            'Controls which editor opens files from SFTP and remote folder',
+        sections: [
+          SettingsDetailSection(
+            title: 'Default Editor',
+            rows: [
+              SettingsDetailRow('Code files', 'VS Code'),
+              SettingsDetailRow('Documents', 'System default'),
+              SettingsDetailRow('Open behavior', 'Download & open'),
+            ],
+          ),
+          SettingsDetailSection(
+            title: 'File Handling',
+            rows: [
+              SettingsDetailRow('Auto-rewrite prompt', 'Enabled'),
+              SettingsDetailRow('Temp file cleanup', 'After close'),
+              SettingsDetailRow('Binary file action', 'Download only'),
+            ],
+          ),
+        ],
+      ),
+      SettingsNavigationItem(
         id: 'teams',
         title: 'Teams',
         icon: Icons.groups_2_outlined,

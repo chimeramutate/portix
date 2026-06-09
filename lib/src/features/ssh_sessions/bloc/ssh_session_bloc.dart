@@ -38,9 +38,7 @@ class SshSessionBloc extends Bloc<SshSessionEvent, SshSessionState> {
         pendingTarget: event.target,
         clearActiveSession: true,
         openRequestSerial: state.openRequestSerial + 1,
-        message: event.target == SshSessionTarget.sftp
-            ? 'Opening SFTP workspace...'
-            : 'Opening SSH session...',
+        message: '',
       ),
     );
   }
