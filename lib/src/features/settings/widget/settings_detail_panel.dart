@@ -34,21 +34,34 @@ class SettingsDetailPanel extends StatelessWidget {
           _SettingsProfileHeader(item: item, dirty: dirty),
           const SizedBox(height: 12),
           Expanded(
-            child: GridView.builder(
-              itemCount: item.sections.length,
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 380,
-                mainAxisExtent: 156,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-              ),
-              itemBuilder: (context, index) => _SettingsSectionCard(
-                item: item,
-                section: item.sections[index],
-                values: values,
-                defaults: defaults,
-                onChanged: onChanged,
-              ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Calculate card height based on max row count across sections.
+                // row height(28) + spacing(7) = 35 per row, title(20) + gap(8) + padding(20) = 48
+                final maxRows = item.sections.isEmpty
+                    ? 3
+                    : item.sections
+                          .map((s) => s.rows.length)
+                          .reduce((a, b) => a > b ? a : b);
+                final cardHeight = 48.0 + maxRows * 35.0;
+
+                return GridView.builder(
+                  itemCount: item.sections.length,
+                  gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 380,
+                    mainAxisExtent: cardHeight,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                  ),
+                  itemBuilder: (context, index) => _SettingsSectionCard(
+                    item: item,
+                    section: item.sections[index],
+                    values: values,
+                    defaults: defaults,
+                    onChanged: onChanged,
+                  ),
+                );
+              },
             ),
           ),
           const SizedBox(height: 12),
