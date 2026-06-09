@@ -132,3 +132,10 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../assets/icons/portix_launcher.png"
   DESTINATION "${CMAKE_INSTALL_PREFIX}/data"
   RENAME "app_icon.png"
   COMPONENT Runtime)
+
+# Install .desktop file for app launcher integration.
+file(WRITE "${CMAKE_BINARY_DIR}/portix.desktop"
+"[Desktop Entry]\nType=Application\nName=Portix\nComment=SSH Client with SFTP and Terminal\nExec=${CMAKE_INSTALL_PREFIX}/portix\nIcon=${CMAKE_INSTALL_PREFIX}/data/app_icon.png\nTerminal=false\nCategories=Network;RemoteAccess;System;\nKeywords=ssh;sftp;terminal;remote;server;\nStartupWMClass=portix\n")
+install(FILES "${CMAKE_BINARY_DIR}/portix.desktop"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)

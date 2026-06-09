@@ -61,12 +61,19 @@ static void my_application_activate(GApplication* application) {
     GdkPixbuf* icon = gdk_pixbuf_new_from_file(icon_path, NULL);
     if (icon != NULL) {
       gtk_window_set_icon(window, icon);
+      // Also set as default icon for all windows (helps KDE/Wayland)
+      GList* icon_list = NULL;
+      icon_list = g_list_append(icon_list, icon);
+      gtk_window_set_default_icon_list(icon_list);
+      g_list_free(icon_list);
       g_object_unref(icon);
     }
     g_free(icon_path);
     g_free(exe_dir);
     g_free(exe_path);
   }
+  // Set icon name for desktop environments that use icon theme lookup
+  gtk_window_set_icon_name(window, "portix");
 
   gtk_window_set_default_size(window, 1280, 720);
 
