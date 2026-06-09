@@ -28,7 +28,7 @@ class SftpWorkspacePage extends StatefulWidget {
 }
 
 class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
-  late final SftpWorkspaceController _controller;
+  late SftpWorkspaceController _controller;
   final TextEditingController _inlineCreateController = TextEditingController();
   final FocusNode _inlineCreateFocusNode = FocusNode(debugLabel: 'SFTP create');
   final TextEditingController _inlineRenameController = TextEditingController();
@@ -770,11 +770,10 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       builder: (context, state) {
         final profiles = state.connectableProfiles;
         final activeTab = _activeTab;
-        final selectedProfile = activeTab.selectedProfile ??
-            state.selectedProfile;
-        final remotePath = activeTab.selectedProfile != null
-            ? _remotePathForProfile(activeTab.selectedProfile!)
-            : state.selectedRemotePath;
+        final selectedProfile = activeTab.selectedProfile;
+        final remotePath = selectedProfile != null
+            ? _remotePathForProfile(selectedProfile)
+            : '~';
         _scheduleRemoteSync(selectedProfile, remotePath);
 
         return Padding(

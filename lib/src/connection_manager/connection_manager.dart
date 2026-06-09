@@ -236,10 +236,9 @@ class ConnectionManager extends ChangeNotifier
         _remoteCommandCaptures.remove(backendSessionId);
       });
 
-      // Prefix with space to avoid shell history (HISTCONTROL=ignorespace)
-      // and unset HISTFILE temporarily to prevent logging on all shells.
+      // Prefix with space to avoid shell history (HISTCONTROL=ignorespace).
       final wrappedCommand =
-          ' set +o history 2>/dev/null; { $command; }; __portix_status=\$?; set -o history 2>/dev/null; printf "\\n$marker%s__\\n" "\$__portix_status"\n';
+          ' { $command; }; __portix_status=\$?; printf "\\n$marker%s__\\n" "\$__portix_status"\n';
       await _backend.sendTerminalInput(backendSessionId, wrappedCommand);
       return await capture.completer.future;
     } catch (error) {
@@ -762,18 +761,19 @@ class _RemoteCommandCapture {
     if (_complete) return;
     _buffer.write(data);
     final output = _buffer.toString();
-    final match = RegExp('${RegExp.escape(marker)}(\\d+)__').firstMatch(output);
+    // Strip ANSI escape sequences before matching the marker.
+    final clean = output.replaceAll(RegExp(r'\x1B\[[0-?]*[ -/]*[@-~]'), '');
+    final match = RegExp('${RegExp.escape(marker)}(\\d+)__').firstMatch(clean);
     if (match == null) return;
-    final markerIndex = match.start;
     final status = int.tryParse(match.group(1)!);
     _complete = true;
     if (status == 0) {
       _result = const Right(null);
       return;
     }
-    final details = output
+    final markerIndex = match.start;
+    final details = clean
         .substring(0, markerIndex)
-        .replaceAll(RegExp(r'\x1B\[[0-?]*[ -/]*[@-~]'), '')
         .trim();
     _result = Left(
       AppFailure(
