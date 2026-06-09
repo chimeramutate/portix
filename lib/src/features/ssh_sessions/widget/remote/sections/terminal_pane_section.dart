@@ -240,8 +240,8 @@ class _TerminalCompletionMenuState extends State<TerminalCompletionMenu> {
             final left = (cursorRect?.left ?? 16.0)
                 .clamp(16.0, maxLeft)
                 .toDouble();
-            final topBelow = (cursorRect?.bottom ?? fallbackTop) + 4;
-            final topAbove = (cursorRect?.top ?? fallbackTop) - menuHeight - 4;
+            final topBelow = (cursorRect?.bottom ?? fallbackTop) + 12;
+            final topAbove = (cursorRect?.top ?? fallbackTop) - menuHeight - 12;
             final top = topBelow + menuHeight <= constraints.maxHeight - 12
                 ? topBelow
                 : topAbove.clamp(12.0, constraints.maxHeight).toDouble();

@@ -435,6 +435,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final targetSessionId = sessionId ?? _sessionId;
     if (targetSessionId == null) return;
     if (!_isSessionConnected(targetSessionId)) return;
+
+    // Enter key: accept suggestion only if completion candidates are visible.
+    if (data == '\r' &&
+        _suggestions.candidatesFor(targetSessionId).isNotEmpty &&
+        _acceptSuggestion(targetSessionId)) {
+      return;
+    }
+
     if (_isAcceptSuggestionInput(data) && _acceptSuggestion(targetSessionId)) {
       return;
     }
@@ -564,13 +572,19 @@ class _TerminalPanelState extends State<TerminalPanel> {
     if (parts.length < 2) return const [];
     final command = parts.first;
     final token = parts.last;
-    if (!token.startsWith('-')) return const [];
+    // Show options when token starts with '-' OR when it's the command itself
+    // (means user typed 'ls ' with trailing space — parts = ['ls', ''])
+    final isEmptyToken = trimmed.endsWith(' ') || token == command;
+    if (!token.startsWith('-') && !isEmptyToken) return const [];
     final options = _fallbackOptions[command] ?? const [];
+    final filterToken = isEmptyToken ? '-' : token;
     return options
-        .where((option) => option.$1.startsWith(token))
+        .where((option) => option.$1.startsWith(filterToken))
         .map(
           (option) => session_models.TerminalCompletionCandidate(
-            replacement: _replaceCurrentToken(trimmed, option.$1),
+            replacement: isEmptyToken
+                ? '$trimmed${option.$1}'
+                : _replaceCurrentToken(trimmed, option.$1),
             display: option.$1,
             description: option.$2,
             source: 'fallback',
@@ -1240,10 +1254,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
               onPressed: () {
                 if (formKey.currentState!.validate()) {
                   Navigator.of(context).pop();
-                  _connectWithPassword(
-                    profile,
-                    passwordController.text.trim(),
-                  );
+                  _connectWithPassword(profile, passwordController.text.trim());
                 }
               },
               icon: const Icon(Icons.login_rounded, size: 16),
@@ -1260,9 +1271,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     String password,
   ) async {
     // Save password to secure storage for next time.
-    unawaited(
-      _connectionManager.saveProfilePassword(profile.id, password),
-    );
+    unawaited(_connectionManager.saveProfilePassword(profile.id, password));
     // Build a profile with the password directly set.
     final managerProfile = manager_profile.SshProfile(
       id: profile.id,
@@ -1929,11 +1938,11 @@ class _TerminalPanelState extends State<TerminalPanel> {
           current.activeView == WorkspaceView.remoteFolder,
       listener: (context, state) => unawaited(_loadTerminalSuggestionSetting()),
       child: Focus(
-        autofocus: widget.keyboardEnabled,
-        canRequestFocus: widget.keyboardEnabled,
+        autofocus: false,
+        canRequestFocus: false,
         descendantsAreFocusable: widget.keyboardEnabled,
         descendantsAreTraversable: widget.keyboardEnabled,
-        skipTraversal: !widget.keyboardEnabled,
+        skipTraversal: true,
         onKeyEvent: (node, event) {
           if (!widget.keyboardEnabled) return KeyEventResult.ignored;
           if (event is! KeyDownEvent) return KeyEventResult.ignored;

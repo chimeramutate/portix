@@ -1,6 +1,6 @@
 {
-    "name": "portix_ui",
-    "short_name": "portix_ui",
+    "name": "portix",
+    "short_name": "portix",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#hexcode",
