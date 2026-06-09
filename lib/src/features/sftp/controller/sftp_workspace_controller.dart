@@ -250,6 +250,33 @@ class SftpWorkspaceController extends ChangeNotifier {
     );
   }
 
+  /// Reload the current remote directory without showing loading state.
+  /// Keeps existing rows visible until new data arrives.
+  Future<void> _refreshCurrentRemoteDirectory() async {
+    final sessionId = _remoteSessionId;
+    if (sessionId == null) return;
+    final token = ++_remoteLoadToken;
+    final path = _remotePath;
+
+    final entriesResult = await _connectionManager.listRemoteDirectory(
+      sessionId,
+      path,
+    );
+    entriesResult.fold(
+      (failure) {
+        if (!_isCurrentRemoteRequest(token)) return;
+        _remoteError = failure.message;
+        notifyListeners();
+      },
+      (entries) {
+        if (!_isCurrentRemoteRequest(token)) return;
+        _remoteRows = _mapRemoteRows(path, entries);
+        _remoteError = null;
+        notifyListeners();
+      },
+    );
+  }
+
   Future<void> downloadRemoteEntry(
     SftpFileEntry file,
     String localPath, {
@@ -395,7 +422,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     );
     result.fold((failure) => throw StateError(failure.message), (_) {});
     _remoteChmodModes[remotePath] = normalizedMode;
-    await loadRemoteDirectory(_remotePath);
+    await _refreshCurrentRemoteDirectory();
   }
 
   Future<void> renameRemotePath(SftpFileEntry file, String newName) async {
@@ -415,7 +442,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     result.fold((failure) => throw StateError(failure.message), (_) {});
     final oldMode = _remoteChmodModes.remove(remotePath);
     if (oldMode != null) _remoteChmodModes[targetPath] = oldMode;
-    await loadRemoteDirectory(_remotePath);
+    await _refreshCurrentRemoteDirectory();
   }
 
   Future<void> duplicateRemotePath(SftpFileEntry file, String newName) async {
@@ -436,7 +463,7 @@ class SftpWorkspaceController extends ChangeNotifier {
       action: 'duplicate remote path',
     );
     result.fold((failure) => throw StateError(failure.message), (_) {});
-    await loadRemoteDirectory(_remotePath);
+    await _refreshCurrentRemoteDirectory();
   }
 
   Future<void> moveRemotePath(SftpFileEntry file, String targetPath) async {
@@ -451,7 +478,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     );
     result.fold((failure) => throw StateError(failure.message), (_) {});
     _remoteChmodModes.remove(remotePath);
-    await loadRemoteDirectory(_remotePath);
+    await _refreshCurrentRemoteDirectory();
   }
 
   Future<void> deleteRemotePath(SftpFileEntry file) async {
@@ -469,7 +496,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     );
     result.fold((failure) => throw StateError(failure.message), (_) {});
     _remoteChmodModes.remove(trimmed);
-    await loadRemoteDirectory(_remotePath);
+    await _refreshCurrentRemoteDirectory();
   }
 
   Future<void> renameLocalPath(SftpFileEntry file, String newName) async {
@@ -698,7 +725,7 @@ class SftpWorkspaceController extends ChangeNotifier {
       await File(localPath).readAsBytes(),
     );
     result.fold((failure) => throw StateError(failure.message), (_) {});
-    await loadRemoteDirectory(_remotePath);
+    await _refreshCurrentRemoteDirectory();
   }
 
   Future<void> openEditor(LocalEditor editor, String path) {
@@ -753,7 +780,7 @@ class SftpWorkspaceController extends ChangeNotifier {
         ? await _connectionManager.createRemoteDirectory(sessionId, remotePath)
         : await _connectionManager.createRemoteFile(sessionId, remotePath);
     result.fold((failure) => throw StateError(failure.message), (_) {});
-    await loadRemoteDirectory(_remotePath);
+    await _refreshCurrentRemoteDirectory();
   }
 
   Future<void> _downloadRemoteFile(
