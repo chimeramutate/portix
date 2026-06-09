@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 abstract final class AppColors {
   static const bg = Color(0xFF06111D);
@@ -17,8 +16,10 @@ abstract final class AppColors {
   static const terminal = Color(0xFF020814);
 }
 
-final _baseTextTheme = GoogleFonts.interTextTheme(
-  ThemeData(brightness: Brightness.dark).textTheme,
+const _fontFamily = 'Inter';
+
+final _baseTextTheme = ThemeData(brightness: Brightness.dark).textTheme.apply(
+  fontFamily: _fontFamily,
 );
 
 final appTheme = ThemeData(
@@ -26,7 +27,7 @@ final appTheme = ThemeData(
   brightness: Brightness.dark,
   visualDensity: VisualDensity.compact,
   scaffoldBackgroundColor: AppColors.bg,
-  fontFamily: GoogleFonts.inter().fontFamily,
+  fontFamily: _fontFamily,
   colorScheme: const ColorScheme.dark(
     primary: AppColors.primaryBlue,
     secondary: AppColors.cyan,
@@ -51,47 +52,55 @@ final appTheme = ThemeData(
   dialogTheme: DialogThemeData(
     backgroundColor: AppColors.surface,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-    titleTextStyle: GoogleFonts.inter(
+    titleTextStyle: const TextStyle(
+      fontFamily: _fontFamily,
       color: AppColors.text,
       fontSize: 20,
       fontWeight: FontWeight.w800,
     ),
-    contentTextStyle: GoogleFonts.inter(
+    contentTextStyle: const TextStyle(
+      fontFamily: _fontFamily,
       color: AppColors.text,
       fontSize: 13,
       fontWeight: FontWeight.w600,
     ),
   ),
-  popupMenuTheme: PopupMenuThemeData(
+  popupMenuTheme: const PopupMenuThemeData(
     color: AppColors.surfaceCard,
-    textStyle: GoogleFonts.inter(
+    textStyle: TextStyle(
+      fontFamily: _fontFamily,
       color: AppColors.text,
       fontSize: 12,
       fontWeight: FontWeight.w700,
     ),
   ),
   textTheme: _baseTextTheme.copyWith(
-    bodyLarge: GoogleFonts.inter(
+    bodyLarge: const TextStyle(
+      fontFamily: _fontFamily,
       color: AppColors.text,
       fontSize: 13,
       fontWeight: FontWeight.w700,
     ),
-    bodyMedium: GoogleFonts.inter(
+    bodyMedium: const TextStyle(
+      fontFamily: _fontFamily,
       color: AppColors.text,
       fontSize: 12,
       fontWeight: FontWeight.w700,
     ),
-    bodySmall: GoogleFonts.inter(
+    bodySmall: const TextStyle(
+      fontFamily: _fontFamily,
       color: AppColors.muted,
       fontSize: 11,
       fontWeight: FontWeight.w600,
     ),
-    titleMedium: GoogleFonts.inter(
+    titleMedium: const TextStyle(
+      fontFamily: _fontFamily,
       color: AppColors.text,
       fontSize: 14,
       fontWeight: FontWeight.w900,
     ),
-    titleLarge: GoogleFonts.inter(
+    titleLarge: const TextStyle(
+      fontFamily: _fontFamily,
       color: AppColors.text,
       fontSize: 18,
       fontWeight: FontWeight.w900,
@@ -100,7 +109,7 @@ final appTheme = ThemeData(
   inputDecorationTheme: InputDecorationTheme(
     filled: true,
     fillColor: AppColors.surfaceDark,
-    hintStyle: GoogleFonts.inter(color: AppColors.muted),
+    hintStyle: const TextStyle(fontFamily: _fontFamily, color: AppColors.muted),
     contentPadding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(8),
@@ -117,7 +126,11 @@ final appTheme = ThemeData(
       backgroundColor: AppColors.primaryBlue,
       foregroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      textStyle: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 12),
+      textStyle: const TextStyle(
+        fontFamily: _fontFamily,
+        fontWeight: FontWeight.w800,
+        fontSize: 12,
+      ),
     ),
   ),
   outlinedButtonTheme: OutlinedButtonThemeData(
@@ -126,7 +139,11 @@ final appTheme = ThemeData(
       foregroundColor: AppColors.text,
       side: const BorderSide(color: AppColors.border),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      textStyle: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 12),
+      textStyle: const TextStyle(
+        fontFamily: _fontFamily,
+        fontWeight: FontWeight.w800,
+        fontSize: 12,
+      ),
     ),
   ),
 );

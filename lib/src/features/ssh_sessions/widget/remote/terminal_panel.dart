@@ -1734,11 +1734,13 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final activeWorkspace = _activeWorkspace;
     setState(() {
       if (activeWorkspace != null) {
-        activeWorkspace.root = _splitController.replaceBranch(
+        final newRoot = _splitController.replaceBranch(
           activeWorkspace.root,
           target,
           replacement,
         );
+        activeWorkspace.root = newRoot;
+        _splitRoot = newRoot;
       } else if (_splitRoot != null) {
         _splitRoot = _splitController.replaceBranch(
           _splitRoot!,

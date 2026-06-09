@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppPill extends StatelessWidget {
   const AppPill({
@@ -36,7 +35,8 @@ class AppPill extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.inter(
+              style: TextStyle(
+                fontFamily: 'Inter',
                 color: color,
                 fontSize: 9,
                 fontWeight: FontWeight.w800,

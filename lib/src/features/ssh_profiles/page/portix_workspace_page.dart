@@ -79,7 +79,13 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
           },
         ),
       ],
-      child: BlocBuilder<SshWorkspaceBloc, SshWorkspaceState>(
+      child: BlocConsumer<SshWorkspaceBloc, SshWorkspaceState>(
+        listenWhen: (previous, current) =>
+            previous.activeView != current.activeView &&
+            current.activeView == WorkspaceView.sftp,
+        listener: (context, state) {
+          _sftpWorkspaceBloc.add(const SftpProfilesRequested());
+        },
         builder: (context, state) {
           _visitedViews.add(state.activeView);
           return BlocProvider.value(

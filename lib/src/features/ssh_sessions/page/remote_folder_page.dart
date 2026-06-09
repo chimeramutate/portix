@@ -403,12 +403,6 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
       _hasTerminalSession = sessionId != null;
       _clearRemoteSelection();
       _clearInlineRename();
-      _remoteEntries = const [];
-      _remoteError = null;
-      _remoteFolderMounted = false;
-      _autoLoadedSessionId = null;
-      _autoLoadedPath = null;
-      _remoteLoadToken += 1;
     });
     if (sessionId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -416,11 +410,18 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         final state = context.read<SshWorkspaceBloc>().state;
         final profile = _activeProfile(state);
         final path = _terminalFolderPath(profile);
-        setState(() {
-          _remotePath = path;
-          _remotePanelVisible = true;
-        });
-        _maybeAutoLoadRemoteFolder(sessionId, path);
+        if (path != _remotePath || !_remoteFolderMounted) {
+          setState(() {
+            _remotePath = path;
+            _remoteEntries = const [];
+            _remoteError = null;
+            _remoteFolderMounted = false;
+            _autoLoadedSessionId = null;
+            _autoLoadedPath = null;
+            _remoteLoadToken += 1;
+          });
+          _maybeAutoLoadRemoteFolder(sessionId, path);
+        }
       });
     }
   }

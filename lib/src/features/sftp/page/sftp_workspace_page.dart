@@ -44,6 +44,12 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   SftpFileEntry? _renamingFile;
   bool _renamingRemote = true;
 
+  // Multi-tab state
+  final List<_SftpTab> _tabs = [];
+  int _activeTabIndex = 0;
+
+  _SftpTab get _activeTab => _tabs[_activeTabIndex];
+
   static const Set<String> _codeFileExtensions = {
     'astro',
     'bash',
@@ -96,6 +102,10 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     _controller = SftpWorkspaceController(
       connectionManager: sl<ConnectionManager>(),
     )..addListener(_handleControllerChanged);
+    _tabs.add(_SftpTab(
+      controller: _controller,
+      label: 'SFTP 1',
+    ));
   }
 
   @override
@@ -107,9 +117,11 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     _inlineCreateFocusNode.dispose();
     _inlineRenameController.dispose();
     _inlineRenameFocusNode.dispose();
-    _controller
-      ..removeListener(_handleControllerChanged)
-      ..dispose();
+    for (final tab in _tabs) {
+      tab.controller
+        ..removeListener(_handleControllerChanged)
+        ..dispose();
+    }
     super.dispose();
   }
 
@@ -217,6 +229,74 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       if (!mounted) return;
       unawaited(_controller.attachRemoteProfile(profile, remotePath));
     });
+  }
+
+  void _addSftpTab() {
+    final newController = SftpWorkspaceController(
+      connectionManager: sl<ConnectionManager>(),
+    )..addListener(_handleControllerChanged);
+    setState(() {
+      _tabs.add(_SftpTab(
+        controller: newController,
+        label: 'SFTP ${_tabs.length + 1}',
+      ));
+      _activeTabIndex = _tabs.length - 1;
+      _controller = newController;
+      _remoteSyncKey = null;
+      _selectedLocalPaths.clear();
+      _selectedRemotePaths.clear();
+      _localSelectionAnchor = null;
+      _remoteSelectionAnchor = null;
+    });
+  }
+
+  void _closeSftpTab(int index) {
+    if (_tabs.length <= 1) return;
+    setState(() {
+      final tab = _tabs.removeAt(index);
+      tab.controller
+        ..removeListener(_handleControllerChanged)
+        ..dispose();
+      if (_activeTabIndex >= _tabs.length) {
+        _activeTabIndex = _tabs.length - 1;
+      }
+      _controller = _tabs[_activeTabIndex].controller;
+      _remoteSyncKey = null;
+      _selectedLocalPaths.clear();
+      _selectedRemotePaths.clear();
+      _localSelectionAnchor = null;
+      _remoteSelectionAnchor = null;
+    });
+  }
+
+  void _switchSftpTab(int index) {
+    if (index == _activeTabIndex || index < 0 || index >= _tabs.length) return;
+    setState(() {
+      _activeTabIndex = index;
+      _controller = _tabs[index].controller;
+      _remoteSyncKey = null;
+      _selectedLocalPaths.clear();
+      _selectedRemotePaths.clear();
+      _localSelectionAnchor = null;
+      _remoteSelectionAnchor = null;
+    });
+  }
+
+  void _selectProfileForActiveTab(BuildContext context, SshProfile profile) {
+    setState(() {
+      _activeTab.selectedProfile = profile;
+      _remoteSyncKey = null;
+    });
+    // Also update bloc for backward compatibility
+    context.read<SftpWorkspaceBloc>().add(SftpProfileSelected(profile));
+  }
+
+  String _remotePathForProfile(SshProfile profile) {
+    final startup = profile.startupCommand.trim();
+    final cdMatch = RegExp(r'^cd\s+(.+)$').firstMatch(startup);
+    if (cdMatch != null) return cdMatch.group(1)!.trim();
+    final defaultPath = profile.defaultPath.trim();
+    return defaultPath.isEmpty ? '~' : defaultPath;
   }
 
   Future<void> _handleFileAction(
@@ -689,17 +769,89 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     return BlocBuilder<SftpWorkspaceBloc, SftpWorkspaceState>(
       builder: (context, state) {
         final profiles = state.connectableProfiles;
-        final selectedProfile = state.selectedProfile;
-        final remotePath = state.selectedRemotePath;
+        final activeTab = _activeTab;
+        final selectedProfile = activeTab.selectedProfile ??
+            state.selectedProfile;
+        final remotePath = activeTab.selectedProfile != null
+            ? _remotePathForProfile(activeTab.selectedProfile!)
+            : state.selectedRemotePath;
         _scheduleRemoteSync(selectedProfile, remotePath);
 
         return Padding(
           padding: const EdgeInsets.all(14),
-          child: Stack(
+          child: Column(
             children: [
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final narrow = constraints.maxWidth < 900;
+              // Tab bar
+              SizedBox(
+                height: 40,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _tabs.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) {
+                          final tab = _tabs[index];
+                          final active = index == _activeTabIndex;
+                          final profileName = tab.selectedProfile?.name;
+                          final label = profileName != null
+                              ? profileName
+                              : tab.label;
+                          return _SftpTabChip(
+                            label: label,
+                            active: active,
+                            closable: _tabs.length > 1,
+                            onTap: () => _switchSftpTab(index),
+                            onClose: () => _closeSftpTab(index),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      tooltip: 'New SFTP tab',
+                      onPressed: _addSftpTab,
+                      icon: const Icon(Icons.add_rounded, size: 18),
+                      style: IconButton.styleFrom(
+                        backgroundColor: AppColors.surface,
+                        side: const BorderSide(color: AppColors.border),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Content
+              Expanded(
+                child: _buildSftpContent(
+                  context,
+                  profiles: profiles,
+                  selectedProfile: selectedProfile,
+                  remotePath: remotePath,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSftpContent(
+    BuildContext context, {
+    required List<SshProfile> profiles,
+    required SshProfile? selectedProfile,
+    required String remotePath,
+  }) {
+    return Stack(
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final narrow = constraints.maxWidth < 900;
                   if (narrow) {
                     return ListView(
                       children: [
@@ -848,9 +1000,11 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                             contentOverride: selectedProfile == null
                                 ? _SftpProfileGate(
                                     profiles: profiles,
-                                    onSelected: (profile) => context
-                                        .read<SftpWorkspaceBloc>()
-                                        .add(SftpProfileSelected(profile)),
+                                    onSelected: (profile) =>
+                                        _selectProfileForActiveTab(
+                                          context,
+                                          profile,
+                                        ),
                                   )
                                 : null,
                             onPathSubmitted: _controller.loadRemoteDirectory,
@@ -1015,9 +1169,11 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                           contentOverride: selectedProfile == null
                               ? _SftpProfileGate(
                                   profiles: profiles,
-                                  onSelected: (profile) => context
-                                      .read<SftpWorkspaceBloc>()
-                                      .add(SftpProfileSelected(profile)),
+                                  onSelected: (profile) =>
+                                      _selectProfileForActiveTab(
+                                        context,
+                                        profile,
+                                      ),
                                 )
                               : null,
                           onPathSubmitted: _controller.loadRemoteDirectory,
@@ -1050,9 +1206,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                   ),
                 ),
             ],
-          ),
-        );
-      },
     );
   }
 
@@ -1504,3 +1657,68 @@ class _SftpDiffBadge extends StatelessWidget {
 }
 
 enum _SftpInlineCreateKind { folder, file }
+
+class _SftpTab {
+  _SftpTab({required this.controller, required this.label});
+
+  final SftpWorkspaceController controller;
+  final String label;
+  SshProfile? selectedProfile;
+}
+
+class _SftpTabChip extends StatelessWidget {
+  const _SftpTabChip({
+    required this.label,
+    required this.active,
+    required this.closable,
+    required this.onTap,
+    required this.onClose,
+  });
+
+  final String label;
+  final bool active;
+  final bool closable;
+  final VoidCallback onTap;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 36,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: active ? const Color(0xFF143B63) : AppColors.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: active ? AppColors.primaryBlue : AppColors.border,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.folder_open_rounded, size: 14, color: AppColors.cyan),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                color: active ? AppColors.text : AppColors.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (closable) ...[
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: onClose,
+                child: const Icon(Icons.close_rounded, size: 14, color: AppColors.muted),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}

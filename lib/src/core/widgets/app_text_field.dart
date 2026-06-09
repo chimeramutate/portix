@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/app_theme.dart';
 import 'app_panel.dart';
@@ -48,7 +47,8 @@ class AppTextField extends StatelessWidget {
             readOnly: readOnly,
             obscureText: obscureText,
             onChanged: onChanged,
-            style: GoogleFonts.inter(
+            style: const TextStyle(
+              fontFamily: 'Inter',
               color: AppColors.text,
               fontWeight: FontWeight.w800,
               fontSize: 13,

@@ -236,8 +236,10 @@ class ConnectionManager extends ChangeNotifier
         _remoteCommandCaptures.remove(backendSessionId);
       });
 
+      // Prefix with space to avoid shell history (HISTCONTROL=ignorespace)
+      // and unset HISTFILE temporarily to prevent logging on all shells.
       final wrappedCommand =
-          '{ $command; }; __portix_status=\$?; printf "\\n$marker%s__\\n" "\$__portix_status"\n';
+          ' set +o history 2>/dev/null; { $command; }; __portix_status=\$?; set -o history 2>/dev/null; printf "\\n$marker%s__\\n" "\$__portix_status"\n';
       await _backend.sendTerminalInput(backendSessionId, wrappedCommand);
       return await capture.completer.future;
     } catch (error) {
