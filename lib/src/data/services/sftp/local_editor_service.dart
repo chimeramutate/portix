@@ -49,6 +49,12 @@ class LocalEditorService {
           svgAsset: 'assets/icons/editor/notepad_plus.svg',
         ),
         LocalEditor('Notepad', 'notepad.exe', icon: Icons.edit_rounded),
+        LocalEditor(
+          'Default Windows app',
+          'cmd.exe',
+          arguments: ['/c', 'start', '""'],
+          icon: Icons.open_in_new_rounded,
+        ),
       ] else ...const [
         LocalEditor(
           'Visual Studio Code',
@@ -188,14 +194,28 @@ class LocalEditorService {
     }
     // On Windows, if command is not in PATH, find the exe directly
     if (Platform.isWindows) {
+      // .cmd and .bat files require runInShell to execute properly
+      final needsShell = editor.command.endsWith('.cmd') ||
+          editor.command.endsWith('.bat');
+
       final result = await Process.run('where', [editor.command]);
       if (result.exitCode != 0) {
         final exePath = _findWindowsExe(editor.command);
         if (exePath != null) {
-          await Process.start(exePath, [...editor.arguments, path]);
+          await Process.start(
+            exePath,
+            [...editor.arguments, path],
+            runInShell: needsShell,
+          );
           return;
         }
       }
+      await Process.start(
+        editor.command,
+        [...editor.arguments, path],
+        runInShell: needsShell,
+      );
+      return;
     }
     await Process.start(editor.command, [...editor.arguments, path]);
   }
@@ -234,6 +254,8 @@ class LocalEditorService {
   Future<bool> _commandExists(String command) async {
     try {
       if (Platform.isWindows) {
+        // cmd.exe is always available on Windows (used for 'Default Windows app')
+        if (command == 'cmd.exe') return true;
         final result = await Process.run('where', [command]);
         if (result.exitCode == 0) return true;
         return _windowsAppExists(command);

@@ -570,7 +570,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         if (!_isDefaultSystemEditor(editor)) return editor;
       }
     }
-    if (Platform.isMacOS) {
+    if (Platform.isMacOS || Platform.isWindows) {
       for (final editor in editors) {
         if (_isDefaultSystemEditor(editor)) return editor;
       }
@@ -579,6 +579,10 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   }
 
   bool _isDefaultSystemEditor(LocalEditor editor) {
+    if (Platform.isWindows) {
+      return editor.command == 'cmd.exe' &&
+          editor.arguments.contains('start');
+    }
     return editor.command == 'open' && editor.arguments.isEmpty;
   }
 

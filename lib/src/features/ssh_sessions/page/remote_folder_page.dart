@@ -888,17 +888,19 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         if (!_isDefaultSystemEditor(editor)) return editor;
       }
     }
-    if (Platform.isMacOS) {
+    if (Platform.isMacOS || Platform.isWindows) {
       for (final editor in editors) {
-        if (editor.command == 'open' && editor.arguments.isEmpty) {
-          return editor;
-        }
+        if (_isDefaultSystemEditor(editor)) return editor;
       }
     }
     return editors.first;
   }
 
   bool _isDefaultSystemEditor(LocalEditor editor) {
+    if (Platform.isWindows) {
+      return editor.command == 'cmd.exe' &&
+          editor.arguments.contains('start');
+    }
     return editor.command == 'open' && editor.arguments.isEmpty;
   }
 
