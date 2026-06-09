@@ -163,6 +163,14 @@ jobs:
         run: |
           tar -czf "${{ matrix.package_name }}-${{ github.ref_name }}.tar.gz" -C build/linux/x64/release bundle
 
+      - name: Build .deb package - Linux
+        if: matrix.target == 'linux'
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          bash packaging/linux/build-deb.sh "$VERSION"
+          cp build/linux/deb/*.deb "${{ matrix.package_name }}-${{ github.ref_name }}.deb"
+
       - name: Package app - Windows
         if: matrix.target == 'windows'
         shell: pwsh
@@ -178,6 +186,7 @@ jobs:
           path: |
             ${{ matrix.package_name }}-${{ github.ref_name }}.zip
             ${{ matrix.package_name }}-${{ github.ref_name }}.tar.gz
+            ${{ matrix.package_name }}-${{ github.ref_name }}.deb
 
       - name: Upload package to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -186,3 +195,4 @@ jobs:
           files: |
             ${{ matrix.package_name }}-${{ github.ref_name }}.zip
             ${{ matrix.package_name }}-${{ github.ref_name }}.tar.gz
+            ${{ matrix.package_name }}-${{ github.ref_name }}.deb

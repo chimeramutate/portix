@@ -1,0 +1,72 @@
+name: portix
+version: '1.0.0'
+summary: Portix SSH Client - Multi-platform SSH terminal with SFTP
+description: |
+  Portix is a modern SSH client built with Flutter UI and Rust SSH core.
+  Features include multi-tab terminal sessions, split workspace, SFTP file
+  manager, remote file browsing, command autocomplete, and cross-platform
+  support for Linux, macOS, and Windows.
+
+base: core22
+grade: stable
+confinement: strict
+
+architectures:
+  - build-on: amd64
+
+parts:
+  portix:
+    plugin: nil
+    source: .
+    build-packages:
+      - clang
+      - cmake
+      - ninja-build
+      - pkg-config
+      - libgtk-3-dev
+      - liblzma-dev
+      - libsecret-1-dev
+      - curl
+      - git
+      - unzip
+    stage-packages:
+      - libgtk-3-0
+      - libsecret-1-0
+      - libgcrypt20
+    override-build: |
+      # Install Flutter
+      FLUTTER_VERSION="stable"
+      git clone https://github.com/flutter/flutter.git -b $FLUTTER_VERSION --depth 1 /tmp/flutter
+      export PATH="/tmp/flutter/bin:$PATH"
+      flutter precache --linux
+      flutter config --no-analytics
+
+      # Build Flutter app
+      cd $CRAFT_PART_SRC
+      flutter pub get
+      flutter build linux --release \
+        --dart-define=PORTIX_BACKEND=rust \
+        --dart-define=RUST_LIBRARY_MODE=production
+
+      # Install bundle
+      cp -r build/linux/x64/release/bundle/* $CRAFT_PART_INSTALL/
+
+apps:
+  portix:
+    command: portix
+    extensions: [gnome]
+    plugs:
+      - network
+      - network-bind
+      - home
+      - desktop
+      - desktop-legacy
+      - wayland
+      - x11
+      - opengl
+      - gsettings
+      - password-manager-service
+
+layout:
+  /usr/share/libdrm:
+    bind: $SNAP/usr/share/libdrm
