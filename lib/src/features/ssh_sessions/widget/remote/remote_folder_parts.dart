@@ -792,21 +792,22 @@ class _OpenWithEditorSheet extends StatelessWidget {
                       side: const BorderSide(color: AppColors.border),
                     ),
                     tileColor: AppColors.surfaceCard.withValues(alpha: .5),
-                    leading: Icon(
-                      editor.icon ??
-                          (isDefault
-                              ? Icons.open_in_new_rounded
-                              : Icons.code_rounded),
-                      color: isDefault ? AppColors.amber : AppColors.cyan,
-                      size: 18,
-                    ),
+                    leading: editor.svgAsset != null
+                        ? SvgPicture.asset(
+                            editor.svgAsset!,
+                            width: 18,
+                            height: 18,
+                          )
+                        : Icon(
+                            editor.icon ??
+                                (isDefault
+                                    ? Icons.open_in_new_rounded
+                                    : Icons.code_rounded),
+                            color:
+                                isDefault ? AppColors.amber : AppColors.cyan,
+                            size: 18,
+                          ),
                     title: Text(editor.name, style: portixTitle(12)),
-                    subtitle: Text(
-                      editor.arguments.isEmpty
-                          ? editor.command
-                          : '${editor.command} ${editor.arguments.join(' ')}',
-                      style: portixMuted(10),
-                    ),
                     onTap: () => Navigator.of(context).pop(editor),
                   );
                 },
@@ -894,18 +895,32 @@ class _RewriteRemoteDialog extends StatelessWidget {
                       final line = diff.lines[index];
                       final isAdd = line.startsWith('+ ');
                       final isRemove = line.startsWith('- ');
+                      final isSeparator = line.trim() == '···';
                       final color = isAdd
                           ? AppColors.green
                           : isRemove
                           ? AppColors.danger
-                          : AppColors.muted;
-                      return Text(
-                        line,
-                        style: TextStyle(
-                          color: color,
-                          fontSize: 11,
-                          height: 1.35,
-                          fontFamily: 'monospace',
+                          : isSeparator
+                          ? AppColors.muted.withValues(alpha: .5)
+                          : AppColors.text.withValues(alpha: .6);
+                      final bgColor = isAdd
+                          ? AppColors.green.withValues(alpha: .07)
+                          : isRemove
+                          ? AppColors.danger.withValues(alpha: .07)
+                          : Colors.transparent;
+                      return Container(
+                        color: bgColor,
+                        child: Text(
+                          line,
+                          style: TextStyle(
+                            color: color,
+                            fontSize: 11,
+                            height: 1.4,
+                            fontFamily: 'monospace',
+                            fontWeight: (isAdd || isRemove)
+                                ? FontWeight.w700
+                                : FontWeight.normal,
+                          ),
                         ),
                       );
                     },

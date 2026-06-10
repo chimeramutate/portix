@@ -732,10 +732,40 @@ class _TerminalPanelState extends State<TerminalPanel> {
   }
 
   String? _autocompleteShell() {
-    final shell = Platform.environment['SHELL']?.trim();
-    if (shell != null && shell.isNotEmpty) return shell;
-    if (Platform.isWindows) return 'cmd';
-    return null;
+    // Unix/macOS: check $SHELL environment variable (e.g. /bin/bash, /bin/zsh,
+    // /usr/bin/fish).
+    if (!Platform.isWindows) {
+      final shell = Platform.environment['SHELL']?.trim();
+      if (shell != null && shell.isNotEmpty) return shell;
+      // Fallback: probe common shell paths.
+      const unixShells = ['/bin/zsh', '/bin/bash', '/usr/bin/fish'];
+      for (final path in unixShells) {
+        if (File(path).existsSync()) return path;
+      }
+      return '/bin/sh';
+    }
+
+    // Windows: detect the active shell.
+    // Check COMSPEC for cmd.exe, but prefer PowerShell/pwsh if available.
+    final comspec = Platform.environment['COMSPEC']?.trim();
+
+    // Prefer modern PowerShell Core (pwsh) if installed.
+    final pwshPaths = [
+      '${Platform.environment['ProgramFiles'] ?? r'C:\Program Files'}\\PowerShell\\7\\pwsh.exe',
+      '${Platform.environment['LOCALAPPDATA'] ?? ''}\\Microsoft\\WindowsApps\\pwsh.exe',
+    ];
+    for (final p in pwshPaths) {
+      if (p.isNotEmpty && File(p).existsSync()) return 'pwsh';
+    }
+
+    // Windows PowerShell (5.x) is always available on modern Windows.
+    const windowsPowerShell =
+        r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe';
+    if (File(windowsPowerShell).existsSync()) return 'powershell';
+
+    // Fallback to COMSPEC (cmd.exe).
+    if (comspec != null && comspec.isNotEmpty) return comspec;
+    return 'cmd';
   }
 
   Map<String, String> _autocompleteEnv() {

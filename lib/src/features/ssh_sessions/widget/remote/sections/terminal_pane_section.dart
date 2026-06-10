@@ -85,6 +85,7 @@ class TerminalPane extends StatelessWidget {
                 focusNode: focusNode,
                 autofocus: keyboardEnabled && active,
                 readOnly: !keyboardEnabled,
+                hardwareKeyboardOnly: true,
                 mouseCursor: SystemMouseCursors.text,
                 padding: EdgeInsets.fromLTRB(16, draggable ? 34 : 16, 16, 16),
                 textStyle: const TerminalStyle(

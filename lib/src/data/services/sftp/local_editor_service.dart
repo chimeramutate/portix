@@ -162,6 +162,219 @@ class LocalEditorService {
     return available;
   }
 
+  /// Open a file with the OS default application based on file extension.
+  /// This bypasses the editor selection entirely and uses the platform's
+  /// native file association mechanism.
+  Future<void> openWithSystemDefault(String path) async {
+    if (Platform.isWindows) {
+      final escaped = path.replaceAll('/', '\\');
+      // Use PowerShell Invoke-Item which is the most reliable way to open
+      // a file with its associated application on Windows.
+      final result = await Process.run('powershell', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        'Invoke-Item -LiteralPath \'$escaped\'',
+      ]);
+      if (result.exitCode == 0) return;
+      // Fallback: try Start-Process.
+      final result2 = await Process.run('powershell', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        'Start-Process -FilePath \'$escaped\'',
+      ]);
+      if (result2.exitCode == 0) return;
+      // Final fallback to explorer.
+      await Process.start('explorer.exe', [escaped]);
+      return;
+    }
+    if (Platform.isMacOS) {
+      await Process.start('open', [path]);
+      return;
+    }
+    // Linux: xdg-open
+    await Process.start('xdg-open', [path]);
+  }
+
+  /// Detect applications suitable for a specific file extension.
+  /// Returns apps relevant to the file type (e.g. Word/WPS for .docx).
+  Future<List<LocalEditor>> detectAppsForExtension(String extension) async {
+    final ext = extension.toLowerCase();
+    final candidates = <LocalEditor>[];
+
+    if (Platform.isWindows) {
+      candidates.addAll(_windowsAppsForExtension(ext));
+    } else if (Platform.isMacOS) {
+      candidates.addAll(_macAppsForExtension(ext));
+    } else {
+      candidates.addAll(_linuxAppsForExtension(ext));
+    }
+
+    // Always add system default as last option.
+    candidates.add(LocalEditor(
+      Platform.isWindows
+          ? 'Default Windows app'
+          : Platform.isMacOS
+              ? 'Default macOS app'
+              : 'Default app',
+      '_system_default_',
+      icon: Icons.open_in_new_rounded,
+    ));
+
+    final available = <LocalEditor>[];
+    for (final app in candidates) {
+      if (app.command == '_system_default_') {
+        available.add(app);
+      } else if (await _commandExists(app.command)) {
+        available.add(app);
+      } else if (Platform.isWindows && _windowsAppExistsPath(app.command)) {
+        available.add(app);
+      }
+    }
+    return available;
+  }
+
+  List<LocalEditor> _windowsAppsForExtension(String ext) {
+    return switch (ext) {
+      'doc' || 'docx' || 'rtf' => const [
+        LocalEditor('Microsoft Word', r'C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE',
+            svgAsset: null, icon: Icons.description_rounded),
+        LocalEditor('WPS Writer', r'C:\Users\Public\Desktop\WPS Office', // checked via exists
+            icon: Icons.description_rounded),
+        LocalEditor('LibreOffice Writer', 'soffice',
+            arguments: ['--writer'], icon: Icons.description_rounded),
+      ],
+      'xls' || 'xlsx' || 'csv' => const [
+        LocalEditor('Microsoft Excel', r'C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE',
+            icon: Icons.table_chart_rounded),
+        LocalEditor('WPS Spreadsheets', r'C:\Users\Public\Desktop\WPS Office',
+            icon: Icons.table_chart_rounded),
+        LocalEditor('LibreOffice Calc', 'soffice',
+            arguments: ['--calc'], icon: Icons.table_chart_rounded),
+      ],
+      'ppt' || 'pptx' => const [
+        LocalEditor('Microsoft PowerPoint', r'C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE',
+            icon: Icons.slideshow_rounded),
+        LocalEditor('WPS Presentation', r'C:\Users\Public\Desktop\WPS Office',
+            icon: Icons.slideshow_rounded),
+        LocalEditor('LibreOffice Impress', 'soffice',
+            arguments: ['--impress'], icon: Icons.slideshow_rounded),
+      ],
+      'pdf' => const [
+        LocalEditor('Adobe Acrobat', r'C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe',
+            icon: Icons.picture_as_pdf_rounded),
+        LocalEditor('Foxit Reader', r'C:\Program Files (x86)\Foxit Software\Foxit PDF Reader\FoxitPDFReader.exe',
+            icon: Icons.picture_as_pdf_rounded),
+        LocalEditor('SumatraPDF', 'SumatraPDF',
+            icon: Icons.picture_as_pdf_rounded),
+      ],
+      'png' || 'jpg' || 'jpeg' || 'gif' || 'bmp' || 'webp' || 'svg' => const [
+        LocalEditor('Photos', r'C:\Windows\explorer.exe',
+            arguments: ['shell:AppsFolder\\Microsoft.Windows.Photos_8wekyb3d8bbwe!App'],
+            icon: Icons.image_rounded),
+        LocalEditor('IrfanView', r'C:\Program Files\IrfanView\i_view64.exe',
+            icon: Icons.image_rounded),
+      ],
+      'mp4' || 'mkv' || 'avi' || 'mov' || 'webm' => const [
+        LocalEditor('VLC', r'C:\Program Files\VideoLAN\VLC\vlc.exe',
+            icon: Icons.play_circle_rounded),
+        LocalEditor('Windows Media Player', r'C:\Program Files (x86)\Windows Media Player\wmplayer.exe',
+            icon: Icons.play_circle_rounded),
+      ],
+      'mp3' || 'wav' || 'flac' || 'ogg' || 'aac' => const [
+        LocalEditor('VLC', r'C:\Program Files\VideoLAN\VLC\vlc.exe',
+            icon: Icons.music_note_rounded),
+        LocalEditor('Windows Media Player', r'C:\Program Files (x86)\Windows Media Player\wmplayer.exe',
+            icon: Icons.music_note_rounded),
+      ],
+      'zip' || 'rar' || '7z' || 'tar' || 'gz' => const [
+        LocalEditor('7-Zip', r'C:\Program Files\7-Zip\7zFM.exe',
+            icon: Icons.folder_zip_rounded),
+        LocalEditor('WinRAR', r'C:\Program Files\WinRAR\WinRAR.exe',
+            icon: Icons.folder_zip_rounded),
+      ],
+      _ => const [],
+    };
+  }
+
+  List<LocalEditor> _macAppsForExtension(String ext) {
+    return switch (ext) {
+      'doc' || 'docx' || 'rtf' => const [
+        LocalEditor('Microsoft Word', 'open', arguments: ['-a', 'Microsoft Word'],
+            icon: Icons.description_rounded),
+        LocalEditor('Pages', 'open', arguments: ['-a', 'Pages'],
+            icon: Icons.description_rounded),
+        LocalEditor('LibreOffice Writer', 'open', arguments: ['-a', 'LibreOffice'],
+            icon: Icons.description_rounded),
+      ],
+      'xls' || 'xlsx' || 'csv' => const [
+        LocalEditor('Microsoft Excel', 'open', arguments: ['-a', 'Microsoft Excel'],
+            icon: Icons.table_chart_rounded),
+        LocalEditor('Numbers', 'open', arguments: ['-a', 'Numbers'],
+            icon: Icons.table_chart_rounded),
+      ],
+      'ppt' || 'pptx' => const [
+        LocalEditor('Microsoft PowerPoint', 'open', arguments: ['-a', 'Microsoft PowerPoint'],
+            icon: Icons.slideshow_rounded),
+        LocalEditor('Keynote', 'open', arguments: ['-a', 'Keynote'],
+            icon: Icons.slideshow_rounded),
+      ],
+      'pdf' => const [
+        LocalEditor('Preview', 'open', arguments: ['-a', 'Preview'],
+            icon: Icons.picture_as_pdf_rounded),
+        LocalEditor('Adobe Acrobat', 'open', arguments: ['-a', 'Adobe Acrobat Reader'],
+            icon: Icons.picture_as_pdf_rounded),
+      ],
+      'png' || 'jpg' || 'jpeg' || 'gif' || 'bmp' || 'webp' || 'svg' => const [
+        LocalEditor('Preview', 'open', arguments: ['-a', 'Preview'],
+            icon: Icons.image_rounded),
+      ],
+      'mp4' || 'mkv' || 'avi' || 'mov' || 'webm' => const [
+        LocalEditor('QuickTime', 'open', arguments: ['-a', 'QuickTime Player'],
+            icon: Icons.play_circle_rounded),
+        LocalEditor('VLC', 'open', arguments: ['-a', 'VLC'],
+            icon: Icons.play_circle_rounded),
+      ],
+      _ => const [],
+    };
+  }
+
+  List<LocalEditor> _linuxAppsForExtension(String ext) {
+    return switch (ext) {
+      'doc' || 'docx' || 'rtf' => const [
+        LocalEditor('LibreOffice Writer', 'libreoffice', arguments: ['--writer'],
+            icon: Icons.description_rounded),
+      ],
+      'xls' || 'xlsx' || 'csv' => const [
+        LocalEditor('LibreOffice Calc', 'libreoffice', arguments: ['--calc'],
+            icon: Icons.table_chart_rounded),
+      ],
+      'ppt' || 'pptx' => const [
+        LocalEditor('LibreOffice Impress', 'libreoffice', arguments: ['--impress'],
+            icon: Icons.slideshow_rounded),
+      ],
+      'pdf' => const [
+        LocalEditor('Evince', 'evince', icon: Icons.picture_as_pdf_rounded),
+        LocalEditor('Okular', 'okular', icon: Icons.picture_as_pdf_rounded),
+      ],
+      'png' || 'jpg' || 'jpeg' || 'gif' || 'bmp' || 'webp' || 'svg' => const [
+        LocalEditor('Eye of GNOME', 'eog', icon: Icons.image_rounded),
+        LocalEditor('Shotwell', 'shotwell', icon: Icons.image_rounded),
+      ],
+      'mp4' || 'mkv' || 'avi' || 'mov' || 'webm' => const [
+        LocalEditor('VLC', 'vlc', icon: Icons.play_circle_rounded),
+        LocalEditor('MPV', 'mpv', icon: Icons.play_circle_rounded),
+      ],
+      _ => const [],
+    };
+  }
+
+  bool _windowsAppExistsPath(String path) {
+    if (path.isEmpty) return false;
+    return File(path).existsSync();
+  }
+
   Future<String> prepareRemoteFileForLocalEdit(SftpFileEntry file) async {
     final tempRoot = Directory.systemTemp.createTempSync('portix-sftp-edit-');
     final localPath = '${tempRoot.path}${Platform.pathSeparator}${file.name}';
@@ -174,6 +387,11 @@ class LocalEditorService {
   }
 
   Future<void> open(LocalEditor editor, String path) async {
+    // Handle system default pseudo-command.
+    if (editor.command == '_system_default_') {
+      await openWithSystemDefault(path);
+      return;
+    }
     // On macOS, if command is not in PATH but app exists, use 'open -a'
     if (Platform.isMacOS && editor.command != 'open') {
       final result = await Process.run('which', [editor.command]);
@@ -199,14 +417,41 @@ class LocalEditorService {
           editor.command.endsWith('.cmd') || editor.command.endsWith('.bat');
 
       // Special handling for "Default Windows app" (cmd.exe /c start "")
-      // The path must be quoted for start to handle spaces correctly.
+      // Detect whether PowerShell or cmd is available and use the appropriate
+      // mechanism to open a file with the system default handler.
       if (editor.command == 'cmd.exe' && editor.arguments.contains('start')) {
-        await Process.start('cmd.exe', [
-          '/c',
-          'start',
-          '""',
-          '"$path"',
-        ], runInShell: true);
+        final escaped = path.replaceAll('/', '\\');
+
+        // Try pwsh (PowerShell Core) first.
+        if (await _commandExists('pwsh')) {
+          await Process.run('pwsh', [
+            '-NoProfile',
+            '-Command',
+            'Start-Process',
+            '-FilePath',
+            escaped,
+          ]);
+          return;
+        }
+
+        // Try Windows PowerShell (powershell.exe).
+        if (await _commandExists('powershell')) {
+          await Process.run('powershell', [
+            '-NoProfile',
+            '-Command',
+            'Start-Process',
+            '-FilePath',
+            escaped,
+          ]);
+          return;
+        }
+
+        // Fallback: cmd.exe with properly constructed command.
+        // Using rundll32 avoids the quoting issues of `start`.
+        await Process.run('rundll32.exe', [
+          'url.dll,FileProtocolHandler',
+          escaped,
+        ]);
         return;
       }
 
@@ -227,7 +472,41 @@ class LocalEditorService {
       ], runInShell: needsShell);
       return;
     }
+
+    // macOS/Linux: for `open` (macOS) or `xdg-open` (Linux), run directly.
+    // For other commands (bash, zsh, fish, etc.), ensure the shell is valid.
+    if (editor.command == 'xdg-open' || editor.command == 'open') {
+      await Process.start(editor.command, [...editor.arguments, path]);
+      return;
+    }
+
+    // For shell-based editors, try the command via the detected user shell
+    // (bash, zsh, fish) to ensure PATH and environment are inherited.
+    final userShell = Platform.environment['SHELL']?.trim();
+    if (userShell != null &&
+        userShell.isNotEmpty &&
+        editor.command != userShell) {
+      // Validate that the editor command exists by checking via the user shell.
+      final check = await Process.run(userShell, ['-c', 'command -v ${editor.command}']);
+      if (check.exitCode != 0) {
+        // Command not found in any shell — try common shells as fallback.
+        const fallbackShells = ['/bin/zsh', '/bin/bash', '/usr/bin/fish'];
+        for (final shell in fallbackShells) {
+          if (!File(shell).existsSync()) continue;
+          final fallbackCheck = await Process.run(shell, ['-c', 'command -v ${editor.command}']);
+          if (fallbackCheck.exitCode == 0) {
+            await Process.start(shell, ['-c', '${editor.command} ${[...editor.arguments, path].map(_posixQuote).join(' ')}']);
+            return;
+          }
+        }
+      }
+    }
     await Process.start(editor.command, [...editor.arguments, path]);
+  }
+
+  /// Quote a value safely for POSIX shells.
+  static String _posixQuote(String value) {
+    return "'${value.replaceAll("'", r"'\''")}'";
   }
 
   String? _findWindowsExe(String command) {

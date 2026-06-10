@@ -512,19 +512,48 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       return;
     }
 
-    final editors = await _controller.detectLocalEditors();
-    if (!mounted) return;
+    final isCodeFile = _shouldOpenInCodeEditor(file.name);
 
-    if (editors.isEmpty) {
-      _showSnack(
-        context,
-        'Editor lokal tidak ditemukan. Install VS Code, Cursor, Zed, Sublime, Xcode, atau editor lain.',
-      );
+    // For non-code files opened with default action,
+    // always use the OS system default application (Word for .docx, etc.)
+    if (!isCodeFile && preferredDefault) {
+      final path = await _controller.editablePathFor(file, isRemote);
+      try {
+        await _controller.openWithSystemDefault(path);
+        if (!mounted) return;
+        if (isRemote) {
+          _showSnack(context, 'Opened ${file.name} with system default app.');
+        }
+      } catch (error) {
+        if (!mounted) return;
+        _showSnack(context, 'Failed to open ${file.name}: $error');
+      }
       return;
     }
 
-    final preferCodeEditor =
-        preferredDefault && _shouldOpenInCodeEditor(file.name);
+    // Detect appropriate apps based on file type.
+    final List<LocalEditor> editors;
+    if (isCodeFile) {
+      editors = await _controller.detectLocalEditors();
+    } else {
+      final extension = _fileExtension(file.name);
+      editors = await _controller.detectAppsForExtension(extension);
+    }
+    if (!mounted) return;
+
+    if (editors.isEmpty) {
+      // No apps found — use system default directly.
+      final path = await _controller.editablePathFor(file, isRemote);
+      try {
+        await _controller.openWithSystemDefault(path);
+      } catch (error) {
+        if (!mounted) return;
+        _showSnack(context, 'Failed to open ${file.name}: $error');
+      }
+      return;
+    }
+
+    final preferCodeEditor = preferredDefault && isCodeFile;
     final editor = preferredDefault
         ? _preferredLocalEditor(editors, preferCodeEditor: preferCodeEditor)
         : await showModalBottomSheet<LocalEditor>(
@@ -534,6 +563,18 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           );
 
     if (editor == null || !mounted) return;
+
+    // Handle system default pseudo-command.
+    if (editor.command == '_system_default_') {
+      final path = await _controller.editablePathFor(file, isRemote);
+      try {
+        await _controller.openWithSystemDefault(path);
+      } catch (error) {
+        if (!mounted) return;
+        _showSnack(context, 'Failed to open ${file.name}: $error');
+      }
+      return;
+    }
 
     final path = await _controller.editablePathFor(file, isRemote);
     final originalText = isRemote ? await _readFileTextIfPossible(path) : null;
@@ -698,19 +739,49 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     var added = 0;
     var removed = 0;
     final preview = <String>[];
+
+    // Build unified diff with context lines around changes.
+    const contextSize = 2;
+    final changedIndices = <int>{};
     for (var index = 0; index < maxLength; index += 1) {
       final oldLine = index < beforeLines.length ? beforeLines[index] : null;
       final newLine = index < afterLines.length ? afterLines[index] : null;
-      if (oldLine == newLine) continue;
-      if (oldLine != null) {
-        removed += 1;
-        if (preview.length < 80) preview.add('- $oldLine');
-      }
-      if (newLine != null) {
-        added += 1;
-        if (preview.length < 80) preview.add('+ $newLine');
+      if (oldLine != newLine) changedIndices.add(index);
+    }
+
+    final visibleIndices = <int>{};
+    for (final changed in changedIndices) {
+      for (var offset = -contextSize; offset <= contextSize; offset += 1) {
+        final idx = changed + offset;
+        if (idx >= 0 && idx < maxLength) visibleIndices.add(idx);
       }
     }
+
+    final sorted = visibleIndices.toList()..sort();
+    var lastIndex = -2;
+    for (final index in sorted) {
+      if (preview.length >= 120) break;
+      if (index > lastIndex + 1 && preview.isNotEmpty) {
+        preview.add('  ···');
+      }
+      lastIndex = index;
+      final oldLine = index < beforeLines.length ? beforeLines[index] : null;
+      final newLine = index < afterLines.length ? afterLines[index] : null;
+      if (oldLine == newLine) {
+        // Context (unchanged) line.
+        preview.add('  ${oldLine ?? ''}');
+      } else {
+        if (oldLine != null) {
+          removed += 1;
+          preview.add('- $oldLine');
+        }
+        if (newLine != null) {
+          added += 1;
+          preview.add('+ $newLine');
+        }
+      }
+    }
+
     return _SftpTextDiff(
       added: added,
       removed: removed,
@@ -1074,6 +1145,12 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                                           profile,
                                         ),
                                   )
+                                : _controller.isRemoteDisconnected
+                                ? _SftpDisconnectedOverlay(
+                                    onReconnect: () => unawaited(
+                                      _controller.reconnect(selectedProfile),
+                                    ),
+                                  )
                                 : null,
                             onPathSubmitted: _controller.loadRemoteDirectory,
                             onOpenFolder: (file) => _controller
@@ -1242,6 +1319,12 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                                         context,
                                         profile,
                                       ),
+                                )
+                              : _controller.isRemoteDisconnected
+                              ? _SftpDisconnectedOverlay(
+                                  onReconnect: () => unawaited(
+                                    _controller.reconnect(selectedProfile),
+                                  ),
                                 )
                               : null,
                           onPathSubmitted: _controller.loadRemoteDirectory,
@@ -1662,18 +1745,32 @@ class _SftpRewriteRemoteDialog extends StatelessWidget {
                       final line = diff.lines[index];
                       final isAdd = line.startsWith('+ ');
                       final isRemove = line.startsWith('- ');
+                      final isSeparator = line.trim() == '···';
                       final color = isAdd
                           ? AppColors.green
                           : isRemove
                           ? AppColors.danger
-                          : AppColors.muted;
-                      return Text(
-                        line,
-                        style: TextStyle(
-                          color: color,
-                          fontSize: 11,
-                          height: 1.35,
-                          fontFamily: 'monospace',
+                          : isSeparator
+                          ? AppColors.muted.withValues(alpha: .5)
+                          : AppColors.text.withValues(alpha: .6);
+                      final bgColor = isAdd
+                          ? AppColors.green.withValues(alpha: .07)
+                          : isRemove
+                          ? AppColors.danger.withValues(alpha: .07)
+                          : Colors.transparent;
+                      return Container(
+                        color: bgColor,
+                        child: Text(
+                          line,
+                          style: TextStyle(
+                            color: color,
+                            fontSize: 11,
+                            height: 1.4,
+                            fontFamily: 'monospace',
+                            fontWeight: (isAdd || isRemove)
+                                ? FontWeight.w700
+                                : FontWeight.normal,
+                          ),
                         ),
                       );
                     },

@@ -20,6 +20,7 @@ class SftpWorkspaceController extends ChangeNotifier {
        _localEditorService = localEditorService ?? LocalEditorService() {
     _localPath = _localFileBrowser.defaultPath();
     unawaited(loadLocalDirectory(_localPath));
+    _connectionManager.addListener(_handleConnectionManagerChanged);
   }
 
   final ConnectionManager _connectionManager;
@@ -72,6 +73,23 @@ class SftpWorkspaceController extends ChangeNotifier {
   bool get loadingRemote => _loadingRemote;
   bool get searchingRemote => _searchingRemote;
   bool get hasRemoteSession => _remoteSessionId != null;
+  bool get isRemoteDisconnected {
+    if (_remoteSessionId == null) return false;
+    final session = _connectionManager.sessions
+        .where((s) => s.id == _remoteSessionId)
+        .firstOrNull;
+    if (session == null) return true;
+    return session.status == ConnectionStatus.disconnected ||
+        session.status == ConnectionStatus.error;
+  }
+
+  bool get isRemoteConnected {
+    if (_remoteSessionId == null) return false;
+    final session = _connectionManager.sessions
+        .where((s) => s.id == _remoteSessionId)
+        .firstOrNull;
+    return session?.status == ConnectionStatus.connected;
+  }
   bool get localSearchActive => _localSearchQuery.trim().isNotEmpty;
   bool get remoteSearchActive => _remoteSearchQuery.trim().isNotEmpty;
   int get localItemCount => _localRows.where((row) => row.name != '..').length;
@@ -744,8 +762,17 @@ class SftpWorkspaceController extends ChangeNotifier {
     return _localEditorService.open(editor, path);
   }
 
+  Future<void> openWithSystemDefault(String path) {
+    return _localEditorService.openWithSystemDefault(path);
+  }
+
+  Future<List<LocalEditor>> detectAppsForExtension(String extension) {
+    return _localEditorService.detectAppsForExtension(extension);
+  }
+
   @override
   void dispose() {
+    _connectionManager.removeListener(_handleConnectionManagerChanged);
     _clearTransferTimer?.cancel();
     final sessionId = _remoteSessionId;
     _remoteSessionId = null;
@@ -753,6 +780,33 @@ class SftpWorkspaceController extends ChangeNotifier {
       unawaited(_connectionManager.closeSession(sessionId));
     }
     super.dispose();
+  }
+
+  void _handleConnectionManagerChanged() {
+    if (_remoteSessionId == null) return;
+    final session = _connectionManager.sessions
+        .where((s) => s.id == _remoteSessionId)
+        .firstOrNull;
+    if (session == null) {
+      // Session was removed entirely — mark as disconnected.
+      _remoteError = 'SFTP session lost. Connection was closed.';
+      _remoteStatus = 'disconnected';
+      notifyListeners();
+      return;
+    }
+    if (session.status == ConnectionStatus.disconnected ||
+        session.status == ConnectionStatus.error) {
+      _remoteError ??= 'Remote connection lost.';
+      _remoteStatus = 'disconnected';
+      notifyListeners();
+    }
+  }
+
+  /// Reconnect the SFTP session using the same profile and path.
+  Future<void> reconnect(domain.SshProfile profile) async {
+    final previousPath = _remotePath;
+    await clearRemoteSession();
+    await attachRemoteProfile(profile, previousPath);
   }
 
   bool _isCurrentRemoteRequest(int token) {

@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:portix/src/core/widgets/index.dart';
 
 import 'package:portix/src/connection_manager/connection_manager.dart';
@@ -818,9 +819,17 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
       );
       if (!ok) return;
       final originalText = await _readFileTextIfPossible(localPath);
+
+      // For non-code files (documents, images, etc.), always use system default
+      // unless an explicit editor override is provided or code editor requested.
+      final isCodeFile = _shouldOpenInCodeEditor(entry.name);
+      if (!isCodeFile && !preferCodeEditor && editorOverride == null) {
+        await _localEditorService.openWithSystemDefault(localPath);
+        return;
+      }
+
       final editors = await _localEditorService.detectEditors();
-      final useCodeEditor =
-          _shouldOpenInCodeEditor(entry.name) && preferCodeEditor;
+      final useCodeEditor = isCodeFile && preferCodeEditor;
       final editor =
           editorOverride ??
           _preferredLocalEditor(editors, preferCodeEditor: useCodeEditor);
@@ -856,10 +865,23 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     RemoteFileEntry entry,
   ) async {
     if (entry.isDirectory || entry.name == '..') return;
-    final editors = await _localEditorService.detectEditors();
+
+    final extension = _fileExtension(entry.name);
+    final isCodeFile = _shouldOpenInCodeEditor(entry.name);
+
+    // For non-code files, show extension-specific apps (Word, VLC, etc.)
+    // For code files, show code editors.
+    final List<LocalEditor> editors;
+    if (isCodeFile) {
+      editors = await _localEditorService.detectEditors();
+    } else {
+      editors = await _localEditorService.detectAppsForExtension(extension);
+    }
+
     if (!context.mounted) return;
     if (editors.isEmpty) {
-      _showMessage(context, 'Local editor was not found on this machine.');
+      // No specific apps found — open with system default directly.
+      await _openWithSystemDefault(entry);
       return;
     }
     final editor = await showModalBottomSheet<LocalEditor>(
@@ -871,11 +893,36 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
       builder: (context) => _OpenWithEditorSheet(editors: editors),
     );
     if (editor == null) return;
+
+    // Handle the "_system_default_" special command.
+    if (editor.command == '_system_default_') {
+      await _openWithSystemDefault(entry);
+      return;
+    }
+
     await _openRemoteFileLocally(
       entry,
       editorOverride: editor,
-      watchForRewrite: editor.command != 'open' || editor.arguments.isNotEmpty,
+      watchForRewrite: isCodeFile,
     );
+  }
+
+  Future<void> _openWithSystemDefault(RemoteFileEntry entry) async {
+    final sessionId = _activeSessionId;
+    if (sessionId == null) return;
+    final tempRoot = await Directory.systemTemp.createTemp(
+      'portix-remote-open-',
+    );
+    final localPath =
+        '${tempRoot.path}${Platform.pathSeparator}${_safeLocalFileName(entry.name)}';
+    final ok = await _downloadRemoteFile(
+      sessionId,
+      entry.path,
+      localPath,
+      sizeBytes: entry.sizeBytes,
+    );
+    if (!ok) return;
+    await _localEditorService.openWithSystemDefault(localPath);
   }
 
   LocalEditor? _preferredLocalEditor(
@@ -1004,19 +1051,49 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     var added = 0;
     var removed = 0;
     final preview = <String>[];
+
+    // Build unified diff with context lines around changes.
+    const contextSize = 2;
+    final changedIndices = <int>{};
     for (var index = 0; index < maxLength; index += 1) {
       final oldLine = index < beforeLines.length ? beforeLines[index] : null;
       final newLine = index < afterLines.length ? afterLines[index] : null;
-      if (oldLine == newLine) continue;
-      if (oldLine != null) {
-        removed += 1;
-        if (preview.length < 80) preview.add('- $oldLine');
-      }
-      if (newLine != null) {
-        added += 1;
-        if (preview.length < 80) preview.add('+ $newLine');
+      if (oldLine != newLine) changedIndices.add(index);
+    }
+
+    final visibleIndices = <int>{};
+    for (final changed in changedIndices) {
+      for (var offset = -contextSize; offset <= contextSize; offset += 1) {
+        final idx = changed + offset;
+        if (idx >= 0 && idx < maxLength) visibleIndices.add(idx);
       }
     }
+
+    final sorted = visibleIndices.toList()..sort();
+    var lastIndex = -2;
+    for (final index in sorted) {
+      if (preview.length >= 120) break;
+      if (index > lastIndex + 1 && preview.isNotEmpty) {
+        preview.add('  ···');
+      }
+      lastIndex = index;
+      final oldLine = index < beforeLines.length ? beforeLines[index] : null;
+      final newLine = index < afterLines.length ? afterLines[index] : null;
+      if (oldLine == newLine) {
+        // Context (unchanged) line.
+        preview.add('  ${oldLine ?? ''}');
+      } else {
+        if (oldLine != null) {
+          removed += 1;
+          preview.add('- $oldLine');
+        }
+        if (newLine != null) {
+          added += 1;
+          preview.add('+ $newLine');
+        }
+      }
+    }
+
     return _TextDiff(
       added: added,
       removed: removed,
@@ -1784,8 +1861,14 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(message),
-          backgroundColor: AppColors.surfaceCard,
+          content: Text(
+            message,
+            style: const TextStyle(
+              color: AppColors.text,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          backgroundColor: const Color(0xFF1A2E42),
           behavior: SnackBarBehavior.floating,
         ),
       );
