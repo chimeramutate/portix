@@ -805,9 +805,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
   }) async {
     final sessionId = _activeSessionId;
     if (sessionId == null || entry.isDirectory || entry.name == '..') return;
-    final tempRoot = await Directory.systemTemp.createTemp(
-      'portix-remote-open-',
-    );
+    final tempRoot = await LocalEditorService.createOpenTempDir();
     final localPath =
         '${tempRoot.path}${Platform.pathSeparator}${_safeLocalFileName(entry.name)}';
     try {
@@ -928,9 +926,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
   Future<void> _openWithSystemDefault(RemoteFileEntry entry) async {
     final sessionId = _activeSessionId;
     if (sessionId == null) return;
-    final tempRoot = await Directory.systemTemp.createTemp(
-      'portix-remote-open-',
-    );
+    final tempRoot = await LocalEditorService.createOpenTempDir();
     final localPath =
         '${tempRoot.path}${Platform.pathSeparator}${_safeLocalFileName(entry.name)}';
     final ok = await _downloadRemoteFile(

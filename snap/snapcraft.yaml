@@ -81,6 +81,7 @@ parts:
 apps:
   portix:
     command: portix
+    desktop: snap/gui/portix.desktop
     extensions: [gnome]
     plugs:
       - network

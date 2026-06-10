@@ -251,16 +251,16 @@ class LocalEditorService {
   /// This bypasses the editor selection entirely and uses the platform's
   /// native file association mechanism.
   Future<void> openWithSystemDefault(String path) async {
+    // In snap confinement, copy file to accessible location first.
+    final accessiblePath = await _ensureAccessiblePath(path);
+
     if (Platform.isWindows) {
-      final escaped = path.replaceAll('/', '\\');
-      // Use rundll32 which is the most reliable way to open a file with its
-      // associated application on Windows without quoting issues.
+      final escaped = accessiblePath.replaceAll('/', '\\');
       final result = await Process.run('rundll32.exe', [
         'url.dll,FileProtocolHandler',
         escaped,
       ]);
       if (result.exitCode == 0) return;
-      // Fallback: PowerShell Invoke-Item.
       await Process.run('powershell', [
         '-NoProfile',
         '-NonInteractive',
@@ -270,18 +270,18 @@ class LocalEditorService {
       return;
     }
     if (Platform.isMacOS) {
-      await Process.start('open', [path]);
+      await Process.start('open', [accessiblePath]);
       return;
     }
     // Linux: try multiple mechanisms.
     // 1. gio open — works in snap via xdg-desktop-portal.
-    final gioResult = await Process.run('gio', ['open', path]);
+    final gioResult = await Process.run('gio', ['open', accessiblePath]);
     if (gioResult.exitCode == 0) return;
     // 2. xdg-open — works in native builds.
-    final xdgResult = await Process.run('xdg-open', [path]);
+    final xdgResult = await Process.run('xdg-open', [accessiblePath]);
     if (xdgResult.exitCode == 0) return;
     // 3. Direct D-Bus portal call as final fallback.
-    final uri = Uri.file(path).toString();
+    final uri = Uri.file(accessiblePath).toString();
     await Process.run('dbus-send', [
       '--session',
       '--dest=org.freedesktop.portal.Desktop',
@@ -292,6 +292,68 @@ class LocalEditorService {
       'string:$uri',
       'dict:string:variant:',
     ]);
+  }
+
+  /// Returns a path accessible by external applications.
+  /// In snap confinement, /tmp is private so we copy to $HOME/.cache/portix/
+  /// which is readable by other apps via the home plug.
+  Future<String> _ensureAccessiblePath(String path) async {
+    // Detect snap confinement.
+    final snapCommon = Platform.environment['SNAP_USER_COMMON'];
+    final isSnap = snapCommon != null && snapCommon.isNotEmpty;
+
+    if (!isSnap) return path;
+
+    // In snap: copy file to user-accessible cache directory.
+    final home =
+        Platform.environment['HOME'] ??
+        Platform.environment['SNAP_REAL_HOME'] ??
+        '/tmp';
+    final cacheDir = Directory('$home/.cache/portix/open');
+    await cacheDir.create(recursive: true);
+
+    // Clean old files (older than 1 hour).
+    try {
+      await for (final entity in cacheDir.list()) {
+        if (entity is File) {
+          final stat = await entity.stat();
+          if (DateTime.now().difference(stat.modified).inHours >= 1) {
+            await entity.delete();
+          }
+        }
+      }
+    } catch (_) {}
+
+    final fileName = path.split(Platform.pathSeparator).last;
+    final targetPath = '${cacheDir.path}${Platform.pathSeparator}$fileName';
+    await File(path).copy(targetPath);
+    return targetPath;
+  }
+
+  /// Create a temp directory suitable for downloading files that will be
+  /// opened by external apps. In snap, uses $HOME/.cache/portix/ instead
+  /// of /tmp which is confined.
+  static Future<Directory> createOpenTempDir() async {
+    final snapCommon = Platform.environment['SNAP_USER_COMMON'];
+    final isSnap = snapCommon != null && snapCommon.isNotEmpty;
+
+    if (!isSnap) {
+      return Directory.systemTemp.createTemp('portix-remote-open-');
+    }
+
+    // In snap: use home cache dir.
+    final home =
+        Platform.environment['HOME'] ??
+        Platform.environment['SNAP_REAL_HOME'] ??
+        '/tmp';
+    final baseDir = Directory('$home/.cache/portix/open');
+    await baseDir.create(recursive: true);
+    // Create a unique subdir.
+    final uniqueDir = Directory(
+      '${baseDir.path}${Platform.pathSeparator}portix-${DateTime.now().millisecondsSinceEpoch}',
+    );
+    await uniqueDir.create();
+    return uniqueDir;
   }
 
   /// Detect applications suitable for a specific file extension.

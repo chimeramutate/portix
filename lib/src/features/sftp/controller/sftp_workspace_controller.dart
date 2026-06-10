@@ -91,6 +91,7 @@ class SftpWorkspaceController extends ChangeNotifier {
         .firstOrNull;
     return session?.status == ConnectionStatus.connected;
   }
+
   bool get localSearchActive => _localSearchQuery.trim().isNotEmpty;
   bool get remoteSearchActive => _remoteSearchQuery.trim().isNotEmpty;
   int get localItemCount => _localRows.where((row) => row.name != '..').length;
@@ -753,7 +754,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     if (sessionId == null || remotePath == null) {
       throw StateError('Remote SFTP session is not connected.');
     }
-    final tempRoot = await Directory.systemTemp.createTemp('portix-sftp-edit-');
+    final tempRoot = await LocalEditorService.createOpenTempDir();
     final localPath = '${tempRoot.path}${Platform.pathSeparator}${file.name}';
     await _downloadRemoteFile(sessionId, remotePath, localPath);
     return localPath;
