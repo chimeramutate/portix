@@ -195,26 +195,36 @@ class LocalEditorService {
     // On Windows, if command is not in PATH, find the exe directly
     if (Platform.isWindows) {
       // .cmd and .bat files require runInShell to execute properly
-      final needsShell = editor.command.endsWith('.cmd') ||
-          editor.command.endsWith('.bat');
+      final needsShell =
+          editor.command.endsWith('.cmd') || editor.command.endsWith('.bat');
+
+      // Special handling for "Default Windows app" (cmd.exe /c start "")
+      // The path must be quoted for start to handle spaces correctly.
+      if (editor.command == 'cmd.exe' && editor.arguments.contains('start')) {
+        await Process.start('cmd.exe', [
+          '/c',
+          'start',
+          '""',
+          '"$path"',
+        ], runInShell: true);
+        return;
+      }
 
       final result = await Process.run('where', [editor.command]);
       if (result.exitCode != 0) {
         final exePath = _findWindowsExe(editor.command);
         if (exePath != null) {
-          await Process.start(
-            exePath,
-            [...editor.arguments, path],
-            runInShell: needsShell,
-          );
+          await Process.start(exePath, [
+            ...editor.arguments,
+            path,
+          ], runInShell: needsShell);
           return;
         }
       }
-      await Process.start(
-        editor.command,
-        [...editor.arguments, path],
-        runInShell: needsShell,
-      );
+      await Process.start(editor.command, [
+        ...editor.arguments,
+        path,
+      ], runInShell: needsShell);
       return;
     }
     await Process.start(editor.command, [...editor.arguments, path]);

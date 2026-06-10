@@ -54,8 +54,11 @@ class TerminalPane extends StatelessWidget {
     final connecting = status == session_models.ConnectionStatus.connecting;
     final draggable = allowPaneDrag && sessionId != null && onSplit != null;
     final pane = GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
+      behavior: HitTestBehavior.translucent,
+      onTap: () {
+        focusNode.requestFocus();
+        onTap?.call();
+      },
       child: Container(
         decoration: BoxDecoration(
           border: Border.all(
@@ -81,6 +84,8 @@ class TerminalPane extends StatelessWidget {
                 scrollController: scrollController,
                 focusNode: focusNode,
                 autofocus: keyboardEnabled && active,
+                readOnly: !keyboardEnabled,
+                mouseCursor: SystemMouseCursors.text,
                 padding: EdgeInsets.fromLTRB(16, draggable ? 34 : 16, 16, 16),
                 textStyle: const TerminalStyle(
                   fontSize: 13,
