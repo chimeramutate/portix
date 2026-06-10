@@ -834,9 +834,8 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
           editorOverride ??
           _preferredLocalEditor(editors, preferCodeEditor: useCodeEditor);
       if (editor == null) {
-        if (mounted) {
-          _showMessage(context, 'Local editor was not found on this machine.');
-        }
+        // No code editor detected — fall back to system default handler.
+        await _localEditorService.openWithSystemDefault(localPath);
         return;
       }
       await _localEditorService.open(editor, localPath);
@@ -870,10 +869,29 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     final isCodeFile = _shouldOpenInCodeEditor(entry.name);
 
     // For non-code files, show extension-specific apps (Word, VLC, etc.)
-    // For code files, show code editors.
+    // For code files, show code editors + system default.
     final List<LocalEditor> editors;
     if (isCodeFile) {
-      editors = await _localEditorService.detectEditors();
+      final codeEditors = await _localEditorService.detectEditors();
+      editors = [
+        ...codeEditors,
+        // Always offer system default for code files too.
+        if (!codeEditors.any(
+          (e) =>
+              e.command == 'xdg-open' ||
+              e.command == 'open' ||
+              e.command == '_system_default_',
+        ))
+          LocalEditor(
+            Platform.isMacOS
+                ? 'Default macOS app'
+                : Platform.isWindows
+                ? 'Default Windows app'
+                : 'System default',
+            '_system_default_',
+            icon: Icons.open_in_new_rounded,
+          ),
+      ];
     } else {
       editors = await _localEditorService.detectAppsForExtension(extension);
     }
@@ -945,8 +963,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
 
   bool _isDefaultSystemEditor(LocalEditor editor) {
     if (Platform.isWindows) {
-      return editor.command == 'cmd.exe' &&
-          editor.arguments.contains('start');
+      return editor.command == 'cmd.exe' && editor.arguments.contains('start');
     }
     return editor.command == 'open' && editor.arguments.isEmpty;
   }

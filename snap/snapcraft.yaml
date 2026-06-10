@@ -93,6 +93,7 @@ apps:
       - opengl
       - gsettings
       - password-manager-service
+      - ssh-keys
 
 layout:
   /usr/share/libdrm:

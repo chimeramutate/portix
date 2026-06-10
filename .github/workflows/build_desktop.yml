@@ -199,9 +199,7 @@ jobs:
         with:
           name: ${{ matrix.package_name }}-${{ github.ref_name }}
           path: |
-            ${{ matrix.package_name }}-${{ github.ref_name }}.zip
-            ${{ matrix.package_name }}-${{ github.ref_name }}.tar.gz
-            ${{ matrix.package_name }}-${{ github.ref_name }}.deb
+            ${{ matrix.package_name }}-${{ github.ref_name }}.*
 
       - name: Upload package to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -209,10 +207,11 @@ jobs:
         with:
           prerelease: ${{ env.IS_BETA == 'true' }}
           name: ${{ env.IS_BETA == 'true' && format('Portix {0} (Beta)', github.ref_name) || format('Portix {0}', github.ref_name) }}
+          draft: false
+          make_latest: ${{ env.IS_BETA != 'true' }}
+          fail_on_unmatched_files: false
           files: |
-            ${{ matrix.package_name }}-${{ github.ref_name }}.zip
-            ${{ matrix.package_name }}-${{ github.ref_name }}.tar.gz
-            ${{ matrix.package_name }}-${{ github.ref_name }}.deb
+            ${{ matrix.package_name }}-${{ github.ref_name }}.*
 
   snap:
     name: Build Snap
