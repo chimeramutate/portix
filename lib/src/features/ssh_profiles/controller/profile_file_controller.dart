@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart';
 
 class ProfileFileController {
@@ -29,11 +30,16 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.
 ''',
       ]);
     }
-    return _runPicker('zenity', const [
+    // Linux: try zenity first, fall back to file_picker (works in snap).
+    final zenityResult = await _runPicker('zenity', const [
       '--file-selection',
       '--title=Import Portix profile file',
       '--file-filter=Portix profiles | *.portix-profiles.json *.json',
     ]);
+    if (zenityResult.status != ProfilePathPickStatus.unavailable) {
+      return zenityResult;
+    }
+    return _pickWithFilePicker();
   }
 
   Future<ProfilePathPickResult> pickExportPath() async {
@@ -56,13 +62,18 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.
 ''',
       ]);
     }
-    return _runPicker('zenity', const [
+    // Linux: try zenity first, fall back to file_picker save dialog.
+    final zenityResult = await _runPicker('zenity', const [
       '--file-selection',
       '--save',
       '--confirm-overwrite',
       '--title=Export Portix profiles',
       '--filename=portix-profiles.portix-profiles.json',
     ]);
+    if (zenityResult.status != ProfilePathPickStatus.unavailable) {
+      return zenityResult;
+    }
+    return _saveWithFilePicker();
   }
 
   Future<void> exportProfiles(String path, List<SshProfile> profiles) async {
@@ -107,6 +118,42 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.
       imported.add(profile.copyWith(id: id, status: ConnectionStatus.offline));
     }
     return imported;
+  }
+
+  Future<ProfilePathPickResult> _pickWithFilePicker() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        allowMultiple: false,
+      );
+      if (result == null || result.files.isEmpty) {
+        return const ProfilePathPickResult.canceled();
+      }
+      final path = result.files.single.path;
+      if (path == null || path.isEmpty) {
+        return const ProfilePathPickResult.canceled();
+      }
+      return ProfilePathPickResult.selected(path);
+    } catch (_) {
+      return const ProfilePathPickResult.unavailable();
+    }
+  }
+
+  Future<ProfilePathPickResult> _saveWithFilePicker() async {
+    try {
+      final path = await FilePicker.saveFile(
+        fileName: defaultFileName,
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+      if (path == null || path.isEmpty) {
+        return const ProfilePathPickResult.canceled();
+      }
+      return ProfilePathPickResult.selected(path);
+    } catch (_) {
+      return const ProfilePathPickResult.unavailable();
+    }
   }
 
   Future<ProfilePathPickResult> _runPicker(

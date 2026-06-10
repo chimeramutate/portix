@@ -151,26 +151,48 @@ file(WRITE "${CMAKE_BINARY_DIR}/install.sh"
 set -e
 SCRIPT_DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"
 ICON_SRC=\"$SCRIPT_DIR/data/app_icon.png\"
-ICON_DIR=\"$HOME/.local/share/icons/hicolor/256x256/apps\"
-DESKTOP_SRC=\"$SCRIPT_DIR/portix.desktop\"
 DESKTOP_DIR=\"$HOME/.local/share/applications\"
 
-mkdir -p \"$ICON_DIR\" \"$DESKTOP_DIR\"
-cp \"$ICON_SRC\" \"$ICON_DIR/portix.png\"
+mkdir -p \"$DESKTOP_DIR\"
+
+# Install icon at multiple sizes for proper display on all DEs.
+for SIZE in 48 64 128 256 512; do
+  ICON_DIR=\"$HOME/.local/share/icons/hicolor/\${SIZE}x\${SIZE}/apps\"
+  mkdir -p \"$ICON_DIR\"
+  if command -v magick >/dev/null 2>&1; then
+    magick \"$ICON_SRC\" -resize \"\${SIZE}x\${SIZE}\" \"$ICON_DIR/portix.png\"
+  elif command -v convert >/dev/null 2>&1; then
+    convert \"$ICON_SRC\" -resize \"\${SIZE}x\${SIZE}\" \"$ICON_DIR/portix.png\"
+  else
+    cp \"$ICON_SRC\" \"$ICON_DIR/portix.png\"
+  fi
+done
+
+# Also install to pixmaps as fallback (some DEs check here).
+mkdir -p \"$HOME/.local/share/pixmaps\"
+cp \"$ICON_SRC\" \"$HOME/.local/share/pixmaps/portix.png\"
 
 # Patch Exec path in .desktop file to point to this bundle.
-sed \"s|Exec=.*|Exec=$SCRIPT_DIR/portix|\" \"$DESKTOP_SRC\" > \"$DESKTOP_DIR/portix.desktop\"
+sed \"s|Exec=.*|Exec=$SCRIPT_DIR/portix|\" \"$SCRIPT_DIR/portix.desktop\" > \"$DESKTOP_DIR/portix.desktop\"
 chmod +x \"$DESKTOP_DIR/portix.desktop\"
 
-# Refresh icon cache if available.
+# Refresh icon cache.
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -f -t \"$HOME/.local/share/icons/hicolor\" 2>/dev/null || true
+fi
+if command -v kbuildsycoca5 >/dev/null 2>&1; then
+  kbuildsycoca5 2>/dev/null || true
+elif command -v kbuildsycoca6 >/dev/null 2>&1; then
+  kbuildsycoca6 2>/dev/null || true
 fi
 if command -v xdg-icon-resource >/dev/null 2>&1; then
   xdg-icon-resource forceupdate 2>/dev/null || true
 fi
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database \"$DESKTOP_DIR\" 2>/dev/null || true
+fi
 
-echo 'Portix installed successfully. You may need to log out and back in for the icon to appear.'
+echo 'Portix installed. Log out and back in if the icon does not appear immediately.'
 ")
 install(FILES "${CMAKE_BINARY_DIR}/install.sh"
   DESTINATION "${CMAKE_INSTALL_PREFIX}"
