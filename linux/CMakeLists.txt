@@ -112,6 +112,15 @@ install(DIRECTORY "${NATIVE_ASSETS_DIR}"
    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
    COMPONENT Runtime)
 
+# Bundle the Portix Rust library (libportix_serv.so).
+set(PORTIX_RUST_LIB "${CMAKE_CURRENT_SOURCE_DIR}/../assets/libportix_serv_linux.so")
+if(EXISTS "${PORTIX_RUST_LIB}")
+  install(FILES "${PORTIX_RUST_LIB}"
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    RENAME "libportix_serv.so"
+    COMPONENT Runtime)
+endif()
+
 # Fully re-copy the assets directory on each build to avoid having stale files
 # from a previous install.
 set(FLUTTER_ASSET_DIR_NAME "flutter_assets")

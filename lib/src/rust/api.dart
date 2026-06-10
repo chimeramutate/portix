@@ -3,7 +3,9 @@
 
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
+import 'application/rdp_session_manager.dart';
 import 'domain/profile.dart';
+import 'domain/rdp_profile.dart';
 import 'domain/session.dart';
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
@@ -142,3 +144,76 @@ Stream<String> connectionStatusStream() =>
 
 Stream<String> errorEventStream() =>
     RustLib.instance.api.crateApiErrorEventStream();
+
+/// Parse an .rdp file content and return an RdpProfile.
+Future<RdpProfile> parseRdpFile({
+  required String id,
+  required String name,
+  required String content,
+}) => RustLib.instance.api.crateApiParseRdpFile(
+  id: id,
+  name: name,
+  content: content,
+);
+
+/// Connect to an RDP server using the given profile.
+Future<RdpSessionInfo> rdpConnect({required RdpProfile profile}) =>
+    RustLib.instance.api.crateApiRdpConnect(profile: profile);
+
+/// Disconnect an active RDP session.
+Future<void> rdpDisconnect({required String sessionId}) =>
+    RustLib.instance.api.crateApiRdpDisconnect(sessionId: sessionId);
+
+/// Send keyboard input to an RDP session.
+Future<void> rdpSendKeyboard({
+  required String sessionId,
+  required int scancode,
+  required bool isPressed,
+}) => RustLib.instance.api.crateApiRdpSendKeyboard(
+  sessionId: sessionId,
+  scancode: scancode,
+  isPressed: isPressed,
+);
+
+/// Send mouse button input to an RDP session.
+/// button: 0 = left, 1 = right, 2 = middle
+Future<void> rdpSendMouseButton({
+  required String sessionId,
+  required int x,
+  required int y,
+  required int button,
+  required bool isPressed,
+}) => RustLib.instance.api.crateApiRdpSendMouseButton(
+  sessionId: sessionId,
+  x: x,
+  y: y,
+  button: button,
+  isPressed: isPressed,
+);
+
+/// Send mouse move event to an RDP session.
+Future<void> rdpSendMouseMove({
+  required String sessionId,
+  required int x,
+  required int y,
+}) => RustLib.instance.api.crateApiRdpSendMouseMove(
+  sessionId: sessionId,
+  x: x,
+  y: y,
+);
+
+/// Request the current frame buffer as raw RGBA bytes.
+Future<Uint8List> rdpRequestFrame({required String sessionId}) =>
+    RustLib.instance.api.crateApiRdpRequestFrame(sessionId: sessionId);
+
+/// Stream RDP frame updates (region updates as JSON).
+Stream<String> rdpFrameStream() =>
+    RustLib.instance.api.crateApiRdpFrameStream();
+
+/// Stream RDP connection status events.
+Stream<String> rdpConnectionStatusStream() =>
+    RustLib.instance.api.crateApiRdpConnectionStatusStream();
+
+/// Stream RDP error events.
+Stream<String> rdpErrorEventStream() =>
+    RustLib.instance.api.crateApiRdpErrorEventStream();

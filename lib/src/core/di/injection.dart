@@ -5,6 +5,7 @@ import 'package:get_it/get_it.dart';
 import '../../connection_manager/connection_backend.dart';
 import '../../connection_manager/connection_manager.dart';
 import '../../connection_manager/mock_backend.dart';
+import '../../connection_manager/rdp_backend.dart';
 import '../../connection_manager/rust_bridge_backend.dart';
 import '../../connection_manager/unavailable_backend.dart';
 import '../../data/repositories/settings/index.dart';
@@ -55,6 +56,16 @@ Future<void> configureDependencies() async {
     )
     ..registerFactory(() => SftpWorkspaceBloc(getProfiles: sl()))
     ..registerFactory(SshSessionBloc.new);
+
+  // Register RDP backend lazily — it requires Rust library to be already loaded
+  // by the SSH backend above.
+  try {
+    final rdpBackend = await RdpBackend.create();
+    sl.registerLazySingleton<RdpBackend>(() => rdpBackend);
+  } catch (_) {
+    // RDP not available (e.g. mock mode or mobile). Consumers should check
+    // sl.isRegistered<RdpBackend>() before using it.
+  }
 }
 
 Future<ConnectionBackend> _createConnectionBackend() async {
