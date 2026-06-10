@@ -77,6 +77,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   String? _telemetrySessionId;
   String? _connectedProfileId;
   bool _connectInProgress = false;
+  bool _passwordPromptActive = false;
   session_models.RemoteSystemSnapshot? _remoteSnapshot;
   String? _telemetryError;
   final List<RemoteMetricSample> _metricSamples = [];
@@ -187,6 +188,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     }
     if (_activeTabClosed) return;
     if (_connectInProgress) return;
+    if (_passwordPromptActive) return;
     if (_connectedProfileId == profile.id &&
         _sessionId != null &&
         _isSessionReusable(_sessionId!)) {
@@ -1213,6 +1215,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   }
 
   Future<void> _showPasswordPromptDialog(domain.SshProfile profile) {
+    _passwordPromptActive = true;
     final passwordController = TextEditingController();
     final formKey = GlobalKey<FormState>();
     return showDialog<void>(
@@ -1259,6 +1262,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                     onFieldSubmitted: (_) {
                       if (formKey.currentState!.validate()) {
                         Navigator.of(context).pop();
+                        _passwordPromptActive = false;
                         _connectWithPassword(
                           profile,
                           passwordController.text.trim(),
@@ -1277,13 +1281,17 @@ class _TerminalPanelState extends State<TerminalPanel> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _passwordPromptActive = false;
+              },
               child: const Text('Cancel'),
             ),
             FilledButton.icon(
               onPressed: () {
                 if (formKey.currentState!.validate()) {
                   Navigator.of(context).pop();
+                  _passwordPromptActive = false;
                   _connectWithPassword(profile, passwordController.text.trim());
                 }
               },
@@ -1293,7 +1301,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
           ],
         );
       },
-    );
+    ).whenComplete(() => _passwordPromptActive = false);
   }
 
   Future<void> _connectWithPassword(
@@ -1302,6 +1310,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   ) async {
     // Save password to secure storage for next time.
     unawaited(_connectionManager.saveProfilePassword(profile.id, password));
+
     // Build a profile with the password directly set.
     final managerProfile = manager_profile.SshProfile(
       id: profile.id,
@@ -1315,10 +1324,25 @@ class _TerminalPanelState extends State<TerminalPanel> {
       group: profile.group,
       tags: profile.tags,
     );
+
+    // Close the failed session and reconnect in its place (same tab).
+    final failedSessionId = _sessionId;
+    final orderIndex = failedSessionId != null
+        ? _sessionOrder.indexOf(failedSessionId)
+        : -1;
+
+    if (failedSessionId != null && !_isSessionConnected(failedSessionId)) {
+      await _connectionManager.closeSession(failedSessionId);
+      _disposeSessionUi(failedSessionId);
+      _sessionOrder.remove(failedSessionId);
+    }
+
+    _connectedProfileId = profile.id;
+    _connectInProgress = true;
+
     final existingSessionIds = _sshSessions
         .map((session) => session.id)
         .toSet();
-    _connectedProfileId = profile.id;
 
     try {
       final result = await _connectionManager.connect(managerProfile);
@@ -1338,7 +1362,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
         _splitRoot = SplitLeaf(session.id);
         _workspaceActive = false;
         _activeWorkspaceId = null;
-        _placeSessionInOrder(session.id);
+        // Restore at the same position so the tab doesn't jump.
+        _sessionOrder.restoreAtOrPlaceLast(session.id, orderIndex);
       });
       widget.onSessionChanged?.call(true);
       _notifyActiveSessionChanged(session.id);
@@ -1359,6 +1384,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
       if (mounted) {
         unawaited(_showConnectionFailedDialog(profile, error));
       }
+    } finally {
+      _connectInProgress = false;
     }
   }
 

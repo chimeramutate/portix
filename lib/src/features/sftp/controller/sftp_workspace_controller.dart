@@ -50,6 +50,7 @@ class SftpWorkspaceController extends ChangeNotifier {
   String? _remoteProfileId;
   int _remoteLoadToken = 0;
   int _remoteSearchToken = 0;
+  Timer? _remoteSearchDebounce;
 
   List<SftpTransferJob> get transferJobs => List.unmodifiable(_transferJobs);
   String get localPath => _localPath;
@@ -579,6 +580,7 @@ class SftpWorkspaceController extends ChangeNotifier {
   }
 
   void clearRemoteSearch() {
+    _remoteSearchDebounce?.cancel();
     if (!remoteSearchActive &&
         !_searchingRemote &&
         _remoteSearchError == null) {
@@ -590,6 +592,7 @@ class SftpWorkspaceController extends ChangeNotifier {
   }
 
   Future<void> searchRemote(String rawQuery) async {
+    _remoteSearchDebounce?.cancel();
     final sessionId = _remoteSessionId;
     if (sessionId == null) return;
     final parsed = _parseRemoteSearch(rawQuery);
@@ -598,9 +601,22 @@ class SftpWorkspaceController extends ChangeNotifier {
       return;
     }
 
-    final token = ++_remoteSearchToken;
+    // Show searching state immediately but debounce the actual network call.
     _remoteSearchQuery = parsed.query;
     _remoteSearchBase = parsed.base;
+    _searchingRemote = true;
+    notifyListeners();
+
+    _remoteSearchDebounce = Timer(const Duration(milliseconds: 300), () {
+      unawaited(_executeRemoteSearch(sessionId, parsed));
+    });
+  }
+
+  Future<void> _executeRemoteSearch(
+    String sessionId,
+    _RemoteSearchInput parsed,
+  ) async {
+    final token = ++_remoteSearchToken;
     _remoteSearchRows = const [];
     _remoteSearchError = null;
     _searchingRemote = true;
@@ -720,7 +736,10 @@ class SftpWorkspaceController extends ChangeNotifier {
   Future<List<SftpFileEntry>> listRemoteDirectoryRaw(String path) async {
     final sessionId = _remoteSessionId;
     if (sessionId == null) throw StateError('No remote session');
-    final result = await _connectionManager.listRemoteDirectory(sessionId, path);
+    final result = await _connectionManager.listRemoteDirectory(
+      sessionId,
+      path,
+    );
     return result.fold(
       (failure) => throw StateError(failure.message),
       (entries) => _mapRemoteRows(path, entries),
@@ -774,6 +793,7 @@ class SftpWorkspaceController extends ChangeNotifier {
   void dispose() {
     _connectionManager.removeListener(_handleConnectionManagerChanged);
     _clearTransferTimer?.cancel();
+    _remoteSearchDebounce?.cancel();
     final sessionId = _remoteSessionId;
     _remoteSessionId = null;
     if (sessionId != null) {

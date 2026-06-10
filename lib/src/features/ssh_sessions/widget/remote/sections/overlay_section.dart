@@ -5,11 +5,13 @@ class TerminalConnectionOverlay extends StatelessWidget {
     required this.profile,
     required this.connecting,
     required this.onReconnect,
+    this.onBack,
   });
 
   final domain.SshProfile? profile;
   final bool connecting;
   final VoidCallback? onReconnect;
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -48,7 +50,7 @@ class TerminalConnectionOverlay extends StatelessWidget {
                     child: Text(
                       connecting
                           ? 'Connecting session'
-                          : 'Session disconnected',
+                          : 'No terminal connection',
                       style: portixTitle(15),
                     ),
                   ),
@@ -58,15 +60,35 @@ class TerminalConnectionOverlay extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: portixMuted(12),
                   ),
-                  if (!connecting && onReconnect != null) ...[
+                  if (!connecting) ...[
                     const SizedBox(height: 14),
-                    SizedBox(
-                      height: 34,
-                      child: OutlinedButton.icon(
-                        onPressed: onReconnect,
-                        icon: const Icon(Icons.refresh_rounded, size: 16),
-                        label: const Text('Reconnect'),
-                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (onBack != null) ...[
+                          SizedBox(
+                            height: 34,
+                            child: OutlinedButton.icon(
+                              onPressed: onBack,
+                              icon: const Icon(
+                                Icons.arrow_back_rounded,
+                                size: 16,
+                              ),
+                              label: const Text('Back'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                        ],
+                        if (onReconnect != null)
+                          SizedBox(
+                            height: 34,
+                            child: FilledButton.icon(
+                              onPressed: onReconnect,
+                              icon: const Icon(Icons.refresh_rounded, size: 16),
+                              label: const Text('Connect'),
+                            ),
+                          ),
+                      ],
                     ),
                   ],
                 ],

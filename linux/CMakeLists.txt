@@ -134,8 +134,45 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../assets/icons/portix_launcher.png"
   COMPONENT Runtime)
 
 # Install .desktop file for app launcher integration.
+# Uses a relative path helper script pattern: the .desktop file uses just the
+# icon name "portix" so it works when the icon is installed into the system
+# hicolor theme. For portable/local installs, the install.sh script handles
+# copying the icon to ~/.local/share/icons/hicolor/256x256/apps/.
 file(WRITE "${CMAKE_BINARY_DIR}/portix.desktop"
-"[Desktop Entry]\nType=Application\nName=Portix\nComment=SSH Client with SFTP and Terminal\nExec=${CMAKE_INSTALL_PREFIX}/portix\nIcon=${CMAKE_INSTALL_PREFIX}/data/app_icon.png\nTerminal=false\nCategories=Network;RemoteAccess;System;\nKeywords=ssh;sftp;terminal;remote;server;\nStartupWMClass=portix\n")
+"[Desktop Entry]\nType=Application\nName=Portix\nComment=SSH Client with SFTP and Terminal\nExec=${CMAKE_INSTALL_PREFIX}/portix\nIcon=portix\nTerminal=false\nCategories=Network;RemoteAccess;System;\nKeywords=ssh;sftp;terminal;remote;server;\nStartupWMClass=portix\n")
 install(FILES "${CMAKE_BINARY_DIR}/portix.desktop"
   DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)
+
+# Generate a portable install script that registers the icon and desktop entry.
+file(WRITE "${CMAKE_BINARY_DIR}/install.sh"
+"#!/bin/bash
+# Portix Linux installer — registers icon and desktop entry for the current user.
+set -e
+SCRIPT_DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"
+ICON_SRC=\"$SCRIPT_DIR/data/app_icon.png\"
+ICON_DIR=\"$HOME/.local/share/icons/hicolor/256x256/apps\"
+DESKTOP_SRC=\"$SCRIPT_DIR/portix.desktop\"
+DESKTOP_DIR=\"$HOME/.local/share/applications\"
+
+mkdir -p \"$ICON_DIR\" \"$DESKTOP_DIR\"
+cp \"$ICON_SRC\" \"$ICON_DIR/portix.png\"
+
+# Patch Exec path in .desktop file to point to this bundle.
+sed \"s|Exec=.*|Exec=$SCRIPT_DIR/portix|\" \"$DESKTOP_SRC\" > \"$DESKTOP_DIR/portix.desktop\"
+chmod +x \"$DESKTOP_DIR/portix.desktop\"
+
+# Refresh icon cache if available.
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -f -t \"$HOME/.local/share/icons/hicolor\" 2>/dev/null || true
+fi
+if command -v xdg-icon-resource >/dev/null 2>&1; then
+  xdg-icon-resource forceupdate 2>/dev/null || true
+fi
+
+echo 'Portix installed successfully. You may need to log out and back in for the icon to appear.'
+")
+install(FILES "${CMAKE_BINARY_DIR}/install.sh"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
   COMPONENT Runtime)

@@ -587,8 +587,8 @@ class ConnectionManager extends ChangeNotifier
     }
   }
 
-  static const int _maxRemoteSearchDepth = 18;
-  static const int _maxRemoteSearchDirectories = 2200;
+  static const int _maxRemoteSearchDepth = 12;
+  static const int _maxRemoteSearchDirectories = 600;
   static const Set<String> _remoteSearchSkippedDirectories = {
     '.cache',
     '.cargo',
@@ -597,6 +597,11 @@ class ConnectionManager extends ChangeNotifier
     '.local',
     '.npm',
     '.rustup',
+    '.venv',
+    '.tox',
+    '.m2',
+    '.pub-cache',
+    '__pycache__',
     'Library',
     'cache',
     'dev',
@@ -605,6 +610,11 @@ class ConnectionManager extends ChangeNotifier
     'run',
     'sys',
     'tmp',
+    'vendor',
+    'target',
+    'build',
+    'dist',
+    '.next',
   };
 
   Future<List<RemoteFileEntry>> _findRemoteEntriesBreadthFirst({
@@ -618,46 +628,64 @@ class ConnectionManager extends ChangeNotifier
     final queue = Queue<_RemoteSearchDirectory>()
       ..add(_RemoteSearchDirectory(basePath, 0));
 
+    // Process directories in parallel batches for faster searching.
+    const batchSize = 6;
+
     while (queue.isNotEmpty &&
         results.length < maxResults &&
         visited.length < _maxRemoteSearchDirectories) {
-      final current = queue.removeFirst();
-      if (current.depth > _maxRemoteSearchDepth) continue;
-      final normalizedPath = current.path.trim().isEmpty
-          ? '/'
-          : current.path.trim();
-      if (!visited.add(normalizedPath)) continue;
-
-      final entries = await _listRemoteDirectoryForFind(
-        backendSessionId,
-        normalizedPath,
-        isBasePath: current.depth == 0,
-      );
-
-      final childDirectories = <RemoteFileEntry>[];
-      for (final entry in entries) {
-        if (results.length >= maxResults) break;
-        final haystack = '${entry.name}\n${entry.path}'.toLowerCase();
-        if (haystack.contains(query)) {
-          results.add(entry);
-        }
-        if (entry.isDirectory &&
-            !_shouldSkipRemoteSearchDirectory(entry, basePath)) {
-          childDirectories.add(entry);
-        }
+      // Collect a batch of directories to process in parallel.
+      final batch = <_RemoteSearchDirectory>[];
+      while (batch.length < batchSize && queue.isNotEmpty) {
+        final current = queue.removeFirst();
+        if (current.depth > _maxRemoteSearchDepth) continue;
+        final normalizedPath = current.path.trim().isEmpty
+            ? '/'
+            : current.path.trim();
+        if (!visited.add(normalizedPath)) continue;
+        batch.add(_RemoteSearchDirectory(normalizedPath, current.depth));
       }
+      if (batch.isEmpty) continue;
 
-      childDirectories.sort(
-        (a, b) => _remoteSearchPriority(
-          a,
-          query,
-        ).compareTo(_remoteSearchPriority(b, query)),
+      // List all directories in the batch concurrently.
+      final futures = batch.map(
+        (dir) => _listRemoteDirectoryForFind(
+          backendSessionId,
+          dir.path,
+          isBasePath: dir.depth == 0,
+        ).then((entries) => (dir, entries)),
       );
-      for (final directory in childDirectories) {
-        if (visited.length + queue.length >= _maxRemoteSearchDirectories) {
-          break;
+
+      final batchResults = await Future.wait(futures);
+
+      for (final (dir, entries) in batchResults) {
+        if (results.length >= maxResults) break;
+
+        final childDirectories = <RemoteFileEntry>[];
+        for (final entry in entries) {
+          if (results.length >= maxResults) break;
+          final haystack = '${entry.name}\n${entry.path}'.toLowerCase();
+          if (haystack.contains(query)) {
+            results.add(entry);
+          }
+          if (entry.isDirectory &&
+              !_shouldSkipRemoteSearchDirectory(entry, basePath)) {
+            childDirectories.add(entry);
+          }
         }
-        queue.add(_RemoteSearchDirectory(directory.path, current.depth + 1));
+
+        childDirectories.sort(
+          (a, b) => _remoteSearchPriority(
+            a,
+            query,
+          ).compareTo(_remoteSearchPriority(b, query)),
+        );
+        for (final directory in childDirectories) {
+          if (visited.length + queue.length >= _maxRemoteSearchDirectories) {
+            break;
+          }
+          queue.add(_RemoteSearchDirectory(directory.path, dir.depth + 1));
+        }
       }
     }
 
@@ -772,9 +800,7 @@ class _RemoteCommandCapture {
       return;
     }
     final markerIndex = match.start;
-    final details = clean
-        .substring(0, markerIndex)
-        .trim();
+    final details = clean.substring(0, markerIndex).trim();
     _result = Left(
       AppFailure(
         details.isEmpty

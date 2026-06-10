@@ -22,14 +22,19 @@ class GalleryShell extends StatelessWidget {
                   final selected = state.selectedProfile;
                   final showInspector =
                       constraints.maxWidth >= 1120 && selected != null;
+                  final inspectorWidth = (constraints.maxWidth * 0.25).clamp(
+                    280.0,
+                    360.0,
+                  );
                   return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       if (showGroups)
                         SizedBox(width: 250, child: GroupSidebar(state: state)),
                       Expanded(child: ProfileGallery(state: state)),
                       if (showInspector)
                         SizedBox(
-                          width: 300,
+                          width: inspectorWidth,
                           child: ProfileInspector(profile: selected),
                         ),
                     ],

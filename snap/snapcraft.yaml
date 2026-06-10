@@ -7,6 +7,8 @@ description: |
   manager, remote file browsing, command autocomplete, and cross-platform
   support for Linux, macOS, and Windows.
 
+icon: assets/icons/portix_launcher.png
+
 base: core22
 grade: stable
 confinement: strict
@@ -15,9 +17,28 @@ architectures:
   - build-on: amd64
 
 parts:
+  rust-backend:
+    plugin: nil
+    source: portix-serv
+    source-type: local
+    build-packages:
+      - curl
+      - build-essential
+      - pkg-config
+    override-build: |
+      # Install Rust
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+      export PATH="$HOME/.cargo/bin:$PATH"
+      cd $CRAFT_PART_SRC
+      cargo build --release
+      mkdir -p $CRAFT_PART_INSTALL/lib
+      cp target/release/libportix_serv.so $CRAFT_PART_INSTALL/lib/
+
   portix:
     plugin: nil
     source: .
+    source-type: local
+    after: [rust-backend]
     build-packages:
       - clang
       - cmake
@@ -37,12 +58,16 @@ parts:
       # Install Flutter
       FLUTTER_VERSION="stable"
       git clone https://github.com/flutter/flutter.git -b $FLUTTER_VERSION --depth 1 /tmp/flutter
-      export PATH="/tmp/flutter/bin:$PATH"
+      export PATH="/tmp/flutter/bin:/tmp/flutter/bin/cache/dart-sdk/bin:$PATH"
+      export FLUTTER_ROOT="/tmp/flutter"
+      export FLUTTER_SUPPRESS_ANALYTICS=true
+      git config --global --add safe.directory /tmp/flutter
       flutter precache --linux
       flutter config --no-analytics
 
-      # Build Flutter app
+      # Build Flutter app (clean first to avoid stale CMakeCache from host).
       cd $CRAFT_PART_SRC
+      rm -rf build/linux
       flutter pub get
       flutter build linux --release \
         --dart-define=PORTIX_BACKEND=rust \
@@ -50,6 +75,8 @@ parts:
 
       # Install bundle
       cp -r build/linux/x64/release/bundle/* $CRAFT_PART_INSTALL/
+      # Copy Rust library into bundle
+      cp $CRAFT_STAGE/lib/libportix_serv.so $CRAFT_PART_INSTALL/libportix_serv.so
 
 apps:
   portix:

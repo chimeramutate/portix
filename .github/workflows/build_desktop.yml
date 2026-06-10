@@ -4,10 +4,25 @@ on:
   push:
     tags:
       - "v*.*.*"
+      - "v*.*.*-beta*"
   workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Release channel'
+        required: true
+        default: 'beta'
+        type: choice
+        options:
+          - stable
+          - beta
 
 permissions:
   contents: write
+
+env:
+  # Determine channel from tag name or manual input.
+  # Tags containing "-beta" go to beta channel, otherwise stable.
+  IS_BETA: ${{ contains(github.ref_name, '-beta') || (github.event_name == 'workflow_dispatch' && github.event.inputs.channel == 'beta') }}
 
 jobs:
   build:
@@ -192,7 +207,50 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ env.IS_BETA == 'true' }}
+          name: ${{ env.IS_BETA == 'true' && format('Portix {0} (Beta)', github.ref_name) || format('Portix {0}', github.ref_name) }}
           files: |
             ${{ matrix.package_name }}-${{ github.ref_name }}.zip
             ${{ matrix.package_name }}-${{ github.ref_name }}.tar.gz
             ${{ matrix.package_name }}-${{ github.ref_name }}.deb
+
+  snap:
+    name: Build Snap
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout Rust backend
+        uses: actions/checkout@v4
+        with:
+          repository: Asepimam/portix-serv
+          token: ${{ secrets.GH_PAT }}
+          ref: master
+          path: portix-serv
+
+      - name: Build snap
+        uses: snapcore/action-build@v1
+        id: snap-build
+
+      - name: Upload snap artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: portix-snap-${{ github.ref_name }}
+          path: ${{ steps.snap-build.outputs.snap }}
+
+      - name: Publish snap to Snap Store
+        if: startsWith(github.ref, 'refs/tags/') && secrets.SNAP_STORE_TOKEN != ''
+        uses: snapcore/action-publish@v1
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_STORE_TOKEN }}
+        with:
+          snap: ${{ steps.snap-build.outputs.snap }}
+          release: ${{ env.IS_BETA == 'true' && 'beta' || 'stable' }}
+
+      - name: Upload snap to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ env.IS_BETA == 'true' }}
+          files: ${{ steps.snap-build.outputs.snap }}
