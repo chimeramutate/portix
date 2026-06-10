@@ -265,6 +265,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
     );
     if (_sessionId != null && !activeSessionStillExists) {
       if (sessions.isEmpty) {
+        // Don't mark as closed when a reconnection is in progress (e.g.,
+        // after password prompt). The new session will arrive shortly.
+        if (_connectInProgress) {
+          _sessionId = null;
+          _splitRoot = null;
+          setState(() {});
+          return;
+        }
         _sessionId = null;
         _connectedProfileId = null;
         _activeTabClosed = true;
@@ -1331,14 +1339,16 @@ class _TerminalPanelState extends State<TerminalPanel> {
         ? _sessionOrder.indexOf(failedSessionId)
         : -1;
 
+    // Mark reconnection as in-progress BEFORE closing the failed session so
+    // that _handleConnectionManagerChanged doesn't set _activeTabClosed.
+    _connectedProfileId = profile.id;
+    _connectInProgress = true;
+
     if (failedSessionId != null && !_isSessionConnected(failedSessionId)) {
       await _connectionManager.closeSession(failedSessionId);
       _disposeSessionUi(failedSessionId);
       _sessionOrder.remove(failedSessionId);
     }
-
-    _connectedProfileId = profile.id;
-    _connectInProgress = true;
 
     final existingSessionIds = _sshSessions
         .map((session) => session.id)
@@ -2110,10 +2120,38 @@ class _TerminalPanelState extends State<TerminalPanel> {
               ),
               Expanded(
                 child: displayRoot == null
-                    ? NoTerminalConnection(
-                        profile: widget.profile,
-                        onConnect: widget.profile == null ? null : _connect,
-                      )
+                    ? _connectInProgress
+                          ? Container(
+                              color: AppColors.terminal,
+                              alignment: Alignment.center,
+                              child: const Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: AppColors.cyan,
+                                    ),
+                                  ),
+                                  SizedBox(height: 12),
+                                  Text(
+                                    'Connecting...',
+                                    style: TextStyle(
+                                      color: AppColors.muted,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : NoTerminalConnection(
+                              profile: widget.profile,
+                              onConnect: widget.profile == null
+                                  ? null
+                                  : _connect,
+                            )
                     : TerminalWorkspaceView(
                         root: displayRoot,
                         activeSessionId: _sessionId,
