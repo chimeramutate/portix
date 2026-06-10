@@ -91,20 +91,8 @@ parts:
       cp $CRAFT_PART_SRC/assets/icons/portix_launcher.png $CRAFT_PART_INSTALL/usr/share/icons/hicolor/64x64/apps/portix.png
       cp $CRAFT_PART_SRC/assets/icons/portix_launcher.png $CRAFT_PART_INSTALL/meta/gui/icon.png
 
-      # Create .desktop file with snap-compatible icon reference.
-      cat > $CRAFT_PART_INSTALL/usr/share/applications/portix.desktop << 'DESKTOP'
-[Desktop Entry]
-Type=Application
-Name=Portix
-GenericName=SSH Client
-Comment=SSH Client with SFTP and Terminal
-Exec=portix
-Icon=${SNAP}/usr/share/icons/hicolor/256x256/apps/portix.png
-Terminal=false
-Categories=Network;RemoteAccess;System;Utility;
-Keywords=ssh;sftp;terminal;remote;server;
-StartupWMClass=portix
-DESKTOP
+      # Copy .desktop file from snap/gui for desktop integration.
+      cp $CRAFT_PART_SRC/snap/gui/portix.desktop $CRAFT_PART_INSTALL/usr/share/applications/portix.desktop
 
 apps:
   portix:
