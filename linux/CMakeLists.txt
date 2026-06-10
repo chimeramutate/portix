@@ -198,3 +198,43 @@ install(FILES "${CMAKE_BINARY_DIR}/install.sh"
   DESTINATION "${CMAKE_INSTALL_PREFIX}"
   PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
   COMPONENT Runtime)
+
+# Generate uninstall script.
+file(WRITE "${CMAKE_BINARY_DIR}/uninstall.sh"
+"#!/bin/bash
+# Portix Linux uninstaller — removes icon and desktop entry for the current user.
+set -e
+
+echo 'Removing Portix desktop integration...'
+
+# Remove desktop entry.
+rm -f \"$HOME/.local/share/applications/portix.desktop\"
+
+# Remove icons.
+for SIZE in 48 64 128 256 512; do
+  rm -f \"$HOME/.local/share/icons/hicolor/\${SIZE}x\${SIZE}/apps/portix.png\"
+done
+rm -f \"$HOME/.local/share/pixmaps/portix.png\"
+
+# Remove cached open files.
+rm -rf \"$HOME/.cache/portix\"
+
+# Refresh caches.
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -f -t \"$HOME/.local/share/icons/hicolor\" 2>/dev/null || true
+fi
+if command -v kbuildsycoca5 >/dev/null 2>&1; then
+  kbuildsycoca5 2>/dev/null || true
+elif command -v kbuildsycoca6 >/dev/null 2>&1; then
+  kbuildsycoca6 2>/dev/null || true
+fi
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database \"$HOME/.local/share/applications\" 2>/dev/null || true
+fi
+
+echo 'Portix uninstalled. You can now delete this folder.'
+")
+install(FILES "${CMAKE_BINARY_DIR}/uninstall.sh"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+  COMPONENT Runtime)
