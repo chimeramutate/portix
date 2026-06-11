@@ -4,6 +4,7 @@ import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/features/sftp/bloc/index.dart';
 import 'package:portix/src/features/settings/page/setting_page.dart';
 import 'package:portix/src/features/sftp/page/index.dart';
+import 'package:portix/src/features/rdp_sessions/rdp_workspace_page.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
 import 'package:portix/src/features/ssh_sessions/page/index.dart';
 
@@ -102,6 +103,7 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
                     const RemoteFolderPage(),
                   ),
                   _lazyView(WorkspaceView.sftp, const SftpWorkspacePage()),
+                  _lazyView(WorkspaceView.rdp, const RdpWorkspacePage()),
                   _lazyView(WorkspaceView.settings, const SettingsView()),
                 ],
               ),

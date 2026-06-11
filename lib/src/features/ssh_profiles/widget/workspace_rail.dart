@@ -14,6 +14,7 @@ class WorkspaceRail extends StatelessWidget {
     final items = [
       (WorkspaceView.gallery, Icons.format_list_bulleted_rounded, 'List SSH'),
       (WorkspaceView.sftp, Icons.cable_rounded, 'SFTP'),
+      (WorkspaceView.rdp, Icons.desktop_windows_rounded, 'RDP'),
       (WorkspaceView.settings, Icons.settings_outlined, 'Settings'),
     ];
     return Container(

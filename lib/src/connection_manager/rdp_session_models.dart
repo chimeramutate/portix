@@ -59,11 +59,11 @@ enum RdpConnectionStatus {
 class RdpFrameEvent {
   const RdpFrameEvent({
     required this.sessionId,
-    required this.x,
-    required this.y,
     required this.width,
     required this.height,
     required this.data,
+    this.x = 0,
+    this.y = 0,
   });
 
   final String sessionId;
@@ -79,8 +79,8 @@ class RdpFrameEvent {
     final dataList = json['data'] as List<dynamic>;
     return RdpFrameEvent(
       sessionId: json['session_id'] as String,
-      x: json['x'] as int,
-      y: json['y'] as int,
+      x: (json['x'] as int?) ?? 0,
+      y: (json['y'] as int?) ?? 0,
       width: json['width'] as int,
       height: json['height'] as int,
       data: Uint8List.fromList(dataList.cast<int>()),

@@ -27,6 +27,7 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
   RdpConnectionStatus _status = RdpConnectionStatus.disconnected;
   String? _errorMessage;
   StreamSubscription<RdpConnectionStatusEvent>? _statusSub;
+  bool _showOverlay = false;
 
   @override
   void initState() {
@@ -91,26 +92,96 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E1E),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF2D2D2D),
-        title: Text(
-          widget.profile.name.isNotEmpty
-              ? widget.profile.name
-              : '${widget.profile.host}:${widget.profile.port}',
-          style: const TextStyle(fontSize: 14),
-        ),
-        actions: [
-          _StatusIndicator(status: _status),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.close, size: 20),
-            onPressed: _disconnect,
-            tooltip: 'Disconnect',
+      body: Stack(
+        children: [
+          // Remote desktop fills entire screen
+          Positioned.fill(child: _buildBody()),
+          // Floating overlay toolbar (toggle with mouse at top edge)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: MouseRegion(
+              onEnter: (_) => setState(() => _showOverlay = true),
+              child: AnimatedOpacity(
+                opacity: _showOverlay ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 200),
+                child: _showOverlay
+                    ? _buildToolbar()
+                    : const SizedBox(height: 4),
+              ),
+            ),
           ),
-          const SizedBox(width: 8),
+          // Invisible hit area at top to trigger overlay
+          if (!_showOverlay)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 4,
+              child: MouseRegion(
+                onEnter: (_) => setState(() => _showOverlay = true),
+                child: const SizedBox.expand(),
+              ),
+            ),
         ],
       ),
-      body: _buildBody(),
+    );
+  }
+
+  Widget _buildToolbar() {
+    return MouseRegion(
+      onExit: (_) => setState(() => _showOverlay = false),
+      child: Container(
+        height: 36,
+        decoration: BoxDecoration(
+          color: const Color(0xDD2D2D2D),
+          borderRadius: const BorderRadius.only(
+            bottomLeft: Radius.circular(8),
+            bottomRight: Radius.circular(8),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Row(
+          children: [
+            IconButton(
+              icon: const Icon(
+                Icons.arrow_back,
+                size: 16,
+                color: Colors.white70,
+              ),
+              onPressed: _disconnect,
+              tooltip: 'Disconnect & Back',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              widget.profile.name.isNotEmpty
+                  ? widget.profile.name
+                  : widget.profile.host,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            const Spacer(),
+            _StatusIndicator(status: _status),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.close, size: 16, color: Colors.white70),
+              onPressed: _disconnect,
+              tooltip: 'Disconnect',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -145,7 +216,7 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
       );
     }
 
-    if (_session == null || _status == RdpConnectionStatus.connecting) {
+    if (_session == null) {
       return const Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -161,17 +232,11 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
       );
     }
 
-    return Center(
-      child: InteractiveViewer(
-        maxScale: 3.0,
-        minScale: 0.5,
-        child: RdpCanvas(
-          sessionId: _session!.id,
-          width: _session!.width,
-          height: _session!.height,
-          backend: widget.backend,
-        ),
-      ),
+    return RdpCanvas(
+      sessionId: _session!.id,
+      width: _session!.width,
+      height: _session!.height,
+      backend: widget.backend,
     );
   }
 }

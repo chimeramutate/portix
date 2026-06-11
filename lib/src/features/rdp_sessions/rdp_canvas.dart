@@ -9,6 +9,7 @@ import '../../connection_manager/rdp_backend.dart';
 import '../../connection_manager/rdp_session_models.dart';
 
 /// A widget that renders the RDP desktop and handles input events.
+/// Uses frame polling instead of streaming for performance.
 class RdpCanvas extends StatefulWidget {
   const RdpCanvas({
     super.key,
@@ -29,76 +30,118 @@ class RdpCanvas extends StatefulWidget {
 
 class _RdpCanvasState extends State<RdpCanvas> {
   ui.Image? _currentFrame;
-  late final StreamSubscription<RdpFrameEvent> _frameSub;
-  late Uint8List _frameBuffer;
+  Timer? _pollTimer;
   final FocusNode _focusNode = FocusNode();
+  bool _isPolling = false;
 
   @override
   void initState() {
     super.initState();
-    _frameBuffer = Uint8List(widget.width * widget.height * 4);
-
-    _frameSub = widget.backend.frameStream
-        .where((event) => event.sessionId == widget.sessionId)
-        .listen(_onFrameUpdate);
+    // Delay polling start to give Rust backend time to complete RDP handshake
+    Future.delayed(const Duration(seconds: 1), () {
+      if (!mounted) return;
+      // Poll frames at ~15 FPS — balanced between smoothness and CPU usage
+      _pollTimer = Timer.periodic(
+        const Duration(milliseconds: 66),
+        (_) => _pollFrame(),
+      );
+    });
+    // Request initial focus
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+    });
   }
 
   @override
   void dispose() {
-    _frameSub.cancel();
+    _pollTimer?.cancel();
     _currentFrame?.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
-  void _onFrameUpdate(RdpFrameEvent event) {
-    // The Rust side sends full frames, so just replace the buffer
-    if (event.data.length == _frameBuffer.length) {
-      _frameBuffer = Uint8List.fromList(event.data);
-    } else {
-      // Partial update - apply region
-      final stride = widget.width * 4;
-      final updateStride = event.width * 4;
+  Future<void> _pollFrame() async {
+    if (_isPolling || !mounted) return;
+    _isPolling = true;
 
-      for (int row = 0; row < event.height; row++) {
-        final bufY = event.y + row;
-        if (bufY >= widget.height) break;
-        final bufOffset = bufY * stride + event.x * 4;
-        final srcOffset = row * updateStride;
+    try {
+      final frameData = await widget.backend.requestFrame(widget.sessionId);
 
-        if (bufOffset + updateStride <= _frameBuffer.length &&
-            srcOffset + updateStride <= event.data.length) {
-          _frameBuffer.setRange(
-            bufOffset,
-            bufOffset + updateStride,
-            event.data,
-            srcOffset,
+      if (frameData.isEmpty) {
+        _isPolling = false;
+        return;
+      }
+
+      // Determine actual dimensions from data
+      final expectedSize = widget.width * widget.height * 4;
+      int decodeWidth = widget.width;
+      int decodeHeight = widget.height;
+
+      if (frameData.length != expectedSize && frameData.length > 0) {
+        // Frame size doesn't match widget dimensions — recalculate
+        final totalPixels = frameData.length ~/ 4;
+        // Try common aspect ratios
+        if (totalPixels == 1920 * 1080) {
+          decodeWidth = 1920;
+          decodeHeight = 1080;
+        } else if (totalPixels == 1024 * 768) {
+          decodeWidth = 1024;
+          decodeHeight = 768;
+        } else if (totalPixels == 1280 * 720) {
+          decodeWidth = 1280;
+          decodeHeight = 720;
+        } else {
+          // Can't determine dimensions, skip
+          debugPrint(
+            'RDP: unexpected frame size ${frameData.length}, skipping',
           );
+          _isPolling = false;
+          return;
         }
       }
-    }
 
-    _decodeFrame();
-  }
+      // Check if frame has any non-zero content
+      bool hasContent = false;
+      for (int i = 0; i < frameData.length; i += 64) {
+        if (frameData[i] != 0) {
+          hasContent = true;
+          break;
+        }
+      }
+      // Always render - even black frames confirm connection is alive
 
-  Future<void> _decodeFrame() async {
-    final completer = Completer<ui.Image>();
-    ui.decodeImageFromPixels(
-      _frameBuffer,
-      widget.width,
-      widget.height,
-      ui.PixelFormat.rgba8888,
-      (image) => completer.complete(image),
-    );
-    final image = await completer.future;
+      if (!mounted) {
+        _isPolling = false;
+        return;
+      }
 
-    if (mounted) {
-      setState(() {
-        _currentFrame?.dispose();
-        _currentFrame = image;
-      });
-    } else {
-      image.dispose();
+      final completer = Completer<ui.Image>();
+      ui.decodeImageFromPixels(
+        frameData,
+        decodeWidth,
+        decodeHeight,
+        ui.PixelFormat.rgba8888,
+        (image) => completer.complete(image),
+      );
+      final image = await completer.future;
+
+      if (mounted) {
+        setState(() {
+          _currentFrame?.dispose();
+          _currentFrame = image;
+        });
+      } else {
+        image.dispose();
+      }
+    } catch (e) {
+      debugPrint('RDP frame poll ERROR: $e');
+      if (e.toString().contains('not found') ||
+          e.toString().contains('NotFound')) {
+        _pollTimer?.cancel();
+        debugPrint('RDP: session gone, stopped polling');
+      }
+    } finally {
+      _isPolling = false;
     }
   }
 
@@ -179,96 +222,31 @@ class _RdpCanvasState extends State<RdpCanvas> {
     return KeyEventResult.handled;
   }
 
-  /// Simplified HID to AT scancode mapping for common keys.
   int? _hidToAtScancode(int hidUsage) {
     const mapping = <int, int>{
-      // Letters
-      0x04: 0x1E, // A
-      0x05: 0x30, // B
-      0x06: 0x2E, // C
-      0x07: 0x20, // D
-      0x08: 0x12, // E
-      0x09: 0x21, // F
-      0x0A: 0x22, // G
-      0x0B: 0x23, // H
-      0x0C: 0x17, // I
-      0x0D: 0x24, // J
-      0x0E: 0x25, // K
-      0x0F: 0x26, // L
-      0x10: 0x32, // M
-      0x11: 0x31, // N
-      0x12: 0x18, // O
-      0x13: 0x19, // P
-      0x14: 0x10, // Q
-      0x15: 0x13, // R
-      0x16: 0x1F, // S
-      0x17: 0x14, // T
-      0x18: 0x16, // U
-      0x19: 0x2F, // V
-      0x1A: 0x11, // W
-      0x1B: 0x2D, // X
-      0x1C: 0x15, // Y
-      0x1D: 0x2C, // Z
-      // Numbers
-      0x1E: 0x02, // 1
-      0x1F: 0x03, // 2
-      0x20: 0x04, // 3
-      0x21: 0x05, // 4
-      0x22: 0x06, // 5
-      0x23: 0x07, // 6
-      0x24: 0x08, // 7
-      0x25: 0x09, // 8
-      0x26: 0x0A, // 9
-      0x27: 0x0B, // 0
-      // Control keys
-      0x28: 0x1C, // Enter
-      0x29: 0x01, // Escape
-      0x2A: 0x0E, // Backspace
-      0x2B: 0x0F, // Tab
-      0x2C: 0x39, // Space
-      0x2D: 0x0C, // Minus
-      0x2E: 0x0D, // Equal
-      0x2F: 0x1A, // Left Bracket
-      0x30: 0x1B, // Right Bracket
-      0x31: 0x2B, // Backslash
-      0x33: 0x27, // Semicolon
-      0x34: 0x28, // Quote
-      0x35: 0x29, // Grave
-      0x36: 0x33, // Comma
-      0x37: 0x34, // Period
-      0x38: 0x35, // Slash
-      0x39: 0x3A, // Caps Lock
-      // Function keys
-      0x3A: 0x3B, // F1
-      0x3B: 0x3C, // F2
-      0x3C: 0x3D, // F3
-      0x3D: 0x3E, // F4
-      0x3E: 0x3F, // F5
-      0x3F: 0x40, // F6
-      0x40: 0x41, // F7
-      0x41: 0x42, // F8
-      0x42: 0x43, // F9
-      0x43: 0x44, // F10
-      0x44: 0x57, // F11
-      0x45: 0x58, // F12
-      // Navigation
-      0x4F: 0x4D, // Right arrow
-      0x50: 0x4B, // Left arrow
-      0x51: 0x50, // Down arrow
-      0x52: 0x48, // Up arrow
-      0x49: 0x52, // Insert
-      0x4A: 0x47, // Home
-      0x4B: 0x49, // Page Up
-      0x4C: 0x53, // Delete
-      0x4D: 0x4F, // End
-      0x4E: 0x51, // Page Down
-      // Modifiers
-      0xE0: 0x1D, // Left Control
-      0xE1: 0x2A, // Left Shift
-      0xE2: 0x38, // Left Alt
-      0xE4: 0x1D, // Right Control (extended)
-      0xE5: 0x36, // Right Shift
-      0xE6: 0x38, // Right Alt (extended)
+      0x04: 0x1E, 0x05: 0x30, 0x06: 0x2E, 0x07: 0x20, 0x08: 0x12,
+      0x09: 0x21, 0x0A: 0x22, 0x0B: 0x23, 0x0C: 0x17, 0x0D: 0x24,
+      0x0E: 0x25, 0x0F: 0x26, 0x10: 0x32, 0x11: 0x31, 0x12: 0x18,
+      0x13: 0x19, 0x14: 0x10, 0x15: 0x13, 0x16: 0x1F, 0x17: 0x14,
+      0x18: 0x16, 0x19: 0x2F, 0x1A: 0x11, 0x1B: 0x2D, 0x1C: 0x15,
+      0x1D: 0x2C, // A-Z
+      0x1E: 0x02, 0x1F: 0x03, 0x20: 0x04, 0x21: 0x05, 0x22: 0x06,
+      0x23: 0x07, 0x24: 0x08, 0x25: 0x09, 0x26: 0x0A, 0x27: 0x0B, // 1-0
+      0x28: 0x1C,
+      0x29: 0x01,
+      0x2A: 0x0E,
+      0x2B: 0x0F,
+      0x2C: 0x39, // Enter,Esc,BS,Tab,Space
+      0x2D: 0x0C, 0x2E: 0x0D, 0x2F: 0x1A, 0x30: 0x1B, 0x31: 0x2B,
+      0x33: 0x27, 0x34: 0x28, 0x35: 0x29, 0x36: 0x33, 0x37: 0x34, 0x38: 0x35,
+      0x39: 0x3A, // Caps
+      0x3A: 0x3B, 0x3B: 0x3C, 0x3C: 0x3D, 0x3D: 0x3E, 0x3E: 0x3F,
+      0x3F: 0x40, 0x40: 0x41, 0x41: 0x42, 0x42: 0x43, 0x43: 0x44,
+      0x44: 0x57, 0x45: 0x58, // F1-F12
+      0x4F: 0x4D, 0x50: 0x4B, 0x51: 0x50, 0x52: 0x48, // Arrows
+      0x49: 0x52, 0x4A: 0x47, 0x4B: 0x49, 0x4C: 0x53, 0x4D: 0x4F, 0x4E: 0x51,
+      0xE0: 0x1D, 0xE1: 0x2A, 0xE2: 0x38, // LCtrl,LShift,LAlt
+      0xE4: 0x1D, 0xE5: 0x36, 0xE6: 0x38, // RCtrl,RShift,RAlt
     };
     return mapping[hidUsage];
   }
@@ -285,9 +263,17 @@ class _RdpCanvasState extends State<RdpCanvas> {
           onPointerUp: _onPointerUp,
           onPointerHover: _onPointerHover,
           onPointerMove: _onPointerMove,
-          child: CustomPaint(
-            size: Size(widget.width.toDouble(), widget.height.toDouble()),
-            painter: _RdpFramePainter(_currentFrame),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SizedBox(
+                width: constraints.maxWidth,
+                height: constraints.maxHeight,
+                child: CustomPaint(
+                  painter: _RdpFramePainter(_currentFrame),
+                  size: Size(constraints.maxWidth, constraints.maxHeight),
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -309,8 +295,8 @@ class _RdpFramePainter extends CustomPainter {
       );
       final textPainter = TextPainter(
         text: const TextSpan(
-          text: 'Connecting...',
-          style: TextStyle(color: Color(0xFF888888), fontSize: 16),
+          text: 'Waiting for desktop...',
+          style: TextStyle(color: Color(0xFF888888), fontSize: 14),
         ),
         textDirection: TextDirection.ltr,
       );
@@ -331,8 +317,14 @@ class _RdpFramePainter extends CustomPainter {
       image!.width.toDouble(),
       image!.height.toDouble(),
     );
+    // Fill the entire widget area — resolution is matched to window size
     final dst = Rect.fromLTWH(0, 0, size.width, size.height);
-    canvas.drawImageRect(image!, src, dst, Paint());
+    canvas.drawImageRect(
+      image!,
+      src,
+      dst,
+      Paint()..filterQuality = FilterQuality.low,
+    );
   }
 
   @override
