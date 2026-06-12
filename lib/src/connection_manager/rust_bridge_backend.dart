@@ -35,7 +35,17 @@ class RustBridgeBackend implements ConnectionBackend {
         ),
       );
     } else {
-      await RustLib.init();
+      final devLibraryPath = _devLibraryPath();
+      if (devLibraryPath != null) {
+        await RustLib.init(
+          externalLibrary: ExternalLibrary.open(
+            devLibraryPath,
+            debugInfo: 'Portix Rust dev library',
+          ),
+        );
+      } else {
+        await RustLib.init();
+      }
     }
 
     return RustBridgeBackend._(
@@ -304,4 +314,26 @@ String _productionLibraryPath() {
   }
 
   throw UnsupportedError('Unsupported platform');
+}
+
+String? _devLibraryPath() {
+  final libraryName = Platform.isMacOS
+      ? 'libportix_serv.dylib'
+      : Platform.isWindows
+      ? 'portix_serv.dll'
+      : Platform.isLinux
+      ? 'libportix_serv.so'
+      : null;
+  if (libraryName == null) return null;
+
+  final candidates = <String>[
+    '${Directory.current.path}/../portix-serv/target/release/$libraryName',
+    '${Directory.current.path}/portix-serv/target/release/$libraryName',
+    '${File(Platform.resolvedExecutable).parent.path}/$libraryName',
+  ];
+
+  for (final candidate in candidates) {
+    if (File(candidate).existsSync()) return File(candidate).absolute.path;
+  }
+  return null;
 }

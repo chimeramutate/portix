@@ -28,6 +28,7 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
   String? _errorMessage;
   StreamSubscription<RdpConnectionStatusEvent>? _statusSub;
   bool _showOverlay = false;
+  bool _disconnecting = false;
 
   @override
   void initState() {
@@ -39,13 +40,14 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
   @override
   void dispose() {
     _statusSub?.cancel();
-    if (_session != null) {
-      widget.backend.disconnect(_session!.id);
-    }
+    unawaited(_disconnectSession());
     super.dispose();
   }
 
   Future<void> _connect() async {
+    await _disconnectSession();
+    if (!mounted) return;
+
     setState(() {
       _status = RdpConnectionStatus.connecting;
       _errorMessage = null;
@@ -82,10 +84,28 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
   }
 
   void _disconnect() {
-    if (_session != null) {
-      widget.backend.disconnect(_session!.id);
+    final navigator = Navigator.of(context);
+    unawaited(
+      _disconnectSession().whenComplete(() {
+        if (mounted) navigator.pop();
+      }),
+    );
+  }
+
+  Future<void> _disconnectSession() async {
+    if (_disconnecting) return;
+    final session = _session;
+    if (session == null) return;
+
+    _disconnecting = true;
+    _session = null;
+    try {
+      await widget.backend.disconnect(session.id);
+    } catch (error) {
+      debugPrint('RDP disconnect ignored: $error');
+    } finally {
+      _disconnecting = false;
     }
-    Navigator.of(context).pop();
   }
 
   @override
@@ -142,7 +162,7 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.3),
+              color: Colors.black.withValues(alpha: 0.3),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),

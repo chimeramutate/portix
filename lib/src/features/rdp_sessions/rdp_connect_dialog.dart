@@ -8,10 +8,17 @@ import '../../connection_manager/rdp_profile.dart';
 
 /// Dialog for creating/editing an RDP connection profile.
 class RdpConnectDialog extends StatefulWidget {
-  const RdpConnectDialog({super.key, this.existingProfile});
+  const RdpConnectDialog({
+    super.key,
+    this.existingProfile,
+    this.initialWidth,
+    this.initialHeight,
+  });
 
   /// If provided, dialog will be in "edit" mode.
   final RdpProfile? existingProfile;
+  final int? initialWidth;
+  final int? initialHeight;
 
   @override
   State<RdpConnectDialog> createState() => _RdpConnectDialogState();
@@ -38,8 +45,12 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
     _usernameController = TextEditingController(text: p?.username ?? '');
     _passwordController = TextEditingController(text: p?.password ?? '');
     _domainController = TextEditingController(text: p?.domain ?? '');
-    _widthController = TextEditingController(text: '${p?.width ?? 1920}');
-    _heightController = TextEditingController(text: '${p?.height ?? 1080}');
+    _widthController = TextEditingController(
+      text: '${p?.width ?? widget.initialWidth ?? 1280}',
+    );
+    _heightController = TextEditingController(
+      text: '${p?.height ?? widget.initialHeight ?? 720}',
+    );
   }
 
   @override
@@ -88,6 +99,8 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
 
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
+    final width = _normalizeDimension(_widthController.text, fallback: 1280);
+    final height = _normalizeDimension(_heightController.text, fallback: 720);
 
     final profile = RdpProfile(
       id: widget.existingProfile?.id ?? const Uuid().v4(),
@@ -102,11 +115,17 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
       domain: _domainController.text.isNotEmpty
           ? _domainController.text.trim()
           : null,
-      width: int.tryParse(_widthController.text) ?? 1920,
-      height: int.tryParse(_heightController.text) ?? 1080,
+      width: width,
+      height: height,
     );
 
     Navigator.of(context).pop(profile);
+  }
+
+  int _normalizeDimension(String value, {required int fallback}) {
+    final parsed = int.tryParse(value.trim()) ?? fallback;
+    final clamped = parsed.clamp(320, 3840).toInt();
+    return (clamped ~/ 4) * 4;
   }
 
   @override
@@ -204,6 +223,7 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
                         controller: _widthController,
                         decoration: const InputDecoration(labelText: 'Width'),
                         keyboardType: TextInputType.number,
+                        validator: _dimensionValidator,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -212,6 +232,7 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
                         controller: _heightController,
                         decoration: const InputDecoration(labelText: 'Height'),
                         keyboardType: TextInputType.number,
+                        validator: _dimensionValidator,
                       ),
                     ),
                   ],
@@ -240,5 +261,12 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
         ),
       ],
     );
+  }
+
+  String? _dimensionValidator(String? value) {
+    final parsed = int.tryParse(value?.trim() ?? '');
+    if (parsed == null) return 'Required';
+    if (parsed < 320 || parsed > 3840) return '320-3840';
+    return null;
   }
 }

@@ -9,7 +9,7 @@ import '../../connection_manager/rdp_backend.dart';
 import '../../connection_manager/rdp_session_models.dart';
 
 /// A widget that renders the RDP desktop and handles input events.
-/// Uses frame polling instead of streaming for performance.
+/// Composes dirty rectangles from the Rust RDP stream and renders on demand.
 class RdpCanvas extends StatefulWidget {
   const RdpCanvas({
     super.key,
@@ -29,23 +29,63 @@ class RdpCanvas extends StatefulWidget {
 }
 
 class _RdpCanvasState extends State<RdpCanvas> {
+  static const bool _debug = bool.fromEnvironment(
+    'PORTIX_RDP_DEBUG',
+    defaultValue: false,
+  );
+  static const int _targetFps = int.fromEnvironment(
+    'PORTIX_RDP_FPS',
+    defaultValue: 30,
+  );
+
   ui.Image? _currentFrame;
-  Timer? _pollTimer;
+  StreamSubscription<RdpFrameEvent>? _frameSub;
+  Timer? _heartbeatTimer;
+  Timer? _snapshotTimer;
   final FocusNode _focusNode = FocusNode();
-  bool _isPolling = false;
+  Uint8List? _frameBuffer;
+  bool _isDecoding = false;
+  bool _renderQueued = false;
+  bool _snapshotInFlight = false;
+  bool _snapshotDirty = true;
+  int _frameWidth = 0;
+  int _frameHeight = 0;
+  int _events = 0;
+  int _hits = 0;
+  int _emptyFrames = 0;
+  int _decodeMs = 0;
+  int _decodeCount = 0;
+  int _queuedRenders = 0;
+  int _streamBytes = 0;
+  int _snapshotRequests = 0;
+  DateTime _lastDebugLog = DateTime.now();
+
+  @visibleForTesting
+  Uint8List? get debugFrameBufferForTest =>
+      _frameBuffer == null ? null : Uint8List.fromList(_frameBuffer!);
+
+  @visibleForTesting
+  (int, int) get debugFrameSizeForTest => (_frameWidth, _frameHeight);
 
   @override
   void initState() {
     super.initState();
-    // Delay polling start to give Rust backend time to complete RDP handshake
-    Future.delayed(const Duration(seconds: 1), () {
-      if (!mounted) return;
-      // Poll frames at ~15 FPS — balanced between smoothness and CPU usage
-      _pollTimer = Timer.periodic(
-        const Duration(milliseconds: 66),
-        (_) => _pollFrame(),
-      );
+    _frameSub = widget.backend.frameStream.listen(_onFrameEvent);
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (_frameBuffer == null) {
+        _snapshotDirty = true;
+      }
+      _maybeLogStats();
     });
+    _snapshotTimer = Timer.periodic(_snapshotInterval, (_) {
+      if (!mounted || _snapshotInFlight || !_snapshotDirty) return;
+      unawaited(_requestSnapshot(reason: 'tick'));
+    });
+    unawaited(_requestSnapshot(reason: 'initial'));
+    _debugLog(
+      'stream renderer target=${_targetFps.clamp(15, 60).toInt()}fps '
+      'requested=${widget.width}x${widget.height}',
+    );
     // Request initial focus
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
@@ -54,67 +94,175 @@ class _RdpCanvasState extends State<RdpCanvas> {
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
+    _frameSub?.cancel();
+    _heartbeatTimer?.cancel();
+    _snapshotTimer?.cancel();
     _currentFrame?.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
-  Future<void> _pollFrame() async {
-    if (_isPolling || !mounted) return;
-    _isPolling = true;
+  void _onFrameEvent(RdpFrameEvent event) {
+    if (!mounted || event.sessionId != widget.sessionId) return;
+    _events += 1;
+    _streamBytes += event.data.length;
+
+    final desktopWidth = event.desktopWidth == 0
+        ? widget.width
+        : event.desktopWidth;
+    final desktopHeight = event.desktopHeight == 0
+        ? widget.height
+        : event.desktopHeight;
+    _ensureFrameBuffer(desktopWidth, desktopHeight);
+
+    if (event.data.isEmpty) {
+      _snapshotDirty = true;
+      _maybeLogStats();
+      return;
+    }
+
+    if (!_applyFrameEvent(event)) {
+      _scheduleSnapshot(reason: 'bad-region');
+      return;
+    }
+
+    _scheduleRender();
+    _maybeLogStats();
+  }
+
+  void _ensureFrameBuffer(int width, int height) {
+    final expectedLength = width * height * 4;
+    if (_frameBuffer?.length == expectedLength &&
+        _frameWidth == width &&
+        _frameHeight == height) {
+      return;
+    }
+
+    _frameBuffer = Uint8List(expectedLength);
+    _frameWidth = width;
+    _frameHeight = height;
+    _debugLog('framebuffer allocated ${width}x$height');
+  }
+
+  bool _applyFrameEvent(RdpFrameEvent event) {
+    final buffer = _frameBuffer;
+    if (buffer == null || _frameWidth == 0 || _frameHeight == 0) return false;
+
+    final x = event.x;
+    final y = event.y;
+    final width = event.width;
+    final height = event.height;
+    if (x < 0 ||
+        y < 0 ||
+        width <= 0 ||
+        height <= 0 ||
+        x + width > _frameWidth ||
+        y + height > _frameHeight) {
+      return false;
+    }
+
+    final rowBytes = width * 4;
+    final expectedBytes = rowBytes * height;
+    if (event.data.length < expectedBytes) return false;
+
+    if (event.fullFrame &&
+        x == 0 &&
+        y == 0 &&
+        width == _frameWidth &&
+        height == _frameHeight &&
+        event.data.length == buffer.length) {
+      buffer.setAll(0, event.data);
+      return true;
+    }
+
+    final stride = _frameWidth * 4;
+    for (var row = 0; row < height; row++) {
+      final srcStart = row * rowBytes;
+      final dstStart = (y + row) * stride + x * 4;
+      buffer.setRange(dstStart, dstStart + rowBytes, event.data, srcStart);
+    }
+    return true;
+  }
+
+  void _scheduleRender() {
+    if (_renderQueued) {
+      _queuedRenders += 1;
+      return;
+    }
+    _renderQueued = true;
+    WidgetsBinding.instance.scheduleFrameCallback((_) {
+      _renderQueued = false;
+      unawaited(_decodeCurrentBuffer());
+    });
+  }
+
+  void _scheduleSnapshot({required String reason}) {
+    if (!mounted) return;
+    _snapshotDirty = true;
+    if (!_snapshotInFlight && _frameBuffer == null) {
+      unawaited(_requestSnapshot(reason: reason));
+    }
+  }
+
+  Duration get _snapshotInterval {
+    // Snapshot is a full 800x600/desktop RGBA pull from Rust. When the Rust
+    // stream is configured as signal-only, polling it at render FPS floods the
+    // bridge and can make artifacts harder to diagnose. Keep UI render fast,
+    // but request full snapshots at a safer rate.
+    final fps = _targetFps.clamp(8, 12).toInt();
+    return Duration(milliseconds: (1000 / fps).round());
+  }
+
+  Future<void> _decodeCurrentBuffer() async {
+    if (_isDecoding || !mounted) {
+      _queuedRenders += 1;
+      _renderQueued = true;
+      return;
+    }
+
+    final source = _frameBuffer;
+    if (source == null || _frameWidth == 0 || _frameHeight == 0) return;
+    _isDecoding = true;
 
     try {
-      final frameData = await widget.backend.requestFrame(widget.sessionId);
+      final frameData = Uint8List.fromList(source);
 
       if (frameData.isEmpty) {
-        _isPolling = false;
+        _emptyFrames += 1;
+        _maybeLogStats();
         return;
       }
+      _hits += 1;
 
       // Determine actual dimensions from data
-      final expectedSize = widget.width * widget.height * 4;
-      int decodeWidth = widget.width;
-      int decodeHeight = widget.height;
+      final expectedSize = _frameWidth * _frameHeight * 4;
+      int decodeWidth = _frameWidth;
+      int decodeHeight = _frameHeight;
 
       if (frameData.length != expectedSize && frameData.length > 0) {
         // Frame size doesn't match widget dimensions — recalculate
         final totalPixels = frameData.length ~/ 4;
-        // Try common aspect ratios
-        if (totalPixels == 1920 * 1080) {
-          decodeWidth = 1920;
-          decodeHeight = 1080;
-        } else if (totalPixels == 1024 * 768) {
-          decodeWidth = 1024;
-          decodeHeight = 768;
-        } else if (totalPixels == 1280 * 720) {
-          decodeWidth = 1280;
-          decodeHeight = 720;
+        final detectedSize = _detectFrameSize(totalPixels);
+        if (detectedSize != null) {
+          decodeWidth = detectedSize.$1;
+          decodeHeight = detectedSize.$2;
         } else {
           // Can't determine dimensions, skip
           debugPrint(
             'RDP: unexpected frame size ${frameData.length}, skipping',
           );
-          _isPolling = false;
+          _maybeLogStats();
           return;
         }
       }
 
-      // Check if frame has any non-zero content
-      bool hasContent = false;
-      for (int i = 0; i < frameData.length; i += 64) {
-        if (frameData[i] != 0) {
-          hasContent = true;
-          break;
-        }
-      }
       // Always render - even black frames confirm connection is alive
 
       if (!mounted) {
-        _isPolling = false;
         return;
       }
 
+      final decodeWatch = Stopwatch()..start();
       final completer = Completer<ui.Image>();
       ui.decodeImageFromPixels(
         frameData,
@@ -124,24 +272,81 @@ class _RdpCanvasState extends State<RdpCanvas> {
         (image) => completer.complete(image),
       );
       final image = await completer.future;
+      decodeWatch.stop();
+      _decodeMs += decodeWatch.elapsedMilliseconds;
+      _decodeCount += 1;
 
       if (mounted) {
         setState(() {
           _currentFrame?.dispose();
           _currentFrame = image;
+          _frameWidth = decodeWidth;
+          _frameHeight = decodeHeight;
         });
       } else {
         image.dispose();
       }
+      _maybeLogStats();
     } catch (e) {
-      debugPrint('RDP frame poll ERROR: $e');
+      debugPrint('RDP frame decode ERROR: $e');
       if (e.toString().contains('not found') ||
           e.toString().contains('NotFound')) {
-        _pollTimer?.cancel();
-        debugPrint('RDP: session gone, stopped polling');
+        _heartbeatTimer?.cancel();
+        debugPrint('RDP: session gone, stopped rendering');
       }
     } finally {
-      _isPolling = false;
+      _isDecoding = false;
+      if (_renderQueued) {
+        _renderQueued = false;
+        _scheduleRender();
+      }
+    }
+  }
+
+  Future<void> _requestSnapshot({required String reason}) async {
+    if (!mounted) return;
+    if (_snapshotInFlight) {
+      _snapshotDirty = true;
+      return;
+    }
+
+    _snapshotInFlight = true;
+    _snapshotDirty = false;
+    _snapshotRequests += 1;
+
+    try {
+      final frameData = await widget.backend
+          .requestFrame(widget.sessionId)
+          .timeout(
+            const Duration(milliseconds: 1500),
+            onTimeout: () => Uint8List(0),
+          );
+      if (frameData.isEmpty) {
+        _emptyFrames += 1;
+        _maybeLogStats();
+        return;
+      }
+
+      final totalPixels = frameData.length ~/ 4;
+      final detectedSize = totalPixels == widget.width * widget.height
+          ? (widget.width, widget.height)
+          : _detectFrameSize(totalPixels);
+      if (detectedSize == null) {
+        debugPrint('RDP: snapshot $reason unexpected size ${frameData.length}');
+        return;
+      }
+
+      _ensureFrameBuffer(detectedSize.$1, detectedSize.$2);
+      _frameBuffer!.setAll(0, frameData);
+      if (reason != 'signal' && reason != 'coalesced') {
+        _debugLog('snapshot $reason ${detectedSize.$1}x${detectedSize.$2}');
+      }
+      _scheduleRender();
+      _maybeLogStats();
+    } catch (error) {
+      debugPrint('RDP snapshot $reason ERROR: $error');
+    } finally {
+      _snapshotInFlight = false;
     }
   }
 
@@ -192,13 +397,75 @@ class _RdpCanvasState extends State<RdpCanvas> {
     if (renderBox == null) return localPos;
 
     final widgetSize = renderBox.size;
-    final scaleX = widget.width / widgetSize.width;
-    final scaleY = widget.height / widgetSize.height;
+    final desktopWidth = _frameWidth == 0 ? widget.width : _frameWidth;
+    final desktopHeight = _frameHeight == 0 ? widget.height : _frameHeight;
+    final scaleX = desktopWidth / widgetSize.width;
+    final scaleY = desktopHeight / widgetSize.height;
 
     return Offset(
-      (localPos.dx * scaleX).clamp(0, widget.width.toDouble() - 1),
-      (localPos.dy * scaleY).clamp(0, widget.height.toDouble() - 1),
+      (localPos.dx * scaleX).clamp(0, desktopWidth.toDouble() - 1),
+      (localPos.dy * scaleY).clamp(0, desktopHeight.toDouble() - 1),
     );
+  }
+
+  (int, int)? _detectFrameSize(int totalPixels) {
+    const commonSizes = <(int, int)>[
+      (800, 600),
+      (1024, 768),
+      (1152, 864),
+      (1280, 720),
+      (1280, 768),
+      (1280, 800),
+      (1280, 960),
+      (1280, 1024),
+      (1360, 768),
+      (1366, 768),
+      (1440, 900),
+      (1600, 900),
+      (1680, 1050),
+      (1920, 1080),
+      (1920, 1200),
+      (2560, 1440),
+    ];
+
+    for (final size in commonSizes) {
+      if (size.$1 * size.$2 == totalPixels) return size;
+    }
+    return null;
+  }
+
+  void _maybeLogStats() {
+    if (!_debug) return;
+
+    final now = DateTime.now();
+    final elapsedMs = now.difference(_lastDebugLog).inMilliseconds;
+    if (elapsedMs < 1000) return;
+
+    final seconds = elapsedMs / 1000.0;
+    final avgDecode = _decodeCount == 0 ? 0 : _decodeMs / _decodeCount;
+    debugPrint(
+      'RDP DEBUG ui session=${widget.sessionId} '
+      'requested=${widget.width}x${widget.height} '
+      'actual=${_frameWidth}x$_frameHeight '
+      'events=${(_events / seconds).toStringAsFixed(1)}/s '
+      'stream=${(_streamBytes / 1024 / seconds).toStringAsFixed(1)}KB/s '
+      'renders=$_hits empty=$_emptyFrames queued=$_queuedRenders '
+      'snapshots=$_snapshotRequests decode_avg=${avgDecode.toStringAsFixed(1)}ms',
+    );
+
+    _lastDebugLog = now;
+    _events = 0;
+    _hits = 0;
+    _emptyFrames = 0;
+    _decodeMs = 0;
+    _decodeCount = 0;
+    _queuedRenders = 0;
+    _streamBytes = 0;
+    _snapshotRequests = 0;
+  }
+
+  void _debugLog(String message) {
+    if (_debug) debugPrint('RDP DEBUG ui $message');
   }
 
   RdpMouseButton _mapMouseButton(int buttons) {

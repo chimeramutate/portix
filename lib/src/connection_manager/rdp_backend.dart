@@ -13,9 +13,34 @@ class RdpBackend {
     required Stream<RdpFrameEvent> frameStream,
     required Stream<RdpConnectionStatusEvent> statusStream,
     required Stream<RdpConnectionStatusEvent> errorStream,
+    Future<RdpSessionInfo> Function(RdpProfile profile)? connectHandler,
+    Future<void> Function(String sessionId)? disconnectHandler,
+    Future<void> Function(
+      String sessionId, {
+      required int scancode,
+      required bool isPressed,
+    })?
+    keyboardHandler,
+    Future<void> Function(
+      String sessionId, {
+      required int x,
+      required int y,
+      required RdpMouseButton button,
+      required bool isPressed,
+    })?
+    mouseButtonHandler,
+    Future<void> Function(String sessionId, {required int x, required int y})?
+    mouseMoveHandler,
+    Future<Uint8List> Function(String sessionId)? requestFrameHandler,
   }) : _frameStream = frameStream,
        _statusStream = statusStream,
-       _errorStream = errorStream;
+       _errorStream = errorStream,
+       _connectHandler = connectHandler,
+       _disconnectHandler = disconnectHandler,
+       _keyboardHandler = keyboardHandler,
+       _mouseButtonHandler = mouseButtonHandler,
+       _mouseMoveHandler = mouseMoveHandler,
+       _requestFrameHandler = requestFrameHandler;
 
   static Future<RdpBackend> create() async {
     return RdpBackend._(
@@ -34,9 +59,70 @@ class RdpBackend {
     );
   }
 
+  /// Test-only constructor for driving RDP widgets without a live Rust bridge.
+  factory RdpBackend.test({
+    required Stream<RdpFrameEvent> frameStream,
+    Stream<RdpConnectionStatusEvent>? statusStream,
+    Stream<RdpConnectionStatusEvent>? errorStream,
+    Future<RdpSessionInfo> Function(RdpProfile profile)? connectHandler,
+    Future<void> Function(String sessionId)? disconnectHandler,
+    Future<void> Function(
+      String sessionId, {
+      required int scancode,
+      required bool isPressed,
+    })?
+    keyboardHandler,
+    Future<void> Function(
+      String sessionId, {
+      required int x,
+      required int y,
+      required RdpMouseButton button,
+      required bool isPressed,
+    })?
+    mouseButtonHandler,
+    Future<void> Function(String sessionId, {required int x, required int y})?
+    mouseMoveHandler,
+    Future<Uint8List> Function(String sessionId)? requestFrameHandler,
+  }) {
+    return RdpBackend._(
+      frameStream: frameStream,
+      statusStream: statusStream ?? const Stream.empty(),
+      errorStream: errorStream ?? const Stream.empty(),
+      connectHandler: connectHandler,
+      disconnectHandler: disconnectHandler,
+      keyboardHandler: keyboardHandler,
+      mouseButtonHandler: mouseButtonHandler,
+      mouseMoveHandler: mouseMoveHandler,
+      requestFrameHandler: requestFrameHandler,
+    );
+  }
+
   final Stream<RdpFrameEvent> _frameStream;
   final Stream<RdpConnectionStatusEvent> _statusStream;
   final Stream<RdpConnectionStatusEvent> _errorStream;
+  final Future<RdpSessionInfo> Function(RdpProfile profile)? _connectHandler;
+  final Future<void> Function(String sessionId)? _disconnectHandler;
+  final Future<void> Function(
+    String sessionId, {
+    required int scancode,
+    required bool isPressed,
+  })?
+  _keyboardHandler;
+  final Future<void> Function(
+    String sessionId, {
+    required int x,
+    required int y,
+    required RdpMouseButton button,
+    required bool isPressed,
+  })?
+  _mouseButtonHandler;
+  final Future<void> Function(
+    String sessionId, {
+    required int x,
+    required int y,
+  })?
+  _mouseMoveHandler;
+  final Future<Uint8List> Function(String sessionId)? _requestFrameHandler;
 
   /// Stream of frame updates from active RDP sessions.
   Stream<RdpFrameEvent> get frameStream => _frameStream;
@@ -49,6 +135,9 @@ class RdpBackend {
 
   /// Connect to an RDP server.
   Future<RdpSessionInfo> connect(RdpProfile profile) async {
+    final handler = _connectHandler;
+    if (handler != null) return handler(profile);
+
     final rustProfile = rust_rdp_profile.RdpProfile(
       id: profile.id,
       name: profile.name,
@@ -75,6 +164,9 @@ class RdpBackend {
 
   /// Disconnect an active RDP session.
   Future<void> disconnect(String sessionId) {
+    final handler = _disconnectHandler;
+    if (handler != null) return handler(sessionId);
+
     return rust_api.rdpDisconnect(sessionId: sessionId);
   }
 
@@ -84,6 +176,11 @@ class RdpBackend {
     required int scancode,
     required bool isPressed,
   }) {
+    final handler = _keyboardHandler;
+    if (handler != null) {
+      return handler(sessionId, scancode: scancode, isPressed: isPressed);
+    }
+
     return rust_api.rdpSendKeyboard(
       sessionId: sessionId,
       scancode: scancode,
@@ -99,6 +196,17 @@ class RdpBackend {
     required RdpMouseButton button,
     required bool isPressed,
   }) {
+    final handler = _mouseButtonHandler;
+    if (handler != null) {
+      return handler(
+        sessionId,
+        x: x,
+        y: y,
+        button: button,
+        isPressed: isPressed,
+      );
+    }
+
     return rust_api.rdpSendMouseButton(
       sessionId: sessionId,
       x: x,
@@ -114,11 +222,19 @@ class RdpBackend {
     required int x,
     required int y,
   }) {
+    final handler = _mouseMoveHandler;
+    if (handler != null) {
+      return handler(sessionId, x: x, y: y);
+    }
+
     return rust_api.rdpSendMouseMove(sessionId: sessionId, x: x, y: y);
   }
 
   /// Request current frame buffer as raw RGBA bytes.
   Future<Uint8List> requestFrame(String sessionId) async {
+    final handler = _requestFrameHandler;
+    if (handler != null) return handler(sessionId);
+
     final data = await rust_api.rdpRequestFrame(sessionId: sessionId);
     return Uint8List.fromList(data);
   }

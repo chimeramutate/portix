@@ -62,6 +62,10 @@ class RdpFrameEvent {
     required this.width,
     required this.height,
     required this.data,
+    required this.desktopWidth,
+    required this.desktopHeight,
+    required this.sequence,
+    required this.fullFrame,
     this.x = 0,
     this.y = 0,
   });
@@ -71,6 +75,10 @@ class RdpFrameEvent {
   final int y;
   final int width;
   final int height;
+  final int desktopWidth;
+  final int desktopHeight;
+  final int sequence;
+  final bool fullFrame;
 
   /// RGBA pixel data for the updated region
   final Uint8List data;
@@ -83,6 +91,10 @@ class RdpFrameEvent {
       y: (json['y'] as int?) ?? 0,
       width: json['width'] as int,
       height: json['height'] as int,
+      desktopWidth: (json['desktop_width'] as int?) ?? json['width'] as int,
+      desktopHeight: (json['desktop_height'] as int?) ?? json['height'] as int,
+      sequence: (json['sequence'] as int?) ?? 0,
+      fullFrame: (json['full_frame'] as bool?) ?? false,
       data: Uint8List.fromList(dataList.cast<int>()),
     );
   }
