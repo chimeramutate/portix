@@ -40,6 +40,7 @@ class _RdpCanvasState extends State<RdpCanvas> {
 
   ui.Image? _currentFrame;
   StreamSubscription<RdpFrameEvent>? _frameSub;
+  StreamSubscription<RdpClipboardEvent>? _clipboardSub;
   Timer? _heartbeatTimer;
   Timer? _snapshotTimer;
   final FocusNode _focusNode = FocusNode();
@@ -59,6 +60,8 @@ class _RdpCanvasState extends State<RdpCanvas> {
   int _streamBytes = 0;
   int _snapshotRequests = 0;
   DateTime _lastDebugLog = DateTime.now();
+  bool _controlPressed = false;
+  bool _suppressPasteKeyUp = false;
 
   @visibleForTesting
   Uint8List? get debugFrameBufferForTest =>
@@ -71,6 +74,7 @@ class _RdpCanvasState extends State<RdpCanvas> {
   void initState() {
     super.initState();
     _frameSub = widget.backend.frameStream.listen(_onFrameEvent);
+    _clipboardSub = widget.backend.clipboardStream.listen(_onClipboardEvent);
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       if (_frameBuffer == null) {
         _snapshotDirty = true;
@@ -95,6 +99,7 @@ class _RdpCanvasState extends State<RdpCanvas> {
   @override
   void dispose() {
     _frameSub?.cancel();
+    _clipboardSub?.cancel();
     _heartbeatTimer?.cancel();
     _snapshotTimer?.cancel();
     _currentFrame?.dispose();
@@ -128,6 +133,11 @@ class _RdpCanvasState extends State<RdpCanvas> {
 
     _scheduleRender();
     _maybeLogStats();
+  }
+
+  void _onClipboardEvent(RdpClipboardEvent event) {
+    if (!mounted || event.sessionId != widget.sessionId) return;
+    unawaited(Clipboard.setData(ClipboardData(text: event.text)));
   }
 
   void _ensureFrameBuffer(int width, int height) {
@@ -481,12 +491,46 @@ class _RdpCanvasState extends State<RdpCanvas> {
     if (atScancode == null) return KeyEventResult.ignored;
 
     final isPressed = event is KeyDownEvent || event is KeyRepeatEvent;
+    if (hidUsage == 0xE0 || hidUsage == 0xE4) {
+      _controlPressed = isPressed;
+    }
+
+    if (hidUsage == 0x19 && _controlPressed) {
+      if (event is KeyDownEvent) {
+        _suppressPasteKeyUp = true;
+        unawaited(_pasteLocalClipboard(atScancode));
+      } else if (event is KeyUpEvent && _suppressPasteKeyUp) {
+        _suppressPasteKeyUp = false;
+      }
+      return KeyEventResult.handled;
+    }
+
     widget.backend.sendKeyboardInput(
       widget.sessionId,
       scancode: atScancode,
       isPressed: isPressed,
     );
     return KeyEventResult.handled;
+  }
+
+  Future<void> _pasteLocalClipboard(int pasteScancode) async {
+    final clipboard = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = clipboard?.text;
+    if (text == null) return;
+
+    await widget.backend.setClipboardText(widget.sessionId, text);
+    // Let cliprdr complete FORMAT_LIST before the remote paste shortcut.
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    await widget.backend.sendKeyboardInput(
+      widget.sessionId,
+      scancode: pasteScancode,
+      isPressed: true,
+    );
+    await widget.backend.sendKeyboardInput(
+      widget.sessionId,
+      scancode: pasteScancode,
+      isPressed: false,
+    );
   }
 
   int? _hidToAtScancode(int hidUsage) {

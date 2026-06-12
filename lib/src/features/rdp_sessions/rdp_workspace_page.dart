@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
@@ -151,6 +153,18 @@ class _RdpWorkspacePageState extends State<RdpWorkspacePage> {
     final windowSize = MediaQuery.of(context).size;
     final width = _normalizeDimension(windowSize.width.toInt(), 1280);
     final height = _normalizeDimension(windowSize.height.toInt(), 720);
+    final extra = <String, String>{
+      'portix_debug': '1',
+      'portix_stream_pixels': '0',
+      'portix_keep_awake': '1',
+      'portix_keep_awake_interval_seconds': '15',
+      'portix_auto_unlock': '1',
+    };
+    final home = Platform.environment['HOME'];
+    if (home != null && Directory('$home/Downloads').existsSync()) {
+      extra['portix_drive_path'] = '$home/Downloads';
+      extra['portix_drive_name'] = 'PORTIX';
+    }
     final profile = RdpProfile(
       id: const Uuid().v4(),
       name: 'Local RDP',
@@ -161,13 +175,7 @@ class _RdpWorkspacePageState extends State<RdpWorkspacePage> {
       hasPassword: true,
       width: width.clamp(640, 1920).toInt(),
       height: height.clamp(480, 1080).toInt(),
-      extra: const {
-        'portix_debug': '1',
-        'portix_stream_pixels': '0',
-        'portix_keep_awake': '1',
-        'portix_keep_awake_interval_seconds': '15',
-        'portix_auto_unlock': '1',
-      },
+      extra: extra,
     );
 
     Navigator.of(context).push(

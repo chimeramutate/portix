@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:portix/src/connection_manager/rdp_backend.dart';
 import 'package:portix/src/connection_manager/rdp_session_models.dart';
@@ -181,6 +181,52 @@ void main() {
     expect(_bufferPixel(buffer, 4, 2, 2), (255, 0, 0));
     expect(_bufferPixel(buffer, 4, 3, 3), (255, 255, 255));
 
+    await frames.close();
+  });
+
+  testWidgets('RdpCanvas publishes remote clipboard text locally', (
+    tester,
+  ) async {
+    final frames = StreamController<RdpFrameEvent>.broadcast();
+    final clipboard = StreamController<RdpClipboardEvent>.broadcast();
+    String? localClipboard;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.setData') {
+            localClipboard =
+                (call.arguments as Map<Object?, Object?>)['text'] as String?;
+          }
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    final backend = RdpBackend.test(
+      frameStream: frames.stream,
+      clipboardStream: clipboard.stream,
+      requestFrameHandler: (_) async =>
+          _solidRgbaFrame(width: 4, height: 4, r: 0, g: 0, b: 0),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RdpCanvas(
+          sessionId: 'rdp-test',
+          width: 4,
+          height: 4,
+          backend: backend,
+        ),
+      ),
+    );
+
+    clipboard.add(
+      const RdpClipboardEvent(sessionId: 'rdp-test', text: 'remote clipboard'),
+    );
+    await tester.pump();
+
+    expect(localClipboard, 'remote clipboard');
+    await clipboard.close();
     await frames.close();
   });
 }

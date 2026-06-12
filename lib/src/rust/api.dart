@@ -202,6 +202,15 @@ Future<void> rdpSendMouseMove({
   y: y,
 );
 
+/// Publish local Unicode clipboard text to an RDP session.
+Future<void> rdpSetClipboardText({
+  required String sessionId,
+  required String text,
+}) => RustLib.instance.api.crateApiRdpSetClipboardText(
+  sessionId: sessionId,
+  text: text,
+);
+
 /// Request the current frame buffer as raw RGBA bytes.
 Future<Uint8List> rdpRequestFrame({required String sessionId}) =>
     RustLib.instance.api.crateApiRdpRequestFrame(sessionId: sessionId);
@@ -209,6 +218,10 @@ Future<Uint8List> rdpRequestFrame({required String sessionId}) =>
 /// Stream RDP frame updates (region updates as JSON).
 Stream<String> rdpFrameStream() =>
     RustLib.instance.api.crateApiRdpFrameStream();
+
+/// Stream Unicode clipboard text copied inside active RDP sessions.
+Stream<String> rdpClipboardStream() =>
+    RustLib.instance.api.crateApiRdpClipboardStream();
 
 /// Stream RDP connection status events.
 Stream<String> rdpConnectionStatusStream() =>

@@ -34,6 +34,8 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
   late final TextEditingController _domainController;
   late final TextEditingController _widthController;
   late final TextEditingController _heightController;
+  late final TextEditingController _drivePathController;
+  late final TextEditingController _driveNameController;
 
   @override
   void initState() {
@@ -51,6 +53,12 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
     _heightController = TextEditingController(
       text: '${p?.height ?? widget.initialHeight ?? 720}',
     );
+    _drivePathController = TextEditingController(
+      text: p?.extra['portix_drive_path'] ?? '',
+    );
+    _driveNameController = TextEditingController(
+      text: p?.extra['portix_drive_name'] ?? 'PORTIX',
+    );
   }
 
   @override
@@ -63,7 +71,18 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
     _domainController.dispose();
     _widthController.dispose();
     _heightController.dispose();
+    _drivePathController.dispose();
+    _driveNameController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickDriveFolder() async {
+    final path = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Select local folder to map into the RDP session',
+    );
+    if (path != null && mounted) {
+      setState(() => _drivePathController.text = path);
+    }
   }
 
   Future<void> _importRdpFile() async {
@@ -101,6 +120,19 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
     if (!_formKey.currentState!.validate()) return;
     final width = _normalizeDimension(_widthController.text, fallback: 1280);
     final height = _normalizeDimension(_heightController.text, fallback: 720);
+    final extra = Map<String, String>.from(
+      widget.existingProfile?.extra ?? const {},
+    );
+    final drivePath = _drivePathController.text.trim();
+    if (drivePath.isEmpty) {
+      extra.remove('portix_drive_path');
+      extra.remove('portix_drive_name');
+    } else {
+      extra['portix_drive_path'] = drivePath;
+      extra['portix_drive_name'] = _normalizedDriveName(
+        _driveNameController.text,
+      );
+    }
 
     final profile = RdpProfile(
       id: widget.existingProfile?.id ?? const Uuid().v4(),
@@ -117,6 +149,7 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
           : null,
       width: width,
       height: height,
+      extra: extra,
     );
 
     Navigator.of(context).pop(profile);
@@ -126,6 +159,17 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
     final parsed = int.tryParse(value.trim()) ?? fallback;
     final clamped = parsed.clamp(320, 3840).toInt();
     return (clamped ~/ 4) * 4;
+  }
+
+  String _normalizedDriveName(String value) {
+    final candidate = value.trim().toUpperCase().replaceAll(
+      RegExp(r'[^A-Z0-9_]'),
+      '',
+    );
+    final normalized = candidate.length > 7
+        ? candidate.substring(0, 7)
+        : candidate;
+    return normalized.isEmpty ? 'PORTIX' : normalized;
   }
 
   @override
@@ -236,6 +280,52 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 16),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Local Drive Mapping',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _drivePathController,
+                        decoration: const InputDecoration(
+                          labelText: 'Local folder',
+                          hintText: 'Leave empty to disable',
+                        ),
+                        validator: (value) {
+                          final path = value?.trim() ?? '';
+                          if (path.isNotEmpty &&
+                              !Directory(path).existsSync()) {
+                            return 'Folder does not exist';
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      tooltip: 'Choose folder',
+                      onPressed: _pickDriveFolder,
+                      icon: const Icon(Icons.folder_open),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _driveNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Remote drive name',
+                    hintText: 'PORTIX',
+                    helperText: 'Up to 7 letters, numbers, or underscores.',
+                  ),
+                  maxLength: 7,
                 ),
                 const SizedBox(height: 8),
                 const Align(

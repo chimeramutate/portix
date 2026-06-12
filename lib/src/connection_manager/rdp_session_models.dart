@@ -121,6 +121,20 @@ class RdpConnectionStatusEvent {
   }
 }
 
+class RdpClipboardEvent {
+  const RdpClipboardEvent({required this.sessionId, required this.text});
+
+  final String sessionId;
+  final String text;
+
+  factory RdpClipboardEvent.fromJson(Map<String, Object?> json) {
+    return RdpClipboardEvent(
+      sessionId: json['session_id'] as String,
+      text: json['text'] as String? ?? '',
+    );
+  }
+}
+
 /// Mouse button identifiers for RDP input
 enum RdpMouseButton {
   left(0),

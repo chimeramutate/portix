@@ -11,6 +11,7 @@ import 'rdp_session_models.dart';
 class RdpBackend {
   RdpBackend._({
     required Stream<RdpFrameEvent> frameStream,
+    required Stream<RdpClipboardEvent> clipboardStream,
     required Stream<RdpConnectionStatusEvent> statusStream,
     required Stream<RdpConnectionStatusEvent> errorStream,
     Future<RdpSessionInfo> Function(RdpProfile profile)? connectHandler,
@@ -32,7 +33,9 @@ class RdpBackend {
     Future<void> Function(String sessionId, {required int x, required int y})?
     mouseMoveHandler,
     Future<Uint8List> Function(String sessionId)? requestFrameHandler,
+    Future<void> Function(String sessionId, String text)? clipboardHandler,
   }) : _frameStream = frameStream,
+       _clipboardStream = clipboardStream,
        _statusStream = statusStream,
        _errorStream = errorStream,
        _connectHandler = connectHandler,
@@ -40,13 +43,18 @@ class RdpBackend {
        _keyboardHandler = keyboardHandler,
        _mouseButtonHandler = mouseButtonHandler,
        _mouseMoveHandler = mouseMoveHandler,
-       _requestFrameHandler = requestFrameHandler;
+       _requestFrameHandler = requestFrameHandler,
+       _clipboardHandler = clipboardHandler;
 
   static Future<RdpBackend> create() async {
     return RdpBackend._(
       frameStream: rust_api
           .rdpFrameStream()
           .map(_frameEventFromJson)
+          .asBroadcastStream(),
+      clipboardStream: rust_api
+          .rdpClipboardStream()
+          .map(_clipboardEventFromJson)
           .asBroadcastStream(),
       statusStream: rust_api
           .rdpConnectionStatusStream()
@@ -62,6 +70,7 @@ class RdpBackend {
   /// Test-only constructor for driving RDP widgets without a live Rust bridge.
   factory RdpBackend.test({
     required Stream<RdpFrameEvent> frameStream,
+    Stream<RdpClipboardEvent>? clipboardStream,
     Stream<RdpConnectionStatusEvent>? statusStream,
     Stream<RdpConnectionStatusEvent>? errorStream,
     Future<RdpSessionInfo> Function(RdpProfile profile)? connectHandler,
@@ -83,9 +92,11 @@ class RdpBackend {
     Future<void> Function(String sessionId, {required int x, required int y})?
     mouseMoveHandler,
     Future<Uint8List> Function(String sessionId)? requestFrameHandler,
+    Future<void> Function(String sessionId, String text)? clipboardHandler,
   }) {
     return RdpBackend._(
       frameStream: frameStream,
+      clipboardStream: clipboardStream ?? const Stream.empty(),
       statusStream: statusStream ?? const Stream.empty(),
       errorStream: errorStream ?? const Stream.empty(),
       connectHandler: connectHandler,
@@ -94,10 +105,12 @@ class RdpBackend {
       mouseButtonHandler: mouseButtonHandler,
       mouseMoveHandler: mouseMoveHandler,
       requestFrameHandler: requestFrameHandler,
+      clipboardHandler: clipboardHandler,
     );
   }
 
   final Stream<RdpFrameEvent> _frameStream;
+  final Stream<RdpClipboardEvent> _clipboardStream;
   final Stream<RdpConnectionStatusEvent> _statusStream;
   final Stream<RdpConnectionStatusEvent> _errorStream;
   final Future<RdpSessionInfo> Function(RdpProfile profile)? _connectHandler;
@@ -123,9 +136,12 @@ class RdpBackend {
   })?
   _mouseMoveHandler;
   final Future<Uint8List> Function(String sessionId)? _requestFrameHandler;
+  final Future<void> Function(String sessionId, String text)? _clipboardHandler;
 
   /// Stream of frame updates from active RDP sessions.
   Stream<RdpFrameEvent> get frameStream => _frameStream;
+
+  Stream<RdpClipboardEvent> get clipboardStream => _clipboardStream;
 
   /// Stream of connection status events.
   Stream<RdpConnectionStatusEvent> get connectionStatusStream => _statusStream;
@@ -239,6 +255,12 @@ class RdpBackend {
     return Uint8List.fromList(data);
   }
 
+  Future<void> setClipboardText(String sessionId, String text) {
+    final handler = _clipboardHandler;
+    if (handler != null) return handler(sessionId, text);
+    return rust_api.rdpSetClipboardText(sessionId: sessionId, text: text);
+  }
+
   /// Parse an .rdp file and return a profile.
   RdpProfile parseRdpFile({
     required String id,
@@ -254,6 +276,11 @@ class RdpBackend {
 RdpFrameEvent _frameEventFromJson(String source) {
   final json = jsonDecode(source) as Map<String, Object?>;
   return RdpFrameEvent.fromJson(json);
+}
+
+RdpClipboardEvent _clipboardEventFromJson(String source) {
+  final json = jsonDecode(source) as Map<String, Object?>;
+  return RdpClipboardEvent.fromJson(json);
 }
 
 RdpConnectionStatusEvent _statusEventFromJson(String source) {
