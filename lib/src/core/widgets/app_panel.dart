@@ -11,6 +11,9 @@ class AppPanel extends StatelessWidget {
     this.color = AppColors.surface,
     this.borderColor = AppColors.border,
     this.radius = 8,
+    /// Set to false when used inside unconstrained parents (e.g. overlay
+    /// dropdowns, optionsViewBuilder) to avoid "infinite width" layout errors.
+    this.fillWidth = true,
   });
 
   final Widget child;
@@ -19,11 +22,12 @@ class AppPanel extends StatelessWidget {
   final Color color;
   final Color borderColor;
   final double radius;
+  final bool fillWidth;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: double.infinity,
+      width: fillWidth ? double.infinity : null,
       margin: margin,
       padding: padding,
       decoration: BoxDecoration(

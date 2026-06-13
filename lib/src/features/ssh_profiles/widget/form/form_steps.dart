@@ -39,15 +39,6 @@ class FormSteps extends StatelessWidget {
                   : FormStepVisualState.current
             : FormStepVisualState.pending,
       ),
-      _StepVm(
-        title: 'Connection test',
-        subtitle: 'Verify before saving',
-        state: state.isAuthComplete
-            ? state.isProfileTested
-                  ? FormStepVisualState.completed
-                  : FormStepVisualState.current
-            : FormStepVisualState.pending,
-      ),
     ];
 
     return Column(

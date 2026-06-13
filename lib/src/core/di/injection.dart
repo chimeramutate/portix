@@ -42,12 +42,14 @@ Future<void> configureDependencies() async {
     ..registerLazySingleton(() => TestConnection(sl()))
     ..registerLazySingleton(() => ConnectProfile(sl()))
     ..registerLazySingleton(() => DeleteProfile(sl()))
+    ..registerLazySingleton(() => ReadPasswordForEdit(sl()))
     ..registerFactory(
       () => SshWorkspaceBloc(
         getProfiles: sl(),
         saveProfile: sl(),
         testConnection: sl(),
         deleteProfile: sl(),
+        readPasswordForEdit: sl(),
       ),
     )
     ..registerFactory(

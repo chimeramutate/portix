@@ -243,13 +243,6 @@ class _FormTopBar extends StatelessWidget {
           alignment: WrapAlignment.end,
           children: [
             AppButton(
-              icon: Icons.monitor_heart_outlined,
-              label: veryCompact ? 'Test' : 'Test Connection',
-              onPressed: () => context.read<SshWorkspaceBloc>().add(
-                const ProfileTestRequested(),
-              ),
-            ),
-            AppButton(
               icon: Icons.save_outlined,
               label: veryCompact ? 'Save' : 'Save Profile',
               primary: true,

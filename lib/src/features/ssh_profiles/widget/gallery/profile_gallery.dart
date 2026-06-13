@@ -137,8 +137,27 @@ class _ProfileGalleryState extends State<ProfileGallery> {
         _showSnack('No profiles found in that file.');
         return;
       }
-      context.read<SshWorkspaceBloc>().add(ProfilesImported(profiles));
-      _showSnack('Importing ${profiles.length} profile file entries...');
+
+      // Filter out profiles that are already present by fingerprint
+      // (username@host:port) to prevent duplicates even when IDs differ.
+      final existingFingerprints = widget.state.profiles
+          .map((p) => '${p.username}@${p.host}:${p.port}')
+          .toSet();
+      final newProfiles = profiles
+          .where(
+            (p) =>
+                !existingFingerprints.contains('${p.username}@${p.host}:${p.port}'),
+          )
+          .toList();
+
+      if (newProfiles.isEmpty) {
+        _showSnack('All profiles already exist — nothing to import.');
+        return;
+      }
+      final skipped = profiles.length - newProfiles.length;
+      context.read<SshWorkspaceBloc>().add(ProfilesImported(newProfiles));
+      final skippedNote = skipped > 0 ? ' ($skipped duplicate${skipped == 1 ? '' : 's'} skipped)' : '';
+      _showSnack('Importing ${newProfiles.length} profile${newProfiles.length == 1 ? '' : 's'}$skippedNote...');
     } catch (error) {
       if (!mounted) return;
       _showSnack('Import failed: $error');
@@ -690,6 +709,8 @@ class _ProfileList extends StatelessWidget {
                                     ),
                                   ),
                             ),
+                            const SizedBox(width: 4),
+                            _ListProfileMenu(profile: profile),
                           ],
                         ),
                 ),
@@ -818,6 +839,76 @@ class _EmptyProfileGallery extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Three-dot menu for the list-view row (same actions as the gallery card).
+enum _ProfileAction { edit, duplicate, delete }
+
+class _ListProfileMenu extends StatelessWidget {
+  const _ListProfileMenu({required this.profile});
+  final SshProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_ProfileAction>(
+      tooltip: 'Profile actions',
+      color: AppColors.surfaceCard,
+      icon: const Icon(
+        Icons.more_horiz_rounded,
+        color: AppColors.muted,
+        size: 20,
+      ),
+      onSelected: (action) {
+        switch (action) {
+          case _ProfileAction.edit:
+            context.read<SshWorkspaceBloc>().add(
+              ProfileEditRequested(profile.id),
+            );
+          case _ProfileAction.duplicate:
+            context.read<SshWorkspaceBloc>().add(
+              ProfileDuplicateRequested(profile.id),
+            );
+          case _ProfileAction.delete:
+            context.read<SshWorkspaceBloc>().add(
+              ProfileDeleted(profile.id),
+            );
+        }
+      },
+      itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: _ProfileAction.edit,
+          child: Row(
+            children: [
+              Icon(Icons.edit_rounded, size: 17),
+              SizedBox(width: 10),
+              Text('Edit'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: _ProfileAction.duplicate,
+          child: Row(
+            children: [
+              Icon(Icons.copy_rounded, size: 17),
+              SizedBox(width: 10),
+              Text('Duplicate'),
+            ],
+          ),
+        ),
+        PopupMenuDivider(),
+        PopupMenuItem(
+          value: _ProfileAction.delete,
+          child: Row(
+            children: [
+              Icon(Icons.delete_outline_rounded, size: 17),
+              SizedBox(width: 10),
+              Text('Delete'),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

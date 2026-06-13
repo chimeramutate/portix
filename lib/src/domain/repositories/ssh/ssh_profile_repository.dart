@@ -8,6 +8,11 @@ abstract class SshProfileRepository {
   Future<Either<Failure, SshProfile>> testConnection(SshProfile profile);
   Future<Either<Failure, SshProfile>> connect(SshProfile profile);
   Future<Either<Failure, Unit>> deleteProfile(String id);
+
+  /// Returns the real password from secure storage for a password-auth profile.
+  /// Used when opening the edit form so the field shows the actual stored
+  /// password instead of the sentinel placeholder.
+  Future<String?> readPasswordForEdit(String profileId);
 }
 
 class Unit {

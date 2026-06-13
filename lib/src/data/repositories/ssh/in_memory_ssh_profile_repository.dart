@@ -83,6 +83,13 @@ class InMemorySshProfileRepository implements SshProfileRepository {
     return Right(List.unmodifiable(_profiles));
   }
 
+  /// Reads the real password from secure storage for a password-auth profile.
+  /// Returns null when the profile does not use password auth or no stored
+  /// password was found.
+  Future<String?> readPasswordForEdit(String profileId) async {
+    return _secretStore.readPassword(profileId);
+  }
+
   @override
   Future<Either<Failure, SshProfile>> saveProfile(SshProfile profile) async {
     await Future<void>.delayed(const Duration(milliseconds: 220));
@@ -92,10 +99,14 @@ class InMemorySshProfileRepository implements SshProfileRepository {
 
     if (profile.authMethod == AuthMethod.password) {
       final password = profile.credentialLabel.trim();
-      if (password.isNotEmpty && password != 'Saved password') {
+      // Only update stored password when the user actually typed a new value
+      // (not the sentinel placeholder that indicates a previously saved password
+      // was never touched during this edit session).
+      if (password.isNotEmpty && password != _kSavedPasswordPlaceholder) {
         await _secretStore.savePassword(profile.id, password);
       }
-      profile = profile.copyWith(credentialLabel: 'Saved password');
+      // Always store the sentinel so the real secret is never persisted to disk.
+      profile = profile.copyWith(credentialLabel: _kSavedPasswordPlaceholder);
     } else {
       await _secretStore.deletePassword(profile.id);
     }
@@ -110,6 +121,8 @@ class InMemorySshProfileRepository implements SshProfileRepository {
     await _persistProfiles();
     return Right(saved);
   }
+
+  static const String _kSavedPasswordPlaceholder = 'Saved password';
 
   @override
   Future<Either<Failure, SshProfile>> testConnection(SshProfile profile) async {
