@@ -206,7 +206,7 @@ jobs:
             -DestinationPath "${{ matrix.package_name }}-${{ github.ref_name }}.zip"
 
       - name: Upload app artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.package_name }}-${{ github.ref_name }}
           path: |
@@ -244,7 +244,7 @@ jobs:
         id: snap-build
 
       - name: Upload snap artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portix-snap-${{ github.ref_name }}
           path: ${{ steps.snap-build.outputs.snap }}
