@@ -99,8 +99,8 @@ jobs:
           ref: master
           path: portix-serv
 
-      - name: Build Rust native library
-        run: cargo build --release --manifest-path portix-serv/Cargo.toml
+      - name: Build Rust native library (hardened)
+        run: cargo build --profile release-hardened --manifest-path portix-serv/Cargo.toml
 
       - name: Verify Dart-Rust bridge hash sync
         shell: bash
@@ -120,15 +120,26 @@ jobs:
         run: |
           mkdir -p rust-libs
           if [ "${{ matrix.target }}" = "linux" ]; then
-            cp portix-serv/target/release/libportix_serv.so rust-libs/${{ matrix.rust_asset }}
+            cp portix-serv/target/release-hardened/libportix_serv.so rust-libs/${{ matrix.rust_asset }}
           elif [ "${{ matrix.target }}" = "macos" ]; then
-            cp portix-serv/target/release/libportix_serv.dylib rust-libs/${{ matrix.rust_asset }}
+            cp portix-serv/target/release-hardened/libportix_serv.dylib rust-libs/${{ matrix.rust_asset }}
           elif [ "${{ matrix.target }}" = "windows" ]; then
-            cp portix-serv/target/release/portix_serv.dll rust-libs/${{ matrix.rust_asset }}
+            cp portix-serv/target/release-hardened/portix_serv.dll rust-libs/${{ matrix.rust_asset }}
           fi
 
       - name: Build Flutter
         run: flutter build ${{ matrix.flutter_build_target }} --release --dart-define=PORTIX_BACKEND=rust --dart-define=RUST_LIBRARY_MODE=production
+
+      # ── Post-build Security Scan ─────────────────────────────────────────────
+      - name: Trivy scan – built artifact
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: "."
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+          skip-dirs: "target,build"
 
       - name: Bundle Rust library - macOS
         if: matrix.target == 'macos'
