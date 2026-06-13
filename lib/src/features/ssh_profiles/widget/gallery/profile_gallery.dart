@@ -137,8 +137,27 @@ class _ProfileGalleryState extends State<ProfileGallery> {
         _showSnack('No profiles found in that file.');
         return;
       }
-      context.read<SshWorkspaceBloc>().add(ProfilesImported(profiles));
-      _showSnack('Importing ${profiles.length} profile file entries...');
+
+      // Filter out profiles that are already present by fingerprint
+      // (username@host:port) to prevent duplicates even when IDs differ.
+      final existingFingerprints = widget.state.profiles
+          .map((p) => '${p.username}@${p.host}:${p.port}')
+          .toSet();
+      final newProfiles = profiles
+          .where(
+            (p) =>
+                !existingFingerprints.contains('${p.username}@${p.host}:${p.port}'),
+          )
+          .toList();
+
+      if (newProfiles.isEmpty) {
+        _showSnack('All profiles already exist — nothing to import.');
+        return;
+      }
+      final skipped = profiles.length - newProfiles.length;
+      context.read<SshWorkspaceBloc>().add(ProfilesImported(newProfiles));
+      final skippedNote = skipped > 0 ? ' ($skipped duplicate${skipped == 1 ? '' : 's'} skipped)' : '';
+      _showSnack('Importing ${newProfiles.length} profile${newProfiles.length == 1 ? '' : 's'}$skippedNote...');
     } catch (error) {
       if (!mounted) return;
       _showSnack('Import failed: $error');

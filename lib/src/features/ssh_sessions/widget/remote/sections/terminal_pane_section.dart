@@ -93,7 +93,7 @@ class TerminalPane extends StatelessWidget {
                   height: 1.28,
                   fontFamily: 'monospace',
                 ),
-                theme: portixTerminalTheme,
+                theme: terminalThemeForProfile(profile),
                 cursorType: TerminalCursorType.block,
                 alwaysShowCursor: active && connected,
               ),
@@ -156,6 +156,7 @@ class TerminalPane extends StatelessWidget {
                 right: 6,
                 top: 6,
                 child: PaneControlStrip(
+                  profile: profile,
                   broadcastTyping: broadcastTyping,
                   solo: solo,
                   onToggleBroadcast: onToggleBroadcast,
@@ -504,15 +505,27 @@ class PaneControlStrip extends StatelessWidget {
     required this.solo,
     required this.onToggleBroadcast,
     required this.onToggleSolo,
+    this.profile,
   });
 
   final bool broadcastTyping;
   final bool solo;
   final VoidCallback? onToggleBroadcast;
   final VoidCallback? onToggleSolo;
+  final domain.SshProfile? profile;
 
   @override
   Widget build(BuildContext context) {
+    final accentColor = profile == null
+        ? AppColors.green
+        : switch (profile!.color) {
+            domain.ProfileColor.green => AppColors.green,
+            domain.ProfileColor.cyan => AppColors.cyan,
+            domain.ProfileColor.blue => AppColors.primaryBlue,
+            domain.ProfileColor.pink => AppColors.danger,
+            domain.ProfileColor.amber => AppColors.amber,
+          };
+
     return DecoratedBox(
       decoration: BoxDecoration(
         color: AppColors.terminal.withValues(alpha: .78),
@@ -522,6 +535,32 @@ class PaneControlStrip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (profile != null) ...[
+            const SizedBox(width: 8),
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: accentColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 5),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 100),
+              child: Text(
+                profile!.name,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: accentColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  fontFamily: 'Inter',
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+          ],
           if (onToggleBroadcast != null)
             SizedBox.square(
               dimension: 34,
