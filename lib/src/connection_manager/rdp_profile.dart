@@ -170,8 +170,22 @@ class RdpProfile {
       port = 3389;
     }
 
-    final username = settings['username'] ?? '';
-    final domain = settings['domain'];
+    // "port:i:N" overrides port embedded in full address (CyberArk style)
+    port = int.tryParse(settings['port'] ?? '') ?? port;
+
+    // Parse "domain\username" (CyberArk PSM format)
+    final rawUsername = settings['username'] ?? '';
+    String username;
+    String? domain;
+    final backslash = rawUsername.indexOf('\\');
+    if (backslash > 0) {
+      domain = rawUsername.substring(0, backslash);
+      username = rawUsername.substring(backslash + 1);
+    } else {
+      username = rawUsername;
+      domain = settings['domain'];
+    }
+
     final width = int.tryParse(settings['desktopwidth'] ?? '') ?? 1920;
     final height = int.tryParse(settings['desktopheight'] ?? '') ?? 1080;
     final screenMode = int.tryParse(settings['screen mode id'] ?? '') ?? 1;
@@ -179,6 +193,7 @@ class RdpProfile {
     // Remove known keys from extra
     const knownKeys = {
       'full address',
+      'port',
       'username',
       'domain',
       'desktopwidth',

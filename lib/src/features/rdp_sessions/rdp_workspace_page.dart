@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
@@ -14,30 +15,11 @@ import 'rdp_session_page.dart';
 class RdpWorkspacePage extends StatefulWidget {
   const RdpWorkspacePage({super.key});
 
-  static const bool _localBypassEnabled = bool.fromEnvironment(
-    'PORTIX_RDP_LOCAL_BYPASS',
-    defaultValue: true,
-  );
-
   @override
   State<RdpWorkspacePage> createState() => _RdpWorkspacePageState();
 }
 
 class _RdpWorkspacePageState extends State<RdpWorkspacePage> {
-  bool _autoConnectStarted = false;
-
-  @override
-  void initState() {
-    super.initState();
-    if (RdpWorkspacePage._localBypassEnabled) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || _autoConnectStarted) return;
-        _autoConnectStarted = true;
-        _connectLocalBypass(context);
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -63,14 +45,18 @@ class _RdpWorkspacePageState extends State<RdpWorkspacePage> {
               ),
               const Spacer(),
               FilledButton.icon(
-                onPressed: () => RdpWorkspacePage._localBypassEnabled
-                    ? _connectLocalBypass(context)
-                    : _showConnectDialog(context),
+                onPressed: () => _connectLocalBypass(context),
                 icon: const Icon(Icons.bolt_rounded, size: 16),
                 label: const Text('Local RDP'),
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.primaryBlue,
                 ),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton.icon(
+                onPressed: () => _openRdpFile(context),
+                icon: const Icon(Icons.file_open, size: 16),
+                label: const Text('Open .rdp'),
               ),
               const SizedBox(width: 10),
               OutlinedButton.icon(
@@ -117,6 +103,38 @@ class _RdpWorkspacePageState extends State<RdpWorkspacePage> {
     );
   }
 
+  /// Pick a .rdp file and connect immediately without showing the form.
+  Future<void> _openRdpFile(BuildContext context) async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['rdp'],
+      dialogTitle: 'Select .rdp file',
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    if (file.path == null) return;
+
+    final content = await File(file.path!).readAsString();
+    final fileName = file.name.replaceAll(
+      RegExp(r'\.rdp$', caseSensitive: false),
+      '',
+    );
+    final profile = RdpProfile.fromRdpFile(
+      id: const Uuid().v4(),
+      name: fileName,
+      content: content,
+    );
+
+    if (!context.mounted) return;
+    if (!sl.isRegistered<RdpBackend>()) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            RdpSessionPage(profile: profile, backend: sl<RdpBackend>()),
+      ),
+    );
+  }
+
   void _showConnectDialog(BuildContext context) async {
     final windowSize = MediaQuery.of(context).size;
     // Round down to multiple of 4 (xrdp requirement for bitmap padding)
@@ -148,7 +166,6 @@ class _RdpWorkspacePageState extends State<RdpWorkspacePage> {
 
   void _connectLocalBypass(BuildContext context) {
     if (!sl.isRegistered<RdpBackend>()) return;
-    _autoConnectStarted = true;
 
     final windowSize = MediaQuery.of(context).size;
     final width = _normalizeDimension(windowSize.width.toInt(), 1280);
