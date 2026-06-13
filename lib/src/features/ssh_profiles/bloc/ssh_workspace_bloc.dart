@@ -13,10 +13,12 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
     required SaveProfile saveProfile,
     required TestConnection testConnection,
     required DeleteProfile deleteProfile,
+    required ReadPasswordForEdit readPasswordForEdit,
   }) : _getProfiles = getProfiles,
        _saveProfile = saveProfile,
        _testConnection = testConnection,
        _deleteProfile = deleteProfile,
+       _readPasswordForEdit = readPasswordForEdit,
        super(const SshWorkspaceState()) {
     on<ProfilesRequested>(_onProfilesRequested);
     on<NavigationChanged>(_onNavigationChanged);
@@ -42,6 +44,7 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
   final SaveProfile _saveProfile;
   final TestConnection _testConnection;
   final DeleteProfile _deleteProfile;
+  final ReadPasswordForEdit _readPasswordForEdit;
 
   Future<void> _onProfilesRequested(
     ProfilesRequested event,
@@ -141,15 +144,27 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
   void _onProfileEditRequested(
     ProfileEditRequested event,
     Emitter<SshWorkspaceState> emit,
-  ) {
+  ) async {
     final profile = state.profiles
         .where((item) => item.id == event.profileId)
         .firstOrNull;
     if (profile == null) return;
+
+    // For password-auth profiles the stored credentialLabel is the sentinel
+    // "Saved password". Read the real password from secure storage so the
+    // form field shows the actual value and unhide works correctly.
+    SshProfile editableProfile = profile;
+    if (profile.authMethod == AuthMethod.password) {
+      final realPassword = await _readPasswordForEdit(profile.id);
+      if (realPassword != null && realPassword.isNotEmpty) {
+        editableProfile = profile.copyWith(credentialLabel: realPassword);
+      }
+    }
+
     emit(
       state.copyWith(
         selectedId: profile.id,
-        editingProfile: profile,
+        editingProfile: editableProfile,
         activeView: WorkspaceView.form,
         message: '',
       ),

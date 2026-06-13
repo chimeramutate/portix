@@ -45,3 +45,13 @@ class DeleteProfile {
     return repository.deleteProfile(id);
   }
 }
+
+class ReadPasswordForEdit {
+  const ReadPasswordForEdit(this.repository);
+  final SshProfileRepository repository;
+
+  /// Returns the real stored password, or null if none was found.
+  Future<String?> call(String profileId) {
+    return repository.readPasswordForEdit(profileId);
+  }
+}

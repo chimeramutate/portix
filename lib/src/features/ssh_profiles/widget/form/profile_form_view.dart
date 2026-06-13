@@ -237,6 +237,10 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                   children: [
                     _CompactFormHeader(state: state),
                     const SizedBox(height: 14),
+                    if (!showSidePanel && state.isProfileFormComplete) ...[
+                      ProfilePreview(state: state),
+                      const SizedBox(height: 14),
+                    ],
                     if (compact) ...[
                       AppPanel(
                         padding: const EdgeInsets.symmetric(
@@ -338,10 +342,6 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                         },
                       ),
                     ),
-                    if (!showSidePanel && state.isProfileFormComplete) ...[
-                      const SizedBox(height: 16),
-                      ProfilePreview(state: state),
-                    ],
                   ],
                 ),
               ),
@@ -365,7 +365,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                   ),
                   if (showSidePanel)
                     SizedBox(
-                      width: 340,
+                      width: 320,
                       height: availableHeight,
                       child: _AnimatedSidePanel(state: state),
                     ),
@@ -400,7 +400,10 @@ class _AnimatedSidePanel extends StatelessWidget {
           ? SingleChildScrollView(
               key: const ValueKey('complete-side-panel'),
               padding: const EdgeInsets.fromLTRB(0, 20, 20, 24),
-              child: ProfilePreview(state: state),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: ProfilePreview(state: state),
+              ),
             )
           : const SizedBox(key: ValueKey('empty-side-panel')),
     );
@@ -752,6 +755,7 @@ class _AutocompleteTextFieldState extends State<_AutocompleteTextField> {
           child: Material(
             color: Colors.transparent,
             child: AppPanel(
+              fillWidth: false,
               padding: const EdgeInsets.all(6),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(
