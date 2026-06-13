@@ -356,7 +356,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                   // Form – aligned to left (near the nav sidebar), not centred
                   Expanded(
                     child: Align(
-                      alignment: Alignment.topLeft,
+                      alignment: Alignment.center,
                       child: ConstrainedBox(
                         constraints: BoxConstraints(maxWidth: contentMaxWidth),
                         child: form,
@@ -366,8 +366,9 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                   if (showSidePanel)
                     SizedBox(
                       width: 320,
-                      height: availableHeight,
-                      child: _AnimatedSidePanel(state: state),
+                      child: Align(
+                        alignment: Alignment.topRight,
+                        child: _AnimatedSidePanel(state: state)),
                     ),
                 ],
               ),
