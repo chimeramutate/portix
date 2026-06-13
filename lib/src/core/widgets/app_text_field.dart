@@ -37,6 +37,16 @@ class _AppTextFieldState extends State<AppTextField> {
   }
 
   @override
+  void didUpdateWidget(AppTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Reset visibility state when the field switches between obscure/plain
+    // (e.g. user picks a different auth method) so the real value is shown.
+    if (oldWidget.obscureText != widget.obscureText) {
+      _obscured = widget.obscureText;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

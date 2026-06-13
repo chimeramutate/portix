@@ -709,6 +709,8 @@ class _ProfileList extends StatelessWidget {
                                     ),
                                   ),
                             ),
+                            const SizedBox(width: 4),
+                            _ListProfileMenu(profile: profile),
                           ],
                         ),
                 ),
@@ -837,6 +839,76 @@ class _EmptyProfileGallery extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Three-dot menu for the list-view row (same actions as the gallery card).
+enum _ProfileAction { edit, duplicate, delete }
+
+class _ListProfileMenu extends StatelessWidget {
+  const _ListProfileMenu({required this.profile});
+  final SshProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_ProfileAction>(
+      tooltip: 'Profile actions',
+      color: AppColors.surfaceCard,
+      icon: const Icon(
+        Icons.more_horiz_rounded,
+        color: AppColors.muted,
+        size: 20,
+      ),
+      onSelected: (action) {
+        switch (action) {
+          case _ProfileAction.edit:
+            context.read<SshWorkspaceBloc>().add(
+              ProfileEditRequested(profile.id),
+            );
+          case _ProfileAction.duplicate:
+            context.read<SshWorkspaceBloc>().add(
+              ProfileDuplicateRequested(profile.id),
+            );
+          case _ProfileAction.delete:
+            context.read<SshWorkspaceBloc>().add(
+              ProfileDeleted(profile.id),
+            );
+        }
+      },
+      itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: _ProfileAction.edit,
+          child: Row(
+            children: [
+              Icon(Icons.edit_rounded, size: 17),
+              SizedBox(width: 10),
+              Text('Edit'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: _ProfileAction.duplicate,
+          child: Row(
+            children: [
+              Icon(Icons.copy_rounded, size: 17),
+              SizedBox(width: 10),
+              Text('Duplicate'),
+            ],
+          ),
+        ),
+        PopupMenuDivider(),
+        PopupMenuItem(
+          value: _ProfileAction.delete,
+          child: Row(
+            children: [
+              Icon(Icons.delete_outline_rounded, size: 17),
+              SizedBox(width: 10),
+              Text('Delete'),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

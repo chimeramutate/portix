@@ -28,6 +28,9 @@ class _ProfileFormViewState extends State<ProfileFormView> {
   String? _syncedId;
   AuthMethod? _syncedAuthMethod;
 
+  // Advanced section toggle – collapsed by default
+  bool _advancedExpanded = false;
+
   @override
   void dispose() {
     for (final controller in [
@@ -90,20 +93,19 @@ class _ProfileFormViewState extends State<ProfileFormView> {
       builder: (context, state) {
         _sync(state.editingProfile);
         final profile = state.editingProfile;
-        final groupOptions =
-            state.profiles
-                .map((profile) => profile.group)
-                .where((group) => group.trim().isNotEmpty)
-                .toSet()
-                .toList()
-              ..sort();
-        final tagOptions =
-            state.profiles
-                .expand((profile) => profile.tags)
-                .where((tag) => tag.trim().isNotEmpty)
-                .toSet()
-                .toList()
-              ..sort();
+        final groupOptions = state.profiles
+            .map((p) => p.group)
+            .where((g) => g.trim().isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+        final tagOptions = state.profiles
+            .expand((p) => p.tags)
+            .where((t) => t.trim().isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+
         return LayoutBuilder(
           builder: (context, constraints) {
             final screenSize = MediaQuery.sizeOf(context);
@@ -118,6 +120,9 @@ class _ProfileFormViewState extends State<ProfileFormView> {
             final showSidePanel =
                 availableWidth >= 1320 && state.isProfileFormComplete;
             final contentMaxWidth = showSidePanel ? 920.0 : 1080.0;
+
+            // --- Sections ---
+
             final identitySection = _FormSection(
               title: 'Profile Identity',
               subtitle: 'Nama dan group wajib. Tag opsional untuk filter.',
@@ -145,9 +150,12 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                 ),
               ],
             );
+
+            // Authentication is now embedded inside the endpoint section.
             final endpointSection = _FormSection(
               title: 'Connection Endpoint',
-              subtitle: 'Data utama untuk membuka SSH session.',
+              subtitle:
+                  'Host, port, username, dan metode autentikasi SSH session.',
               children: [
                 AppTextField(
                   controller: _host,
@@ -167,12 +175,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                   icon: Icons.person_outline,
                   onChanged: (_) => _changed(context),
                 ),
-              ],
-            );
-            final authSection = _FormSection(
-              title: 'Authentication',
-              subtitle: 'Pilih password atau SSH key.',
-              children: [
+                // Auth inline – full-width inside the endpoint card
                 _AuthSegments(profile: profile),
                 if (profile?.authMethod == AuthMethod.password)
                   AppTextField(
@@ -198,9 +201,12 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                 ],
               ],
             );
-            final advancedSection = _FormSection(
-              title: 'Advanced Defaults',
-              subtitle: 'Opsional untuk session pertama kali dibuka.',
+
+            // Advanced section with ^ toggle header
+            final advancedSection = _AdvancedSection(
+              expanded: _advancedExpanded,
+              onToggle: () =>
+                  setState(() => _advancedExpanded = !_advancedExpanded),
               children: [
                 AppTextField(
                   controller: _startup,
@@ -216,13 +222,14 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                 ),
               ],
             );
+
             final form = SizedBox(
               height: availableHeight,
               child: SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(
-                  compact ? 14 : 24,
-                  compact ? 14 : 24,
-                  compact ? 14 : 18,
+                  compact ? 14 : 20,
+                  compact ? 14 : 20,
+                  compact ? 14 : 16,
                   28,
                 ),
                 child: Column(
@@ -249,26 +256,19 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                           Expanded(child: endpointSection),
                         ],
                       ),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(child: authSection),
-                          const SizedBox(width: 14),
-                          Expanded(child: advancedSection),
-                        ],
-                      ),
                     ] else ...[
                       identitySection,
                       endpointSection,
-                      authSection,
-                      advancedSection,
                     ],
+                    advancedSection,
+                    // Footer – Save only (no Test Connection)
                     AppPanel(
                       margin: const EdgeInsets.only(top: 2),
                       padding: const EdgeInsets.all(18),
                       child: LayoutBuilder(
                         builder: (context, footerConstraints) {
-                          final stackActions = footerConstraints.maxWidth < 760;
+                          final stackActions =
+                              footerConstraints.maxWidth < 760;
                           final summary = Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -280,7 +280,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Test connection validates host, port, and auth before the profile returns to the SSH gallery.',
+                                'Pastikan host, port, username, dan auth sudah benar sebelum menyimpan.',
                                 maxLines: 3,
                                 overflow: TextOverflow.ellipsis,
                                 style: portixMuted(),
@@ -303,21 +303,13 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                                     ),
                               ),
                               AppButton(
-                                icon: Icons.monitor_heart_outlined,
-                                label: stackActions
-                                    ? 'Test'
-                                    : 'Test Connection',
-                                onPressed: () => context
-                                    .read<SshWorkspaceBloc>()
-                                    .add(const ProfileTestRequested()),
-                              ),
-                              AppButton(
                                 icon: Icons.save_outlined,
                                 label: stackActions ? 'Save' : 'Save Profile',
                                 primary: true,
-                                onPressed: () => context
-                                    .read<SshWorkspaceBloc>()
-                                    .add(const ProfileSaved()),
+                                onPressed: () =>
+                                    context.read<SshWorkspaceBloc>().add(
+                                      const ProfileSaved(),
+                                    ),
                               ),
                             ],
                           );
@@ -349,7 +341,6 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                     if (!showSidePanel && state.isProfileFormComplete) ...[
                       const SizedBox(height: 16),
                       ProfilePreview(state: state),
-                      TestConnectionPanel(state: state),
                     ],
                   ],
                 ),
@@ -360,10 +351,12 @@ class _ProfileFormViewState extends State<ProfileFormView> {
               width: availableWidth,
               height: availableHeight,
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Form – aligned to left (near the nav sidebar), not centred
                   Expanded(
                     child: Align(
-                      alignment: Alignment.topCenter,
+                      alignment: Alignment.topLeft,
                       child: ConstrainedBox(
                         constraints: BoxConstraints(maxWidth: contentMaxWidth),
                         child: form,
@@ -372,7 +365,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                   ),
                   if (showSidePanel)
                     SizedBox(
-                      width: 360,
+                      width: 340,
                       height: availableHeight,
                       child: _AnimatedSidePanel(state: state),
                     ),
@@ -385,6 +378,10 @@ class _ProfileFormViewState extends State<ProfileFormView> {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Side panel (no TestConnectionPanel)
+// ---------------------------------------------------------------------------
 
 class _AnimatedSidePanel extends StatelessWidget {
   const _AnimatedSidePanel({required this.state});
@@ -402,18 +399,17 @@ class _AnimatedSidePanel extends StatelessWidget {
       child: state.isProfileFormComplete
           ? SingleChildScrollView(
               key: const ValueKey('complete-side-panel'),
-              padding: const EdgeInsets.fromLTRB(0, 24, 24, 24),
-              child: Column(
-                children: [
-                  ProfilePreview(state: state),
-                  TestConnectionPanel(state: state),
-                ],
-              ),
+              padding: const EdgeInsets.fromLTRB(0, 20, 20, 24),
+              child: ProfilePreview(state: state),
             )
           : const SizedBox(key: ValueKey('empty-side-panel')),
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Compact header with step pills
+// ---------------------------------------------------------------------------
 
 class _CompactFormHeader extends StatelessWidget {
   const _CompactFormHeader({required this.state});
@@ -443,7 +439,7 @@ class _CompactFormHeader extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final compact = constraints.maxWidth < 620;
+          final narrow = constraints.maxWidth < 620;
           return Wrap(
             spacing: 10,
             runSpacing: 10,
@@ -451,7 +447,7 @@ class _CompactFormHeader extends StatelessWidget {
             alignment: WrapAlignment.spaceBetween,
             children: [
               SizedBox(
-                width: compact ? constraints.maxWidth : 330,
+                width: narrow ? constraints.maxWidth : 330,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -492,6 +488,10 @@ class _CompactFormHeader extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Generic form section card
+// ---------------------------------------------------------------------------
+
 class _FormSection extends StatelessWidget {
   const _FormSection({
     required this.title,
@@ -506,14 +506,14 @@ class _FormSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppPanel(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(18),
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           LayoutBuilder(
             builder: (context, constraints) {
-              final titleSize = constraints.maxWidth < 340 ? 16.0 : 19.0;
+              final titleSize = constraints.maxWidth < 340 ? 16.0 : 18.0;
               return Text(
                 title,
                 maxLines: 2,
@@ -522,7 +522,7 @@ class _FormSection extends StatelessWidget {
               );
             },
           ),
-          const SizedBox(height: 5),
+          const SizedBox(height: 4),
           Text(
             subtitle,
             maxLines: 3,
@@ -556,6 +556,110 @@ class _FormSection extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Advanced section with ^ toggle
+// ---------------------------------------------------------------------------
+
+class _AdvancedSection extends StatelessWidget {
+  const _AdvancedSection({
+    required this.expanded,
+    required this.onToggle,
+    required this.children,
+  });
+
+  final bool expanded;
+  final VoidCallback onToggle;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppPanel(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Toggle header
+          InkWell(
+            onTap: onToggle,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.settings_outlined,
+                    color: AppColors.muted,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Advanced', style: portixTitle(16)),
+                        Text(
+                          'Startup command, font size, dan konfigurasi lanjutan.',
+                          style: portixMuted(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  AnimatedRotation(
+                    duration: const Duration(milliseconds: 200),
+                    turns: expanded ? 0.5 : 0.0,
+                    child: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: AppColors.muted,
+                      size: 20,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Expandable content
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 220),
+            firstCurve: Curves.easeOutCubic,
+            secondCurve: Curves.easeInCubic,
+            crossFadeState: expanded
+                ? CrossFadeState.showFirst
+                : CrossFadeState.showSecond,
+            firstChild: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final twoColumns = constraints.maxWidth > 640;
+                  return Wrap(
+                    spacing: 12,
+                    runSpacing: 14,
+                    children: children.map((child) {
+                      return SizedBox(
+                        width: twoColumns
+                            ? (constraints.maxWidth - 12) / 2
+                            : constraints.maxWidth,
+                        child: child,
+                      );
+                    }).toList(),
+                  );
+                },
+              ),
+            ),
+            secondChild: const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Autocomplete text field
+// ---------------------------------------------------------------------------
 
 class _AutocompleteTextField extends StatefulWidget {
   const _AutocompleteTextField({
@@ -593,9 +697,8 @@ class _AutocompleteTextFieldState extends State<_AutocompleteTextField> {
       optionsBuilder: (value) {
         final query = value.text.trim().toLowerCase();
         if (query.isEmpty) return widget.options;
-        return widget.options.where(
-          (option) => option.toLowerCase().contains(query),
-        );
+        return widget.options
+            .where((option) => option.toLowerCase().contains(query));
       },
       onSelected: (value) {
         widget.controller.text = value;
@@ -674,6 +777,10 @@ class _AutocompleteTextFieldState extends State<_AutocompleteTextField> {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Tag selector
+// ---------------------------------------------------------------------------
 
 class _TagSelector extends StatefulWidget {
   const _TagSelector({
@@ -764,7 +871,10 @@ class _TagSelectorState extends State<_TagSelector> {
                       ),
                     ),
                   for (final tag in available)
-                    ActionChip(label: Text(tag), onPressed: () => _addTag(tag)),
+                    ActionChip(
+                      label: Text(tag),
+                      onPressed: () => _addTag(tag),
+                    ),
                 ],
               ),
               const SizedBox(height: 10),
@@ -795,6 +905,10 @@ class _TagSelectorState extends State<_TagSelector> {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Profile color picker
+// ---------------------------------------------------------------------------
 
 class _ProfileColorPicker extends StatelessWidget {
   const _ProfileColorPicker({required this.color});
@@ -868,6 +982,10 @@ class _ProfileColorPicker extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Auth method segmented control
+// ---------------------------------------------------------------------------
 
 class _AuthSegments extends StatelessWidget {
   const _AuthSegments({required this.profile});
@@ -971,6 +1089,10 @@ class _Segment extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// SSH key upload box
+// ---------------------------------------------------------------------------
+
 class _UploadBox extends StatelessWidget {
   const _UploadBox({required this.onTap});
   final VoidCallback onTap;
@@ -999,7 +1121,7 @@ class _UploadBox extends StatelessWidget {
                         children: [
                           _UploadIconBox(),
                           const SizedBox(width: 12),
-                          Expanded(child: _UploadBoxText()),
+                          const Expanded(child: _UploadBoxText()),
                         ],
                       ),
                       const SizedBox(height: 12),
@@ -1074,6 +1196,10 @@ class _UploadBoxText extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 String _profileColorLabel(ProfileColor color) {
   return switch (color) {

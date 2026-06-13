@@ -1,6 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:portix/src/connection_manager/connection_manager.dart';
+import 'package:portix/src/connection_manager/session_models.dart'
+    as session_models;
+import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
@@ -111,17 +117,6 @@ class ProfileInspector extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             AppButton(
-              icon: Icons.folder_open_rounded,
-              label: 'Open Remote Folder',
-              onPressed: () => context.read<SshSessionBloc>().add(
-                SshSessionOpenRequested(
-                  profile: profile,
-                  target: SshSessionTarget.remoteFolder,
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            AppButton(
               icon: Icons.cable_rounded,
               label: 'Start SFTP Connect',
               onPressed: () => context.read<SshSessionBloc>().add(
@@ -132,31 +127,7 @@ class ProfileInspector extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 18),
-            AppPanel(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Connection feedback', style: portixTitle(13)),
-                  const SizedBox(height: 10),
-                  const _FeedbackLine(
-                    icon: Icons.check_circle_outline,
-                    text: 'Host key verified',
-                    color: AppColors.green,
-                  ),
-                  const _FeedbackLine(
-                    icon: Icons.monitor_heart_outlined,
-                    text: 'Latency 24 ms',
-                    color: AppColors.cyan,
-                  ),
-                  const _FeedbackLine(
-                    icon: Icons.folder_outlined,
-                    text: 'Remote folder will mount after SSH active',
-                    color: AppColors.muted,
-                  ),
-                ],
-              ),
-            ),
+            _ConnectionFeedbackPanel(profile: profile),
           ],
         ),
       ),
@@ -226,6 +197,91 @@ class _FeedbackLine extends StatelessWidget {
           Icon(icon, color: color, size: 16),
           const SizedBox(width: 9),
           Expanded(child: Text(text, style: portixMuted())),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shows connection feedback only when the profile is online.
+/// Latency is read live from the active [ConnectionManager] session.
+class _ConnectionFeedbackPanel extends StatefulWidget {
+  const _ConnectionFeedbackPanel({required this.profile});
+
+  final SshProfile profile;
+
+  @override
+  State<_ConnectionFeedbackPanel> createState() =>
+      _ConnectionFeedbackPanelState();
+}
+
+class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
+  int? _latencyMs;
+
+  @override
+  void initState() {
+    super.initState();
+    _measureLatency();
+  }
+
+  @override
+  void didUpdateWidget(_ConnectionFeedbackPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.profile.id != widget.profile.id) {
+      setState(() => _latencyMs = null);
+      _measureLatency();
+    }
+  }
+
+  Future<void> _measureLatency() async {
+    final profile = widget.profile;
+    if (profile.host.trim().isEmpty) return;
+    final start = DateTime.now();
+    try {
+      final socket = await RawSocket.connect(
+        profile.host,
+        profile.port,
+      ).timeout(const Duration(seconds: 5));
+      socket.close();
+      if (!mounted) return;
+      setState(() {
+        _latencyMs = DateTime.now().difference(start).inMilliseconds;
+      });
+    } catch (_) {
+      // Latency measurement failed — keep null (will show "—").
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = effectiveProfileStatus(widget.profile);
+    final isOnline = status == ConnectionStatus.online;
+    if (!isOnline) return const SizedBox.shrink();
+
+    final latencyText = _latencyMs == null ? '— ms' : '$_latencyMs ms';
+
+    return AppPanel(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Connection feedback', style: portixTitle(13)),
+          const SizedBox(height: 10),
+          const _FeedbackLine(
+            icon: Icons.check_circle_outline,
+            text: 'Host key verified',
+            color: AppColors.green,
+          ),
+          _FeedbackLine(
+            icon: Icons.monitor_heart_outlined,
+            text: 'Latency $latencyText',
+            color: AppColors.cyan,
+          ),
+          const _FeedbackLine(
+            icon: Icons.folder_outlined,
+            text: 'Remote folder mounted',
+            color: AppColors.muted,
+          ),
         ],
       ),
     );
