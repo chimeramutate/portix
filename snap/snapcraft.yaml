@@ -1,5 +1,5 @@
 name: portix
-version: '1.0.0'
+version: "1.0.0"
 summary: Portix SSH Client - Multi-platform SSH terminal with SFTP
 description: |
   Portix is a modern SSH client built with Flutter UI and Rust SSH core.
@@ -31,8 +31,10 @@ parts:
       export PATH="$HOME/.cargo/bin:$PATH"
       cd $CRAFT_PART_SRC
       cargo build --release
-      mkdir -p $CRAFT_PART_INSTALL/lib
-      cp target/release/libportix_serv.so $CRAFT_PART_INSTALL/lib/
+      mkdir -p $CRAFT_PART_INSTALL/rust-lib
+      cp target/release/libportix_serv.so $CRAFT_PART_INSTALL/rust-lib/
+    stage:
+      - rust-lib/libportix_serv.so
 
   portix:
     plugin: nil
@@ -74,24 +76,24 @@ parts:
         --dart-define=RUST_LIBRARY_MODE=production
 
       # Install bundle
-      cp -r build/linux/x64/release/bundle/* $CRAFT_PART_INSTALL/
-      # Copy Rust library into bundle
-      cp $CRAFT_STAGE/lib/libportix_serv.so $CRAFT_PART_INSTALL/libportix_serv.so
+      cp -r build/linux/x64/release/bundle/. $CRAFT_PART_INSTALL/
 
-      # Install .desktop file and icon for snap desktop integration.
+      # Copy Rust library dari staging area (bukan dari lib/, tapi dari rust-lib/)
+      # sehingga tidak ada conflict path dengan stage-packages
+      cp $CRAFT_STAGE/rust-lib/libportix_serv.so $CRAFT_PART_INSTALL/libportix_serv.so
+
+      # Install .desktop file dan icon untuk snap desktop integration.
       mkdir -p $CRAFT_PART_INSTALL/usr/share/applications
       mkdir -p $CRAFT_PART_INSTALL/usr/share/icons/hicolor/256x256/apps
       mkdir -p $CRAFT_PART_INSTALL/usr/share/icons/hicolor/128x128/apps
       mkdir -p $CRAFT_PART_INSTALL/usr/share/icons/hicolor/64x64/apps
       mkdir -p $CRAFT_PART_INSTALL/meta/gui
 
-      # Copy icon to multiple locations for maximum DE compatibility.
       cp $CRAFT_PART_SRC/assets/icons/portix_launcher.png $CRAFT_PART_INSTALL/usr/share/icons/hicolor/256x256/apps/portix.png
       cp $CRAFT_PART_SRC/assets/icons/portix_launcher.png $CRAFT_PART_INSTALL/usr/share/icons/hicolor/128x128/apps/portix.png
       cp $CRAFT_PART_SRC/assets/icons/portix_launcher.png $CRAFT_PART_INSTALL/usr/share/icons/hicolor/64x64/apps/portix.png
       cp $CRAFT_PART_SRC/assets/icons/portix_launcher.png $CRAFT_PART_INSTALL/meta/gui/icon.png
 
-      # Copy .desktop file from snap/gui for desktop integration.
       cp $CRAFT_PART_SRC/snap/gui/portix.desktop $CRAFT_PART_INSTALL/usr/share/applications/portix.desktop
 
 apps:

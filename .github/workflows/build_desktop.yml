@@ -27,24 +27,37 @@ env:
   # Determine channel from tag name or manual input.
   # Tags containing "-beta" go to beta channel, otherwise stable.
   IS_BETA: ${{ contains(github.ref_name, '-beta') || (github.event_name == 'workflow_dispatch' && github.event.inputs.channel == 'beta') }}
-  # Tag portix-serv yang dipakai: dari input manual, atau ikut tag Flutter app
-  SERV_TAG: ${{ github.event.inputs.serv_tag != '' && github.event.inputs.serv_tag || github.ref_name }}
 
 jobs:
-  # ── Tunggu portix-serv release tersedia ──────────────────────────────────────
   wait-for-serv-release:
-    name: Wait for portix-serv release (${{ github.event.inputs.serv_tag != '' && github.event.inputs.serv_tag || github.ref_name }})
+    name: Wait for portix-serv release
     runs-on: ubuntu-latest
     outputs:
-      serv_tag: ${{ env.SERV_TAG }}
+      serv_tag: ${{ steps.resolve.outputs.serv_tag }}
     steps:
+      - name: Resolve portix-serv tag
+        id: resolve
+        run: |
+          if [ -n "${{ github.event.inputs.serv_tag }}" ]; then
+            # Pakai input manual jika diisi
+            SERV_TAG="${{ github.event.inputs.serv_tag }}"
+          else
+            # Strip suffix -beta* dari ref_name
+            # v1.2.3-beta1 → v1.2.3 | v1.2.3 → v1.2.3
+            SERV_TAG=$(echo "${{ github.ref_name }}" | sed 's/-beta[^/]*$//')
+          fi
+          echo "Flutter tag  : ${{ github.ref_name }}"
+          echo "portix-serv tag: $SERV_TAG"
+          echo "serv_tag=$SERV_TAG" >> "$GITHUB_OUTPUT"
+
       - name: Wait until portix-serv release is published
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          echo "Waiting for portix-serv release: ${{ env.SERV_TAG }}"
+          SERV_TAG="${{ steps.resolve.outputs.serv_tag }}"
+          echo "Waiting for portix-serv release: $SERV_TAG"
           for i in $(seq 1 20); do
-            STATUS=$(gh release view "${{ env.SERV_TAG }}" \
+            STATUS=$(gh release view "$SERV_TAG" \
               --repo Asepimam/portix-serv \
               --json isDraft,isPrerelease,assets \
               2>/dev/null || echo "NOT_FOUND")
@@ -77,7 +90,7 @@ jobs:
             fi
           done
 
-          echo "::error::Timeout waiting for portix-serv release ${{ env.SERV_TAG }} after 20 minutes."
+          echo "::error::Timeout waiting for portix-serv release $SERV_TAG after 20 minutes."
           exit 1
 
   # ── Build desktop per platform ───────────────────────────────────────────────
@@ -278,12 +291,18 @@ jobs:
   snap:
     name: Build Snap
     runs-on: ubuntu-latest
-    # Snap tidak perlu Rust binary, tapi tetap tunggu serv release
-    # agar versi yang di-snap konsisten dengan desktop build
     needs: wait-for-serv-release
     steps:
-      - name: Checkout
+      - name: Checkout Flutter app
         uses: actions/checkout@v4
+
+      - name: Checkout Rust backend
+        uses: actions/checkout@v4
+        with:
+          repository: Asepimam/portix-serv
+          token: ${{ secrets.GH_PAT }}
+          ref: ${{ needs.wait-for-serv-release.outputs.serv_tag }}
+          path: portix-serv
 
       - name: Build snap
         uses: snapcore/action-build@v1
