@@ -15,6 +15,10 @@ on:
         options:
           - stable
           - beta
+      serv_tag:
+        description: "portix-serv tag to use (default: same as this tag)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -23,11 +27,64 @@ env:
   # Determine channel from tag name or manual input.
   # Tags containing "-beta" go to beta channel, otherwise stable.
   IS_BETA: ${{ contains(github.ref_name, '-beta') || (github.event_name == 'workflow_dispatch' && github.event.inputs.channel == 'beta') }}
+  # Tag portix-serv yang dipakai: dari input manual, atau ikut tag Flutter app
+  SERV_TAG: ${{ github.event.inputs.serv_tag != '' && github.event.inputs.serv_tag || github.ref_name }}
 
 jobs:
+  # ── Tunggu portix-serv release tersedia ──────────────────────────────────────
+  wait-for-serv-release:
+    name: Wait for portix-serv release (${{ github.event.inputs.serv_tag != '' && github.event.inputs.serv_tag || github.ref_name }})
+    runs-on: ubuntu-latest
+    outputs:
+      serv_tag: ${{ env.SERV_TAG }}
+    steps:
+      - name: Wait until portix-serv release is published
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          echo "Waiting for portix-serv release: ${{ env.SERV_TAG }}"
+          for i in $(seq 1 20); do
+            STATUS=$(gh release view "${{ env.SERV_TAG }}" \
+              --repo Asepimam/portix-serv \
+              --json isDraft,isPrerelease,assets \
+              2>/dev/null || echo "NOT_FOUND")
+
+            if [ "$STATUS" = "NOT_FOUND" ]; then
+              echo "Attempt $i/20: Release not found yet, waiting 60s..."
+              sleep 60
+              continue
+            fi
+
+            # Cek apakah semua asset yang dibutuhkan sudah ada
+            ASSETS=$(echo "$STATUS" | jq -r '.assets[].name')
+            NEEDED=(
+              "libportix_serv_macos.dylib"
+              "libportix_serv_linux.so"
+              "portix_serv_windows.dll"
+            )
+            ALL_READY=true
+            for asset in "${NEEDED[@]}"; do
+              if ! echo "$ASSETS" | grep -q "$asset"; then
+                echo "Attempt $i/20: Asset '$asset' not ready yet, waiting 60s..."
+                ALL_READY=false
+                break
+              fi
+            done
+
+            if [ "$ALL_READY" = "true" ]; then
+              echo "✓ All portix-serv assets are ready!"
+              exit 0
+            fi
+          done
+
+          echo "::error::Timeout waiting for portix-serv release ${{ env.SERV_TAG }} after 20 minutes."
+          exit 1
+
+  # ── Build desktop per platform ───────────────────────────────────────────────
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    needs: wait-for-serv-release
 
     strategy:
       fail-fast: false
@@ -59,7 +116,7 @@ jobs:
 
     steps:
       - name: Checkout Flutter app
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -83,49 +140,45 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      # ── Download pre-built Rust binary dari portix-serv release ──────────────
+      - name: Download Rust native library from portix-serv release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          mkdir -p rust-libs
+          echo "Downloading ${{ matrix.rust_asset }} from portix-serv @ ${{ needs.wait-for-serv-release.outputs.serv_tag }}"
+          gh release download "${{ needs.wait-for-serv-release.outputs.serv_tag }}" \
+            --repo Asepimam/portix-serv \
+            --pattern "${{ matrix.rust_asset }}" \
+            --dir rust-libs/
+          echo "✓ Downloaded:"
+          ls -lh rust-libs/
 
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: portix-serv
-
-      - name: Checkout Rust backend
-        uses: actions/checkout@v6
+      # ── Verifikasi bridge hash tetap dilakukan dari source portix-serv ────────
+      - name: Checkout Rust backend (for bridge hash check only)
+        uses: actions/checkout@v4
         with:
           repository: Asepimam/portix-serv
           token: ${{ secrets.GH_PAT }}
-          ref: master
+          ref: ${{ needs.wait-for-serv-release.outputs.serv_tag }}
           path: portix-serv
-
-      - name: Build Rust native library (hardened)
-        run: cargo build --profile release-hardened --manifest-path portix-serv/Cargo.toml
+          sparse-checkout: |
+            src/frb_generated.rs
+          sparse-checkout-cone-mode: false
 
       - name: Verify Dart-Rust bridge hash sync
         shell: bash
         run: |
           DART_HASH=$(sed -n 's/.*int get rustContentHash => \(-\?[0-9]*\);/\1/p' lib/src/rust/frb_generated.dart)
           RUST_HASH=$(sed -n 's/.*FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = \(-\?[0-9]*\);/\1/p' portix-serv/src/frb_generated.rs)
-          echo "Dart content hash: $DART_HASH"
-          echo "Rust content hash: $RUST_HASH"
+          echo "Dart content hash : $DART_HASH"
+          echo "Rust content hash  : $RUST_HASH"
           if [ "$DART_HASH" != "$RUST_HASH" ]; then
             echo "::error::Content hash mismatch! Dart ($DART_HASH) != Rust ($RUST_HASH). Run flutter_rust_bridge_codegen to sync."
             exit 1
           fi
           echo "✓ Bridge hashes match"
-
-      - name: Prepare Rust library
-        shell: bash
-        run: |
-          mkdir -p rust-libs
-          if [ "${{ matrix.target }}" = "linux" ]; then
-            cp portix-serv/target/release-hardened/libportix_serv.so rust-libs/${{ matrix.rust_asset }}
-          elif [ "${{ matrix.target }}" = "macos" ]; then
-            cp portix-serv/target/release-hardened/libportix_serv.dylib rust-libs/${{ matrix.rust_asset }}
-          elif [ "${{ matrix.target }}" = "windows" ]; then
-            cp portix-serv/target/release-hardened/portix_serv.dll rust-libs/${{ matrix.rust_asset }}
-          fi
 
       - name: Build Flutter
         run: flutter build ${{ matrix.flutter_build_target }} --release --dart-define=PORTIX_BACKEND=rust --dart-define=RUST_LIBRARY_MODE=production
@@ -139,7 +192,7 @@ jobs:
           format: table
           severity: CRITICAL,HIGH
           exit-code: "0"
-          skip-dirs: "target,build"
+          skip-dirs: "target,build,portix-serv"
 
       - name: Bundle Rust library - macOS
         if: matrix.target == 'macos'
@@ -160,8 +213,6 @@ jobs:
         if: matrix.target == 'linux'
         run: |
           BUNDLE_LIB="build/linux/x64/release/bundle/lib"
-          # Bundle libsecret and its dependency libgcrypt so the app works
-          # on systems without libsecret installed.
           for lib in libsecret-1.so.0 libgcrypt.so.20; do
             LIB_PATH=$(ldconfig -p | grep "$lib" | head -1 | awk '{print $NF}')
             if [ -n "$LIB_PATH" ] && [ ! -f "$BUNDLE_LIB/$lib" ]; then
@@ -206,7 +257,7 @@ jobs:
             -DestinationPath "${{ matrix.package_name }}-${{ github.ref_name }}.zip"
 
       - name: Upload app artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.package_name }}-${{ github.ref_name }}
           path: |
@@ -227,24 +278,19 @@ jobs:
   snap:
     name: Build Snap
     runs-on: ubuntu-latest
+    # Snap tidak perlu Rust binary, tapi tetap tunggu serv release
+    # agar versi yang di-snap konsisten dengan desktop build
+    needs: wait-for-serv-release
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Checkout Rust backend
-        uses: actions/checkout@v6
-        with:
-          repository: Asepimam/portix-serv
-          token: ${{ secrets.GH_PAT }}
-          ref: master
-          path: portix-serv
+        uses: actions/checkout@v4
 
       - name: Build snap
         uses: snapcore/action-build@v1
         id: snap-build
 
       - name: Upload snap artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: portix-snap-${{ github.ref_name }}
           path: ${{ steps.snap-build.outputs.snap }}
