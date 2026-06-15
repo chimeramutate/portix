@@ -8,10 +8,10 @@ import 'package:uuid/uuid.dart';
 
 import '../../connection_manager/rdp_backend.dart';
 import '../../connection_manager/rdp_profile.dart';
+import 'rdp_connect_dialog.dart';
 import 'rdp_session_page.dart';
 
-/// Workspace page for RDP connections — shows quick connect button
-/// and allows importing .rdp files.
+/// Workspace page for RDP connections and importing .rdp files.
 class RdpWorkspacePage extends StatefulWidget {
   const RdpWorkspacePage({super.key});
 
@@ -44,15 +44,6 @@ class _RdpWorkspacePageState extends State<RdpWorkspacePage> {
                 ),
               ),
               const Spacer(),
-              FilledButton.icon(
-                onPressed: () => _connectLocalBypass(context),
-                icon: const Icon(Icons.bolt_rounded, size: 16),
-                label: const Text('Local RDP'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.primaryBlue,
-                ),
-              ),
-              const SizedBox(width: 10),
               OutlinedButton.icon(
                 onPressed: () => _openRdpFile(context),
                 icon: const Icon(Icons.file_open, size: 16),
@@ -62,7 +53,7 @@ class _RdpWorkspacePageState extends State<RdpWorkspacePage> {
               OutlinedButton.icon(
                 onPressed: () => _showConnectDialog(context),
                 icon: const Icon(Icons.add, size: 16),
-                label: const Text('Manual'),
+                label: const Text('New RDP Connection'),
               ),
             ],
           ),
@@ -137,19 +128,12 @@ class _RdpWorkspacePageState extends State<RdpWorkspacePage> {
 
   void _showConnectDialog(BuildContext context) async {
     final windowSize = MediaQuery.of(context).size;
-    // Round down to multiple of 4 (xrdp requirement for bitmap padding)
-    final rdpWidth = ((windowSize.width.toInt()) ~/ 4) * 4;
-    final rdpHeight = ((windowSize.height.toInt()) ~/ 4) * 4;
-
-    final profile = RdpProfile(
-      id: 'test-rdp-1',
-      name: 'Local xrdp',
-      host: 'test.host',
-      port: 3389,
-      username: 'testuser',
-      password: r'test123',
-      width: rdpWidth.clamp(640, 1920),
-      height: rdpHeight.clamp(480, 1080),
+    final profile = await showDialog<RdpProfile>(
+      context: context,
+      builder: (_) => RdpConnectDialog(
+        initialWidth: windowSize.width.toInt(),
+        initialHeight: windowSize.height.toInt(),
+      ),
     );
 
     if (profile == null) return;
@@ -162,49 +146,5 @@ class _RdpWorkspacePageState extends State<RdpWorkspacePage> {
             RdpSessionPage(profile: profile, backend: sl<RdpBackend>()),
       ),
     );
-  }
-
-  void _connectLocalBypass(BuildContext context) {
-    if (!sl.isRegistered<RdpBackend>()) return;
-
-    final windowSize = MediaQuery.of(context).size;
-    final width = _normalizeDimension(windowSize.width.toInt(), 1280);
-    final height = _normalizeDimension(windowSize.height.toInt(), 720);
-    final extra = <String, String>{
-      'portix_debug': '1',
-      'portix_stream_pixels': '0',
-      'portix_keep_awake': '1',
-      'portix_keep_awake_interval_seconds': '15',
-      'portix_auto_unlock': '1',
-    };
-    final home = Platform.environment['HOME'];
-    if (home != null && Directory('$home/Downloads').existsSync()) {
-      extra['portix_drive_path'] = '$home/Downloads';
-      extra['portix_drive_name'] = 'PORTIX';
-    }
-    final profile = RdpProfile(
-      id: const Uuid().v4(),
-      name: 'Local RDP',
-      host: 'test.host',
-      port: 3389,
-      username: 'testuser',
-      password: r'test123',
-      hasPassword: true,
-      width: width.clamp(640, 1920).toInt(),
-      height: height.clamp(480, 1080).toInt(),
-      extra: extra,
-    );
-
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) =>
-            RdpSessionPage(profile: profile, backend: sl<RdpBackend>()),
-      ),
-    );
-  }
-
-  int _normalizeDimension(int value, int fallback) {
-    final normalized = value <= 0 ? fallback : value;
-    return (normalized ~/ 4) * 4;
   }
 }

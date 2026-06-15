@@ -8,19 +8,21 @@ import '../../connection_manager/rdp_profile.dart';
 
 /// Dialog for creating/editing an RDP connection profile.
 ///
-/// When importing a .rdp file the dialog returns the parsed profile directly
-/// without showing the form (fast path for CyberArk / corporate .rdp files).
+/// Importing a .rdp file fills the form so the user can review or adjust
+/// CyberArk / corporate settings before connecting.
 class RdpConnectDialog extends StatefulWidget {
   const RdpConnectDialog({
     super.key,
     this.existingProfile,
     this.initialWidth,
     this.initialHeight,
+    this.importOnOpen = false,
   });
 
   final RdpProfile? existingProfile;
   final int? initialWidth;
   final int? initialHeight;
+  final bool importOnOpen;
 
   @override
   State<RdpConnectDialog> createState() => _RdpConnectDialogState();
@@ -39,6 +41,7 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
   late final TextEditingController _drivePathController;
   late final TextEditingController _driveNameController;
   late final TextEditingController _altShellController;
+  Map<String, String>? _formExtra;
 
   @override
   void initState() {
@@ -65,6 +68,10 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
     _altShellController = TextEditingController(
       text: p?.extra['alternate shell'] ?? '',
     );
+    _formExtra = p?.extra;
+    if (widget.importOnOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _importRdpFile());
+    }
   }
 
   @override
@@ -92,8 +99,7 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
     }
   }
 
-  /// Pick a .rdp file and return the parsed profile immediately —
-  /// no form fill needed (handles CyberArk / corporate files cleanly).
+  /// Pick a .rdp file and fill the form without connecting immediately.
   Future<void> _importRdpFile() async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
@@ -106,7 +112,10 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
     if (file.path == null) return;
 
     final content = await File(file.path!).readAsString();
-    final fileName = file.name.replaceAll(RegExp(r'\.rdp$', caseSensitive: false), '');
+    final fileName = file.name.replaceAll(
+      RegExp(r'\.rdp$', caseSensitive: false),
+      '',
+    );
 
     final profile = RdpProfile.fromRdpFile(
       id: const Uuid().v4(),
@@ -114,16 +123,31 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
       content: content,
     );
 
-    if (mounted) Navigator.of(context).pop(profile);
+    if (!mounted) return;
+    setState(() => _applyProfileToForm(profile));
+  }
+
+  void _applyProfileToForm(RdpProfile profile) {
+    _nameController.text = profile.name;
+    _hostController.text = profile.host;
+    _portController.text = '${profile.port}';
+    _usernameController.text = profile.username;
+    _passwordController.text = profile.password ?? '';
+    _domainController.text = profile.domain ?? '';
+    _widthController.text = '${profile.width}';
+    _heightController.text = '${profile.height}';
+    _drivePathController.text = profile.extra['portix_drive_path'] ?? '';
+    _driveNameController.text =
+        profile.extra['portix_drive_name'] ?? _driveNameController.text;
+    _altShellController.text = profile.extra['alternate shell'] ?? '';
+    _formExtra = profile.extra;
   }
 
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
     final width = _normalizeDimension(_widthController.text, fallback: 1280);
     final height = _normalizeDimension(_heightController.text, fallback: 720);
-    final extra = Map<String, String>.from(
-      widget.existingProfile?.extra ?? const {},
-    );
+    final extra = Map<String, String>.from(_formExtra ?? const {});
 
     // Drive mapping
     final drivePath = _drivePathController.text.trim();
@@ -132,7 +156,9 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
       extra.remove('portix_drive_name');
     } else {
       extra['portix_drive_path'] = drivePath;
-      extra['portix_drive_name'] = _normalizedDriveName(_driveNameController.text);
+      extra['portix_drive_name'] = _normalizedDriveName(
+        _driveNameController.text,
+      );
     }
 
     // Alternate shell (RemoteApp / PSM)
@@ -191,11 +217,10 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
           const SizedBox(width: 8),
           Text(isEditing ? 'Edit RDP Connection' : 'New RDP Connection'),
           const Spacer(),
-          // Import .rdp → directly returns profile, no form fill
           FilledButton.icon(
             onPressed: _importRdpFile,
             icon: const Icon(Icons.file_open, size: 16),
-            label: const Text('Open .rdp file'),
+            label: const Text('Import .rdp'),
             style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
           ),
         ],
@@ -246,7 +271,9 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
                     Expanded(
                       child: TextFormField(
                         controller: _usernameController,
-                        decoration: const InputDecoration(labelText: 'Username'),
+                        decoration: const InputDecoration(
+                          labelText: 'Username',
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -319,7 +346,8 @@ class _RdpConnectDialogState extends State<RdpConnectDialog> {
                         ),
                         validator: (value) {
                           final path = value?.trim() ?? '';
-                          if (path.isNotEmpty && !Directory(path).existsSync()) {
+                          if (path.isNotEmpty &&
+                              !Directory(path).existsSync()) {
                             return 'Folder does not exist';
                           }
                           return null;
