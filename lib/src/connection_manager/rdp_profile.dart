@@ -204,6 +204,18 @@ class RdpProfile {
       settings.entries.where((e) => !knownKeys.contains(e.key)),
     );
 
+    // ── CyberArk PSM normalization ─────────────────────────────────────────
+    // CyberArk generates files with both `alternate shell` and
+    // `remoteapplicationprogram`. Normalise so that `alternate shell` always
+    // wins; fall back to `remoteapplicationprogram` if only that key exists.
+    final normalizedExtra = Map<String, String>.from(extra);
+    if (!normalizedExtra.containsKey('alternate shell')) {
+      final remoteApp = normalizedExtra['remoteapplicationprogram'];
+      if (remoteApp != null && remoteApp.isNotEmpty) {
+        normalizedExtra['alternate shell'] = remoteApp;
+      }
+    }
+
     return RdpProfile(
       id: id,
       name: name,
@@ -214,7 +226,7 @@ class RdpProfile {
       width: width,
       height: height,
       screenMode: screenMode,
-      extra: extra,
+      extra: normalizedExtra,
     );
   }
 
