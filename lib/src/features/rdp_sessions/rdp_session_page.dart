@@ -27,6 +27,7 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
   RdpConnectionStatus _status = RdpConnectionStatus.disconnected;
   String? _errorMessage;
   StreamSubscription<RdpConnectionStatusEvent>? _statusSub;
+  StreamSubscription<RdpConnectionStatusEvent>? _errorSub;
   bool _showOverlay = false;
   bool _disconnecting = false;
 
@@ -34,12 +35,14 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
   void initState() {
     super.initState();
     _statusSub = widget.backend.connectionStatusStream.listen(_onStatusChange);
+    _errorSub = widget.backend.errorStream.listen(_onErrorEvent);
     _connect();
   }
 
   @override
   void dispose() {
     _statusSub?.cancel();
+    _errorSub?.cancel();
     unawaited(_disconnectSession());
     super.dispose();
   }
@@ -79,6 +82,21 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
         if (event.status == RdpConnectionStatus.error) {
           _errorMessage = event.message ?? 'Connection error';
         }
+      });
+    }
+  }
+
+  void _onErrorEvent(RdpConnectionStatusEvent event) {
+    // Error events carry a session_id — only handle ones for our session.
+    // If session is null (not yet connected), also catch errors since they
+    // may fire before _session is assigned due to the async gap.
+    final session = _session;
+    if (session != null && event.sessionId != session.id) return;
+
+    if (mounted) {
+      setState(() {
+        _status = RdpConnectionStatus.error;
+        _errorMessage = event.message ?? 'Connection failed';
       });
     }
   }

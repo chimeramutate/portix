@@ -299,9 +299,13 @@ class _RdpCanvasState extends State<RdpCanvas> {
       _maybeLogStats();
     } catch (e) {
       debugPrint('RDP frame decode ERROR: $e');
-      if (e.toString().contains('not found') ||
-          e.toString().contains('NotFound')) {
+      final msg = e.toString();
+      if (msg.contains('session not found') ||
+          msg.contains('SessionNotFound') ||
+          msg.contains('not found') ||
+          msg.contains('NotFound')) {
         _heartbeatTimer?.cancel();
+        _snapshotTimer?.cancel();
         debugPrint('RDP: session gone, stopped rendering');
       }
     } finally {
@@ -354,7 +358,19 @@ class _RdpCanvasState extends State<RdpCanvas> {
       _scheduleRender();
       _maybeLogStats();
     } catch (error) {
-      debugPrint('RDP snapshot $reason ERROR: $error');
+      // Session may have been cleaned up (e.g., connection failed) — this is
+      // expected and should not crash the app. The status stream will surface
+      // the real error to the parent widget.
+      final msg = error.toString();
+      debugPrint('RDP snapshot $reason ERROR: $msg');
+      if (msg.contains('session not found') ||
+          msg.contains('SessionNotFound') ||
+          msg.contains('not found')) {
+        // Stop the snapshot timer — no point retrying for a dead session.
+        _snapshotTimer?.cancel();
+        _heartbeatTimer?.cancel();
+        _debugLog('session gone, stopped snapshot polling');
+      }
     } finally {
       _snapshotInFlight = false;
     }
