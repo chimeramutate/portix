@@ -59,6 +59,12 @@ class SettingsDetailRow {
     if (normalized == 'required' || normalized == 'optional') {
       return const ['Required', 'Optional'];
     }
+    if (normalized == 'shift+ctrl+c' || normalized == 'ctrl+c') {
+      return const ['Shift+Ctrl+C', 'Ctrl+C'];
+    }
+    if (normalized == 'shift+ctrl+v' || normalized == 'ctrl+v') {
+      return const ['Shift+Ctrl+V', 'Ctrl+V'];
+    }
     return const [];
   }
 }

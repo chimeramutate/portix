@@ -20,6 +20,7 @@ import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../controller/index.dart';
+import 'terminal_shortcuts.dart';
 import 'terminal_status_footer.dart';
 import 'terminal_workspace_view.dart';
 
@@ -77,6 +78,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
   String? _telemetrySessionId;
   String? _connectedProfileId;
   bool _connectInProgress = false;
+  TerminalClipboardShortcut _copyShortcut = TerminalClipboardShortcut.shiftCtrl;
+  TerminalClipboardShortcut _pasteShortcut = TerminalClipboardShortcut.ctrl;
   bool _passwordPromptActive = false;
   session_models.RemoteSystemSnapshot? _remoteSnapshot;
   String? _telemetryError;
@@ -102,6 +105,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _connectionManager.addListener(_handleConnectionManagerChanged);
     _bootTerminal();
     unawaited(_loadTerminalSuggestionSetting());
+    unawaited(_loadTerminalClipboardSettings());
     WidgetsBinding.instance.addPostFrameCallback((_) => _connect());
   }
 
@@ -154,6 +158,27 @@ class _TerminalPanelState extends State<TerminalPanel> {
       setState(() => _suggestions.setEnabled(enabled));
     } catch (_) {
       _suggestions.setEnabled(true);
+    }
+  }
+
+  Future<void> _loadTerminalClipboardSettings() async {
+    try {
+      final values = await _settingsRepository.loadSettings();
+      if (!mounted) return;
+      setState(() {
+        _copyShortcut = terminalClipboardShortcutFromValue(
+          values[terminalCopyShortcutSettingKey],
+        );
+        _pasteShortcut = terminalClipboardShortcutFromValue(
+          values[terminalPasteShortcutSettingKey],
+        );
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _copyShortcut = TerminalClipboardShortcut.shiftCtrl;
+        _pasteShortcut = TerminalClipboardShortcut.ctrl;
+      });
     }
   }
 
@@ -2005,7 +2030,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
       listenWhen: (previous, current) =>
           previous.activeView != current.activeView &&
           current.activeView == WorkspaceView.remoteFolder,
-      listener: (context, state) => unawaited(_loadTerminalSuggestionSetting()),
+      listener: (context, state) {
+        unawaited(_loadTerminalSuggestionSetting());
+        unawaited(_loadTerminalClipboardSettings());
+      },
       child: Focus(
         autofocus: false,
         canRequestFocus: false,
@@ -2178,6 +2206,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
                         idleFocusNode: _idleFocusNode,
                         idleViewKey: _terminalUi.idleViewKey,
                         keyboardEnabled: widget.keyboardEnabled,
+                        copyShortcut: _copyShortcut,
+                        pasteShortcut: _pasteShortcut,
                         onFocus: (sessionId) {
                           final session = _sessionById(sessionId);
                           if (session != null) {

@@ -23,6 +23,8 @@ class TerminalWorkspaceView extends StatelessWidget {
     required this.idleFocusNode,
     required this.idleViewKey,
     required this.keyboardEnabled,
+    required this.copyShortcut,
+    required this.pasteShortcut,
     required this.onFocus,
     required this.onClosePane,
     required this.onSplit,
@@ -56,6 +58,8 @@ class TerminalWorkspaceView extends StatelessWidget {
   final FocusNode idleFocusNode;
   final GlobalKey<TerminalViewState> idleViewKey;
   final bool keyboardEnabled;
+  final TerminalClipboardShortcut copyShortcut;
+  final TerminalClipboardShortcut pasteShortcut;
   final ValueChanged<String> onFocus;
   final ValueChanged<String> onClosePane;
   final void Function(
@@ -81,6 +85,8 @@ class TerminalWorkspaceView extends StatelessWidget {
         focusNode: idleFocusNode,
         terminalViewKey: idleViewKey,
         keyboardEnabled: keyboardEnabled,
+        copyShortcut: copyShortcut,
+        pasteShortcut: pasteShortcut,
       );
     }
     return Padding(
@@ -102,6 +108,8 @@ class TerminalWorkspaceView extends StatelessWidget {
         focusNodeForSession: focusNodeForSession,
         viewKeyForSession: viewKeyForSession,
         keyboardEnabled: keyboardEnabled,
+        copyShortcut: copyShortcut,
+        pasteShortcut: pasteShortcut,
         onFocus: onFocus,
         onClosePane: onClosePane,
         onSplit: onSplit,
@@ -133,6 +141,8 @@ class SplitTreeView extends StatelessWidget {
     required this.focusNodeForSession,
     required this.viewKeyForSession,
     required this.keyboardEnabled,
+    required this.copyShortcut,
+    required this.pasteShortcut,
     required this.onFocus,
     required this.onClosePane,
     required this.onSplit,
@@ -162,6 +172,8 @@ class SplitTreeView extends StatelessWidget {
   final GlobalKey<TerminalViewState> Function(String sessionId)
   viewKeyForSession;
   final bool keyboardEnabled;
+  final TerminalClipboardShortcut copyShortcut;
+  final TerminalClipboardShortcut pasteShortcut;
   final ValueChanged<String> onFocus;
   final ValueChanged<String> onClosePane;
   final void Function(
@@ -204,6 +216,8 @@ class SplitTreeView extends StatelessWidget {
         solo: soloSessionId == node.sessionId,
         active: node.sessionId == activeSessionId,
         keyboardEnabled: keyboardEnabled,
+        copyShortcut: copyShortcut,
+        pasteShortcut: pasteShortcut,
         allowPaneDrag: showPaneControls,
         onTap: () {
           onFocus(node.sessionId);
@@ -242,6 +256,8 @@ class SplitTreeView extends StatelessWidget {
             focusNodeForSession: focusNodeForSession,
             viewKeyForSession: viewKeyForSession,
             keyboardEnabled: keyboardEnabled,
+            copyShortcut: copyShortcut,
+            pasteShortcut: pasteShortcut,
             onFocus: onFocus,
             onClosePane: onClosePane,
             onSplit: onSplit,

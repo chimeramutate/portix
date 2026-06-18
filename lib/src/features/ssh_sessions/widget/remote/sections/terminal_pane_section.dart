@@ -17,6 +17,8 @@ class TerminalPane extends StatelessWidget {
     this.solo = false,
     this.active = false,
     this.keyboardEnabled = true,
+    this.copyShortcut = TerminalClipboardShortcut.shiftCtrl,
+    this.pasteShortcut = TerminalClipboardShortcut.ctrl,
     this.allowPaneDrag = false,
     this.onTap,
     this.onReconnect,
@@ -40,6 +42,8 @@ class TerminalPane extends StatelessWidget {
   final bool solo;
   final bool active;
   final bool keyboardEnabled;
+  final TerminalClipboardShortcut copyShortcut;
+  final TerminalClipboardShortcut pasteShortcut;
   final bool allowPaneDrag;
   final VoidCallback? onTap;
   final VoidCallback? onReconnect;
@@ -88,6 +92,12 @@ class TerminalPane extends StatelessWidget {
                 hardwareKeyboardOnly: true,
                 mouseCursor: SystemMouseCursors.text,
                 padding: EdgeInsets.fromLTRB(16, draggable ? 34 : 16, 16, 16),
+                shortcuts: defaultTargetPlatform == TargetPlatform.linux
+                    ? terminalShortcutsFor(
+                        copyShortcut: copyShortcut,
+                        pasteShortcut: pasteShortcut,
+                      )
+                    : null,
                 textStyle: const TerminalStyle(
                   fontSize: 13,
                   height: 1.28,
