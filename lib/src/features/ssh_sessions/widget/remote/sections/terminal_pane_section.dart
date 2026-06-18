@@ -122,6 +122,11 @@ class TerminalPane extends StatelessWidget {
                 suggestions: suggestionCandidates,
                 selectedSuggestion: suggestion,
               ),
+            if (connected)
+              TerminalSelectionToolbar(
+                terminal: terminal,
+                controller: controller,
+              ),
             if (onSplit != null)
               Positioned.fill(
                 child: ValueListenableBuilder<bool>(
@@ -174,6 +179,117 @@ class TerminalPane extends StatelessWidget {
       ),
     );
     return pane;
+  }
+}
+
+class TerminalSelectionToolbar extends StatefulWidget {
+  const TerminalSelectionToolbar({
+    required this.terminal,
+    required this.controller,
+  });
+
+  final Terminal terminal;
+  final TerminalController controller;
+
+  @override
+  State<TerminalSelectionToolbar> createState() =>
+      _TerminalSelectionToolbarState();
+}
+
+class _TerminalSelectionToolbarState extends State<TerminalSelectionToolbar> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_handleSelectionChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant TerminalSelectionToolbar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_handleSelectionChanged);
+      widget.controller.addListener(_handleSelectionChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_handleSelectionChanged);
+    super.dispose();
+  }
+
+  void _handleSelectionChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _copySelection() async {
+    final selection = widget.controller.selection;
+    if (selection == null) return;
+    final text = widget.terminal.buffer.getText(selection);
+    if (text.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: text));
+    widget.controller.clearSelection();
+  }
+
+  void _toggleSelectionMode() {
+    final nextMode = widget.controller.selectionMode == SelectionMode.block
+        ? SelectionMode.line
+        : SelectionMode.block;
+    widget.controller.setSelectionMode(nextMode);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasSelection = widget.controller.selection != null;
+    final blockMode = widget.controller.selectionMode == SelectionMode.block;
+
+    return Positioned(
+      right: 8,
+      bottom: 8,
+      child: Material(
+        color: AppColors.surfaceDark.withValues(alpha: .92),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(6),
+          side: BorderSide(color: AppColors.border.withValues(alpha: .7)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Tooltip(
+              message: blockMode ? 'Line text select' : 'Block text select',
+              child: InkWell(
+                onTap: _toggleSelectionMode,
+                borderRadius: BorderRadius.circular(6),
+                child: SizedBox(
+                  width: 34,
+                  height: 30,
+                  child: Icon(
+                    blockMode
+                        ? Icons.view_column_rounded
+                        : Icons.format_align_left_rounded,
+                    size: 16,
+                    color: blockMode ? AppColors.cyan : AppColors.muted,
+                  ),
+                ),
+              ),
+            ),
+            if (hasSelection)
+              Tooltip(
+                message: 'Copy selected text',
+                child: InkWell(
+                  onTap: _copySelection,
+                  borderRadius: BorderRadius.circular(6),
+                  child: const SizedBox(
+                    width: 34,
+                    height: 30,
+                    child: Icon(Icons.copy_rounded, size: 16),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

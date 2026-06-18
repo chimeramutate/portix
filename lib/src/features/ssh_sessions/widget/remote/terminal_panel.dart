@@ -446,9 +446,11 @@ class _TerminalPanelState extends State<TerminalPanel> {
     if (targetSessionId == null) return;
     if (!_isSessionConnected(targetSessionId)) return;
 
-    // Enter key: accept suggestion only if completion candidates are visible.
+    // Enter should only accept full command history suggestions. Remote/path
+    // completions can match ordinary names, so accepting them on Enter makes
+    // normal command execution surprisingly mutate the input.
     if (data == '\r' &&
-        _suggestions.candidatesFor(targetSessionId).isNotEmpty &&
+        _suggestions.canAcceptSuggestionWithEnter(targetSessionId) &&
         _acceptSuggestion(targetSessionId)) {
       return;
     }
