@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.github.asep.Portix</id>
+
+  <name>Portix</name>
+  <summary>Multi-platform SSH, SFTP and RDP client</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      Portix is a modern remote access client built with Flutter UI and a
+      Rust core. It supports SSH terminal sessions, SFTP file management,
+      and RDP connections in a single cross-platform application.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Multi-tab terminal sessions with split workspace</li>
+      <li>SFTP file manager with remote file browsing</li>
+      <li>RDP client support, including CyberArk PSM compatible flows</li>
+      <li>Command autocomplete</li>
+      <li>Secure credential storage via system keyring</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">com.github.asep.Portix.desktop</launchable>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Multi-tab terminal workspace</caption>
+      <image>https://raw.githubusercontent.com/asep/portix/main/assets/screenshots/main.png</image>
+    </screenshot>
+  </screenshots>
+
+  <url type="homepage">https://github.com/Asepimam/portix</url>
+  <url type="bugtracker">https://github.com/Asepimam/portix/issues</url>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="1.0.0" date="2026-06-19">
+      <description>
+        <p>Initial Flathub release.</p>
+      </description>
+    </release>
+  </releases>
+
+  <developer id="github.com.asepimam">
+    <name>Asep</name>
+  </developer>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#2563eb</color>
+    <color type="primary" scheme_preference="dark">#1e3a8a</color>
+  </branding>
+</component>
