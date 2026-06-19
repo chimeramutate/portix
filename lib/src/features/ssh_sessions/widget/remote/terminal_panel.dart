@@ -20,6 +20,7 @@ import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../controller/index.dart';
+import 'terminal_settings.dart';
 import 'terminal_shortcuts.dart';
 import 'terminal_status_footer.dart';
 import 'terminal_workspace_view.dart';
@@ -80,6 +81,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
   bool _connectInProgress = false;
   TerminalClipboardShortcut _copyShortcut = TerminalClipboardShortcut.shiftCtrl;
   TerminalClipboardShortcut _pasteShortcut = TerminalClipboardShortcut.ctrl;
+  Color _terminalTextColor = AppColors.text;
+  Color _terminalBackgroundColor = AppColors.terminal;
+  String _terminalFontFamily = 'monospace';
+  double _terminalFontSize = 13;
   bool _passwordPromptActive = false;
   session_models.RemoteSystemSnapshot? _remoteSnapshot;
   String? _telemetryError;
@@ -106,6 +111,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _bootTerminal();
     unawaited(_loadTerminalSuggestionSetting());
     unawaited(_loadTerminalClipboardSettings());
+    unawaited(_loadTerminalAppearanceSettings());
     WidgetsBinding.instance.addPostFrameCallback((_) => _connect());
   }
 
@@ -178,6 +184,35 @@ class _TerminalPanelState extends State<TerminalPanel> {
       setState(() {
         _copyShortcut = TerminalClipboardShortcut.shiftCtrl;
         _pasteShortcut = TerminalClipboardShortcut.ctrl;
+      });
+    }
+  }
+
+  Future<void> _loadTerminalAppearanceSettings() async {
+    try {
+      final values = await _settingsRepository.loadSettings();
+      if (!mounted) return;
+      setState(() {
+        _terminalTextColor = terminalTextColorFromValue(
+          values[terminalTextColorSettingKey],
+        );
+        _terminalBackgroundColor = terminalBackgroundColorFromValue(
+          values[terminalBackgroundColorSettingKey],
+        );
+        _terminalFontFamily = terminalFontFamilyFromValue(
+          values[terminalFontSettingKey],
+        );
+        _terminalFontSize = terminalFontSizeFromValue(
+          values[terminalFontSizeSettingKey],
+        ).toDouble();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _terminalTextColor = AppColors.text;
+        _terminalBackgroundColor = AppColors.terminal;
+        _terminalFontFamily = 'monospace';
+        _terminalFontSize = 13;
       });
     }
   }
@@ -2033,6 +2068,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
       listener: (context, state) {
         unawaited(_loadTerminalSuggestionSetting());
         unawaited(_loadTerminalClipboardSettings());
+        unawaited(_loadTerminalAppearanceSettings());
       },
       child: Focus(
         autofocus: false,
@@ -2208,6 +2244,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
                         keyboardEnabled: widget.keyboardEnabled,
                         copyShortcut: _copyShortcut,
                         pasteShortcut: _pasteShortcut,
+                        textColor: _terminalTextColor,
+                        backgroundColor: _terminalBackgroundColor,
+                        fontFamily: _terminalFontFamily,
+                        fontSize: _terminalFontSize,
                         onFocus: (sessionId) {
                           final session = _sessionById(sessionId);
                           if (session != null) {

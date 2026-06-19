@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/features/ssh_sessions/controller/terminal_suggestion_controller.dart';
+import 'package:portix/src/features/ssh_sessions/widget/remote/terminal_settings.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/terminal_shortcuts.dart';
 
 void main() {
@@ -78,5 +79,15 @@ void main() {
       isTrue,
     );
     expect(shortcuts.values.any((intent) => intent is PasteTextIntent), isTrue);
+  });
+
+  test('parses terminal appearance settings', () {
+    expect(terminalTextColorFromValue('Green'), const Color(0xFF20E38A));
+    expect(
+      terminalBackgroundColorFromValue('Dark Blue'),
+      const Color(0xFF031426),
+    );
+    expect(terminalFontFamilyFromValue('Fira Code'), 'Fira Code');
+    expect(terminalFontSizeFromValue('15 px'), 15);
   });
 }

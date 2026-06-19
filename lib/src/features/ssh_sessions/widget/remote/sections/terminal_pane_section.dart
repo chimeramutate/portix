@@ -19,6 +19,10 @@ class TerminalPane extends StatelessWidget {
     this.keyboardEnabled = true,
     this.copyShortcut = TerminalClipboardShortcut.shiftCtrl,
     this.pasteShortcut = TerminalClipboardShortcut.ctrl,
+    this.textColor = AppColors.text,
+    this.backgroundColor = AppColors.terminal,
+    this.fontFamily = 'monospace',
+    this.fontSize = 13,
     this.allowPaneDrag = false,
     this.onTap,
     this.onReconnect,
@@ -44,6 +48,10 @@ class TerminalPane extends StatelessWidget {
   final bool keyboardEnabled;
   final TerminalClipboardShortcut copyShortcut;
   final TerminalClipboardShortcut pasteShortcut;
+  final Color textColor;
+  final Color backgroundColor;
+  final String fontFamily;
+  final double fontSize;
   final bool allowPaneDrag;
   final VoidCallback? onTap;
   final VoidCallback? onReconnect;
@@ -98,12 +106,16 @@ class TerminalPane extends StatelessWidget {
                         pasteShortcut: pasteShortcut,
                       )
                     : null,
-                textStyle: const TerminalStyle(
-                  fontSize: 13,
+                textStyle: TerminalStyle(
+                  fontSize: fontSize,
                   height: 1.28,
-                  fontFamily: 'monospace',
+                  fontFamily: fontFamily,
                 ),
-                theme: terminalThemeForProfile(profile),
+                theme: terminalThemeForProfile(
+                  profile,
+                  foreground: textColor,
+                  background: backgroundColor,
+                ),
                 cursorType: TerminalCursorType.block,
                 alwaysShowCursor: active && connected,
               ),

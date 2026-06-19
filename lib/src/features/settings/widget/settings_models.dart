@@ -37,10 +37,11 @@ class SettingsDetailSection {
 }
 
 class SettingsDetailRow {
-  const SettingsDetailRow(this.label, this.value);
+  const SettingsDetailRow(this.label, this.value, [this._options]);
 
   final String label;
   final String value;
+  final List<String>? _options;
 
   String keyFor(String itemId) {
     final normalized = label
@@ -51,6 +52,7 @@ class SettingsDetailRow {
   }
 
   List<String> get options {
+    if (_options != null) return _options;
     final normalized = value.toLowerCase();
     if (normalized == 'on' || normalized == 'off') return const ['ON', 'OFF'];
     if (normalized == 'enabled' || normalized == 'disabled') {
