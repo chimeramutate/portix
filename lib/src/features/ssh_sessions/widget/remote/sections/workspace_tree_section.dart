@@ -228,13 +228,19 @@ class SplitTreeView extends StatelessWidget {
         status: statusForSession(node.sessionId),
         profile: profileForSession(node.sessionId),
         suggestion: node.sessionId == activeSessionId
-            ? suggestionForSession(node.sessionId)
+            ? (terminalForSession(node.sessionId).isUsingAltBuffer
+                  ? null
+                  : suggestionForSession(node.sessionId))
             : null,
         suggestionCandidates: node.sessionId == activeSessionId
-            ? suggestionCandidatesForSession(node.sessionId)
+            ? (terminalForSession(node.sessionId).isUsingAltBuffer
+                  ? const []
+                  : suggestionCandidatesForSession(node.sessionId))
             : const [],
         suggestionSuffix: node.sessionId == activeSessionId
-            ? suggestionSuffixForSession(node.sessionId)
+            ? (terminalForSession(node.sessionId).isUsingAltBuffer
+                  ? null
+                  : suggestionSuffixForSession(node.sessionId))
             : null,
         broadcastTyping: broadcastTyping,
         solo: soloSessionId == node.sessionId,

@@ -1047,53 +1047,73 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
     return showDialog<domain.SshProfile>(
       context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.all(32),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: AppPanel(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.add_rounded, color: AppColors.cyan),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text('New SSH session', style: portixTitle(18)),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(
-                        Icons.close_rounded,
-                        color: AppColors.muted,
+      builder: (context) {
+        final screenHeight = MediaQuery.sizeOf(context).height;
+        // Cap the list height so it scrolls gracefully when there are many profiles.
+        final maxListHeight = (screenHeight * 0.55).clamp(240.0, 480.0);
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(32),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: AppPanel(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.add_rounded, color: AppColors.cyan),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text('New SSH session', style: portixTitle(18)),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          color: AppColors.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  // Show profile count hint when the list is long.
+                  if (profiles.length > 5) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        '${profiles.length} connections available — scroll to see all',
+                        style: portixMuted(11),
                       ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 10),
-                Flexible(
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: profiles.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 8),
-                    itemBuilder: (context, index) {
-                      final profile = profiles[index];
-                      return SessionProfileOption(
-                        profile: profile,
-                        onSelected: () => Navigator.of(context).pop(profile),
-                      );
-                    },
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: maxListHeight),
+                    child: Scrollbar(
+                      thumbVisibility: profiles.length > 5,
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: profiles.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final profile = profiles[index];
+                          return SessionProfileOption(
+                            profile: profile,
+                            onSelected: () =>
+                                Navigator.of(context).pop(profile),
+                          );
+                        },
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -1600,10 +1620,25 @@ class _TerminalPanelState extends State<TerminalPanel> {
     String draggedSessionId, {
     required String fallbackTargetSessionId,
   }) {
+    // If already in workspace mode or the target is inside an existing
+    // workspace, always honour the explicit drop target.
     if (_workspaceActive ||
         _workspaceContainingSession(fallbackTargetSessionId) != null) {
       return fallbackTargetSessionId;
     }
+
+    // If the user drags the ACTIVE tab onto a pane drop-zone, use that
+    // drop-zone's session as the merge target.  This is the "drag active tab
+    // onto itself / another pane" case the user expects.
+    if (draggedSessionId == _sessionId &&
+        fallbackTargetSessionId != draggedSessionId &&
+        _sessionById(fallbackTargetSessionId) != null) {
+      return fallbackTargetSessionId;
+    }
+
+    // For any other (non-active) tab, pair it with its immediate left
+    // neighbour in tab order.  If it has no left neighbour (it's the first
+    // tab), pair it with the one to its right instead.
     final orderedIds = _orderedSessions(_sshSessions)
         .map((session) => session.id)
         .where((sessionId) => !_workspaceSessionIds.contains(sessionId))
@@ -2042,6 +2077,41 @@ class _TerminalPanelState extends State<TerminalPanel> {
     );
   }
 
+  /// Builds a combined ordered list of tab items (workspaces + single sessions)
+  /// so that a workspace tab appears at the position of its earliest member
+  /// session in [_sessionOrder], not always at the front.
+  List<Object> _orderedTabItems(
+    List<session_models.TerminalSession> sessions,
+    List<session_models.TerminalSession> singleSessions,
+  ) {
+    final workspaceSessionIds = _workspaceSessionIds;
+    // Map from the first session-order index of each workspace to the workspace.
+    final result = <Object>[];
+    final addedWorkspaceIds = <String>{};
+
+    for (final session in sessions) {
+      // If this session belongs to a workspace and that workspace hasn't been
+      // added yet, insert the workspace tab at this position.
+      if (workspaceSessionIds.contains(session.id)) {
+        final workspace = _workspaceContainingSession(session.id);
+        if (workspace != null && addedWorkspaceIds.add(workspace.id)) {
+          result.add(workspace);
+        }
+        continue;
+      }
+      result.add(session);
+    }
+
+    // Append any workspaces whose sessions were all pruned from the order list.
+    for (final workspace in _workspaces) {
+      if (addedWorkspaceIds.add(workspace.id)) {
+        result.add(workspace);
+      }
+    }
+
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
     final sessions = _orderedSessions(_sshSessions);
@@ -2087,24 +2157,33 @@ class _TerminalPanelState extends State<TerminalPanel> {
             _toggleBroadcastTyping();
             return KeyEventResult.handled;
           }
-          if (!isModifierPressed &&
-              (event.logicalKey == LogicalKeyboardKey.arrowRight ||
-                  event.logicalKey == LogicalKeyboardKey.end ||
-                  event.logicalKey == LogicalKeyboardKey.tab)) {
-            final sessionId = _sessionId;
-            if (sessionId != null && _acceptSuggestion(sessionId)) {
-              return KeyEventResult.handled;
+
+          // When a TUI app (less, vim, htop, etc.) is running in the active
+          // terminal it uses the alternate screen buffer.  In that state we
+          // must not intercept navigation keys — they belong to the TUI app.
+          final sessionId = _sessionId;
+          final activeTerminalIsAltBuffer =
+              sessionId != null &&
+              _terminalForSession(sessionId).isUsingAltBuffer;
+
+          if (!activeTerminalIsAltBuffer) {
+            if (!isModifierPressed &&
+                (event.logicalKey == LogicalKeyboardKey.arrowRight ||
+                    event.logicalKey == LogicalKeyboardKey.end ||
+                    event.logicalKey == LogicalKeyboardKey.tab)) {
+              if (sessionId != null && _acceptSuggestion(sessionId)) {
+                return KeyEventResult.handled;
+              }
             }
-          }
-          if (!isModifierPressed &&
-              (event.logicalKey == LogicalKeyboardKey.arrowDown ||
-                  event.logicalKey == LogicalKeyboardKey.arrowUp)) {
-            final sessionId = _sessionId;
-            final delta = event.logicalKey == LogicalKeyboardKey.arrowDown
-                ? 1
-                : -1;
-            if (sessionId != null && _selectSuggestion(sessionId, delta)) {
-              return KeyEventResult.handled;
+            if (!isModifierPressed &&
+                (event.logicalKey == LogicalKeyboardKey.arrowDown ||
+                    event.logicalKey == LogicalKeyboardKey.arrowUp)) {
+              final delta = event.logicalKey == LogicalKeyboardKey.arrowDown
+                  ? 1
+                  : -1;
+              if (sessionId != null && _selectSuggestion(sessionId, delta)) {
+                return KeyEventResult.handled;
+              }
             }
           }
           return KeyEventResult.ignored;
@@ -2134,28 +2213,29 @@ class _TerminalPanelState extends State<TerminalPanel> {
                             ),
                             child: Row(
                               children: [
-                                for (final workspace in _workspaces) ...[
-                                  TerminalSessionTab(
-                                    sessionId: workspace.id,
-                                    label: workspace.label,
-                                    status: _workspaceStatus(workspace),
-                                    active:
-                                        _workspaceActive &&
-                                        workspace.id == _activeWorkspaceId,
-                                    leadingIcon: Icons.view_quilt_rounded,
-                                    draggable: false,
-                                    onTap: () =>
-                                        _activateWorkspace(workspace.id),
-                                    onClose: () =>
-                                        _closeWorkspace(workspace.id),
-                                    onReconnect: () =>
-                                        _reconnectWorkspace(workspace.id),
-                                    reconnectNearClose: true,
-                                  ),
-                                  const SizedBox(width: 10),
-                                ],
-                                for (final session in singleSessions) ...[
-                                  _buildSessionTab(session),
+                                for (final item in _orderedTabItems(
+                                  sessions,
+                                  singleSessions,
+                                )) ...[
+                                  if (item is TerminalWorkspaceGroup)
+                                    TerminalSessionTab(
+                                      sessionId: item.id,
+                                      label: item.label,
+                                      status: _workspaceStatus(item),
+                                      active:
+                                          _workspaceActive &&
+                                          item.id == _activeWorkspaceId,
+                                      leadingIcon: Icons.view_quilt_rounded,
+                                      draggable: false,
+                                      onTap: () => _activateWorkspace(item.id),
+                                      onClose: () => _closeWorkspace(item.id),
+                                      onReconnect: () =>
+                                          _reconnectWorkspace(item.id),
+                                      reconnectNearClose: true,
+                                    )
+                                  else if (item
+                                      is session_models.TerminalSession)
+                                    _buildSessionTab(item),
                                   const SizedBox(width: 10),
                                 ],
                                 AppIconButton(
