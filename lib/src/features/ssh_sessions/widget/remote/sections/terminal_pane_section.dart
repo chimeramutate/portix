@@ -1,5 +1,7 @@
 part of '../terminal_workspace_view.dart';
 
+
+
 class TerminalPane extends StatefulWidget {
   const TerminalPane({
     required this.terminal,
@@ -64,100 +66,29 @@ class TerminalPane extends StatefulWidget {
   State<TerminalPane> createState() => _TerminalPaneState();
 }
 
-class _TerminalPaneState extends State<TerminalPane> {
-  bool _pointerInputSuspended = false;
+class _TerminalPaneState extends State<TerminalPane>
+    with AutomaticKeepAliveClientMixin<TerminalPane> {
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
-    widget.terminal.addListener(_onTerminalChanged);
-    // Sync suspension state immediately in case the terminal is already in
-    // alt-buffer mode when the widget is first built.
-    _syncPointerInputSuspension();
-  }
-
-  @override
-  void didUpdateWidget(covariant TerminalPane oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.terminal != widget.terminal) {
-      oldWidget.terminal.removeListener(_onTerminalChanged);
-      widget.terminal.addListener(_onTerminalChanged);
-    }
-    if (oldWidget.controller != widget.controller) {
-      // Release suspension on the old controller so it isn't stuck.
-      if (_pointerInputSuspended) {
-        oldWidget.controller.setSuspendPointerInput(false);
-        _pointerInputSuspended = false;
-      }
-    }
-    _syncPointerInputSuspension();
   }
 
   @override
   void dispose() {
-    widget.terminal.removeListener(_onTerminalChanged);
-    // Always clear suspension when the pane is disposed.
-    if (_pointerInputSuspended) {
-      widget.controller.setSuspendPointerInput(false);
-    }
     super.dispose();
   }
 
-  void _onTerminalChanged() {
-    if (!mounted) return;
-    // Keep the suspension flag in sync every time the terminal emits output
-    // (which is when alt-buffer state can change).
-    _syncPointerInputSuspension();
-    setState(() {});
-  }
-
-  // ── Pointer-input suspension ──────────────────────────────────────────────
-  //
-  // When a TUI app (less, vim, htop, …) is open it uses the terminal's
-  // alternate screen buffer AND enables mouse-reporting mode.  In that mode
-  // xterm's TerminalGestureHandler forwards every tap/drag to the running app
-  // as an escape sequence, preventing text selection.
-  //
-  // THE ROOT CAUSE: xterm's TerminalScrollGestureHandler wraps the terminal
-  // in a Scrollable (InfiniteScrollView) when isAltBuffer == true.  That
-  // Scrollable adds its own PanGestureRecognizer which wins the gesture arena
-  // for vertical drags — stealing them from xterm's own PanGestureRecognizer
-  // that would otherwise call renderTerminal.selectCharacters().
-  // As a result, dragging in less always scrolls (or sends mouse events to the
-  // app) instead of selecting text — even after pressing Shift+G or any
-  // other less shortcut.
-  //
-  // THE FIX:
-  //  1. Set simulateScroll: false on TerminalView so the Scrollable wrapper is
-  //     never inserted, leaving xterm's own PanGestureRecognizer free to handle
-  //     all drag events as text selection.
-  //  2. Replace the Scrollable-based scroll simulation with a Listener on
-  //     onPointerSignal: on mouse-wheel events in alt-buffer mode we manually
-  //     send ArrowUp / ArrowDown key inputs to the terminal so less / vim still
-  //     scroll correctly with the mouse wheel.
-  //  3. Keep setSuspendPointerInput in sync with alt-buffer state so that
-  //     tap events (single clicks) are also not forwarded to the app during
-  //     text-selection drags.
-
   bool get _isAltBuffer => widget.terminal.isUsingAltBuffer;
 
-  void _syncPointerInputSuspension() {
-    final shouldSuspend = _isAltBuffer;
-    if (shouldSuspend == _pointerInputSuspended) return;
-    _pointerInputSuspended = shouldSuspend;
-    widget.controller.setSuspendPointerInput(shouldSuspend);
-  }
-
-  // Handle mouse-wheel scroll in alt-buffer mode.
-  // Since simulateScroll: false removes xterm's built-in scroll simulation
-  // we replicate the same logic here: send ArrowUp / ArrowDown to the terminal.
   void _onPointerSignal(PointerSignalEvent event) {
     if (!_isAltBuffer) return;
     if (event is! PointerScrollEvent) return;
     final dy = event.scrollDelta.dy;
     if (dy == 0) return;
     final key = dy > 0 ? TerminalKey.arrowDown : TerminalKey.arrowUp;
-    // Send one arrow key per ~20 px of scroll delta (same ratio xterm uses).
     final steps = (dy.abs() / 20).ceil().clamp(1, 10);
     for (var i = 0; i < steps; i++) {
       widget.terminal.keyInput(key);
@@ -168,6 +99,7 @@ class _TerminalPaneState extends State<TerminalPane> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final connected =
         widget.status == session_models.ConnectionStatus.connected;
     final connecting =
@@ -205,20 +137,14 @@ class _TerminalPaneState extends State<TerminalPane> {
           clipBehavior: Clip.antiAlias,
           child: Stack(
             children: [
-              ScrollConfiguration(
-                behavior: ScrollConfiguration.of(
-                  context,
-                ).copyWith(scrollbars: false),
-                // Listener handles mouse-wheel scrolling in alt-buffer mode.
-                // TerminalView is built with simulateScroll:false so xterm
-                // does NOT add its own Scrollable wrapper (InfiniteScrollView)
-                // around the terminal.  Without that wrapper, xterm's own
-                // PanGestureRecognizer is free to handle drag events as text
-                // selection — which is exactly what we need for less/vim/htop.
-                // We replicate the scroll behaviour here via onPointerSignal.
-                child: Listener(
-                  onPointerSignal: _onPointerSignal,
-                  behavior: HitTestBehavior.translucent,
+              Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerSignal: _onPointerSignal,
+                child: ScrollConfiguration(
+                  behavior: ScrollConfiguration.of(
+                    context,
+                  ).copyWith(scrollbars: false),
+
                   child: TerminalView(
                     widget.terminal,
                     key: widget.terminalViewKey,
@@ -227,11 +153,7 @@ class _TerminalPaneState extends State<TerminalPane> {
                     focusNode: widget.focusNode,
                     autofocus: widget.keyboardEnabled && widget.active,
                     readOnly: !widget.keyboardEnabled,
-                    hardwareKeyboardOnly: true,
-                    // Disable xterm's built-in InfiniteScrollView wrapper.
-                    // Without this, the Scrollable inside it registers its own
-                    // PanGestureRecognizer which wins the arena and prevents
-                    // drag-to-select from working in alt-buffer mode.
+                    hardwareKeyboardOnly: false,
                     simulateScroll: false,
                     mouseCursor: SystemMouseCursors.text,
                     padding: EdgeInsets.fromLTRB(
@@ -240,11 +162,15 @@ class _TerminalPaneState extends State<TerminalPane> {
                       16,
                       16,
                     ),
-                    shortcuts: defaultTargetPlatform == TargetPlatform.linux
-                        ? terminalShortcutsFor(
-                            copyShortcut: widget.copyShortcut,
-                            pasteShortcut: widget.pasteShortcut,
-                          )
+                    shortcuts: widget.keyboardEnabled && connected
+                        ? (defaultTargetPlatform == TargetPlatform.linux
+                              ? terminalShortcutsFor(
+                                  copyShortcut: widget.copyShortcut,
+                                  pasteShortcut: widget.pasteShortcut,
+                                  controller: widget.controller,
+                                  terminal: widget.terminal,
+                                )
+                              : null)
                         : null,
                     textStyle: TerminalStyle(
                       fontSize: widget.fontSize,
@@ -349,6 +275,8 @@ class _TerminalPaneState extends State<TerminalPane> {
   }
 }
 
+// ── TerminalSelectionToolbar ─────────────────────────────────────────────
+
 class TerminalSelectionToolbar extends StatefulWidget {
   const TerminalSelectionToolbar({
     required this.terminal,
@@ -364,6 +292,9 @@ class TerminalSelectionToolbar extends StatefulWidget {
 }
 
 class _TerminalSelectionToolbarState extends State<TerminalSelectionToolbar> {
+  bool? _lastHasSelection;
+  bool? _lastBlockMode;
+
   @override
   void initState() {
     super.initState();
@@ -386,7 +317,16 @@ class _TerminalSelectionToolbarState extends State<TerminalSelectionToolbar> {
   }
 
   void _handleSelectionChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final currentHasSelection = widget.controller.selection != null;
+    final currentBlockMode =
+        widget.controller.selectionMode == SelectionMode.block;
+    if (currentHasSelection != _lastHasSelection ||
+        currentBlockMode != _lastBlockMode) {
+      _lastHasSelection = currentHasSelection;
+      _lastBlockMode = currentBlockMode;
+      setState(() {});
+    }
   }
 
   Future<void> _copySelection() async {
@@ -410,37 +350,38 @@ class _TerminalSelectionToolbarState extends State<TerminalSelectionToolbar> {
     final hasSelection = widget.controller.selection != null;
     final blockMode = widget.controller.selectionMode == SelectionMode.block;
 
-    return Positioned(
-      right: 8,
-      bottom: 8,
-      child: Material(
-        color: AppColors.surfaceDark.withValues(alpha: .92),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(6),
-          side: BorderSide(color: AppColors.border.withValues(alpha: .7)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Tooltip(
-              message: blockMode ? 'Line text select' : 'Block text select',
-              child: InkWell(
-                onTap: _toggleSelectionMode,
-                borderRadius: BorderRadius.circular(6),
-                child: SizedBox(
-                  width: 34,
-                  height: 30,
-                  child: Icon(
-                    blockMode
-                        ? Icons.view_column_rounded
-                        : Icons.format_align_left_rounded,
-                    size: 16,
-                    color: blockMode ? AppColors.cyan : AppColors.muted,
+    return Visibility(
+      visible: hasSelection,
+      child: Positioned(
+        right: 14,
+        bottom: 14,
+        child: Material(
+          color: AppColors.surfaceDark.withValues(alpha: .92),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(6),
+            side: BorderSide(color: AppColors.border.withValues(alpha: .7)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Tooltip(
+                message: blockMode ? 'Line text select' : 'Block text select',
+                child: InkWell(
+                  onTap: _toggleSelectionMode,
+                  borderRadius: BorderRadius.circular(6),
+                  child: SizedBox(
+                    width: 34,
+                    height: 30,
+                    child: Icon(
+                      blockMode
+                          ? Icons.view_column_rounded
+                          : Icons.format_align_left_rounded,
+                      size: 16,
+                      color: blockMode ? AppColors.cyan : AppColors.muted,
+                    ),
                   ),
                 ),
               ),
-            ),
-            if (hasSelection)
               Tooltip(
                 message: 'Copy selected text',
                 child: InkWell(
@@ -453,12 +394,15 @@ class _TerminalSelectionToolbarState extends State<TerminalSelectionToolbar> {
                   ),
                 ),
               ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
+
+// ── TerminalCompletionMenu ───────────────────────────────────────────────
 
 class TerminalCompletionMenu extends StatefulWidget {
   const TerminalCompletionMenu({
