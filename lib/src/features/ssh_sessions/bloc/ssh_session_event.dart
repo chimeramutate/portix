@@ -8,13 +8,18 @@ sealed class SshSessionEvent extends Equatable {
 }
 
 class SshSessionOpenRequested extends SshSessionEvent {
-  const SshSessionOpenRequested({required this.profile, required this.target});
+  const SshSessionOpenRequested({
+    required this.profile,
+    required this.target,
+    this.preferExistingSession = false,
+  });
 
   final SshProfile profile;
   final SshSessionTarget target;
+  final bool preferExistingSession;
 
   @override
-  List<Object?> get props => [profile, target];
+  List<Object?> get props => [profile, target, preferExistingSession];
 }
 
 class SshSessionActivated extends SshSessionEvent {
