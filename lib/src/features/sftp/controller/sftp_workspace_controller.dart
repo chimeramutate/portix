@@ -755,7 +755,12 @@ class SftpWorkspaceController extends ChangeNotifier {
       throw StateError('Remote SFTP session is not connected.');
     }
     final tempRoot = await LocalEditorService.createOpenTempDir();
-    final localPath = '${tempRoot.path}${Platform.pathSeparator}${file.name}';
+    final localFileName = LocalEditorService.buildRemoteTempFileName(
+      file.name,
+      remotePath: remotePath,
+    );
+    final localPath =
+        '${tempRoot.path}${Platform.pathSeparator}${localFileName}';
     await _downloadRemoteFile(sessionId, remotePath, localPath);
     return localPath;
   }
