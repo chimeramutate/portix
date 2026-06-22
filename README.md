@@ -1,5 +1,7 @@
 # Portix UI
 
+[![portix](https://snapcraft.io/portix/badge.svg)](https://snapcraft.io/portix)
+
 SSH client MVP with a Flutter UI and Rust SSH core.
 
 ## Stack
