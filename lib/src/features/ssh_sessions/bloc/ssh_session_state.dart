@@ -10,6 +10,7 @@ class SshSessionState extends Equatable {
     this.pendingTarget,
     this.message = '',
     this.openRequestSerial = 0,
+    this.preferExistingSession = false,
   });
 
   final String? selectedProfileId;
@@ -20,6 +21,7 @@ class SshSessionState extends Equatable {
   final SshSessionTarget? pendingTarget;
   final String message;
   final int openRequestSerial;
+  final bool preferExistingSession;
 
   bool get hasActiveSession =>
       activeSessionId != null && activeProfileId != null && connected;
@@ -56,6 +58,7 @@ class SshSessionState extends Equatable {
     String? activeProfileId,
     bool? connected,
     SshSessionTarget? pendingTarget,
+    bool? preferExistingSession,
     bool clearPendingTarget = false,
     bool clearActiveSession = false,
     bool clearProfileSelection = false,
@@ -81,6 +84,8 @@ class SshSessionState extends Equatable {
           : pendingTarget ?? this.pendingTarget,
       message: message ?? this.message,
       openRequestSerial: openRequestSerial ?? this.openRequestSerial,
+      preferExistingSession:
+          preferExistingSession ?? this.preferExistingSession,
     );
   }
 
@@ -94,5 +99,6 @@ class SshSessionState extends Equatable {
     pendingTarget,
     message,
     openRequestSerial,
+    preferExistingSession,
   ];
 }

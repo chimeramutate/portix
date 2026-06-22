@@ -124,10 +124,17 @@ class TerminalSessionTab extends StatelessWidget {
 }
 
 class SessionProfileOption extends StatelessWidget {
-  const SessionProfileOption({required this.profile, required this.onSelected});
+  const SessionProfileOption({
+    required this.profile,
+    required this.onSelected,
+    this.highlighted = false,
+    this.subtitleLabel,
+  });
 
   final domain.SshProfile profile;
   final VoidCallback onSelected;
+  final bool highlighted;
+  final String? subtitleLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -140,9 +147,11 @@ class SessionProfileOption extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: AppColors.surfaceDark,
+            color: highlighted ? const Color(0xFF123455) : AppColors.surfaceDark,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.border),
+            border: Border.all(
+              color: highlighted ? AppColors.primaryBlue : AppColors.border,
+            ),
           ),
           child: Row(
             children: [
@@ -165,7 +174,20 @@ class SessionProfileOption extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(profile.name, style: portixTitle(14)),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(profile.name, style: portixTitle(14)),
+                        ),
+                        if (subtitleLabel != null) ...[
+                          const SizedBox(width: 8),
+                          AppPill(
+                            label: subtitleLabel!,
+                            color: AppColors.cyan,
+                          ),
+                        ],
+                      ],
+                    ),
                     const SizedBox(height: 2),
                     Text(
                       profile.address,

@@ -161,6 +161,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         final activeProfile = _activeProfile(state);
         final shouldUseRequestedProfile =
             hasNewOpenRequest ||
+            sessionState.preferExistingSession ||
             (sessionState.activeSessionId == null &&
                 sessionState.targetProfileId != null);
         final profile = shouldUseRequestedProfile
