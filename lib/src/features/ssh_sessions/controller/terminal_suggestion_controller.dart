@@ -55,6 +55,12 @@ class TerminalSuggestionController {
     return _candidatesBySession[sessionId] ?? const [];
   }
 
+  bool canAcceptSuggestionWithEnter(String sessionId) {
+    if (!_enabled) return false;
+    if (candidatesFor(sessionId).isEmpty) return false;
+    return _suggestions[sessionId]?.source == TerminalSuggestionSource.history;
+  }
+
   bool handleInput(String sessionId, String data) {
     if (!_enabled) return false;
     if (data.isEmpty) return false;

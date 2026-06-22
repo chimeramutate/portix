@@ -4,6 +4,7 @@ import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/features/settings/bloc/index.dart';
 import 'package:portix/src/features/settings/widget/index.dart';
+import 'package:portix/src/features/ssh_sessions/widget/remote/terminal_settings.dart';
 
 class SettingsView extends StatefulWidget {
   const SettingsView({super.key});
@@ -156,7 +157,22 @@ const settingsNavigationGroups = [
             rows: [
               SettingsDetailRow('Theme density', 'Compact'),
               SettingsDetailRow('Profile card mode', 'Detailed'),
-              SettingsDetailRow('Terminal font scale', '13 px'),
+              SettingsDetailRow(
+                'Terminal font scale',
+                '13 px',
+                terminalFontSizes,
+              ),
+              SettingsDetailRow(
+                'Terminal text color',
+                'White',
+                terminalTextColors,
+              ),
+              SettingsDetailRow(
+                'Terminal background color',
+                'Black',
+                terminalBackgroundColors,
+              ),
+              SettingsDetailRow('Terminal font', 'Monospace', terminalFonts),
             ],
           ),
           SettingsDetailSection(
@@ -166,6 +182,8 @@ const settingsNavigationGroups = [
               SettingsDetailRow('Auto focus terminal', 'Enabled'),
               SettingsDetailRow('Remote folder mount', 'Enabled'),
               SettingsDetailRow('Terminal suggestions', 'ON'),
+              SettingsDetailRow('Terminal copy shortcut', 'Shift+Ctrl+C'),
+              SettingsDetailRow('Terminal paste shortcut', 'Ctrl+V'),
             ],
           ),
         ],

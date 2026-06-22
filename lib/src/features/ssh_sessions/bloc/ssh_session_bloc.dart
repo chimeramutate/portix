@@ -31,11 +31,30 @@ class SshSessionBloc extends Bloc<SshSessionEvent, SshSessionState> {
       return;
     }
 
+    final shouldReuseActiveSession =
+        event.preferExistingSession &&
+        state.activeProfileId == profile.id &&
+        state.activeSessionId != null &&
+        state.connected;
+    if (shouldReuseActiveSession) {
+      emit(
+        state.copyWith(
+          selectedProfileId: profile.id,
+          targetProfileId: profile.id,
+          pendingTarget: event.target,
+          preferExistingSession: true,
+          message: '',
+        ),
+      );
+      return;
+    }
+
     emit(
       state.copyWith(
         selectedProfileId: profile.id,
         targetProfileId: profile.id,
         pendingTarget: event.target,
+        preferExistingSession: event.preferExistingSession,
         clearActiveSession: true,
         openRequestSerial: state.openRequestSerial + 1,
         message: '',
@@ -51,6 +70,7 @@ class SshSessionBloc extends Bloc<SshSessionEvent, SshSessionState> {
         targetProfileId: event.profileId,
         selectedProfileId: event.profileId,
         connected: event.connected,
+        preferExistingSession: false,
         message: '',
       ),
     );
@@ -62,6 +82,7 @@ class SshSessionBloc extends Bloc<SshSessionEvent, SshSessionState> {
         clearActiveSession: true,
         clearProfileSelection: true,
         clearPendingTarget: true,
+        preferExistingSession: false,
         message: '',
       ),
     );

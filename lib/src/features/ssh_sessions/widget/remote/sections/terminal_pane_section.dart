@@ -1,6 +1,8 @@
 part of '../terminal_workspace_view.dart';
 
-class TerminalPane extends StatelessWidget {
+
+
+class TerminalPane extends StatefulWidget {
   const TerminalPane({
     required this.terminal,
     required this.controller,
@@ -17,6 +19,12 @@ class TerminalPane extends StatelessWidget {
     this.solo = false,
     this.active = false,
     this.keyboardEnabled = true,
+    this.copyShortcut = TerminalClipboardShortcut.shiftCtrl,
+    this.pasteShortcut = TerminalClipboardShortcut.ctrl,
+    this.textColor = AppColors.text,
+    this.backgroundColor = AppColors.terminal,
+    this.fontFamily = 'monospace',
+    this.fontSize = 13,
     this.allowPaneDrag = false,
     this.onTap,
     this.onReconnect,
@@ -40,6 +48,12 @@ class TerminalPane extends StatelessWidget {
   final bool solo;
   final bool active;
   final bool keyboardEnabled;
+  final TerminalClipboardShortcut copyShortcut;
+  final TerminalClipboardShortcut pasteShortcut;
+  final Color textColor;
+  final Color backgroundColor;
+  final String fontFamily;
+  final double fontSize;
   final bool allowPaneDrag;
   final VoidCallback? onTap;
   final VoidCallback? onReconnect;
@@ -49,133 +63,346 @@ class TerminalPane extends StatelessWidget {
   onSplit;
 
   @override
+  State<TerminalPane> createState() => _TerminalPaneState();
+}
+
+class _TerminalPaneState extends State<TerminalPane>
+    with AutomaticKeepAliveClientMixin<TerminalPane> {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  bool get _isAltBuffer => widget.terminal.isUsingAltBuffer;
+
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (!_isAltBuffer) return;
+    if (event is! PointerScrollEvent) return;
+    final dy = event.scrollDelta.dy;
+    if (dy == 0) return;
+    final key = dy > 0 ? TerminalKey.arrowDown : TerminalKey.arrowUp;
+    final steps = (dy.abs() / 20).ceil().clamp(1, 10);
+    for (var i = 0; i < steps; i++) {
+      widget.terminal.keyInput(key);
+    }
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
+
+  @override
   Widget build(BuildContext context) {
-    final connected = status == session_models.ConnectionStatus.connected;
-    final connecting = status == session_models.ConnectionStatus.connecting;
-    final draggable = allowPaneDrag && sessionId != null && onSplit != null;
+    super.build(context);
+    final connected =
+        widget.status == session_models.ConnectionStatus.connected;
+    final connecting =
+        widget.status == session_models.ConnectionStatus.connecting;
+    final draggable =
+        widget.allowPaneDrag &&
+        widget.sessionId != null &&
+        widget.onSplit != null;
+
     final pane = GestureDetector(
       behavior: HitTestBehavior.translucent,
       onTap: () {
-        focusNode.requestFocus();
-        onTap?.call();
+        widget.focusNode.requestFocus();
+        widget.onTap?.call();
       },
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: active
-                ? connected
-                      ? AppColors.green
-                      : AppColors.amber
-                : AppColors.border,
-          ),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Stack(
-          children: [
-            ScrollConfiguration(
-              behavior: ScrollConfiguration.of(
-                context,
-              ).copyWith(scrollbars: false),
-              child: TerminalView(
-                terminal,
-                key: terminalViewKey,
-                controller: controller,
-                scrollController: scrollController,
-                focusNode: focusNode,
-                autofocus: keyboardEnabled && active,
-                readOnly: !keyboardEnabled,
-                hardwareKeyboardOnly: true,
-                mouseCursor: SystemMouseCursors.text,
-                padding: EdgeInsets.fromLTRB(16, draggable ? 34 : 16, 16, 16),
-                textStyle: const TerminalStyle(
-                  fontSize: 13,
-                  height: 1.28,
-                  fontFamily: 'monospace',
-                ),
-                theme: terminalThemeForProfile(profile),
-                cursorType: TerminalCursorType.block,
-                alwaysShowCursor: active && connected,
-              ),
+      child: Actions(
+        actions: {
+          if (defaultTargetPlatform == TargetPlatform.linux &&
+              widget.copyShortcut == TerminalClipboardShortcut.shiftCtrl)
+            TerminalCtrlCCopyAction: TerminalCtrlCCopyAction(
+              controller: widget.controller,
             ),
-            if (!connected)
-              Positioned.fill(
-                child: TerminalConnectionOverlay(
-                  profile: profile,
-                  connecting: connecting,
-                  onReconnect: connecting ? null : onReconnect,
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: widget.active
+                  ? connected
+                        ? AppColors.green
+                        : AppColors.amber
+                  : AppColors.border,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            children: [
+              Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerSignal: _onPointerSignal,
+                child: ScrollConfiguration(
+                  behavior: ScrollConfiguration.of(
+                    context,
+                  ).copyWith(scrollbars: false),
+
+                  child: TerminalView(
+                    widget.terminal,
+                    key: widget.terminalViewKey,
+                    controller: widget.controller,
+                    scrollController: widget.scrollController,
+                    focusNode: widget.focusNode,
+                    autofocus: widget.keyboardEnabled && widget.active,
+                    readOnly: !widget.keyboardEnabled,
+                    hardwareKeyboardOnly: false,
+                    simulateScroll: false,
+                    mouseCursor: SystemMouseCursors.text,
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      draggable ? 34 : 16,
+                      16,
+                      16,
+                    ),
+                    shortcuts: widget.keyboardEnabled && connected
+                        ? (defaultTargetPlatform == TargetPlatform.linux
+                              ? terminalShortcutsFor(
+                                  copyShortcut: widget.copyShortcut,
+                                  pasteShortcut: widget.pasteShortcut,
+                                  controller: widget.controller,
+                                  terminal: widget.terminal,
+                                )
+                              : null)
+                        : null,
+                    textStyle: TerminalStyle(
+                      fontSize: widget.fontSize,
+                      height: 1.28,
+                      fontFamily: widget.fontFamily,
+                    ),
+                    theme: terminalThemeForProfile(
+                      widget.profile,
+                      foreground: widget.textColor,
+                      background: widget.backgroundColor,
+                    ),
+                    cursorType: TerminalCursorType.block,
+                    alwaysShowCursor: widget.active && connected,
+                  ),
                 ),
               ),
-            if (connected &&
-                active &&
-                suggestion != null &&
-                suggestionSuffix != null)
-              TerminalInlineSuggestion(
-                terminal: terminal,
-                terminalViewKey: terminalViewKey,
-                text: suggestionSuffix!,
-              ),
-            if (connected && active && suggestionCandidates.isNotEmpty)
-              TerminalCompletionMenu(
-                terminal: terminal,
-                terminalViewKey: terminalViewKey,
-                suggestions: suggestionCandidates,
-                selectedSuggestion: suggestion,
-              ),
-            if (onSplit != null)
-              Positioned.fill(
-                child: ValueListenableBuilder<bool>(
-                  valueListenable: PaneDragHandle.dragging,
-                  builder: (context, dragging, child) {
-                    if (!dragging) return const SizedBox.shrink();
-                    return Stack(
-                      children: [
-                        PaneDropZone(
-                          direction: SplitDirection.left,
-                          onAccept: onSplit!,
-                        ),
-                        PaneDropZone(
-                          direction: SplitDirection.right,
-                          onAccept: onSplit!,
-                        ),
-                        PaneDropZone(
-                          direction: SplitDirection.top,
-                          onAccept: onSplit!,
-                        ),
-                        PaneDropZone(
-                          direction: SplitDirection.bottom,
-                          onAccept: onSplit!,
-                        ),
-                      ],
-                    );
-                  },
+              if (!connected)
+                Positioned.fill(
+                  child: TerminalConnectionOverlay(
+                    profile: widget.profile,
+                    connecting: connecting,
+                    onReconnect: connecting ? null : widget.onReconnect,
+                  ),
                 ),
-              ),
-            if (onToggleBroadcast != null || onToggleSolo != null)
-              Positioned(
-                right: 6,
-                top: 6,
-                child: PaneControlStrip(
-                  profile: profile,
-                  broadcastTyping: broadcastTyping,
-                  solo: solo,
-                  onToggleBroadcast: onToggleBroadcast,
-                  onToggleSolo: onToggleSolo,
+              if (connected &&
+                  widget.active &&
+                  widget.suggestion != null &&
+                  widget.suggestionSuffix != null)
+                TerminalInlineSuggestion(
+                  terminal: widget.terminal,
+                  terminalViewKey: widget.terminalViewKey,
+                  text: widget.suggestionSuffix!,
                 ),
-              ),
-            if (draggable)
-              Positioned(
-                left: 8,
-                top: 7,
-                child: PaneDragHandle(sessionId: sessionId!),
-              ),
-          ],
+              if (connected &&
+                  widget.active &&
+                  widget.suggestionCandidates.isNotEmpty)
+                TerminalCompletionMenu(
+                  terminal: widget.terminal,
+                  terminalViewKey: widget.terminalViewKey,
+                  suggestions: widget.suggestionCandidates,
+                  selectedSuggestion: widget.suggestion,
+                ),
+              if (connected)
+                TerminalSelectionToolbar(
+                  terminal: widget.terminal,
+                  controller: widget.controller,
+                ),
+              if (widget.onSplit != null)
+                Positioned.fill(
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: PaneDragHandle.dragging,
+                    builder: (context, dragging, child) {
+                      if (!dragging) return const SizedBox.shrink();
+                      return Stack(
+                        children: [
+                          PaneDropZone(
+                            direction: SplitDirection.left,
+                            onAccept: widget.onSplit!,
+                          ),
+                          PaneDropZone(
+                            direction: SplitDirection.right,
+                            onAccept: widget.onSplit!,
+                          ),
+                          PaneDropZone(
+                            direction: SplitDirection.top,
+                            onAccept: widget.onSplit!,
+                          ),
+                          PaneDropZone(
+                            direction: SplitDirection.bottom,
+                            onAccept: widget.onSplit!,
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              if (widget.onToggleBroadcast != null ||
+                  widget.onToggleSolo != null)
+                Positioned(
+                  right: 6,
+                  top: 6,
+                  child: PaneControlStrip(
+                    profile: widget.profile,
+                    broadcastTyping: widget.broadcastTyping,
+                    solo: widget.solo,
+                    onToggleBroadcast: widget.onToggleBroadcast,
+                    onToggleSolo: widget.onToggleSolo,
+                  ),
+                ),
+              if (draggable)
+                Positioned(
+                  left: 8,
+                  top: 7,
+                  child: PaneDragHandle(sessionId: widget.sessionId!),
+                ),
+            ],
+          ),
         ),
       ),
     );
     return pane;
   }
 }
+
+// ── TerminalSelectionToolbar ─────────────────────────────────────────────
+
+class TerminalSelectionToolbar extends StatefulWidget {
+  const TerminalSelectionToolbar({
+    required this.terminal,
+    required this.controller,
+  });
+
+  final Terminal terminal;
+  final TerminalController controller;
+
+  @override
+  State<TerminalSelectionToolbar> createState() =>
+      _TerminalSelectionToolbarState();
+}
+
+class _TerminalSelectionToolbarState extends State<TerminalSelectionToolbar> {
+  bool? _lastHasSelection;
+  bool? _lastBlockMode;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_handleSelectionChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant TerminalSelectionToolbar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_handleSelectionChanged);
+      widget.controller.addListener(_handleSelectionChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_handleSelectionChanged);
+    super.dispose();
+  }
+
+  void _handleSelectionChanged() {
+    if (!mounted) return;
+    final currentHasSelection = widget.controller.selection != null;
+    final currentBlockMode =
+        widget.controller.selectionMode == SelectionMode.block;
+    if (currentHasSelection != _lastHasSelection ||
+        currentBlockMode != _lastBlockMode) {
+      _lastHasSelection = currentHasSelection;
+      _lastBlockMode = currentBlockMode;
+      setState(() {});
+    }
+  }
+
+  Future<void> _copySelection() async {
+    final selection = widget.controller.selection;
+    if (selection == null) return;
+    final text = widget.terminal.buffer.getText(selection);
+    if (text.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: text));
+    widget.controller.clearSelection();
+  }
+
+  void _toggleSelectionMode() {
+    final nextMode = widget.controller.selectionMode == SelectionMode.block
+        ? SelectionMode.line
+        : SelectionMode.block;
+    widget.controller.setSelectionMode(nextMode);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasSelection = widget.controller.selection != null;
+    final blockMode = widget.controller.selectionMode == SelectionMode.block;
+
+    return Visibility(
+      visible: hasSelection,
+      child: Positioned(
+        right: 14,
+        bottom: 14,
+        child: Material(
+          color: AppColors.surfaceDark.withValues(alpha: .92),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(6),
+            side: BorderSide(color: AppColors.border.withValues(alpha: .7)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Tooltip(
+                message: blockMode ? 'Line text select' : 'Block text select',
+                child: InkWell(
+                  onTap: _toggleSelectionMode,
+                  borderRadius: BorderRadius.circular(6),
+                  child: SizedBox(
+                    width: 34,
+                    height: 30,
+                    child: Icon(
+                      blockMode
+                          ? Icons.view_column_rounded
+                          : Icons.format_align_left_rounded,
+                      size: 16,
+                      color: blockMode ? AppColors.cyan : AppColors.muted,
+                    ),
+                  ),
+                ),
+              ),
+              Tooltip(
+                message: 'Copy selected text',
+                child: InkWell(
+                  onTap: _copySelection,
+                  borderRadius: BorderRadius.circular(6),
+                  child: const SizedBox(
+                    width: 34,
+                    height: 30,
+                    child: Icon(Icons.copy_rounded, size: 16),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── TerminalCompletionMenu ───────────────────────────────────────────────
 
 class TerminalCompletionMenu extends StatefulWidget {
   const TerminalCompletionMenu({

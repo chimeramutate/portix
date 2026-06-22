@@ -23,6 +23,12 @@ class TerminalWorkspaceView extends StatelessWidget {
     required this.idleFocusNode,
     required this.idleViewKey,
     required this.keyboardEnabled,
+    required this.copyShortcut,
+    required this.pasteShortcut,
+    required this.textColor,
+    required this.backgroundColor,
+    required this.fontFamily,
+    required this.fontSize,
     required this.onFocus,
     required this.onClosePane,
     required this.onSplit,
@@ -56,6 +62,12 @@ class TerminalWorkspaceView extends StatelessWidget {
   final FocusNode idleFocusNode;
   final GlobalKey<TerminalViewState> idleViewKey;
   final bool keyboardEnabled;
+  final TerminalClipboardShortcut copyShortcut;
+  final TerminalClipboardShortcut pasteShortcut;
+  final Color textColor;
+  final Color backgroundColor;
+  final String fontFamily;
+  final double fontSize;
   final ValueChanged<String> onFocus;
   final ValueChanged<String> onClosePane;
   final void Function(
@@ -81,6 +93,12 @@ class TerminalWorkspaceView extends StatelessWidget {
         focusNode: idleFocusNode,
         terminalViewKey: idleViewKey,
         keyboardEnabled: keyboardEnabled,
+        copyShortcut: copyShortcut,
+        pasteShortcut: pasteShortcut,
+        textColor: textColor,
+        backgroundColor: backgroundColor,
+        fontFamily: fontFamily,
+        fontSize: fontSize,
       );
     }
     return Padding(
@@ -102,6 +120,12 @@ class TerminalWorkspaceView extends StatelessWidget {
         focusNodeForSession: focusNodeForSession,
         viewKeyForSession: viewKeyForSession,
         keyboardEnabled: keyboardEnabled,
+        copyShortcut: copyShortcut,
+        pasteShortcut: pasteShortcut,
+        textColor: textColor,
+        backgroundColor: backgroundColor,
+        fontFamily: fontFamily,
+        fontSize: fontSize,
         onFocus: onFocus,
         onClosePane: onClosePane,
         onSplit: onSplit,
@@ -133,6 +157,12 @@ class SplitTreeView extends StatelessWidget {
     required this.focusNodeForSession,
     required this.viewKeyForSession,
     required this.keyboardEnabled,
+    required this.copyShortcut,
+    required this.pasteShortcut,
+    required this.textColor,
+    required this.backgroundColor,
+    required this.fontFamily,
+    required this.fontSize,
     required this.onFocus,
     required this.onClosePane,
     required this.onSplit,
@@ -162,6 +192,12 @@ class SplitTreeView extends StatelessWidget {
   final GlobalKey<TerminalViewState> Function(String sessionId)
   viewKeyForSession;
   final bool keyboardEnabled;
+  final TerminalClipboardShortcut copyShortcut;
+  final TerminalClipboardShortcut pasteShortcut;
+  final Color textColor;
+  final Color backgroundColor;
+  final String fontFamily;
+  final double fontSize;
   final ValueChanged<String> onFocus;
   final ValueChanged<String> onClosePane;
   final void Function(
@@ -192,18 +228,30 @@ class SplitTreeView extends StatelessWidget {
         status: statusForSession(node.sessionId),
         profile: profileForSession(node.sessionId),
         suggestion: node.sessionId == activeSessionId
-            ? suggestionForSession(node.sessionId)
+            ? (terminalForSession(node.sessionId).isUsingAltBuffer
+                  ? null
+                  : suggestionForSession(node.sessionId))
             : null,
         suggestionCandidates: node.sessionId == activeSessionId
-            ? suggestionCandidatesForSession(node.sessionId)
+            ? (terminalForSession(node.sessionId).isUsingAltBuffer
+                  ? const []
+                  : suggestionCandidatesForSession(node.sessionId))
             : const [],
         suggestionSuffix: node.sessionId == activeSessionId
-            ? suggestionSuffixForSession(node.sessionId)
+            ? (terminalForSession(node.sessionId).isUsingAltBuffer
+                  ? null
+                  : suggestionSuffixForSession(node.sessionId))
             : null,
         broadcastTyping: broadcastTyping,
         solo: soloSessionId == node.sessionId,
         active: node.sessionId == activeSessionId,
         keyboardEnabled: keyboardEnabled,
+        copyShortcut: copyShortcut,
+        pasteShortcut: pasteShortcut,
+        textColor: textColor,
+        backgroundColor: backgroundColor,
+        fontFamily: fontFamily,
+        fontSize: fontSize,
         allowPaneDrag: showPaneControls,
         onTap: () {
           onFocus(node.sessionId);
@@ -242,6 +290,12 @@ class SplitTreeView extends StatelessWidget {
             focusNodeForSession: focusNodeForSession,
             viewKeyForSession: viewKeyForSession,
             keyboardEnabled: keyboardEnabled,
+            copyShortcut: copyShortcut,
+            pasteShortcut: pasteShortcut,
+            textColor: textColor,
+            backgroundColor: backgroundColor,
+            fontFamily: fontFamily,
+            fontSize: fontSize,
             onFocus: onFocus,
             onClosePane: onClosePane,
             onSplit: onSplit,
