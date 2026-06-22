@@ -107,7 +107,11 @@ final _profiles = [
   ),
 ];
 
-Future<void> _pumpTerminalPanel(WidgetTester tester) async {
+Future<void> _pumpTerminalPanel(
+  WidgetTester tester, {
+  double width = 1400,
+  double height = 900,
+}) async {
   await tester.pumpWidget(
     MultiBlocProvider(
       providers: [
@@ -128,8 +132,8 @@ Future<void> _pumpTerminalPanel(WidgetTester tester) async {
       child: MaterialApp(
         home: Scaffold(
           body: SizedBox(
-            width: 1400,
-            height: 900,
+            width: width,
+            height: height,
             child: TerminalPanel(
               profile: _profiles.first,
               profiles: _profiles,
@@ -221,5 +225,45 @@ void main() {
 
     expect(find.text('Workspace'), findsOneWidget);
     expect(find.text('Mantap-68 2'), findsOneWidget);
+  });
+
+  testWidgets('opening new-tab dialog stays stable and supports search', (
+    tester,
+  ) async {
+    await _pumpTerminalPanel(tester);
+
+    await tester.tap(find.byKey(const ValueKey('new-terminal-tab')));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('New SSH session'), findsOneWidget);
+    expect(find.text('3 connectable profiles available'), findsOneWidget);
+    expect(find.byKey(const ValueKey('new-session-profile-profile-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('new-session-profile-profile-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('new-session-profile-profile-3')), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).last, '69');
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('1 of 3 profiles match your search'), findsOneWidget);
+    expect(find.byKey(const ValueKey('new-session-profile-profile-1')), findsNothing);
+    expect(find.byKey(const ValueKey('new-session-profile-profile-2')), findsNothing);
+    expect(find.byKey(const ValueKey('new-session-profile-profile-3')), findsOneWidget);
+  });
+
+  testWidgets('tab overflow controls appear when sessions exceed available width', (
+    tester,
+  ) async {
+    await _pumpTerminalPanel(tester, width: 640, height: 900);
+    await _openSessions(tester);
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Scroll tabs right'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Scroll tabs right'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
   });
 }
