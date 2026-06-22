@@ -33,6 +33,7 @@ class TerminalSessionTab extends StatelessWidget {
         status == session_models.ConnectionStatus.disconnected ||
         status == session_models.ConnectionStatus.error;
     final tab = GestureDetector(
+      key: ValueKey('terminal-session-tab-$sessionId'),
       onTap: onTap,
       child: Container(
         height: 36,
