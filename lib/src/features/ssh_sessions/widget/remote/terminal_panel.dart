@@ -148,6 +148,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
       timer.cancel();
     }
     _suggestionHelpTimers.clear();
+    _pendingDisposedSessionIds.clear();
     _suggestions.clear();
     _terminalUi.dispose();
 
@@ -490,11 +491,22 @@ class _TerminalPanelState extends State<TerminalPanel> {
     return _terminalUi.viewKeyForSession(sessionId);
   }
 
+  final Set<String> _pendingDisposedSessionIds = <String>{};
+
   void _disposeSessionUi(String sessionId) {
     _suggestionHelpTimers.remove(sessionId)?.cancel();
     _suggestionHelpRequests.remove(sessionId);
     _suggestions.clearSession(sessionId);
     _terminalUi.disposeSession(sessionId);
+  }
+
+  void _scheduleSessionUiDisposal(String sessionId) {
+    if (!_pendingDisposedSessionIds.add(sessionId)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pendingDisposedSessionIds.remove(sessionId);
+      if (!mounted) return;
+      _disposeSessionUi(sessionId);
+    });
   }
 
   void _handleTerminalInput(String data, String? sessionId) {
@@ -1005,8 +1017,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _workspaceReconnectInProgress = true;
     final orderIndex = _sessionOrder.indexOf(sessionId);
     await _connectionManager.closeSession(sessionId);
-    _disposeSessionUi(sessionId);
     _sessionOrder.remove(sessionId);
+    _syncSplitTreeWithSessions(_sshSessions);
+    if (mounted) {
+      setState(() {});
+    }
+    _scheduleSessionUiDisposal(sessionId);
 
     final result = await _connectionManager.connect(_toManagerProfile(profile));
     final failure = result.fold<Object?>((failure) => failure, (_) => null);
@@ -1428,8 +1444,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
     if (failedSessionId != null && !_isSessionConnected(failedSessionId)) {
       await _connectionManager.closeSession(failedSessionId);
-      _disposeSessionUi(failedSessionId);
       _sessionOrder.remove(failedSessionId);
+      _syncSplitTreeWithSessions(_sshSessions);
+      if (mounted) {
+        setState(() {});
+      }
+      _scheduleSessionUiDisposal(failedSessionId);
     }
 
     final existingSessionIds = _sshSessions
@@ -1510,7 +1530,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final wasActive = sessionId == _sessionId;
 
     await _connectionManager.closeSession(sessionId);
-    _disposeSessionUi(sessionId);
     _sessionOrder.remove(sessionId);
     _splitRoot = _splitController.removeSession(_splitRoot, sessionId);
     _removeSessionFromWorkspaces(sessionId);
@@ -1533,12 +1552,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
       widget.onSessionChanged?.call(false);
       _notifyActiveSessionChanged(null);
       _idleTerminal.write('\x1b[2J\x1b[H');
+      _scheduleSessionUiDisposal(sessionId);
       widget.onLastSessionClosed?.call();
       return;
     }
 
     if (!wasActive) {
       setState(() {});
+      _scheduleSessionUiDisposal(sessionId);
       return;
     }
 
@@ -1547,6 +1568,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         ? remaining.length - 1
         : safeIndex;
     _activateSession(remaining[nextIndex]);
+    _scheduleSessionUiDisposal(sessionId);
   }
 
   void _splitPane(
@@ -1620,33 +1642,13 @@ class _TerminalPanelState extends State<TerminalPanel> {
     String draggedSessionId, {
     required String fallbackTargetSessionId,
   }) {
-    // If already in workspace mode or the target is inside an existing
-    // workspace, always honour the explicit drop target.
-    if (_workspaceActive ||
-        _workspaceContainingSession(fallbackTargetSessionId) != null) {
-      return fallbackTargetSessionId;
-    }
-
-    // If the user drags the ACTIVE tab onto a pane drop-zone, use that
-    // drop-zone's session as the merge target.  This is the "drag active tab
-    // onto itself / another pane" case the user expects.
-    if (draggedSessionId == _sessionId &&
-        fallbackTargetSessionId != draggedSessionId &&
-        _sessionById(fallbackTargetSessionId) != null) {
-      return fallbackTargetSessionId;
-    }
-
-    // For any other (non-active) tab, pair it with its immediate left
-    // neighbour in tab order.  If it has no left neighbour (it's the first
-    // tab), pair it with the one to its right instead.
-    final orderedIds = _orderedSessions(_sshSessions)
-        .map((session) => session.id)
-        .where((sessionId) => !_workspaceSessionIds.contains(sessionId))
-        .toList(growable: false);
-    final draggedIndex = orderedIds.indexOf(draggedSessionId);
-    if (draggedIndex > 0) return orderedIds[draggedIndex - 1];
-    if (draggedIndex == 0 && orderedIds.length > 1) return orderedIds[1];
-    return fallbackTargetSessionId;
+    return _splitController.resolveSplitTargetForDrag(
+      draggedSessionId: draggedSessionId,
+      fallbackTargetSessionId: fallbackTargetSessionId,
+      orderedSessionIds: _orderedSessions(_sshSessions).map((session) => session.id),
+      workspaceSessionIds: _workspaceSessionIds,
+      existingSessionIds: _sshSessions.map((session) => session.id).toSet(),
+    );
   }
 
   void _removeSplit(String sessionId) {
@@ -1706,8 +1708,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
     for (final sessionId in sessionIds) {
       await _connectionManager.closeSession(sessionId);
-      _disposeSessionUi(sessionId);
       _sessionOrder.remove(sessionId);
+      _scheduleSessionUiDisposal(sessionId);
     }
     final remaining = _sshSessions
         .where((session) => !sessionIds.contains(session.id))
@@ -1780,7 +1782,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         final profile = profilesByOldId[oldId];
         if (profile == null) continue;
         await _connectionManager.closeSession(oldId);
-        _disposeSessionUi(oldId);
+        _scheduleSessionUiDisposal(oldId);
         final result = await _connectionManager.connect(
           _toManagerProfile(profile),
         );
@@ -1895,6 +1897,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
     );
   }
 
+  void _handleTabDroppedOnTab({
+    required String draggedSessionId,
+    required String targetSessionId,
+  }) {
+    if (draggedSessionId == targetSessionId) return;
+    _splitPane(targetSessionId, draggedSessionId, SplitDirection.right);
+  }
+
   void _moveSessionTab(
     String draggedSessionId, {
     String? targetSessionId,
@@ -1952,10 +1962,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
     return DragTarget<String>(
       onWillAcceptWithDetails: (details) =>
           details.data != session.id && _sessionById(details.data) != null,
-      onAcceptWithDetails: (details) => _moveSessionTab(
-        details.data,
+      onAcceptWithDetails: (details) => _handleTabDroppedOnTab(
+        draggedSessionId: details.data,
         targetSessionId: session.id,
-        afterTarget: true,
       ),
       builder: (context, candidates, rejected) {
         return AnimatedContainer(
