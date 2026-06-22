@@ -1,9 +1,11 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/features/ssh_sessions/controller/terminal_suggestion_controller.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/terminal_settings.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/terminal_shortcuts.dart';
+import 'package:xterm/xterm.dart';
 
 void main() {
   const sessionId = 'ssh-session';
@@ -63,22 +65,42 @@ void main() {
     );
   });
 
-  test('builds configurable terminal shortcuts', () {
+  test('builds configurable terminal shortcuts without intercepting Shift+G', () {
+    final controller = TerminalController();
+    final terminal = Terminal();
     final shortcuts = terminalShortcutsFor(
       copyShortcut: TerminalClipboardShortcut.shiftCtrl,
       pasteShortcut: TerminalClipboardShortcut.ctrl,
+      controller: controller,
+      terminal: terminal,
     );
 
-    expect(shortcuts.length, 3);
+    expect(shortcuts, isNotEmpty);
     expect(
-      shortcuts.values.any((intent) => intent is SelectAllTextIntent),
+      shortcuts.keys.any(
+        (activator) =>
+            activator is SingleActivator &&
+            activator.trigger == LogicalKeyboardKey.keyG &&
+            activator.shift,
+      ),
+      isFalse,
+    );
+    expect(
+      shortcuts.keys.any(
+        (activator) =>
+            activator is SingleActivator &&
+            activator.trigger == LogicalKeyboardKey.keyC,
+      ),
       isTrue,
     );
     expect(
-      shortcuts.values.any((intent) => intent is CopySelectionTextIntent),
+      shortcuts.keys.any(
+        (activator) =>
+            activator is SingleActivator &&
+            activator.trigger == LogicalKeyboardKey.keyV,
+      ),
       isTrue,
     );
-    expect(shortcuts.values.any((intent) => intent is PasteTextIntent), isTrue);
   });
 
   test('parses terminal appearance settings', () {
