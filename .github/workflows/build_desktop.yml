@@ -129,7 +129,7 @@ jobs:
 
     steps:
       - name: Checkout Flutter app
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -170,7 +170,7 @@ jobs:
 
       # ── Verifikasi bridge hash tetap dilakukan dari source portix-serv ────────
       - name: Checkout Rust backend (for bridge hash check only)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: Asepimam/portix-serv
           token: ${{ secrets.GH_PAT }}
@@ -294,10 +294,10 @@ jobs:
     needs: wait-for-serv-release
     steps:
       - name: Checkout Flutter app
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Checkout Rust backend
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: Asepimam/portix-serv
           token: ${{ secrets.GH_PAT }}
