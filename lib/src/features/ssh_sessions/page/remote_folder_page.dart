@@ -161,6 +161,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         final activeProfile = _activeProfile(state);
         final shouldUseRequestedProfile =
             hasNewOpenRequest ||
+            sessionState.preferExistingSession ||
             (sessionState.activeSessionId == null &&
                 sessionState.targetProfileId != null);
         final profile = shouldUseRequestedProfile
@@ -806,8 +807,12 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     final sessionId = _activeSessionId;
     if (sessionId == null || entry.isDirectory || entry.name == '..') return;
     final tempRoot = await LocalEditorService.createOpenTempDir();
+    final localFileName = LocalEditorService.buildRemoteTempFileName(
+      _safeLocalFileName(entry.name),
+      remotePath: entry.path,
+    );
     final localPath =
-        '${tempRoot.path}${Platform.pathSeparator}${_safeLocalFileName(entry.name)}';
+        '${tempRoot.path}${Platform.pathSeparator}${localFileName}';
     try {
       final ok = await _downloadRemoteFile(
         sessionId,
@@ -927,8 +932,12 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     final sessionId = _activeSessionId;
     if (sessionId == null) return;
     final tempRoot = await LocalEditorService.createOpenTempDir();
+    final localFileName = LocalEditorService.buildRemoteTempFileName(
+      _safeLocalFileName(entry.name),
+      remotePath: entry.path,
+    );
     final localPath =
-        '${tempRoot.path}${Platform.pathSeparator}${_safeLocalFileName(entry.name)}';
+        '${tempRoot.path}${Platform.pathSeparator}${localFileName}';
     final ok = await _downloadRemoteFile(
       sessionId,
       entry.path,

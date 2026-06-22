@@ -755,7 +755,7 @@ packages:
       path: "packages/xterm_patch"
       relative: true
     source: path
-    version: "4.0.0+portix"
+    version: "4.1.0+portix"
   yaml:
     dependency: transitive
     description:

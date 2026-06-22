@@ -93,6 +93,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
   bool _activeTabClosed = false;
   int _cols = 80;
   int _rows = 24;
+  final ScrollController _tabScrollController = ScrollController();
+  bool _showTabScrollStart = false;
+  bool _showTabScrollEnd = false;
 
   @override
   void initState() {
@@ -109,6 +112,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _listenToConnectionManager();
     _connectionManager.addListener(_handleConnectionManagerChanged);
     _bootTerminal();
+    _tabScrollController.addListener(_handleTabScrollChanged);
     unawaited(_loadTerminalSuggestionSetting());
     unawaited(_loadTerminalClipboardSettings());
     unawaited(_loadTerminalAppearanceSettings());
@@ -133,6 +137,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   @override
   void dispose() {
     _connectionManager.removeListener(_handleConnectionManagerChanged);
+    _tabScrollController.dispose();
 
     // Jangan close session di sini.
     // Session harus hidup walaupun TerminalPanel tidak sedang tampil.
@@ -148,6 +153,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
       timer.cancel();
     }
     _suggestionHelpTimers.clear();
+    _pendingDisposedSessionIds.clear();
     _suggestions.clear();
     _terminalUi.dispose();
 
@@ -315,6 +321,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   void _handleConnectionManagerChanged() {
     if (!mounted) return;
     if (_workspaceReconnectInProgress) {
+      _updateTabScrollAffordances();
       setState(() {});
       return;
     }
@@ -330,6 +337,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         if (_connectInProgress) {
           _sessionId = null;
           _splitRoot = null;
+          _updateTabScrollAffordances();
           setState(() {});
           return;
         }
@@ -357,6 +365,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         );
       }
     }
+    _updateTabScrollAffordances();
     setState(() {});
   }
 
@@ -464,6 +473,41 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _idleTerminal.write('\x1b[2J\x1b[H');
   }
 
+  void _handleTabScrollChanged() {
+    if (!mounted || !_tabScrollController.hasClients) return;
+    final position = _tabScrollController.position;
+    final showStart = position.pixels > 8;
+    final showEnd = position.pixels < position.maxScrollExtent - 8;
+    if (showStart == _showTabScrollStart && showEnd == _showTabScrollEnd) {
+      return;
+    }
+    setState(() {
+      _showTabScrollStart = showStart;
+      _showTabScrollEnd = showEnd;
+    });
+  }
+
+  void _updateTabScrollAffordances() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_tabScrollController.hasClients) return;
+      _handleTabScrollChanged();
+    });
+  }
+
+  Future<void> _scrollTabsBy(double delta) async {
+    if (!_tabScrollController.hasClients) return;
+    final position = _tabScrollController.position;
+    final target = (_tabScrollController.offset + delta).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    await _tabScrollController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+    );
+  }
+
   Terminal get _activeTerminal {
     final sessionId = _sessionId;
     if (sessionId == null) return _idleTerminal;
@@ -490,11 +534,22 @@ class _TerminalPanelState extends State<TerminalPanel> {
     return _terminalUi.viewKeyForSession(sessionId);
   }
 
+  final Set<String> _pendingDisposedSessionIds = <String>{};
+
   void _disposeSessionUi(String sessionId) {
     _suggestionHelpTimers.remove(sessionId)?.cancel();
     _suggestionHelpRequests.remove(sessionId);
     _suggestions.clearSession(sessionId);
     _terminalUi.disposeSession(sessionId);
+  }
+
+  void _scheduleSessionUiDisposal(String sessionId) {
+    if (!_pendingDisposedSessionIds.add(sessionId)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pendingDisposedSessionIds.remove(sessionId);
+      if (!mounted) return;
+      _disposeSessionUi(sessionId);
+    });
   }
 
   void _handleTerminalInput(String data, String? sessionId) {
@@ -980,6 +1035,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         _activeWorkspaceId = null;
       }
     });
+    _updateTabScrollAffordances();
     widget.onSessionChanged?.call(true);
     _notifyActiveSessionChanged(session.id);
     unawaited(_connectionManager.resizeTerminal(session.id, _cols, _rows));
@@ -1005,8 +1061,13 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _workspaceReconnectInProgress = true;
     final orderIndex = _sessionOrder.indexOf(sessionId);
     await _connectionManager.closeSession(sessionId);
-    _disposeSessionUi(sessionId);
     _sessionOrder.remove(sessionId);
+    _syncSplitTreeWithSessions(_sshSessions);
+    if (mounted) {
+      _updateTabScrollAffordances();
+      setState(() {});
+    }
+    _scheduleSessionUiDisposal(sessionId);
 
     final result = await _connectionManager.connect(_toManagerProfile(profile));
     final failure = result.fold<Object?>((failure) => failure, (_) => null);
@@ -1034,6 +1095,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
       _connectedProfileId = newSession.profileId;
       _splitRoot ??= SplitLeaf(newSession.id);
     });
+    _updateTabScrollAffordances();
     widget.onSessionChanged?.call(true);
     _notifyActiveSessionChanged(newSession.id);
     await _connectionManager.resizeTerminal(newSession.id, _cols, _rows);
@@ -1042,78 +1104,16 @@ class _TerminalPanelState extends State<TerminalPanel> {
   Future<domain.SshProfile?> _pickSessionProfile() {
     final profiles = widget.profiles
         .where((profile) => profile.isConnectable)
-        .toList(growable: false);
+        .toList(growable: false)
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     if (profiles.isEmpty) return Future.value(null);
 
     return showDialog<domain.SshProfile>(
       context: context,
-      builder: (context) {
-        final screenHeight = MediaQuery.sizeOf(context).height;
-        // Cap the list height so it scrolls gracefully when there are many profiles.
-        final maxListHeight = (screenHeight * 0.55).clamp(240.0, 480.0);
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.all(32),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: AppPanel(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.add_rounded, color: AppColors.cyan),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text('New SSH session', style: portixTitle(18)),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(
-                          Icons.close_rounded,
-                          color: AppColors.muted,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  // Show profile count hint when the list is long.
-                  if (profiles.length > 5) ...[
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        '${profiles.length} connections available — scroll to see all',
-                        style: portixMuted(11),
-                      ),
-                    ),
-                  ],
-                  ConstrainedBox(
-                    constraints: BoxConstraints(maxHeight: maxListHeight),
-                    child: Scrollbar(
-                      thumbVisibility: profiles.length > 5,
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        itemCount: profiles.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (context, index) {
-                          final profile = profiles[index];
-                          return SessionProfileOption(
-                            profile: profile,
-                            onSelected: () =>
-                                Navigator.of(context).pop(profile),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
+      builder: (context) => _SessionProfilePickerDialog(
+        profiles: profiles,
+        activeProfileId: _connectedProfileId ?? widget.profile?.id,
+      ),
     );
   }
 
@@ -1149,6 +1149,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         _activeWorkspaceId = null;
         _placeSessionInOrder(session.id);
       });
+      _updateTabScrollAffordances();
       widget.onSessionChanged?.call(true);
       _notifyActiveSessionChanged(session.id);
       await _connectionManager.resizeTerminal(session.id, _cols, _rows);
@@ -1428,8 +1429,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
     if (failedSessionId != null && !_isSessionConnected(failedSessionId)) {
       await _connectionManager.closeSession(failedSessionId);
-      _disposeSessionUi(failedSessionId);
       _sessionOrder.remove(failedSessionId);
+      _syncSplitTreeWithSessions(_sshSessions);
+      if (mounted) {
+        setState(() {});
+      }
+      _scheduleSessionUiDisposal(failedSessionId);
     }
 
     final existingSessionIds = _sshSessions
@@ -1510,7 +1515,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final wasActive = sessionId == _sessionId;
 
     await _connectionManager.closeSession(sessionId);
-    _disposeSessionUi(sessionId);
     _sessionOrder.remove(sessionId);
     _splitRoot = _splitController.removeSession(_splitRoot, sessionId);
     _removeSessionFromWorkspaces(sessionId);
@@ -1533,12 +1537,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
       widget.onSessionChanged?.call(false);
       _notifyActiveSessionChanged(null);
       _idleTerminal.write('\x1b[2J\x1b[H');
+      _scheduleSessionUiDisposal(sessionId);
       widget.onLastSessionClosed?.call();
       return;
     }
 
     if (!wasActive) {
       setState(() {});
+      _scheduleSessionUiDisposal(sessionId);
       return;
     }
 
@@ -1547,6 +1553,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         ? remaining.length - 1
         : safeIndex;
     _activateSession(remaining[nextIndex]);
+    _scheduleSessionUiDisposal(sessionId);
   }
 
   void _splitPane(
@@ -1620,33 +1627,13 @@ class _TerminalPanelState extends State<TerminalPanel> {
     String draggedSessionId, {
     required String fallbackTargetSessionId,
   }) {
-    // If already in workspace mode or the target is inside an existing
-    // workspace, always honour the explicit drop target.
-    if (_workspaceActive ||
-        _workspaceContainingSession(fallbackTargetSessionId) != null) {
-      return fallbackTargetSessionId;
-    }
-
-    // If the user drags the ACTIVE tab onto a pane drop-zone, use that
-    // drop-zone's session as the merge target.  This is the "drag active tab
-    // onto itself / another pane" case the user expects.
-    if (draggedSessionId == _sessionId &&
-        fallbackTargetSessionId != draggedSessionId &&
-        _sessionById(fallbackTargetSessionId) != null) {
-      return fallbackTargetSessionId;
-    }
-
-    // For any other (non-active) tab, pair it with its immediate left
-    // neighbour in tab order.  If it has no left neighbour (it's the first
-    // tab), pair it with the one to its right instead.
-    final orderedIds = _orderedSessions(_sshSessions)
-        .map((session) => session.id)
-        .where((sessionId) => !_workspaceSessionIds.contains(sessionId))
-        .toList(growable: false);
-    final draggedIndex = orderedIds.indexOf(draggedSessionId);
-    if (draggedIndex > 0) return orderedIds[draggedIndex - 1];
-    if (draggedIndex == 0 && orderedIds.length > 1) return orderedIds[1];
-    return fallbackTargetSessionId;
+    return _splitController.resolveSplitTargetForDrag(
+      draggedSessionId: draggedSessionId,
+      fallbackTargetSessionId: fallbackTargetSessionId,
+      orderedSessionIds: _orderedSessions(_sshSessions).map((session) => session.id),
+      workspaceSessionIds: _workspaceSessionIds,
+      existingSessionIds: _sshSessions.map((session) => session.id).toSet(),
+    );
   }
 
   void _removeSplit(String sessionId) {
@@ -1706,8 +1693,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
     for (final sessionId in sessionIds) {
       await _connectionManager.closeSession(sessionId);
-      _disposeSessionUi(sessionId);
       _sessionOrder.remove(sessionId);
+      _scheduleSessionUiDisposal(sessionId);
     }
     final remaining = _sshSessions
         .where((session) => !sessionIds.contains(session.id))
@@ -1780,7 +1767,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         final profile = profilesByOldId[oldId];
         if (profile == null) continue;
         await _connectionManager.closeSession(oldId);
-        _disposeSessionUi(oldId);
+        _scheduleSessionUiDisposal(oldId);
         final result = await _connectionManager.connect(
           _toManagerProfile(profile),
         );
@@ -1895,6 +1882,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
     );
   }
 
+  void _handleTabDroppedOnTab({
+    required String draggedSessionId,
+    required String targetSessionId,
+  }) {
+    if (draggedSessionId == targetSessionId) return;
+    _splitPane(targetSessionId, draggedSessionId, SplitDirection.right);
+  }
+
   void _moveSessionTab(
     String draggedSessionId, {
     String? targetSessionId,
@@ -1952,10 +1947,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
     return DragTarget<String>(
       onWillAcceptWithDetails: (details) =>
           details.data != session.id && _sessionById(details.data) != null,
-      onAcceptWithDetails: (details) => _moveSessionTab(
-        details.data,
+      onAcceptWithDetails: (details) => _handleTabDroppedOnTab(
+        draggedSessionId: details.data,
         targetSessionId: session.id,
-        afterTarget: true,
       ),
       builder: (context, candidates, rejected) {
         return AnimatedContainer(
@@ -2203,63 +2197,117 @@ class _TerminalPanelState extends State<TerminalPanel> {
                   onAcceptWithDetails: (details) =>
                       _moveSessionTab(details.data),
                   builder: (context, candidates, rejected) {
-                    return LayoutBuilder(
-                      builder: (context, constraints) {
-                        return SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(
-                              minWidth: constraints.maxWidth,
-                            ),
-                            child: Row(
-                              children: [
-                                for (final item in _orderedTabItems(
-                                  sessions,
-                                  singleSessions,
-                                )) ...[
-                                  if (item is TerminalWorkspaceGroup)
-                                    TerminalSessionTab(
-                                      sessionId: item.id,
-                                      label: item.label,
-                                      status: _workspaceStatus(item),
-                                      active:
-                                          _workspaceActive &&
-                                          item.id == _activeWorkspaceId,
-                                      leadingIcon: Icons.view_quilt_rounded,
-                                      draggable: false,
-                                      onTap: () => _activateWorkspace(item.id),
-                                      onClose: () => _closeWorkspace(item.id),
-                                      onReconnect: () =>
-                                          _reconnectWorkspace(item.id),
-                                      reconnectNearClose: true,
-                                    )
-                                  else if (item
-                                      is session_models.TerminalSession)
-                                    _buildSessionTab(item),
-                                  const SizedBox(width: 10),
-                                ],
-                                AppIconButton(
-                                  key: const ValueKey('new-terminal-tab'),
-                                  icon: Icons.add_rounded,
-                                  onPressed: _openNewSessionForCurrentProfile,
+                    final showDropHint = candidates.isNotEmpty;
+                    return Row(
+                      children: [
+                        if (_showTabScrollStart)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: SizedBox(
+                              width: 28,
+                              height: 28,
+                              child: IconButton(
+                                tooltip: 'Scroll tabs left',
+                                padding: EdgeInsets.zero,
+                                onPressed: () => _scrollTabsBy(-220),
+                                icon: const Icon(
+                                  Icons.chevron_left_rounded,
+                                  color: AppColors.muted,
+                                  size: 18,
                                 ),
-                                if (candidates.isNotEmpty) ...[
-                                  const SizedBox(width: 10),
-                                  const Text(
-                                    'Drop here to move this session',
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: AppColors.green,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ],
+                              ),
                             ),
                           ),
-                        );
-                      },
+                        Expanded(
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final canUseTabScrollbar =
+                                  _tabScrollController.hasClients;
+                              return Scrollbar(
+                                controller: canUseTabScrollbar
+                                    ? _tabScrollController
+                                    : null,
+                                thumbVisibility: canUseTabScrollbar &&
+                                    (_showTabScrollStart || _showTabScrollEnd),
+                                notificationPredicate: (_) => true,
+                                child: SingleChildScrollView(
+                                  controller: _tabScrollController,
+                                  scrollDirection: Axis.horizontal,
+                                  child: ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      minWidth: constraints.maxWidth,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        for (final item in _orderedTabItems(
+                                          sessions,
+                                          singleSessions,
+                                        )) ...[
+                                          if (item is TerminalWorkspaceGroup)
+                                            TerminalSessionTab(
+                                              sessionId: item.id,
+                                              label: item.label,
+                                              status: _workspaceStatus(item),
+                                              active:
+                                                  _workspaceActive &&
+                                                  item.id == _activeWorkspaceId,
+                                              leadingIcon: Icons.view_quilt_rounded,
+                                              draggable: false,
+                                              onTap: () => _activateWorkspace(item.id),
+                                              onClose: () => _closeWorkspace(item.id),
+                                              onReconnect: () =>
+                                                  _reconnectWorkspace(item.id),
+                                              reconnectNearClose: true,
+                                            )
+                                          else if (item
+                                              is session_models.TerminalSession)
+                                            _buildSessionTab(item),
+                                          const SizedBox(width: 10),
+                                        ],
+                                        AppIconButton(
+                                          key: const ValueKey('new-terminal-tab'),
+                                          icon: Icons.add_rounded,
+                                          onPressed: _openNewSessionForCurrentProfile,
+                                        ),
+                                        if (showDropHint) ...[
+                                          const SizedBox(width: 10),
+                                          const Text(
+                                            'Drop here to move this session',
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: AppColors.green,
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        if (_showTabScrollEnd)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: SizedBox(
+                              width: 28,
+                              height: 28,
+                              child: IconButton(
+                                tooltip: 'Scroll tabs right',
+                                padding: EdgeInsets.zero,
+                                onPressed: () => _scrollTabsBy(220),
+                                icon: const Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: AppColors.muted,
+                                  size: 18,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     );
                   },
                 ),
@@ -2367,6 +2415,222 @@ class _TerminalPanelState extends State<TerminalPanel> {
                     );
                   },
                 ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SessionProfilePickerDialog extends StatefulWidget {
+  const _SessionProfilePickerDialog({
+    required this.profiles,
+    required this.activeProfileId,
+  });
+
+  final List<domain.SshProfile> profiles;
+  final String? activeProfileId;
+
+  @override
+  State<_SessionProfilePickerDialog> createState() =>
+      _SessionProfilePickerDialogState();
+}
+
+class _SessionProfilePickerDialogState
+    extends State<_SessionProfilePickerDialog> {
+  late final TextEditingController _searchController;
+  late final ScrollController _listController;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController();
+    _listController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _listController.dispose();
+    super.dispose();
+  }
+
+  List<domain.SshProfile> get _filteredProfiles {
+    final normalized = _searchController.text.trim().toLowerCase();
+    if (normalized.isEmpty) return widget.profiles;
+    return widget.profiles.where((profile) {
+      final text = [
+        profile.name,
+        profile.host,
+        profile.username,
+        profile.group,
+        ...profile.tags,
+      ].join(' ').toLowerCase();
+      return text.contains(normalized);
+    }).toList(growable: false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final maxListHeight = (screenHeight * 0.55).clamp(260.0, 520.0);
+    final filteredProfiles = _filteredProfiles;
+    final hasSearch = _searchController.text.trim().isNotEmpty;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: AppPanel(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.add_rounded, color: AppColors.cyan),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('New SSH session', style: portixTitle(18)),
+                        const SizedBox(height: 2),
+                        Text(
+                          hasSearch
+                              ? '${filteredProfiles.length} of ${widget.profiles.length} profiles match your search'
+                              : '${widget.profiles.length} connectable profiles available',
+                          style: portixMuted(11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 40,
+                child: TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  onChanged: (_) {
+                    if (_listController.hasClients) {
+                      _listController.jumpTo(0);
+                    }
+                    setState(() {});
+                  },
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    color: AppColors.text,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Search profile, host, username, tag, or group',
+                    prefixIcon: const Icon(
+                      Icons.search_rounded,
+                      color: AppColors.muted,
+                      size: 19,
+                    ),
+                    suffixIcon: hasSearch
+                        ? IconButton(
+                            tooltip: 'Clear search',
+                            onPressed: () {
+                              _searchController.clear();
+                              if (_listController.hasClients) {
+                                _listController.jumpTo(0);
+                              }
+                              setState(() {});
+                            },
+                            icon: const Icon(
+                              Icons.close_rounded,
+                              color: AppColors.muted,
+                              size: 18,
+                            ),
+                          )
+                        : null,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (widget.activeProfileId != null && !hasSearch)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: AppPill(
+                    label: 'Current session profile highlighted below',
+                    color: AppColors.cyan,
+                    icon: Icons.radio_button_checked_rounded,
+                  ),
+                ),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxListHeight),
+                child: filteredProfiles.isEmpty
+                    ? Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceDark,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.search_off_rounded,
+                              color: AppColors.muted,
+                              size: 22,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'No matching profiles found',
+                              style: portixTitle(13),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Try another keyword for host, username, group, or tag.',
+                              textAlign: TextAlign.center,
+                              style: portixMuted(11),
+                            ),
+                          ],
+                        ),
+                      )
+                    : Scrollbar(
+                        controller: _listController,
+                        thumbVisibility: filteredProfiles.length > 5,
+                        child: ListView.separated(
+                          controller: _listController,
+                          shrinkWrap: true,
+                          itemCount: filteredProfiles.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 8),
+                          itemBuilder: (context, index) {
+                            final profile = filteredProfiles[index];
+                            final isActiveProfile =
+                                profile.id == widget.activeProfileId;
+                            return SessionProfileOption(
+                              profile: profile,
+                              highlighted: isActiveProfile,
+                              subtitleLabel: isActiveProfile
+                                  ? 'Current profile'
+                                  : null,
+                              onSelected: () =>
+                                  Navigator.of(context).pop(profile),
+                            );
+                          },
+                        ),
+                      ),
               ),
             ],
           ),
