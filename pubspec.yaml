@@ -35,7 +35,7 @@ dependencies:
   equatable: ^2.0.7
   fl_chart: ^1.2.0
   flutter_bloc: ^9.1.1
-  flutter_rust_bridge: 2.11.1
+  flutter_rust_bridge: 2.12.0
   get_it: ^9.2.0
   xterm: ^4.0.0
   uuid: ^4.5.1
