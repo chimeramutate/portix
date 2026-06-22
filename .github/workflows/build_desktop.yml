@@ -129,7 +129,7 @@ jobs:
 
     steps:
       - name: Checkout Flutter app
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -170,7 +170,7 @@ jobs:
 
       # ── Verifikasi bridge hash tetap dilakukan dari source portix-serv ────────
       - name: Checkout Rust backend (for bridge hash check only)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: Asepimam/portix-serv
           token: ${{ secrets.GH_PAT }}
@@ -198,7 +198,7 @@ jobs:
 
       # ── Post-build Security Scan ─────────────────────────────────────────────
       - name: Trivy scan – built artifact
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           scan-type: fs
           scan-ref: .
@@ -270,7 +270,7 @@ jobs:
             -DestinationPath "${{ matrix.package_name }}-${{ github.ref_name }}.zip"
 
       - name: Upload app artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.package_name }}-${{ github.ref_name }}
           path: |
@@ -294,10 +294,10 @@ jobs:
     needs: wait-for-serv-release
     steps:
       - name: Checkout Flutter app
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout Rust backend
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: Asepimam/portix-serv
           token: ${{ secrets.GH_PAT }}
@@ -309,7 +309,7 @@ jobs:
         id: snap-build
 
       - name: Upload snap artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portix-snap-${{ github.ref_name }}
           path: ${{ steps.snap-build.outputs.snap }}
