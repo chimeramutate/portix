@@ -731,61 +731,121 @@ class _CompactProfileListRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final veryCompact = constraints.maxWidth < 430;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ProfileOsIcon(profile: profile, size: 34),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _ListText(
-                title: profile.name.isEmpty ? 'new profile' : profile.name,
-                subtitle: profile.address,
-              ),
-            ),
-            AppPill(
-              label: statusLabelFor(status),
-              color: statusColorFor(status),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            AppPill(label: profile.group, color: AppColors.cyan),
-            AppPill(
-              label: profile.authMethod == AuthMethod.sshKey
-                  ? 'Key auth'
-                  : 'Password',
-              color: AppColors.muted,
-            ),
-            AppButton(
-              icon: Icons.terminal_rounded,
-              label: 'SSH',
-              onPressed: () => context.read<SshSessionBloc>().add(
-                SshSessionOpenRequested(
-                  profile: profile,
-                  target: SshSessionTarget.remoteFolder,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ProfileOsIcon(profile: profile, size: 34),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: _ListText(
+                      title: profile.name.isEmpty ? 'new profile' : profile.name,
+                      subtitle: profile.address,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            AppButton(
-              icon: Icons.folder_copy_outlined,
-              label: 'SFTP',
-              onPressed: () => context.read<SshSessionBloc>().add(
-                SshSessionOpenRequested(
-                  profile: profile,
-                  target: SshSessionTarget.sftp,
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    _ListProfileMenu(profile: profile, compact: true),
+                    const SizedBox(height: 6),
+                    AppPill(
+                      label: statusLabelFor(status),
+                      color: statusColorFor(status),
+                    ),
+                  ],
                 ),
-              ),
+              ],
             ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                AppPill(label: profile.group, color: AppColors.cyan),
+                AppPill(
+                  label: profile.authMethod == AuthMethod.sshKey
+                      ? 'Key auth'
+                      : 'Password',
+                  color: AppColors.muted,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            veryCompact
+                ? Column(
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
+                        child: AppButton(
+                          icon: Icons.terminal_rounded,
+                          label: 'Open SSH Session',
+                          onPressed: () => context.read<SshSessionBloc>().add(
+                            SshSessionOpenRequested(
+                              profile: profile,
+                              target: SshSessionTarget.remoteFolder,
+                              preferExistingSession: true,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: AppButton(
+                          icon: Icons.folder_copy_outlined,
+                          label: 'Open SFTP',
+                          onPressed: () => context.read<SshSessionBloc>().add(
+                            SshSessionOpenRequested(
+                              profile: profile,
+                              target: SshSessionTarget.sftp,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: AppButton(
+                          icon: Icons.terminal_rounded,
+                          label: 'Open SSH',
+                          onPressed: () => context.read<SshSessionBloc>().add(
+                            SshSessionOpenRequested(
+                              profile: profile,
+                              target: SshSessionTarget.remoteFolder,
+                              preferExistingSession: true,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: AppButton(
+                          icon: Icons.folder_copy_outlined,
+                          label: 'Open SFTP',
+                          onPressed: () => context.read<SshSessionBloc>().add(
+                            SshSessionOpenRequested(
+                              profile: profile,
+                              target: SshSessionTarget.sftp,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
           ],
-        ),
-      ],
+        );
+      },
     );
   }
 }
@@ -847,18 +907,19 @@ class _EmptyProfileGallery extends StatelessWidget {
 enum _ProfileAction { edit, duplicate, delete }
 
 class _ListProfileMenu extends StatelessWidget {
-  const _ListProfileMenu({required this.profile});
+  const _ListProfileMenu({required this.profile, this.compact = false});
   final SshProfile profile;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<_ProfileAction>(
       tooltip: 'Profile actions',
       color: AppColors.surfaceCard,
-      icon: const Icon(
-        Icons.more_horiz_rounded,
+      icon: Icon(
+        compact ? Icons.more_vert_rounded : Icons.more_horiz_rounded,
         color: AppColors.muted,
-        size: 20,
+        size: compact ? 19 : 20,
       ),
       onSelected: (action) {
         switch (action) {

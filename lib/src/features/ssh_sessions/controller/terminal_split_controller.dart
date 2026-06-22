@@ -59,6 +59,32 @@ class TerminalWorkspaceGroup {
 class TerminalSplitController {
   const TerminalSplitController();
 
+  String resolveSplitTargetForDrag({
+    required String draggedSessionId,
+    required String fallbackTargetSessionId,
+    required Iterable<String> orderedSessionIds,
+    required Set<String> workspaceSessionIds,
+    required Set<String> existingSessionIds,
+  }) {
+    final hasExplicitTarget =
+        fallbackTargetSessionId != draggedSessionId &&
+        existingSessionIds.contains(fallbackTargetSessionId);
+
+    if (hasExplicitTarget) {
+      return fallbackTargetSessionId;
+    }
+
+    final standaloneOrderedIds = orderedSessionIds
+        .where((sessionId) => !workspaceSessionIds.contains(sessionId))
+        .toList(growable: false);
+    final draggedIndex = standaloneOrderedIds.indexOf(draggedSessionId);
+    if (draggedIndex > 0) return standaloneOrderedIds[draggedIndex - 1];
+    if (draggedIndex == 0 && standaloneOrderedIds.length > 1) {
+      return standaloneOrderedIds[1];
+    }
+    return fallbackTargetSessionId;
+  }
+
   SplitNode? removeSession(SplitNode? node, String sessionId) {
     if (node == null) return null;
     if (node is SplitLeaf) {
