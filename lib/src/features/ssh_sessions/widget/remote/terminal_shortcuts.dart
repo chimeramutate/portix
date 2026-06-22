@@ -26,12 +26,16 @@ TerminalClipboardShortcut terminalClipboardShortcutFromValue(String? value) {
 Map<ShortcutActivator, Intent> terminalShortcutsFor({
   required TerminalClipboardShortcut copyShortcut,
   required TerminalClipboardShortcut pasteShortcut,
+  required TerminalController controller,
+  required Terminal terminal,
 }) {
   // NOTE: Ctrl+A (SelectAll) is intentionally NOT registered here.
   // Many TUI apps (less, vim, emacs, tmux, readline) use Ctrl+A for
   // "go to beginning of line" or other navigation — intercepting it at the
   // Flutter level would break those apps silently.
   final shortcuts = <ShortcutActivator, Intent>{};
+
+
 
   switch (copyShortcut) {
     case TerminalClipboardShortcut.shiftCtrl:
