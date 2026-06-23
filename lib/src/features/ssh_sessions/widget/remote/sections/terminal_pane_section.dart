@@ -1,7 +1,5 @@
 part of '../terminal_workspace_view.dart';
 
-
-
 class TerminalPane extends StatefulWidget {
   const TerminalPane({
     required this.terminal,

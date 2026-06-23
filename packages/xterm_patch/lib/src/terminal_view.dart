@@ -345,11 +345,16 @@ class TerminalViewState extends State<TerminalView> {
     widget.onTapUp?.call(details, offset);
   }
 
-  void _onTapDown(_) {
-    // Don't clear selection on tap - let drag gestures handle selection
+  void _onTapDown(TapDownDetails details) {
+    // onTapDown is special, as it will always call the supplied callback.
+    // The TerminalView depends on it to bring the terminal into focus.
+
+    // Clear any active selection when clicking anywhere on the terminal.
+    // This is the standard terminal emulator behavior - clicking starts a new interaction.
     if (_controller.selection != null) {
-      return;
+      _controller.clearSelection();
     }
+
     if (!widget.hardwareKeyboardOnly) {
       _customTextEditKey.currentState?.requestKeyboard();
     } else {
@@ -383,7 +388,10 @@ class TerminalViewState extends State<TerminalView> {
       widget.terminal.textInput(text);
     }
 
-    _scrollToBottom();
+    // Only auto-scroll if not manually scrolled up
+    if (!isScrolledUp) {
+      _scrollToBottom();
+    }
   }
 
   void _onComposing(String? text) {
@@ -423,7 +431,7 @@ class TerminalViewState extends State<TerminalView> {
       shift: HardwareKeyboard.instance.isShiftPressed,
     );
 
-    if (handled) {
+    if (handled && !isScrolledUp) {
       _scrollToBottom();
     }
 
@@ -447,6 +455,14 @@ class TerminalViewState extends State<TerminalView> {
     if (position != null) {
       position.jumpTo(position.maxScrollExtent);
     }
+  }
+
+  /// Returns true if the terminal is scrolled up (not at bottom).
+  /// Used to determine if auto-scroll should be disabled.
+  bool get isScrolledUp {
+    final position = _scrollableKey.currentState?.position;
+    if (position == null) return false;
+    return position.pixels < position.maxScrollExtent - 10;
   }
 }
 
