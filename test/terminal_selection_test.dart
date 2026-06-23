@@ -11,8 +11,12 @@ void main() {
       final terminal = Terminal();
       final controller = TerminalController();
 
-      final anchor = terminal.buffer.createAnchorFromOffset(const CellOffset(5, 1));
-      final extent = terminal.buffer.createAnchorFromOffset(const CellOffset(10, 2));
+      final anchor = terminal.buffer.createAnchorFromOffset(
+        const CellOffset(5, 1),
+      );
+      final extent = terminal.buffer.createAnchorFromOffset(
+        const CellOffset(10, 2),
+      );
 
       controller.setSelection(anchor, extent);
 

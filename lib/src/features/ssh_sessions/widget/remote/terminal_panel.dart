@@ -1102,10 +1102,13 @@ class _TerminalPanelState extends State<TerminalPanel> {
   }
 
   Future<domain.SshProfile?> _pickSessionProfile() {
-    final profiles = widget.profiles
-        .where((profile) => profile.isConnectable)
-        .toList(growable: false)
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final profiles =
+        widget.profiles
+            .where((profile) => profile.isConnectable)
+            .toList(growable: false)
+          ..sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
     if (profiles.isEmpty) return Future.value(null);
 
     return showDialog<domain.SshProfile>(
@@ -1630,7 +1633,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
     return _splitController.resolveSplitTargetForDrag(
       draggedSessionId: draggedSessionId,
       fallbackTargetSessionId: fallbackTargetSessionId,
-      orderedSessionIds: _orderedSessions(_sshSessions).map((session) => session.id),
+      orderedSessionIds: _orderedSessions(
+        _sshSessions,
+      ).map((session) => session.id),
       workspaceSessionIds: _workspaceSessionIds,
       existingSessionIds: _sshSessions.map((session) => session.id).toSet(),
     );
@@ -2221,24 +2226,22 @@ class _TerminalPanelState extends State<TerminalPanel> {
                         Expanded(
                           child: LayoutBuilder(
                             builder: (context, constraints) {
-                              final canUseTabScrollbar =
-                                  _tabScrollController.hasClients;
                               return Scrollbar(
-                                controller: canUseTabScrollbar
-                                    ? _tabScrollController
-                                    : null,
-                                thumbVisibility: canUseTabScrollbar &&
-                                    (_showTabScrollStart || _showTabScrollEnd),
+                                interactive: false,
+                                thumbVisibility: false,
                                 notificationPredicate: (_) => true,
                                 child: SingleChildScrollView(
                                   controller: _tabScrollController,
                                   scrollDirection: Axis.horizontal,
+                                  physics: const BouncingScrollPhysics(),
+                                  padding: const EdgeInsets.only(bottom: 4),
                                   child: ConstrainedBox(
                                     constraints: BoxConstraints(
                                       minWidth: constraints.maxWidth,
                                     ),
                                     child: Row(
                                       children: [
+                                        const SizedBox(width: 8),
                                         for (final item in _orderedTabItems(
                                           sessions,
                                           singleSessions,
@@ -2251,10 +2254,13 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                               active:
                                                   _workspaceActive &&
                                                   item.id == _activeWorkspaceId,
-                                              leadingIcon: Icons.view_quilt_rounded,
+                                              leadingIcon:
+                                                  Icons.view_quilt_rounded,
                                               draggable: false,
-                                              onTap: () => _activateWorkspace(item.id),
-                                              onClose: () => _closeWorkspace(item.id),
+                                              onTap: () =>
+                                                  _activateWorkspace(item.id),
+                                              onClose: () =>
+                                                  _closeWorkspace(item.id),
                                               onReconnect: () =>
                                                   _reconnectWorkspace(item.id),
                                               reconnectNearClose: true,
@@ -2262,15 +2268,18 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                           else if (item
                                               is session_models.TerminalSession)
                                             _buildSessionTab(item),
-                                          const SizedBox(width: 10),
+                                          const SizedBox(width: 8),
                                         ],
                                         AppIconButton(
-                                          key: const ValueKey('new-terminal-tab'),
+                                          key: const ValueKey(
+                                            'new-terminal-tab',
+                                          ),
                                           icon: Icons.add_rounded,
-                                          onPressed: _openNewSessionForCurrentProfile,
+                                          onPressed:
+                                              _openNewSessionForCurrentProfile,
                                         ),
                                         if (showDropHint) ...[
-                                          const SizedBox(width: 10),
+                                          const SizedBox(width: 8),
                                           const Text(
                                             'Drop here to move this session',
                                             overflow: TextOverflow.ellipsis,
@@ -2460,16 +2469,18 @@ class _SessionProfilePickerDialogState
   List<domain.SshProfile> get _filteredProfiles {
     final normalized = _searchController.text.trim().toLowerCase();
     if (normalized.isEmpty) return widget.profiles;
-    return widget.profiles.where((profile) {
-      final text = [
-        profile.name,
-        profile.host,
-        profile.username,
-        profile.group,
-        ...profile.tags,
-      ].join(' ').toLowerCase();
-      return text.contains(normalized);
-    }).toList(growable: false);
+    return widget.profiles
+        .where((profile) {
+          final text = [
+            profile.name,
+            profile.host,
+            profile.username,
+            profile.group,
+            ...profile.tags,
+          ].join(' ').toLowerCase();
+          return text.contains(normalized);
+        })
+        .toList(growable: false);
   }
 
   @override
@@ -2608,13 +2619,13 @@ class _SessionProfilePickerDialogState
                       )
                     : Scrollbar(
                         controller: _listController,
+                        interactive: false,
                         thumbVisibility: filteredProfiles.length > 5,
                         child: ListView.separated(
                           controller: _listController,
                           shrinkWrap: true,
                           itemCount: filteredProfiles.length,
-                          separatorBuilder: (_, _) =>
-                              const SizedBox(height: 8),
+                          separatorBuilder: (_, _) => const SizedBox(height: 8),
                           itemBuilder: (context, index) {
                             final profile = filteredProfiles[index];
                             final isActiveProfile =

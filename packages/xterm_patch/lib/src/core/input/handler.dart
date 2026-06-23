@@ -2,6 +2,7 @@ import 'package:xterm/src/core/input/keys.dart';
 import 'package:xterm/src/core/input/keytab/keytab.dart';
 import 'package:xterm/src/core/state.dart';
 import 'package:xterm/src/core/platform.dart';
+import 'package:xterm/src/utils/ascii.dart';
 
 /// The key event received from the keyboard, along with the state of the
 /// modifier keys and state of the terminal. Typically consumed by the
@@ -160,6 +161,24 @@ class KeytabInputHandler implements TerminalInputHandler {
 
 /// A [TerminalInputHandler] that translates ctrl + key events into escape
 /// sequences. For example, ctrl + a becomes ^A.
+///
+/// This handler supports:
+/// - Ctrl+A through Ctrl+Z: produces characters 1-26
+/// - Ctrl+[ through Ctrl+\: produces ESC, FS, GS respectively
+/// - Ctrl+^: produces RS (Record Separator)
+/// - Ctrl+_; produces US (Unit Separator)
+/// - Ctrl+/: produces US (Unit Separator) - commonly used for interrupt
+///
+/// These control characters are used by terminal applications for various
+/// purposes. For example:
+/// - Ctrl+C (ETX) is used for interrupt/signal
+/// - Ctrl+D (EOT) is used for logout/end-of-file
+/// - Ctrl+] (GS) can be used to exit telnet sessions
+/// - Ctrl+Z (SUB) is used for suspension
+///
+/// See also:
+/// - [KeytabInputHandler] for configurable key mappings
+/// - [CascadeInputHandler] for chaining multiple handlers
 class CtrlInputHandler implements TerminalInputHandler {
   const CtrlInputHandler();
 
@@ -171,10 +190,42 @@ class CtrlInputHandler implements TerminalInputHandler {
 
     final key = event.key;
 
+    // Handle Ctrl+A through Ctrl+Z (ASCII 1-26)
     if (key.index >= TerminalKey.keyA.index &&
         key.index <= TerminalKey.keyZ.index) {
       final input = key.index - TerminalKey.keyA.index + 1;
       return String.fromCharCode(input);
+    }
+
+    // Handle Ctrl+[ through Ctrl+\ and Ctrl+^ through Ctrl+_
+    // These are control characters for bracket and special keys
+    // Ctrl+[ = ESC (0x1B), Ctrl+\ = FS (0x1C), Ctrl+] = GS (0x1D)
+    // Ctrl+^ = RS (0x1E), Ctrl+_ = US (0x1F)
+    if (key == TerminalKey.bracketLeft) {
+      return String.fromCharCode(Ascii.ESC);
+    }
+
+    if (key == TerminalKey.bracketRight) {
+      return String.fromCharCode(Ascii.GS);
+    }
+
+    if (key == TerminalKey.backslash) {
+      return String.fromCharCode(Ascii.FS);
+    }
+
+    // Handle Ctrl+^ (caret) - typically Shift+6
+    if (key == TerminalKey.equal) {
+      return String.fromCharCode(Ascii.RS);
+    }
+
+    // Handle Ctrl+semicolon (; = 0x3B, Ctrl+; = 0x1F = US)
+    if (key == TerminalKey.semicolon) {
+      return String.fromCharCode(Ascii.US);
+    }
+
+    // Handle Ctrl+/ for telnet interrupt (US)
+    if (key == TerminalKey.slash) {
+      return String.fromCharCode(Ascii.US);
     }
 
     return null;
