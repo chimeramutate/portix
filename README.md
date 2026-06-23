@@ -2,67 +2,10 @@
 
 [![portix](https://snapcraft.io/portix/badge.svg)](https://snapcraft.io/portix)
 
-SSH client MVP with a Flutter UI and Rust SSH core.
-
-## Stack
-
-- Flutter desktop/mobile UI
-- `xterm.dart` terminal emulator widget
-- `flutter_rust_bridge` bridge boundary
-- Rust `tokio` async runtime
-- Rust `russh` SSH client
-- `serde`, `anyhow`, and `thiserror` for models and errors
-
-## Architecture
-
-Flutter:
-
-- `lib/core/theme`
-- `lib/core/widgets`
-- `lib/core/di`
-- `lib/core/result`
-- `lib/features/workspace/domain`
-- `lib/features/workspace/presentation/cubit`
-- `lib/features/workspace/presentation/pages`
-- `lib/screens`
-- `lib/widgets`
-- `lib/terminal`
-- `lib/connection_manager`
-- `lib/settings`
-
-Rust:
-
-- `/Users/asepimam/Documents/project/portix-serv/src/domain`
-- `/Users/asepimam/Documents/project/portix-serv/src/application`
-- `/Users/asepimam/Documents/project/portix-serv/src/infrastructure`
-- `/Users/asepimam/Documents/project/portix-serv/src/api.rs`
-
-## Current MVP Surface
-
-- Connection list
-- Add, edit, and delete SSH profiles
-- Terminal workspace with sidebar, toolbar, tabs, and dark theme
-- Interactive `xterm.dart` input/output path
-- `flutter_bloc` state management for workspace UI
-- `get_it` dependency injection from `lib/core/di/injection_container.dart`
-- `Either<AppFailure, T>` result type for explicit success/failure flows
-- Reusable theme, button, icon button, panel, and dialog primitives
-- Generated `flutter_rust_bridge` bindings under `lib/src/rust`
-- Runtime-selectable backend: mock by default, Rust with `PORTIX_BACKEND=rust`
-- Rust session manager with realtime output/status/error streams
-- Rust `russh` PTY shell runtime with input, resize, and disconnect commands
-
-The Flutter app uses `MockConnectionBackend` by default so UI work stays fast. Run with `PORTIX_BACKEND=rust` to use the real Rust SSH core.
-
-## Dependency Injection
-
-Flutter dependencies are registered in `lib/core/di/injection_container.dart`.
-
-- `ConnectionBackend` is registered as `MockConnectionBackend` by default.
-- `ConnectionBackend` is registered as `RustBridgeBackend` when `--dart-define=PORTIX_BACKEND=rust` is used.
-- `WorkspaceSessionService` is registered as `ConnectionManager`.
-- `WorkspaceCubit` receives `WorkspaceSessionService` through constructor injection.
-- Workspace commands return `Either<AppFailure, T>` so failures are handled explicitly in Cubit instead of leaking exceptions into widgets.
+Portix is a modern SSH client built with Flutter UI and Rust SSH core.
+Features include multi-tab terminal sessions, split workspace, SFTP file
+manager, remote file browsing, command autocomplete, and cross-platform
+support for Linux, macOS, and Windows.
 
 ## Running
 
