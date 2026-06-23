@@ -16,7 +16,7 @@ on:
           - stable
           - beta
       serv_tag:
-        description: "portix-serv tag to use (default: same as this tag)"
+        description: "portix-serv tag to use (default: auto-resolve, see resolution order in job)"
         required: false
         default: ""
 
@@ -35,19 +35,59 @@ jobs:
     outputs:
       serv_tag: ${{ steps.resolve.outputs.serv_tag }}
     steps:
+      - name: Checkout Flutter app
+        uses: actions/checkout@v6
+
+      
       - name: Resolve portix-serv tag
         id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          if [ -n "${{ github.event.inputs.serv_tag }}" ]; then
-            # Pakai input manual jika diisi
-            SERV_TAG="${{ github.event.inputs.serv_tag }}"
+          set -euo pipefail
+
+          MANUAL_TAG="${{ github.event.inputs.serv_tag }}"
+          PIN_FILE="portix-serv.version"
+          DERIVED_TAG=$(echo "${{ github.ref_name }}" | sed 's/-beta[^/]*$//')
+
+          if [ -n "$MANUAL_TAG" ]; then
+            SERV_TAG="$MANUAL_TAG"
+            SOURCE="manual workflow_dispatch input"
+
+          elif [ -f "$PIN_FILE" ] && [ -s "$PIN_FILE" ]; then
+            SERV_TAG=$(tr -d '[:space:]' < "$PIN_FILE")
+            SOURCE="pin file ($PIN_FILE)"
+
+            # Sanity check: warn if a release matching the derived tag exists
+            # but is being shadowed by an older pin. This usually means
+            # portix-serv was updated and the pin file was forgotten.
+            if [ "$SERV_TAG" != "$DERIVED_TAG" ]; then
+              if gh release view "$DERIVED_TAG" --repo Asepimam/portix-serv >/dev/null 2>&1; then
+                echo "::warning::Pin file ($PIN_FILE) points to '$SERV_TAG', but a newer matching release '$DERIVED_TAG' exists on portix-serv. Using pinned '$SERV_TAG' anyway — update or remove $PIN_FILE if you meant to pick up the new serv release."
+              fi
+            fi
+
           else
-            # Strip suffix -beta* dari ref_name
-            # v1.2.3-beta1 → v1.2.3 | v1.2.3 → v1.2.3
-            SERV_TAG=$(echo "${{ github.ref_name }}" | sed 's/-beta[^/]*$//')
+            echo "No manual input or pin file found. Checking derived tag: $DERIVED_TAG"
+            if gh release view "$DERIVED_TAG" --repo Asepimam/portix-serv >/dev/null 2>&1; then
+              SERV_TAG="$DERIVED_TAG"
+              SOURCE="derived from ref_name (exact match found)"
+            else
+              echo "Release '$DERIVED_TAG' not found on portix-serv. Falling back to latest release."
+              LATEST_TAG=$(gh release view --repo Asepimam/portix-serv --json tagName -q .tagName 2>/dev/null || echo "")
+              if [ -z "$LATEST_TAG" ]; then
+                echo "::error::No derived tag '$DERIVED_TAG' and no latest release exists on portix-serv. Nothing to fall back to."
+                exit 1
+              fi
+              SERV_TAG="$LATEST_TAG"
+              SOURCE="fallback to portix-serv latest release"
+            fi
           fi
-          echo "Flutter tag  : ${{ github.ref_name }}"
-          echo "portix-serv tag: $SERV_TAG"
+
+          echo "Flutter tag      : ${{ github.ref_name }}"
+          echo "Derived tag      : $DERIVED_TAG"
+          echo "Resolved serv tag: $SERV_TAG"
+          echo "Resolution source: $SOURCE"
           echo "serv_tag=$SERV_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Wait until portix-serv release is published
@@ -63,7 +103,7 @@ jobs:
               2>/dev/null || echo "NOT_FOUND")
 
             if [ "$STATUS" = "NOT_FOUND" ]; then
-              echo "Attempt $i/20: Release not found yet, waiting 60s..."
+              echo "Attempt $i/20: Release '$SERV_TAG' not found yet, waiting 60s..."
               sleep 60
               continue
             fi
@@ -85,7 +125,7 @@ jobs:
             done
 
             if [ "$ALL_READY" = "true" ]; then
-              echo "✓ All portix-serv assets are ready!"
+              echo "✓ All portix-serv assets are ready (tag: $SERV_TAG)"
               exit 0
             fi
           done
@@ -129,7 +169,7 @@ jobs:
 
     steps:
       - name: Checkout Flutter app
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -170,7 +210,7 @@ jobs:
 
       # ── Verifikasi bridge hash tetap dilakukan dari source portix-serv ────────
       - name: Checkout Rust backend (for bridge hash check only)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: Asepimam/portix-serv
           token: ${{ secrets.GH_PAT }}
@@ -198,7 +238,7 @@ jobs:
 
       # ── Post-build Security Scan ─────────────────────────────────────────────
       - name: Trivy scan – built artifact
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           scan-type: fs
           scan-ref: .
@@ -270,7 +310,7 @@ jobs:
             -DestinationPath "${{ matrix.package_name }}-${{ github.ref_name }}.zip"
 
       - name: Upload app artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.package_name }}-${{ github.ref_name }}
           path: |
@@ -294,22 +334,31 @@ jobs:
     needs: wait-for-serv-release
     steps:
       - name: Checkout Flutter app
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout Rust backend
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: Asepimam/portix-serv
           token: ${{ secrets.GH_PAT }}
           ref: ${{ needs.wait-for-serv-release.outputs.serv_tag }}
           path: portix-serv
 
+      
+      - name: Sync snapcraft.yaml version with git tag
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          sed -i "s/^version:.*/version: \"${VERSION}\"/" snap/snapcraft.yaml
+          echo "Snap version set to: ${VERSION}"
+          grep "^version:" snap/snapcraft.yaml
+
       - name: Build snap
         uses: snapcore/action-build@v1
         id: snap-build
 
       - name: Upload snap artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portix-snap-${{ github.ref_name }}
           path: ${{ steps.snap-build.outputs.snap }}
@@ -342,10 +391,10 @@ jobs:
       options: --privileged
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download linux bundle artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: portix-linux-${{ github.ref_name }}
           path: artifact
@@ -380,7 +429,7 @@ jobs:
             repo .flatpak-builder/ || true
 
       - name: Upload flatpak artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portix-flatpak-${{ github.ref_name }}
           path: portix-${{ github.ref_name }}.flatpak
@@ -393,14 +442,7 @@ jobs:
           fail_on_unmatched_files: false
           files: portix-${{ github.ref_name }}.flatpak
 
-  # ── Publish update ke repo Flathub ───────────────────────────────────────
-  # PRASYARAT: app sudah disetujui Flathub dan repo flathub/com.github.asep.Portix
-  # sudah ada. Job ini TIDAK melakukan submission pertama kali — itu wajib manual
-  # via PR ke flathub/flathub. Job ini hanya update versi untuk rilis selanjutnya.
-  #
-  # Hanya jalan untuk channel stable (Flathub stable repo). Skip untuk beta,
-  # karena Flathub punya konsep "beta" terpisah (branch beta repo) yang setupnya
-  # beda dan tidak di-cover di sini secara default.
+
   publish-flathub:
     name: Publish update to Flathub repo
     runs-on: ubuntu-latest
@@ -408,19 +450,19 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') && env.IS_BETA != 'true'
     steps:
       - name: Checkout Portix (source manifest)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: portix
 
       - name: Checkout flathub/com.github.asep.Portix
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: flathub/com.github.asep.Portix
           token: ${{ secrets.FLATHUB_PAT }}
           path: flathub-repo
 
       - name: Download linux bundle artifact (untuk hitung checksum)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: portix-linux-${{ github.ref_name }}
           path: artifact
