@@ -447,20 +447,20 @@ jobs:
         run: |
           mkdir -p flatpak/assets
           cp assets/icons/portix_launcher.png flatpak/assets/portix_launcher.png
-          cp flatpak/com.github.asep.Portix.desktop flatpak/assets/com.github.asep.Portix.desktop
-          cp flatpak/com.github.asep.Portix.metainfo.xml flatpak/assets/com.github.asep.Portix.metainfo.xml
+          cp flatpak/com.github.asepimam.Portix.desktop flatpak/assets/com.github.asepimam.Portix.desktop
+          cp flatpak/com.github.asepimam.Portix.metainfo.xml flatpak/assets/com.github.asepimam.Portix.metainfo.xml
 
       - name: Build Flatpak bundle
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: portix-${{ github.ref_name }}.flatpak
-          manifest-path: flatpak/com.github.asep.Portix.yml
+          manifest-path: flatpak/com.github.asepimam.Portix.yml
           cache-key: flatpak-builder-${{ github.sha }}
 
       - name: Lint Flatpak manifest and bundle
         run: |
           flatpak run --command=flatpak-builder-lint org.flatpak.Builder \
-            manifest flatpak/com.github.asep.Portix.yml || true
+            manifest flatpak/com.github.asepimam.Portix.yml || true
           flatpak run --command=flatpak-builder-lint org.flatpak.Builder \
             repo .flatpak-builder/ || true
 
@@ -494,10 +494,10 @@ jobs:
         with:
           path: portix
 
-      - name: Checkout flathub/com.github.asep.Portix
+      - name: Checkout flathub/com.github.asepimam.Portix
         uses: actions/checkout@v6
         with:
-          repository: flathub/com.github.asep.Portix
+          repository: flathub/com.github.asepimam.Portix
           token: ${{ secrets.FLATHUB_PAT }}
           path: flathub-repo
 
@@ -526,7 +526,7 @@ jobs:
 
       - name: Update manifest in Flathub repo
         run: |
-          MANIFEST="flathub-repo/com.github.asep.Portix.yml"
+          MANIFEST="flathub-repo/com.github.asepimam.Portix.yml"
 
           if [ ! -f "$MANIFEST" ]; then
             echo "::error::Manifest tidak ditemukan di flathub-repo. Pastikan submission pertama sudah disetujui dan struktur repo sesuai."
@@ -551,7 +551,7 @@ jobs:
 
       - name: Update metainfo release entry
         run: |
-          METAINFO="flathub-repo/com.github.asep.Portix.metainfo.xml"
+          METAINFO="flathub-repo/com.github.asepimam.Portix.metainfo.xml"
           VERSION="${{ steps.vars.outputs.version }}"
           DATE=$(date +%Y-%m-%d)
 
@@ -584,12 +584,12 @@ jobs:
             exit 0
           fi
 
-          git add com.github.asep.Portix.yml com.github.asep.Portix.metainfo.xml
+          git add com.github.asepimam.Portix.yml com.github.asepimam.Portix.metainfo.xml
           git commit -m "Update to ${{ github.ref_name }}"
           git push origin HEAD
 
       - name: Summary
         run: |
-          echo "✓ Manifest di flathub/com.github.asep.Portix sudah di-update ke ${{ github.ref_name }}."
+          echo "✓ Manifest di flathub/com.github.asepimam.Portix sudah di-update ke ${{ github.ref_name }}."
           echo "Flathub buildbot akan otomatis build & publish dari commit ini."
-          echo "Cek status build di: https://buildbot.flathub.org/#/apps/com.github.asep.Portix"
+          echo "Cek status build di: https://buildbot.flathub.org/#/apps/com.github.asepimam.Portix"
