@@ -1,6 +1,6 @@
 app-id: com.github.asep.Portix
 runtime: org.gnome.Platform
-runtime-version: '46'
+runtime-version: "46"
 sdk: org.gnome.Sdk
 command: portix
 
@@ -70,7 +70,7 @@ modules:
         path: assets/portix_launcher.png
 
       - type: file
-        path: assets/com.github.asep.Portix.desktop
+        path: flatpak/com.github.asepimam.Portix.desktop
 
       - type: file
-        path: assets/com.github.asep.Portix.metainfo.xml
+        path: flatpak/com.github.asepimam.Portix.metainfo.xml
