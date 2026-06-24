@@ -35,13 +35,14 @@ dependencies:
   equatable: ^2.0.7
   fl_chart: ^1.2.0
   flutter_bloc: ^9.1.1
-  flutter_rust_bridge: 2.11.1
+  flutter_rust_bridge: 2.12.0
   get_it: ^9.2.0
-  xterm: ^4.0.0
+  xterm:
+    path: packages/xterm_patch
   uuid: ^4.5.1
   flutter_launcher_icons: ^0.14.4
   flutter_svg: ^2.3.0
-  flutter_secure_storage: ^10.2.0
+  flutter_secure_storage: ^10.3.1
   path_provider: ^2.1.5
   textfield_tags: ^3.0.1
   file_picker: ^11.0.2

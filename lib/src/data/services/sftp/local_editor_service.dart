@@ -356,6 +356,37 @@ class LocalEditorService {
     return uniqueDir;
   }
 
+  static String buildRemoteTempFileName(
+    String displayName, {
+    required String remotePath,
+    DateTime? now,
+  }) {
+    final sanitizedName = _sanitizeRemoteTempBaseName(displayName);
+    final dotIndex = sanitizedName.lastIndexOf('.');
+    final hasExtension = dotIndex > 0 && dotIndex < sanitizedName.length - 1;
+    final baseName = hasExtension
+        ? sanitizedName.substring(0, dotIndex)
+        : sanitizedName;
+    final extension = hasExtension ? sanitizedName.substring(dotIndex) : '';
+    final timestamp = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    final pathHash = _stableRemotePathHash(remotePath);
+    return '${baseName}__${pathHash}__${timestamp}${extension}';
+  }
+
+  static String _sanitizeRemoteTempBaseName(String name) {
+    final safe = name.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_').trim();
+    return safe.isEmpty ? 'remote-file' : safe;
+  }
+
+  static String _stableRemotePathHash(String remotePath) {
+    var hash = 5381;
+    for (final unit in remotePath.codeUnits) {
+      hash = ((hash << 5) + hash) ^ unit;
+      hash &= 0x7fffffff;
+    }
+    return hash.toRadixString(16).padLeft(8, '0');
+  }
+
   /// Detect applications suitable for a specific file extension.
   /// Returns apps relevant to the file type (e.g. Word/WPS for .docx).
   Future<List<LocalEditor>> detectAppsForExtension(String extension) async {

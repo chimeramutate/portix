@@ -38,7 +38,6 @@ jobs:
       - name: Checkout Flutter app
         uses: actions/checkout@v6
 
-      
       - name: Resolve portix-serv tag
         id: resolve
         env:
@@ -174,7 +173,8 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: "3.22.0"
+          channel: "stable"
           cache: true
 
       - name: Install Linux dependencies
@@ -193,7 +193,6 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      # ── Download pre-built Rust binary dari portix-serv release ──────────────
       - name: Download Rust native library from portix-serv release
         shell: bash
         env:
@@ -208,7 +207,6 @@ jobs:
           echo "✓ Downloaded:"
           ls -lh rust-libs/
 
-      # ── Verifikasi bridge hash tetap dilakukan dari source portix-serv ────────
       - name: Checkout Rust backend (for bridge hash check only)
         uses: actions/checkout@v6
         with:
@@ -236,7 +234,6 @@ jobs:
       - name: Build Flutter
         run: flutter build ${{ matrix.flutter_build_target }} --release --dart-define=PORTIX_BACKEND=rust --dart-define=RUST_LIBRARY_MODE=production
 
-      # ── Post-build Security Scan ─────────────────────────────────────────────
       - name: Trivy scan – built artifact
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
@@ -344,7 +341,6 @@ jobs:
           ref: ${{ needs.wait-for-serv-release.outputs.serv_tag }}
           path: portix-serv
 
-      
       - name: Sync snapcraft.yaml version with git tag
         run: |
           VERSION="${{ github.ref_name }}"
@@ -367,11 +363,11 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         continue-on-error: true
         uses: snapcore/action-publish@v1
-        env:
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_STORE_TOKEN }}
         with:
           snap: ${{ steps.snap-build.outputs.snap }}
           release: ${{ env.IS_BETA == 'true' && 'beta' || 'stable' }}
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_STORE_TOKEN }}
 
       - name: Upload snap to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -442,7 +438,6 @@ jobs:
           fail_on_unmatched_files: false
           files: portix-${{ github.ref_name }}.flatpak
 
-
   publish-flathub:
     name: Publish update to Flathub repo
     runs-on: ubuntu-latest
@@ -493,9 +488,6 @@ jobs:
             exit 1
           fi
 
-          # Update URL dan sha256 pada source type:archive milik module 'portix'.
-          # Asumsi: manifest di sisi Flathub sudah pakai pendekatan archive URL,
-          # bukan dir lokal seperti versi CI testing kita.
           python3 - "$MANIFEST" "${{ steps.vars.outputs.url }}" "${{ steps.vars.outputs.sha256 }}" <<'PYEOF'
           import sys, re
 

@@ -55,6 +55,12 @@ class TerminalSuggestionController {
     return _candidatesBySession[sessionId] ?? const [];
   }
 
+  bool canAcceptSuggestionWithEnter(String sessionId) {
+    if (!_enabled) return false;
+    if (candidatesFor(sessionId).isEmpty) return false;
+    return _suggestions[sessionId]?.source == TerminalSuggestionSource.history;
+  }
+
   bool handleInput(String sessionId, String data) {
     if (!_enabled) return false;
     if (data.isEmpty) return false;
@@ -78,6 +84,18 @@ class TerminalSuggestionController {
     return suffix.isEmpty ? null : suffix;
   }
 
+  /// Returns the completion suffix for display purposes.
+  /// This is the part of the suggestion that will be shown highlighted.
+  String? completionDisplaySuffixFor(String sessionId) {
+    if (!_enabled) return null;
+    final suggestion = _suggestions[sessionId];
+    if (suggestion == null) return null;
+    final input = inputFor(sessionId);
+    if (input.isEmpty || !suggestion.command.startsWith(input)) return null;
+    final suffix = suggestion.command.substring(input.length);
+    return suffix.isEmpty ? null : suffix;
+  }
+
   String? acceptSuggestion(String sessionId) {
     final suggestion = _suggestions[sessionId];
     final suffix = completionSuffixFor(sessionId);
@@ -85,6 +103,20 @@ class TerminalSuggestionController {
     _buffers[sessionId] = suggestion.command;
     _refreshSuggestion(sessionId);
     return suffix;
+  }
+
+  /// Accepts a specific suggestion by command and returns the suffix.
+  /// This is useful when the suggestion is selected from the UI.
+  String? acceptSpecificSuggestion(
+    String sessionId,
+    TerminalSuggestion suggestion,
+  ) {
+    final input = inputFor(sessionId);
+    if (input.isEmpty || !suggestion.command.startsWith(input)) return null;
+    final suffix = suggestion.command.substring(input.length);
+    _buffers[sessionId] = suggestion.command;
+    _refreshSuggestion(sessionId);
+    return suffix.isEmpty ? null : suffix;
   }
 
   bool moveSelection(String sessionId, int delta) {
@@ -281,8 +313,20 @@ class TerminalSuggestionController {
     final command = suggestion.command.toLowerCase();
     final display = suggestion.display.toLowerCase();
     final normalizedPrefix = prefix.toLowerCase();
-    return command.startsWith(normalizedPrefix) ||
-        (currentToken.isNotEmpty && display.startsWith(currentToken));
+
+    // Check if the suggestion command starts with the prefix
+    // This ensures we only show relevant completions
+    if (command.startsWith(normalizedPrefix)) {
+      return true;
+    }
+
+    // Also check display for the current token
+    // This helps with remote help suggestions
+    if (currentToken.isNotEmpty && display.startsWith(currentToken)) {
+      return true;
+    }
+
+    return false;
   }
 
   String _currentToken(String input) {
@@ -291,6 +335,24 @@ class TerminalSuggestionController {
     }
     final parts = input.trimRight().split(RegExp(r'\s+'));
     return parts.isEmpty ? '' : parts.last;
+  }
+
+  /// Gets the current word/token being typed, for suggestion matching.
+  /// This is the part after the last space.
+  String getCurrentWord(String input) {
+    if (input.isEmpty) return '';
+    final trimmed = input.trimRight();
+    final lastSpace = trimmed.lastIndexOf(' ');
+    return lastSpace >= 0 ? trimmed.substring(lastSpace + 1) : trimmed;
+  }
+
+  /// Handles when a suggestion is selected from the UI.
+  /// Returns the suffix that was added to the buffer.
+  String? selectSuggestionFromUI(
+    String sessionId,
+    TerminalSuggestion suggestion,
+  ) {
+    return acceptSpecificSuggestion(sessionId, suggestion);
   }
 
   bool _isSensitiveCommand(String command) {

@@ -1,0 +1,12 @@
+tools:
+    shell:
+        allow:
+            - cd *
+            - head *
+            - tail *
+            - wc *
+            - grep *
+            - python3 *
+            - echo *
+            - cat *
+            - git diff *
