@@ -1,0 +1,76 @@
+app-id: com.github.asep.Portix
+runtime: org.gnome.Platform
+runtime-version: "46"
+sdk: org.gnome.Sdk
+command: portix
+
+finish-args:
+  # Network access (SSH/SFTP/RDP connections keluar)
+  - --share=network
+  - --share=ipc
+  # Display
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Filesystem
+  - --filesystem=home
+  - --filesystem=~/.ssh:ro
+  # Secret/credential storage (pengganti plug password-manager-service di Snap)
+  - --talk-name=org.freedesktop.secrets
+  # Clipboard & misc desktop integration
+  - --socket=pulseaudio
+  - --talk-name=org.gnome.SettingsDaemon
+
+modules:
+  - name: portix
+    buildsystem: simple
+    build-commands:
+      # --- Binary utama ---
+      - install -Dm755 bundle/portix /app/bin/portix
+
+      # --- Data Flutter (assets, icudtl.dat, flutter_assets, dll) ---
+      - mkdir -p /app/bin/data
+      - cp -r bundle/data/. /app/bin/data/
+
+      # --- Shared libraries hasil bundle Flutter + Rust ---
+      # libsecret & libgcrypt TIDAK di-copy karena sudah disediakan
+      # oleh runtime org.gnome.Platform — meng-copy ulang berisiko
+      # konflik versi dengan runtime.
+      - |
+        mkdir -p /app/lib
+        for f in bundle/lib/*; do
+          base="$(basename "$f")"
+          case "$base" in
+            libsecret*|libgcrypt*)
+              echo "skip $base (provided by runtime)"
+              ;;
+            *)
+              cp -P "$f" /app/lib/
+              ;;
+          esac
+        done
+
+      # --- Rust native library (flutter_rust_bridge) ---
+      - install -Dm755 bundle/libportix_serv.so /app/lib/libportix_serv.so
+
+      # --- Desktop integration ---
+      - install -Dm644 portix_launcher.png /app/share/icons/hicolor/256x256/apps/com.github.asep.Portix.png
+      - install -Dm644 com.github.asep.Portix.desktop /app/share/applications/com.github.asep.Portix.desktop
+      - install -Dm644 com.github.asep.Portix.metainfo.xml /app/share/metainfo/com.github.asep.Portix.metainfo.xml
+
+    sources:
+      # Hasil extract tar.gz dari job `build` (target linux) workflow GitHub Actions.
+      # Lihat ci/build-desktop.yml job `flatpak` — direktori ini diisi oleh
+      # step "Extract bundle" sebelum flatpak-builder dijalankan.
+      - type: dir
+        path: bundle-src
+        dest: bundle
+
+      - type: file
+        path: assets/portix_launcher.png
+
+      - type: file
+        path: flatpak/com.github.asepimam.Portix.desktop
+
+      - type: file
+        path: flatpak/com.github.asepimam.Portix.metainfo.xml
