@@ -185,10 +185,16 @@ jobs:
       - name: Checkout Flutter app
         uses: actions/checkout@v6
 
+      # NOTE: do not pin `flutter-version` to an old exact version (e.g.
+      # "3.22.0") unless your pubspec.yaml's Dart SDK constraint matches it.
+      # Flutter 3.22.0 ships Dart 3.4.0, but this project's pubspec.yaml
+      # requires Dart `^3.11.5`, causing:
+      #   "Because portix requires SDK version ^3.11.5, version solving failed."
+      # Omitting `flutter-version` and using channel: stable always resolves
+      # the latest stable Flutter (and its bundled, matching Dart SDK).
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.22.0"
           channel: "stable"
           cache: true
 
