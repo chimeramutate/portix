@@ -1,4 +1,4 @@
-app-id: com.github.asep.Portix
+app-id: com.github.asepimam.Portix
 runtime: org.gnome.Platform
 runtime-version: "46"
 sdk: org.gnome.Sdk
@@ -32,10 +32,6 @@ modules:
       - mkdir -p /app/bin/data
       - cp -r bundle/data/. /app/bin/data/
 
-      # --- Shared libraries hasil bundle Flutter + Rust ---
-      # libsecret & libgcrypt TIDAK di-copy karena sudah disediakan
-      # oleh runtime org.gnome.Platform — meng-copy ulang berisiko
-      # konflik versi dengan runtime.
       - |
         mkdir -p /app/lib
         for f in bundle/lib/*; do
@@ -54,14 +50,11 @@ modules:
       - install -Dm755 bundle/libportix_serv.so /app/lib/libportix_serv.so
 
       # --- Desktop integration ---
-      - install -Dm644 portix_launcher.png /app/share/icons/hicolor/256x256/apps/com.github.asep.Portix.png
-      - install -Dm644 com.github.asep.Portix.desktop /app/share/applications/com.github.asep.Portix.desktop
-      - install -Dm644 com.github.asep.Portix.metainfo.xml /app/share/metainfo/com.github.asep.Portix.metainfo.xml
+      - install -Dm644 portix_launcher.png /app/share/icons/hicolor/256x256/apps/com.github.asepimam.Portix.png
+      - install -Dm644 com.github.asepimam.Portix.desktop /app/share/applications/com.github.asepimam.Portix.desktop
+      - install -Dm644 com.github.asepimam.Portix.metainfo.xml /app/share/metainfo/com.github.asepimam.Portix.metainfo.xml
 
     sources:
-      # Hasil extract tar.gz dari job `build` (target linux) workflow GitHub Actions.
-      # Lihat ci/build-desktop.yml job `flatpak` — direktori ini diisi oleh
-      # step "Extract bundle" sebelum flatpak-builder dijalankan.
       - type: dir
         path: bundle-src
         dest: bundle
@@ -70,7 +63,7 @@ modules:
         path: assets/portix_launcher.png
 
       - type: file
-        path: flatpak/com.github.asepimam.Portix.desktop
+        path: assets/com.github.asepimam.Portix.desktop
 
       - type: file
-        path: flatpak/com.github.asepimam.Portix.metainfo.xml
+        path: assets/com.github.asepimam.Portix.metainfo.xml
