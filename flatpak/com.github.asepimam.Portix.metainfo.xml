@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.github.asep.Portix</id>
+  <id>com.github.asepimam.Portix</id>
 
   <name>Portix</name>
   <summary>Multi-platform SSH, SFTP and RDP client</summary>
@@ -24,7 +24,7 @@
     </ul>
   </description>
 
-  <launchable type="desktop-id">com.github.asep.Portix.desktop</launchable>
+  <launchable type="desktop-id">com.github.asepimam.Portix.desktop</launchable>
 
   <screenshots>
     <screenshot type="default">
