@@ -450,6 +450,31 @@ jobs:
           cp flatpak/com.github.asepimam.Portix.desktop flatpak/assets/com.github.asepimam.Portix.desktop
           cp flatpak/com.github.asepimam.Portix.metainfo.xml flatpak/assets/com.github.asepimam.Portix.metainfo.xml
 
+      # Flatpak/AppStream requires a SQUARE icon. A non-square icon (e.g.
+      # 436x481) passes the build step but fails much later at export with:
+      #   "is not a valid icon: Expected a square icon but got: WxH"
+      # Catching it here fails fast with a clear message instead of wasting
+      # the whole flatpak-builder run.
+      - name: Validate app icon is square
+        run: |
+          set -euo pipefail
+          ICON="flatpak/assets/portix_launcher.png"
+          DIMS=$(python3 -c "
+          import struct
+          with open('$ICON', 'rb') as f:
+              data = f.read(33)
+              w, h = struct.unpack('>II', data[16:24])
+              print(f'{w}x{h}')
+          ")
+          WIDTH="${DIMS%x*}"
+          HEIGHT="${DIMS#*x}"
+          echo "Icon dimensions: ${DIMS}"
+          if [ "$WIDTH" != "$HEIGHT" ]; then
+            echo "::error::App icon '$ICON' is ${DIMS}, but Flatpak/AppStream requires a SQUARE icon (width == height). Crop/pad it to e.g. 512x512 and commit the fix."
+            exit 1
+          fi
+          echo "✓ Icon is square (${DIMS})"
+
       - name: Build Flatpak bundle
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
