@@ -7,8 +7,8 @@ set -e
 VERSION="${1:-1.0.0}"
 ARCH="amd64"
 PKG_NAME="portix"
-BUNDLE_DIR="build/linux/x64/release/bundle"
-OUTPUT_DIR="build/linux/deb"
+BUNDLE_DIR="portix_app/build/linux/x64/release/bundle"
+OUTPUT_DIR="portix_app/build/linux/deb"
 DEB_ROOT="$OUTPUT_DIR/${PKG_NAME}_${VERSION}_${ARCH}"
 
 if [ ! -d "$BUNDLE_DIR" ]; then
