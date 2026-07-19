@@ -39,7 +39,7 @@ dependencies:
   get_it: ^9.2.0
   xterm:
     path: packages/xterm_patch
-  uuid: ^4.5.1
+  uuid: ^4.6.0
   flutter_launcher_icons: ^0.14.4
   flutter_svg: ^2.3.0
   flutter_secure_storage: ^10.3.1
