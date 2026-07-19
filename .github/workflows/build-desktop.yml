@@ -273,7 +273,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download linux bundle artifact
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: portix-linux-${{ github.ref_name }}
           path: artifact
@@ -352,7 +352,7 @@ jobs:
           path: flathub-repo
 
       - name: Download linux bundle artifact
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: portix-linux-${{ github.ref_name }}
           path: artifact
