@@ -1,0 +1,194 @@
+name: Release Native Libraries
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-desktop:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos
+            os: macos-latest
+            lib_name: libportix_serv.dylib
+            asset_name: libportix_serv_macos.dylib
+
+          - target: linux
+            os: ubuntu-latest
+            lib_name: libportix_serv.so
+            asset_name: libportix_serv_linux.so
+
+          - target: windows
+            os: windows-latest
+            lib_name: portix_serv.dll
+            asset_name: portix_serv_windows.dll
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release (hardened)
+        run: cargo build --profile release-hardened
+
+      # ── Post-build hardening: strip residual symbols on Linux/macOS ──────────
+      - name: Strip binary - Linux
+        if: matrix.target == 'linux'
+        run: strip --strip-all target/release-hardened/${{ matrix.lib_name }}
+
+      - name: Strip binary - macOS
+        if: matrix.target == 'macos'
+        run: strip -x target/release-hardened/${{ matrix.lib_name }}
+
+      - name: Prepare artifact - Unix
+        if: matrix.target != 'windows'
+        run: |
+          mkdir -p dist
+          cp target/release-hardened/${{ matrix.lib_name }} dist/${{ matrix.asset_name }}
+
+      - name: Prepare artifact - Windows
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item "target/release-hardened/${{ matrix.lib_name }}" "dist/${{ matrix.asset_name }}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.asset_name }}
+          path: dist/${{ matrix.asset_name }}
+
+      - name: Trivy scan – built artifact
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+          skip-dirs: "target,build,portix-serv"
+
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/${{ matrix.asset_name }}
+
+  build-android:
+    name: Build android-${{ matrix.abi }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: arm64-v8a
+            rust_target: aarch64-linux-android
+            artifact_dir: arm64-v8a
+
+          - abi: armeabi-v7a
+            rust_target: armv7-linux-androideabi
+            artifact_dir: armeabi-v7a
+
+          - abi: x86_64
+            rust_target: x86_64-linux-android
+            artifact_dir: x86_64
+
+          - abi: x86
+            rust_target: i686-linux-android
+            artifact_dir: x86
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Build release (hardened)
+        run: cargo ndk --target ${{ matrix.rust_target }} --platform 21 build --profile release-hardened
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p dist/${{ matrix.artifact_dir }}
+          cp target/${{ matrix.rust_target }}/release-hardened/libportix_serv.so dist/${{ matrix.artifact_dir }}/libportix_serv.so
+          # Strip residual symbols
+          $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip dist/${{ matrix.artifact_dir }}/libportix_serv.so || true
+          tar -czf libportix_serv_android_${{ matrix.abi }}.tar.gz -C dist ${{ matrix.artifact_dir }}
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: libportix_serv_android_${{ matrix.abi }}
+          path: libportix_serv_android_${{ matrix.abi }}.tar.gz
+
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: libportix_serv_android_${{ matrix.abi }}.tar.gz
+
+  build-ios:
+    name: Build ios
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Build device (hardened)
+        run: cargo build --profile release-hardened --target aarch64-apple-ios
+
+      - name: Build simulator arm64 (hardened)
+        run: cargo build --profile release-hardened --target aarch64-apple-ios-sim
+
+      - name: Build simulator x86_64 (hardened)
+        run: cargo build --profile release-hardened --target x86_64-apple-ios
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p dist/ios/device dist/ios/simulator
+          cp target/aarch64-apple-ios/release-hardened/libportix_serv.a dist/ios/device/libportix_serv.a
+          lipo -create \
+            target/aarch64-apple-ios-sim/release-hardened/libportix_serv.a \
+            target/x86_64-apple-ios/release-hardened/libportix_serv.a \
+            -output dist/ios/simulator/libportix_serv.a
+          # Strip debug symbols from static libs
+          strip -x dist/ios/device/libportix_serv.a
+          strip -x dist/ios/simulator/libportix_serv.a
+          tar -czf libportix_serv_ios.tar.gz -C dist ios
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: libportix_serv_ios
+          path: libportix_serv_ios.tar.gz
+
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: libportix_serv_ios.tar.gz
