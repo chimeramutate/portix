@@ -56,9 +56,10 @@ class _EditorPickerSheet extends StatelessWidget {
 }
 
 class _SftpDisconnectedOverlay extends StatelessWidget {
-  const _SftpDisconnectedOverlay({this.onReconnect});
+  const _SftpDisconnectedOverlay({this.onReconnect, this.errorMessage});
 
   final VoidCallback? onReconnect;
+  final String? errorMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -88,7 +89,8 @@ class _SftpDisconnectedOverlay extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'SFTP session disconnected. Reconnect to continue browsing remote files.',
+              errorMessage ??
+                  'SFTP session disconnected. Reconnect to continue browsing remote files.',
               textAlign: TextAlign.center,
               style: portixMuted(12),
             ),

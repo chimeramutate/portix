@@ -52,6 +52,9 @@ class SftpWorkspaceController extends ChangeNotifier {
   int _remoteSearchToken = 0;
   Timer? _remoteSearchDebounce;
 
+  // Track disconnected state for one-time notifications
+  bool _wasDisconnected = false;
+
   List<SftpTransferJob> get transferJobs => List.unmodifiable(_transferJobs);
   String get localPath => _localPath;
   String get remotePath => _remotePath;
@@ -101,6 +104,18 @@ class SftpWorkspaceController extends ChangeNotifier {
       _remoteRows.where((row) => row.name != '..').length;
   int get remoteVisibleItemCount =>
       remoteVisibleRows.where((row) => row.name != '..').length;
+
+  /// Returns true if the connection was just lost and a notification should be shown.
+  /// This is reset when the user reconnects or clears the session.
+  bool get shouldNotifyDisconnection {
+    return _wasDisconnected && isRemoteDisconnected;
+  }
+
+  /// Reset the disconnection notification flag (called after showing notification).
+  void clearDisconnectionNotification() {
+    _wasDisconnected = false;
+  }
+
   String get remoteStatusTitle {
     if (_remoteError != null) return 'Remote unavailable';
     if (_remoteStatus == 'connecting') return 'Connecting to SFTP';
@@ -152,16 +167,23 @@ class SftpWorkspaceController extends ChangeNotifier {
     final normalizedPath = initialPath.trim().isEmpty
         ? '~'
         : initialPath.trim();
+    // Check if we can reuse existing session - but only if it's still connected
     if (_remoteProfileId == profile.id && _remoteSessionId != null) {
-      if (_remoteRows.isEmpty && !_loadingRemote) {
-        await loadRemoteDirectory(_remotePath);
-      } else if (_remotePath != normalizedPath && _remoteRows.isEmpty) {
-        await loadRemoteDirectory(normalizedPath);
+      // Verify the session is still connected before reusing
+      final session = _connectionManager.sessions
+          .where((s) => s.id == _remoteSessionId)
+          .firstOrNull;
+      if (session != null && session.status == ConnectionStatus.connected) {
+        if (_remoteRows.isEmpty && !_loadingRemote) {
+          await loadRemoteDirectory(_remotePath);
+        } else if (_remotePath != normalizedPath && _remoteRows.isEmpty) {
+          await loadRemoteDirectory(normalizedPath);
+        }
+        return;
       }
-      return;
+      // Session is stale/disconnected, clear it and reconnect
+      await clearRemoteSession();
     }
-    await clearRemoteSession();
-    _remoteProfileId = profile.id;
     _remotePath = normalizedPath;
     _loadingRemote = true;
     _remoteStatus = 'connecting';
@@ -199,6 +221,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     }
     final session = sessions.last;
     _remoteSessionId = session.id;
+    _remoteProfileId = profile.id;
     await loadRemoteDirectory(_remotePath);
   }
 
@@ -211,6 +234,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     _remoteError = null;
     _loadingRemote = false;
     _remoteStatus = 'idle';
+    _wasDisconnected = false;
     _remoteLoadToken += 1;
     _remoteSearchToken += 1;
     notifyListeners();
@@ -817,6 +841,7 @@ class SftpWorkspaceController extends ChangeNotifier {
       // Session was removed entirely — mark as disconnected.
       _remoteError = 'SFTP session lost. Connection was closed.';
       _remoteStatus = 'disconnected';
+      _wasDisconnected = true;
       notifyListeners();
       return;
     }
@@ -824,6 +849,7 @@ class SftpWorkspaceController extends ChangeNotifier {
         session.status == ConnectionStatus.error) {
       _remoteError ??= 'Remote connection lost.';
       _remoteStatus = 'disconnected';
+      _wasDisconnected = true;
       notifyListeners();
     }
   }

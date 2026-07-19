@@ -198,7 +198,8 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
           }
         }
         if (profile == null) {
-          _returnToProfilesWhenInactive(state);
+          // Don't navigate away automatically - let user decide what to do next
+          // This allows closing all tabs without auto-opening a new connection
           return const SizedBox.shrink();
         }
         return LayoutBuilder(
@@ -339,22 +340,6 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
 
   bool get _canShowRemoteActions =>
       _activeSessionId != null && _remoteFolderMounted && _remoteError == null;
-
-  void _returnToProfilesWhenInactive(SshWorkspaceState state) {
-    if (state.activeView != WorkspaceView.remoteFolder) return;
-    // Don't auto-redirect if a connection is in progress.
-    final sessionState = context.read<SshSessionBloc>().state;
-    if (sessionState.targetProfileId != null) return;
-    // Don't redirect if there are any sessions (even connecting ones).
-    if (_connectionManager.sessions.isNotEmpty) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      context.read<SshSessionBloc>().add(const SshSessionCleared());
-      context.read<SshWorkspaceBloc>()
-        ..add(const ProfileSelectionCleared())
-        ..add(const NavigationChanged(WorkspaceView.gallery));
-    });
-  }
 
   void _closeRemotePanel() {
     setState(() {

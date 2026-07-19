@@ -1,9 +1,15 @@
 part of '../terminal_workspace_view.dart';
 
 class NoTerminalConnection extends StatelessWidget {
-  const NoTerminalConnection({required this.profile, required this.onConnect});
+  const NoTerminalConnection({
+    required this.profile,
+    required this.onConnect,
+    this.onViewProfiles,
+  });
   final domain.SshProfile? profile;
   final VoidCallback? onConnect;
+  final VoidCallback? onViewProfiles;
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -37,17 +43,32 @@ class NoTerminalConnection extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: portixMuted(12),
                 ),
-                if (onConnect != null) ...[
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    height: 34,
-                    child: OutlinedButton.icon(
-                      onPressed: onConnect,
-                      icon: const Icon(Icons.refresh_rounded, size: 16),
-                      label: const Text('Connect'),
+                const SizedBox(height: 14),
+                Column(
+                  children: [
+                    if (onConnect != null) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        height: 34,
+                        child: OutlinedButton.icon(
+                          onPressed: onConnect,
+                          icon: const Icon(Icons.refresh_rounded, size: 16),
+                          label: const Text('Connect'),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    SizedBox(
+                      width: double.infinity,
+                      height: 34,
+                      child: AppButton(
+                        icon: Icons.list_rounded,
+                        label: 'View Profiles',
+                        onPressed: onViewProfiles,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ],
             ),
           ),
