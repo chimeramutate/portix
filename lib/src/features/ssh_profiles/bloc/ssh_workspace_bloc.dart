@@ -118,6 +118,10 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
     NewProfileRequested event,
     Emitter<SshWorkspaceState> emit,
   ) {
+    // Use current group filter as default group, or 'Production' if 'All profiles' is selected
+    final defaultGroup = state.groupFilter == 'All profiles'
+        ? 'Production'
+        : state.groupFilter;
     emit(
       state.copyWith(
         activeView: WorkspaceView.form,
@@ -127,7 +131,7 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
           host: '',
           port: 22,
           username: '',
-          group: 'Production',
+          group: defaultGroup,
           tags: const [],
           authMethod: AuthMethod.sshKey,
           credentialLabel: '',
@@ -305,8 +309,9 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
             profiles: profiles,
             selectedId: saved.id,
             searchQuery: '',
-            groupFilter: 'All profiles',
-            tagFilter: '',
+            // Preserve the current group filter so user stays in the same group
+            groupFilter: state.groupFilter,
+            tagFilter: state.tagFilter,
             editingProfile: null,
             clearEditingProfile: true,
             activeView: WorkspaceView.gallery,

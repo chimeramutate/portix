@@ -252,7 +252,13 @@ class _TerminalPanelState extends State<TerminalPanel> {
       );
       return;
     }
-    if (_activeTabClosed) return;
+    // Don't auto-connect if all tabs were closed - user needs to explicitly request a new connection
+    if (_activeTabClosed) {
+      _activeTerminal.write(
+        '\r\n\x1b[33mAll sessions closed. Click "Connect" to start a new session.\x1b[0m\r\n',
+      );
+      return;
+    }
     if (_connectInProgress) return;
     if (_passwordPromptActive) return;
     if (_connectedProfileId == profile.id &&
@@ -2354,6 +2360,18 @@ class _TerminalPanelState extends State<TerminalPanel> {
                               onConnect: widget.profile == null
                                   ? null
                                   : _connect,
+                              onViewProfiles: () {
+                                context.read<SshSessionBloc>().add(
+                                  const SshSessionCleared(),
+                                );
+                                context.read<SshWorkspaceBloc>()
+                                  ..add(const ProfileSelectionCleared())
+                                  ..add(
+                                    const NavigationChanged(
+                                      WorkspaceView.gallery,
+                                    ),
+                                  );
+                              },
                             )
                     : TerminalWorkspaceView(
                         root: displayRoot,
