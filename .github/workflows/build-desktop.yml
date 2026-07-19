@@ -15,143 +15,20 @@ on:
         options:
           - stable
           - beta
-      serv_tag:
-        description: "portix-serv tag to use (default: auto-resolve, see resolution order in job)"
-        required: false
-        default: ""
 
 permissions:
   contents: write
 
 env:
-  # Determine channel from tag name or manual input.
-  # Tags containing "-beta" go to beta channel, otherwise stable.
-  # NOTE: this top-level `env` context can only be read from STEP-level
-  # expressions (e.g. a step's `if:`, or inside `run:`/`with:` on a step).
-  # It is NOT readable from JOB-level `if:` — GitHub Actions only allows
-  # github/needs/vars/inputs/secrets there. Using `env.IS_BETA` in a
-  # job-level `if:` causes: "Unrecognized named-value: 'env'".
-  # For job-level conditions we use needs.wait-for-serv-release.outputs.is_beta
-  # instead (see the `publish-flathub` job).
   IS_BETA: ${{ contains(github.ref_name, '-beta') || (github.event_name == 'workflow_dispatch' && github.event.inputs.channel == 'beta') }}
 
 jobs:
-  wait-for-serv-release:
-    name: Wait for portix-serv release
-    runs-on: ubuntu-latest
-    outputs:
-      serv_tag: ${{ steps.resolve.outputs.serv_tag }}
-      # Re-exported as a job output so downstream JOB-level `if:` conditions
-      # can read it via `needs.wait-for-serv-release.outputs.is_beta`.
-      is_beta: ${{ steps.channel.outputs.is_beta }}
-    steps:
-      - name: Checkout Flutter app
-        uses: actions/checkout@v6
-
-      - name: Determine release channel
-        id: channel
-        run: |
-          echo "is_beta=${{ env.IS_BETA }}" >> "$GITHUB_OUTPUT"
-
-      - name: Resolve portix-serv tag
-        id: resolve
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          set -euo pipefail
-
-          MANUAL_TAG="${{ github.event.inputs.serv_tag }}"
-          PIN_FILE="portix-serv.version"
-          DERIVED_TAG=$(echo "${{ github.ref_name }}" | sed 's/-beta[^/]*$//')
-
-          if [ -n "$MANUAL_TAG" ]; then
-            SERV_TAG="$MANUAL_TAG"
-            SOURCE="manual workflow_dispatch input"
-
-          elif [ -f "$PIN_FILE" ] && [ -s "$PIN_FILE" ]; then
-            SERV_TAG=$(tr -d '[:space:]' < "$PIN_FILE")
-            SOURCE="pin file ($PIN_FILE)"
-
-            # Sanity check: warn if a release matching the derived tag exists
-            # but is being shadowed by an older pin. This usually means
-            # portix-serv was updated and the pin file was forgotten.
-            if [ "$SERV_TAG" != "$DERIVED_TAG" ]; then
-              if gh release view "$DERIVED_TAG" --repo Asepimam/portix-serv >/dev/null 2>&1; then
-                echo "::warning::Pin file ($PIN_FILE) points to '$SERV_TAG', but a newer matching release '$DERIVED_TAG' exists on portix-serv. Using pinned '$SERV_TAG' anyway — update or remove $PIN_FILE if you meant to pick up the new serv release."
-              fi
-            fi
-
-          else
-            echo "No manual input or pin file found. Checking derived tag: $DERIVED_TAG"
-            if gh release view "$DERIVED_TAG" --repo Asepimam/portix-serv >/dev/null 2>&1; then
-              SERV_TAG="$DERIVED_TAG"
-              SOURCE="derived from ref_name (exact match found)"
-            else
-              echo "Release '$DERIVED_TAG' not found on portix-serv. Falling back to latest release."
-              LATEST_TAG=$(gh release view --repo Asepimam/portix-serv --json tagName -q .tagName 2>/dev/null || echo "")
-              if [ -z "$LATEST_TAG" ]; then
-                echo "::error::No derived tag '$DERIVED_TAG' and no latest release exists on portix-serv. Nothing to fall back to."
-                exit 1
-              fi
-              SERV_TAG="$LATEST_TAG"
-              SOURCE="fallback to portix-serv latest release"
-            fi
-          fi
-
-          echo "Flutter tag      : ${{ github.ref_name }}"
-          echo "Derived tag      : $DERIVED_TAG"
-          echo "Resolved serv tag: $SERV_TAG"
-          echo "Resolution source: $SOURCE"
-          echo "serv_tag=$SERV_TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Wait until portix-serv release is published
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          SERV_TAG="${{ steps.resolve.outputs.serv_tag }}"
-          echo "Waiting for portix-serv release: $SERV_TAG"
-          for i in $(seq 1 20); do
-            STATUS=$(gh release view "$SERV_TAG" \
-              --repo Asepimam/portix-serv \
-              --json isDraft,isPrerelease,assets \
-              2>/dev/null || echo "NOT_FOUND")
-
-            if [ "$STATUS" = "NOT_FOUND" ]; then
-              echo "Attempt $i/20: Release '$SERV_TAG' not found yet, waiting 60s..."
-              sleep 60
-              continue
-            fi
-
-            # Cek apakah semua asset yang dibutuhkan sudah ada
-            ASSETS=$(echo "$STATUS" | jq -r '.assets[].name')
-            NEEDED=(
-              "libportix_serv_macos.dylib"
-              "libportix_serv_linux.so"
-              "portix_serv_windows.dll"
-            )
-            ALL_READY=true
-            for asset in "${NEEDED[@]}"; do
-              if ! echo "$ASSETS" | grep -q "$asset"; then
-                echo "Attempt $i/20: Asset '$asset' not ready yet, waiting 60s..."
-                ALL_READY=false
-                break
-              fi
-            done
-
-            if [ "$ALL_READY" = "true" ]; then
-              echo "✓ All portix-serv assets are ready (tag: $SERV_TAG)"
-              exit 0
-            fi
-          done
-
-          echo "::error::Timeout waiting for portix-serv release $SERV_TAG after 20 minutes."
-          exit 1
-
-  # ── Build desktop per platform ───────────────────────────────────────────────
+  # ── Build native Rust lib + Flutter app together, per platform ─────────────
+  # No more separate repo, no more wait-for-release, no more cross-repo PAT.
+  # Rust is compiled fresh in the same job right before Flutter build needs it.
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    needs: wait-for-serv-release
 
     strategy:
       fail-fast: false
@@ -159,44 +36,40 @@ jobs:
         include:
           - target: macos
             os: macos-latest
-            rust_asset: libportix_serv_macos.dylib
             bundled_lib: libportix_serv.dylib
             flutter_build_target: macos
-            artifact_path: build/macos/Build/Products/Release/*.app
+            artifact_path: portix_app/build/macos/Build/Products/Release/*.app
             package_name: portix-macos
 
           - target: linux
             os: ubuntu-latest
-            rust_asset: libportix_serv_linux.so
             bundled_lib: libportix_serv.so
             flutter_build_target: linux
-            artifact_path: build/linux/x64/release/bundle
+            artifact_path: portix_app/build/linux/x64/release/bundle
             package_name: portix-linux
 
           - target: windows
             os: windows-latest
-            rust_asset: portix_serv_windows.dll
             bundled_lib: portix_serv.dll
             flutter_build_target: windows
-            artifact_path: build/windows/x64/runner/Release
+            artifact_path: portix_app/build/windows/x64/runner/Release
             package_name: portix-windows
 
     steps:
-      - name: Checkout Flutter app
+      - name: Checkout monorepo
         uses: actions/checkout@v6
 
-      # NOTE: do not pin `flutter-version` to an old exact version (e.g.
-      # "3.22.0") unless your pubspec.yaml's Dart SDK constraint matches it.
-      # Flutter 3.22.0 ships Dart 3.4.0, but this project's pubspec.yaml
-      # requires Dart `^3.11.5`, causing:
-      #   "Because portix requires SDK version ^3.11.5, version solving failed."
-      # Omitting `flutter-version` and using channel: stable always resolves
-      # the latest stable Flutter (and its bundled, matching Dart SDK).
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target dir
+        uses: actions/cache@v4
         with:
-          channel: "stable"
-          cache: true
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            portix_serv/target
+          key: cargo-${{ matrix.target }}-${{ hashFiles('portix_serv/Cargo.lock') }}
 
       - name: Install Linux dependencies
         if: matrix.target == 'linux'
@@ -211,39 +84,27 @@ jobs:
             liblzma-dev \
             libsecret-1-dev
 
-      - name: Get dependencies
+      - name: Build Rust native library
+        working-directory: portix_serv
+        run: cargo build --release
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          cache: true
+
+      - name: Get Flutter dependencies
+        working-directory: portix_app
         run: flutter pub get
 
-      - name: Download Rust native library from portix-serv release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          mkdir -p rust-libs
-          echo "Downloading ${{ matrix.rust_asset }} from portix-serv @ ${{ needs.wait-for-serv-release.outputs.serv_tag }}"
-          gh release download "${{ needs.wait-for-serv-release.outputs.serv_tag }}" \
-            --repo Asepimam/portix-serv \
-            --pattern "${{ matrix.rust_asset }}" \
-            --dir rust-libs/
-          echo "✓ Downloaded:"
-          ls -lh rust-libs/
-
-      - name: Checkout Rust backend (for bridge hash check only)
-        uses: actions/checkout@v6
-        with:
-          repository: Asepimam/portix-serv
-          token: ${{ secrets.GH_PAT }}
-          ref: ${{ needs.wait-for-serv-release.outputs.serv_tag }}
-          path: portix-serv
-          sparse-checkout: |
-            src/frb_generated.rs
-          sparse-checkout-cone-mode: false
-
+      # No cross-repo checkout needed anymore — both hash files live in this
+      # repo, so this is a plain local file comparison.
       - name: Verify Dart-Rust bridge hash sync
         shell: bash
         run: |
-          DART_HASH=$(sed -n 's/.*int get rustContentHash => \(-\?[0-9]*\);/\1/p' lib/src/rust/frb_generated.dart)
-          RUST_HASH=$(sed -n 's/.*FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = \(-\?[0-9]*\);/\1/p' portix-serv/src/frb_generated.rs)
+          DART_HASH=$(sed -n 's/.*int get rustContentHash => \(-\?[0-9]*\);/\1/p' portix_app/lib/src/rust/frb_generated.dart)
+          RUST_HASH=$(sed -n 's/.*FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = \(-\?[0-9]*\);/\1/p' portix_serv/src/frb_generated.rs)
           echo "Dart content hash : $DART_HASH"
           echo "Rust content hash  : $RUST_HASH"
           if [ "$DART_HASH" != "$RUST_HASH" ]; then
@@ -253,6 +114,7 @@ jobs:
           echo "✓ Bridge hashes match"
 
       - name: Build Flutter
+        working-directory: portix_app
         run: flutter build ${{ matrix.flutter_build_target }} --release --dart-define=PORTIX_BACKEND=rust --dart-define=RUST_LIBRARY_MODE=production
 
       - name: Trivy scan – built artifact
@@ -263,27 +125,27 @@ jobs:
           format: table
           severity: CRITICAL,HIGH
           exit-code: "0"
-          skip-dirs: "target,build,portix-serv"
+          skip-dirs: "portix_serv/target,portix_app/build"
 
+      # ── Bundle Rust lib straight from cargo's target dir ───────────────────
       - name: Bundle Rust library - macOS
         if: matrix.target == 'macos'
         run: |
-          APP_PATH=$(find build/macos/Build/Products/Release -maxdepth 1 -name "*.app" -type d | head -n 1)
-          echo "Found app: $APP_PATH"
-          cp rust-libs/${{ matrix.rust_asset }} "$APP_PATH/Contents/MacOS/${{ matrix.bundled_lib }}"
+          APP_PATH=$(find portix_app/build/macos/Build/Products/Release -maxdepth 1 -name "*.app" -type d | head -n 1)
+          cp portix_serv/target/release/libportix_serv.dylib "$APP_PATH/Contents/MacOS/${{ matrix.bundled_lib }}"
           codesign --force --sign - "$APP_PATH/Contents/MacOS/${{ matrix.bundled_lib }}"
           codesign --force --deep --sign - "$APP_PATH"
 
       - name: Bundle Rust library - Linux
         if: matrix.target == 'linux'
         run: |
-          cp rust-libs/${{ matrix.rust_asset }} build/linux/x64/release/bundle/${{ matrix.bundled_lib }}
-          chmod +x build/linux/x64/release/bundle/${{ matrix.bundled_lib }}
+          cp portix_serv/target/release/libportix_serv.so portix_app/build/linux/x64/release/bundle/${{ matrix.bundled_lib }}
+          chmod +x portix_app/build/linux/x64/release/bundle/${{ matrix.bundled_lib }}
 
       - name: Bundle system libraries - Linux
         if: matrix.target == 'linux'
         run: |
-          BUNDLE_LIB="build/linux/x64/release/bundle/lib"
+          BUNDLE_LIB="portix_app/build/linux/x64/release/bundle/lib"
           for lib in libsecret-1.so.0 libgcrypt.so.20; do
             LIB_PATH=$(ldconfig -p | grep "$lib" | head -1 | awk '{print $NF}')
             if [ -n "$LIB_PATH" ] && [ ! -f "$BUNDLE_LIB/$lib" ]; then
@@ -297,19 +159,19 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item `
-            "rust-libs/${{ matrix.rust_asset }}" `
-            "build/windows/x64/runner/Release/${{ matrix.bundled_lib }}"
+            "portix_serv/target/release/portix_serv.dll" `
+            "portix_app/build/windows/x64/runner/Release/${{ matrix.bundled_lib }}"
 
       - name: Package app - macOS
         if: matrix.target == 'macos'
         run: |
-          APP_PATH=$(find build/macos/Build/Products/Release -maxdepth 1 -name "*.app" -type d | head -n 1)
+          APP_PATH=$(find portix_app/build/macos/Build/Products/Release -maxdepth 1 -name "*.app" -type d | head -n 1)
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "${{ matrix.package_name }}-${{ github.ref_name }}.zip"
 
       - name: Package app - Linux
         if: matrix.target == 'linux'
         run: |
-          tar -czf "${{ matrix.package_name }}-${{ github.ref_name }}.tar.gz" -C build/linux/x64/release bundle
+          tar -czf "${{ matrix.package_name }}-${{ github.ref_name }}.tar.gz" -C portix_app/build/linux/x64/release bundle
 
       - name: Build .deb package - Linux
         if: matrix.target == 'linux'
@@ -317,14 +179,14 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
           bash packaging/linux/build-deb.sh "$VERSION"
-          cp build/linux/deb/*.deb "${{ matrix.package_name }}-${{ github.ref_name }}.deb"
+          cp portix_app/build/linux/deb/*.deb "${{ matrix.package_name }}-${{ github.ref_name }}.deb"
 
       - name: Package app - Windows
         if: matrix.target == 'windows'
         shell: pwsh
         run: |
           Compress-Archive `
-            -Path "build/windows/x64/runner/Release/*" `
+            -Path "portix_app/build/windows/x64/runner/Release/*" `
             -DestinationPath "${{ matrix.package_name }}-${{ github.ref_name }}.zip"
 
       - name: Upload app artifact
@@ -349,23 +211,11 @@ jobs:
   snap:
     name: Build Snap
     runs-on: ubuntu-latest
-    needs: wait-for-serv-release
+    needs: build
     steps:
-      - name: Checkout Flutter app
+      - name: Checkout monorepo
         uses: actions/checkout@v6
 
-      - name: Checkout Rust backend
-        uses: actions/checkout@v6
-        with:
-          repository: Asepimam/portix-serv
-          token: ${{ secrets.GH_PAT }}
-          ref: ${{ needs.wait-for-serv-release.outputs.serv_tag }}
-          path: portix-serv
-
-      # ── Sync snapcraft.yaml version with the git tag ────────────────────────
-      # Strips the leading "v" from the tag (v1.2.3 -> 1.2.3, v1.2.3-beta1 ->
-      # 1.2.3-beta1) and writes it into snap/snapcraft.yaml, regardless of
-      # whether the existing `version:` line is quoted, unquoted, or missing.
       - name: Sync snapcraft.yaml version with git tag
         run: |
           set -euo pipefail
@@ -381,13 +231,8 @@ jobs:
           if grep -qE '^version:' "$SNAPCRAFT_FILE"; then
             sed -i "s/^version:.*/version: \"${VERSION}\"/" "$SNAPCRAFT_FILE"
           else
-            # No existing version key -> insert one right after the `name:` line
-            # so the file stays valid even if it never had one.
             sed -i "/^name:/a version: \"${VERSION}\"" "$SNAPCRAFT_FILE"
           fi
-
-          echo "Snap version set to: ${VERSION}"
-          grep "^version:" "$SNAPCRAFT_FILE"
 
       - name: Build snap
         uses: snapcore/action-build@v1
@@ -416,8 +261,6 @@ jobs:
           prerelease: ${{ env.IS_BETA == 'true' }}
           files: ${{ steps.snap-build.outputs.snap }}
 
-  # ── Build Flatpak ─────────────────────────────────────────────────────────
-  # Reuse hasil build job `build` (target linux) — tidak build Flutter ulang.
   flatpak:
     name: Build Flatpak
     runs-on: ubuntu-latest
@@ -440,8 +283,6 @@ jobs:
           mkdir -p flatpak/bundle-src
           tar -xzf artifact/portix-linux-${{ github.ref_name }}.tar.gz \
             -C flatpak/bundle-src --strip-components=1
-          echo "Extracted bundle contents:"
-          find flatpak/bundle-src -maxdepth 2
 
       - name: Copy desktop assets into Flatpak build context
         run: |
@@ -450,11 +291,6 @@ jobs:
           cp flatpak/com.github.asepimam.Portix.desktop flatpak/assets/com.github.asepimam.Portix.desktop
           cp flatpak/com.github.asepimam.Portix.metainfo.xml flatpak/assets/com.github.asepimam.Portix.metainfo.xml
 
-      # Flatpak/AppStream requires a SQUARE icon. A non-square icon (e.g.
-      # 436x481) passes the build step but fails much later at export with:
-      #   "is not a valid icon: Expected a square icon but got: WxH"
-      # Catching it here fails fast with a clear message instead of wasting
-      # the whole flatpak-builder run.
       - name: Validate app icon is square
         run: |
           set -euo pipefail
@@ -468,12 +304,10 @@ jobs:
           ")
           WIDTH="${DIMS%x*}"
           HEIGHT="${DIMS#*x}"
-          echo "Icon dimensions: ${DIMS}"
           if [ "$WIDTH" != "$HEIGHT" ]; then
-            echo "::error::App icon '$ICON' is ${DIMS}, but Flatpak/AppStream requires a SQUARE icon (width == height). Crop/pad it to e.g. 512x512 and commit the fix."
+            echo "::error::App icon '$ICON' is ${DIMS}, but Flatpak/AppStream requires a SQUARE icon."
             exit 1
           fi
-          echo "✓ Icon is square (${DIMS})"
 
       - name: Build Flatpak bundle
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
@@ -481,13 +315,6 @@ jobs:
           bundle: portix-${{ github.ref_name }}.flatpak
           manifest-path: flatpak/com.github.asepimam.Portix.yml
           cache-key: flatpak-builder-${{ github.sha }}
-
-      - name: Lint Flatpak manifest and bundle
-        run: |
-          flatpak run --command=flatpak-builder-lint org.flatpak.Builder \
-            manifest flatpak/com.github.asepimam.Portix.yml || true
-          flatpak run --command=flatpak-builder-lint org.flatpak.Builder \
-            repo .flatpak-builder/ || true
 
       - name: Upload flatpak artifact
         uses: actions/upload-artifact@v7
@@ -506,15 +333,13 @@ jobs:
   publish-flathub:
     name: Publish update to Flathub repo
     runs-on: ubuntu-latest
-    needs:
-      - flatpak
-      - wait-for-serv-release
-    # FIXED: job-level `if:` cannot read the top-level `env` context
-    # ("Unrecognized named-value: 'env'"). Use the job OUTPUT instead,
-    # populated by wait-for-serv-release.outputs.is_beta.
-    if: startsWith(github.ref, 'refs/tags/') && needs.wait-for-serv-release.outputs.is_beta != 'true'
+    needs: flatpak
+    # Job-level `if:` still can't read top-level `env`, so IS_BETA is
+    # recomputed here directly from github.ref_name instead of a separate
+    # wait-for-serv-release job output (that job no longer exists).
+    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-beta')
     steps:
-      - name: Checkout Portix (source manifest)
+      - name: Checkout monorepo (source manifest)
         uses: actions/checkout@v6
         with:
           path: portix
@@ -526,7 +351,7 @@ jobs:
           token: ${{ secrets.FLATHUB_PAT }}
           path: flathub-repo
 
-      - name: Download linux bundle artifact (untuk hitung checksum)
+      - name: Download linux bundle artifact
         uses: actions/download-artifact@v6
         with:
           name: portix-linux-${{ github.ref_name }}
@@ -545,76 +370,29 @@ jobs:
           echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
-          echo "Version : $VERSION"
-          echo "SHA256  : $SHA256"
-          echo "URL     : $URL"
-
       - name: Update manifest in Flathub repo
         run: |
           MANIFEST="flathub-repo/com.github.asepimam.Portix.yml"
-
-          if [ ! -f "$MANIFEST" ]; then
-            echo "::error::Manifest tidak ditemukan di flathub-repo. Pastikan submission pertama sudah disetujui dan struktur repo sesuai."
-            exit 1
-          fi
-
           python3 - "$MANIFEST" "${{ steps.vars.outputs.url }}" "${{ steps.vars.outputs.sha256 }}" <<'PYEOF'
           import sys, re
-
           manifest_path, url, sha256 = sys.argv[1], sys.argv[2], sys.argv[3]
           with open(manifest_path) as f:
               content = f.read()
-
           content = re.sub(r'url:\s*.*portix-linux.*\.tar\.gz', f'url: {url}', content)
           content = re.sub(r'(sha256:\s*)[a-f0-9]{64}', rf'\g<1>{sha256}', content)
-
           with open(manifest_path, 'w') as f:
               f.write(content)
-
-          print("Manifest updated.")
           PYEOF
-
-      - name: Update metainfo release entry
-        run: |
-          METAINFO="flathub-repo/com.github.asepimam.Portix.metainfo.xml"
-          VERSION="${{ steps.vars.outputs.version }}"
-          DATE=$(date +%Y-%m-%d)
-
-          if [ -f "$METAINFO" ]; then
-            python3 - "$METAINFO" "$VERSION" "$DATE" <<'PYEOF'
-          import sys, re
-
-          path, version, date = sys.argv[1], sys.argv[2], sys.argv[3]
-          with open(path) as f:
-              content = f.read()
-
-          new_release = f'    <release version="{version}" date="{date}">\n      <description>\n        <p>See release notes on GitHub.</p>\n      </description>\n    </release>\n'
-          content = re.sub(r'(<releases>\n)', r'\1' + new_release, content, count=1)
-
-          with open(path, 'w') as f:
-              f.write(content)
-          PYEOF
-          else
-            echo "metainfo.xml tidak ditemukan, skip update release entry."
-          fi
 
       - name: Commit & push update to Flathub repo
         run: |
           cd flathub-repo
           git config user.name "portix-release-bot"
           git config user.email "actions@users.noreply.github.com"
-
           if git diff --quiet; then
             echo "Tidak ada perubahan untuk di-commit."
             exit 0
           fi
-
-          git add com.github.asepimam.Portix.yml com.github.asepimam.Portix.metainfo.xml
+          git add com.github.asepimam.Portix.yml
           git commit -m "Update to ${{ github.ref_name }}"
           git push origin HEAD
-
-      - name: Summary
-        run: |
-          echo "✓ Manifest di flathub/com.github.asepimam.Portix sudah di-update ke ${{ github.ref_name }}."
-          echo "Flathub buildbot akan otomatis build & publish dari commit ini."
-          echo "Cek status build di: https://buildbot.flathub.org/#/apps/com.github.asepimam.Portix"
