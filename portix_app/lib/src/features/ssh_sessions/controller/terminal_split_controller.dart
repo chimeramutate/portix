@@ -1,0 +1,199 @@
+import 'package:flutter/material.dart';
+
+enum SplitDirection {
+  left,
+  right,
+  top,
+  bottom;
+
+  Axis get axis {
+    return switch (this) {
+      SplitDirection.left || SplitDirection.right => Axis.horizontal,
+      SplitDirection.top || SplitDirection.bottom => Axis.vertical,
+    };
+  }
+}
+
+sealed class SplitNode {
+  const SplitNode();
+  List<String> get sessionIds;
+
+  bool contains(String sessionId) => sessionIds.contains(sessionId);
+}
+
+class SplitLeaf extends SplitNode {
+  const SplitLeaf(this.sessionId);
+
+  final String sessionId;
+
+  @override
+  List<String> get sessionIds => [sessionId];
+}
+
+class SplitBranch extends SplitNode {
+  const SplitBranch(this.axis, this.children, {List<double>? weights})
+    : weights = weights ?? const [];
+
+  final Axis axis;
+  final List<SplitNode> children;
+  final List<double> weights;
+
+  @override
+  List<String> get sessionIds => [
+    for (final child in children) ...child.sessionIds,
+  ];
+}
+
+class TerminalWorkspaceGroup {
+  TerminalWorkspaceGroup({
+    required this.id,
+    required this.label,
+    required this.root,
+  });
+
+  final String id;
+  final String label;
+  SplitNode root;
+}
+
+class TerminalSplitController {
+  const TerminalSplitController();
+
+  String resolveSplitTargetForDrag({
+    required String draggedSessionId,
+    required String fallbackTargetSessionId,
+    required Iterable<String> orderedSessionIds,
+    required Set<String> workspaceSessionIds,
+    required Set<String> existingSessionIds,
+  }) {
+    final hasExplicitTarget =
+        fallbackTargetSessionId != draggedSessionId &&
+        existingSessionIds.contains(fallbackTargetSessionId);
+
+    if (hasExplicitTarget) {
+      return fallbackTargetSessionId;
+    }
+
+    final standaloneOrderedIds = orderedSessionIds
+        .where((sessionId) => !workspaceSessionIds.contains(sessionId))
+        .toList(growable: false);
+    final draggedIndex = standaloneOrderedIds.indexOf(draggedSessionId);
+    if (draggedIndex > 0) return standaloneOrderedIds[draggedIndex - 1];
+    if (draggedIndex == 0 && standaloneOrderedIds.length > 1) {
+      return standaloneOrderedIds[1];
+    }
+    return fallbackTargetSessionId;
+  }
+
+  SplitNode? removeSession(SplitNode? node, String sessionId) {
+    if (node == null) return null;
+    if (node is SplitLeaf) {
+      return node.sessionId == sessionId ? null : node;
+    }
+    final branch = node as SplitBranch;
+    final children = branch.children
+        .map((child) => removeSession(child, sessionId))
+        .nonNulls
+        .toList();
+    if (children.isEmpty) return null;
+    if (children.length == 1) return children.first;
+    final oldWeights = branch.normalizedWeights;
+    final nextWeights = <double>[];
+    for (var index = 0; index < branch.children.length; index += 1) {
+      if (removeSession(branch.children[index], sessionId) != null) {
+        nextWeights.add(oldWeights[index]);
+      }
+    }
+    return SplitBranch(branch.axis, children, weights: nextWeights);
+  }
+
+  SplitNode insertSplit(
+    SplitNode node,
+    String targetSessionId,
+    String newSessionId,
+    SplitDirection direction,
+  ) {
+    if (node is SplitLeaf) {
+      if (node.sessionId != targetSessionId) return node;
+      final newLeaf = SplitLeaf(newSessionId);
+      final targetLeaf = SplitLeaf(targetSessionId);
+      final axis = direction.axis;
+      final children = switch (direction) {
+        SplitDirection.left || SplitDirection.top => [newLeaf, targetLeaf],
+        SplitDirection.right || SplitDirection.bottom => [targetLeaf, newLeaf],
+      };
+      return SplitBranch(axis, children, weights: const [1, 1]);
+    }
+    final branch = node as SplitBranch;
+    return SplitBranch(branch.axis, [
+      for (final child in branch.children)
+        insertSplit(child, targetSessionId, newSessionId, direction),
+    ], weights: branch.normalizedWeights);
+  }
+
+  SplitNode replaceSessionIds(
+    SplitNode node,
+    Map<String, String> replacements,
+  ) {
+    if (node is SplitLeaf) {
+      return SplitLeaf(replacements[node.sessionId] ?? node.sessionId);
+    }
+    final branch = node as SplitBranch;
+    return SplitBranch(branch.axis, [
+      for (final child in branch.children)
+        replaceSessionIds(child, replacements),
+    ], weights: branch.normalizedWeights);
+  }
+
+  SplitNode replaceBranch(
+    SplitNode node,
+    SplitBranch target,
+    SplitBranch replacement,
+  ) {
+    if (node is SplitBranch &&
+        node.axis == target.axis &&
+        _sameSessionIds(node.sessionIds, target.sessionIds)) {
+      return replacement;
+    }
+    if (node is SplitLeaf) return node;
+    final branch = node as SplitBranch;
+    return SplitBranch(branch.axis, [
+      for (final child in branch.children)
+        replaceBranch(child, target, replacement),
+    ], weights: branch.normalizedWeights);
+  }
+
+  bool _sameSessionIds(List<String> first, List<String> second) {
+    if (first.length != second.length) return false;
+    for (var index = 0; index < first.length; index += 1) {
+      if (first[index] != second[index]) return false;
+    }
+    return true;
+  }
+}
+
+extension SplitBranchWeights on SplitBranch {
+  List<double> get normalizedWeights {
+    if (weights.length != children.length) {
+      return List<double>.filled(children.length, 1);
+    }
+    return [
+      for (final weight in weights) weight.isFinite ? weight.clamp(.18, 8) : 1,
+    ];
+  }
+
+  SplitBranch withAdjustedDivider(int dividerIndex, double delta) {
+    if (dividerIndex < 0 || dividerIndex >= children.length - 1) return this;
+    final next = normalizedWeights;
+    final leftIndex = dividerIndex;
+    final rightIndex = dividerIndex + 1;
+    final pairTotal = next[leftIndex] + next[rightIndex];
+    final adjustment = delta.clamp(-pairTotal + .36, pairTotal - .36);
+    next[leftIndex] = (next[leftIndex] + adjustment).clamp(
+      .18,
+      pairTotal - .18,
+    );
+    next[rightIndex] = pairTotal - next[leftIndex];
+    return SplitBranch(axis, children, weights: next);
+  }
+}

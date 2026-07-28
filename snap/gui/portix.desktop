@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Portix
+GenericName=SSH Client
+Comment=SSH Client with SFTP and Terminal
+Exec=portix
+Icon=${SNAP}/meta/gui/icon.png
+Terminal=false
+Categories=Network;RemoteAccess;System;Utility;
+Keywords=ssh;sftp;terminal;remote;server;
+StartupWMClass=portix

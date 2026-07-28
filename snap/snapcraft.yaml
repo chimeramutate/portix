@@ -1,0 +1,119 @@
+name: portix
+version: "1.0.0"
+summary: Portix SSH Client - Multi-platform SSH terminal with SFTP
+description: |
+  Portix is a modern SSH client built with Flutter UI and Rust SSH core.
+  Features include multi-tab terminal sessions, split workspace, SFTP file
+  manager, remote file browsing, command autocomplete, and cross-platform
+  support for Linux, macOS, and Windows.
+
+icon: assets/icons/portix_launcher.png
+
+base: core22
+grade: stable
+confinement: strict
+
+architectures:
+  - build-on: amd64
+
+parts:
+  rust-backend:
+    plugin: nil
+    source: portix-serv
+    source-type: local
+    build-packages:
+      - curl
+      - build-essential
+      - pkg-config
+    override-build: |
+      # Install Rust
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+      export PATH="$HOME/.cargo/bin:$PATH"
+      cd $CRAFT_PART_SRC
+      cargo build --release
+      mkdir -p $CRAFT_PART_INSTALL/rust-lib
+      cp target/release/libportix_serv.so $CRAFT_PART_INSTALL/rust-lib/
+    stage:
+      - rust-lib/libportix_serv.so
+
+  portix:
+    plugin: nil
+    source: .
+    source-type: local
+    after: [rust-backend]
+    build-packages:
+      - clang
+      - cmake
+      - ninja-build
+      - pkg-config
+      - libgtk-3-dev
+      - liblzma-dev
+      - libsecret-1-dev
+      - curl
+      - git
+      - unzip
+    stage-packages:
+      - libgtk-3-0
+      - libsecret-1-0
+      - libgcrypt20
+    override-build: |
+      # Install Flutter
+      FLUTTER_VERSION="stable"
+      git clone https://github.com/flutter/flutter.git -b $FLUTTER_VERSION --depth 1 /tmp/flutter
+      export PATH="/tmp/flutter/bin:/tmp/flutter/bin/cache/dart-sdk/bin:$PATH"
+      export FLUTTER_ROOT="/tmp/flutter"
+      export FLUTTER_SUPPRESS_ANALYTICS=true
+      git config --global --add safe.directory /tmp/flutter
+      flutter precache --linux
+      flutter config --no-analytics
+
+      # Build Flutter app (clean first to avoid stale CMakeCache from host).
+      cd $CRAFT_PART_SRC
+      rm -rf build/linux
+      flutter pub get
+      flutter build linux --release \
+        --dart-define=PORTIX_BACKEND=rust \
+        --dart-define=RUST_LIBRARY_MODE=production
+
+      # Install bundle
+      cp -r build/linux/x64/release/bundle/. $CRAFT_PART_INSTALL/
+
+      # Copy Rust library dari staging area (bukan dari lib/, tapi dari rust-lib/)
+      # sehingga tidak ada conflict path dengan stage-packages
+      cp $CRAFT_STAGE/rust-lib/libportix_serv.so $CRAFT_PART_INSTALL/libportix_serv.so
+
+      # Install .desktop file dan icon untuk snap desktop integration.
+      mkdir -p $CRAFT_PART_INSTALL/usr/share/applications
+      mkdir -p $CRAFT_PART_INSTALL/usr/share/icons/hicolor/256x256/apps
+      mkdir -p $CRAFT_PART_INSTALL/usr/share/icons/hicolor/128x128/apps
+      mkdir -p $CRAFT_PART_INSTALL/usr/share/icons/hicolor/64x64/apps
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui
+
+      cp $CRAFT_PART_SRC/assets/icons/portix_launcher.png $CRAFT_PART_INSTALL/usr/share/icons/hicolor/256x256/apps/portix.png
+      cp $CRAFT_PART_SRC/assets/icons/portix_launcher.png $CRAFT_PART_INSTALL/usr/share/icons/hicolor/128x128/apps/portix.png
+      cp $CRAFT_PART_SRC/assets/icons/portix_launcher.png $CRAFT_PART_INSTALL/usr/share/icons/hicolor/64x64/apps/portix.png
+      cp $CRAFT_PART_SRC/assets/icons/portix_launcher.png $CRAFT_PART_INSTALL/meta/gui/icon.png
+
+      cp $CRAFT_PART_SRC/snap/gui/portix.desktop $CRAFT_PART_INSTALL/usr/share/applications/portix.desktop
+
+apps:
+  portix:
+    command: portix
+    desktop: usr/share/applications/portix.desktop
+    extensions: [gnome]
+    plugs:
+      - network
+      - network-bind
+      - home
+      - desktop
+      - desktop-legacy
+      - wayland
+      - x11
+      - opengl
+      - gsettings
+      - password-manager-service
+      - ssh-keys
+
+layout:
+  /usr/share/libdrm:
+    bind: $SNAP/usr/share/libdrm
