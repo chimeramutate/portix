@@ -22,6 +22,11 @@ thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
+# IronRDP — pure-Rust RDP client
+# Isolated in a separate workspace crate (portix_rdp) to avoid
+# the curve25519-dalek pre-release conflict with russh.
+# These are NOT included here — they live in ../portix_rdp/Cargo.toml
+
 [dev-dependencies]
 tempfile = "3"
 
