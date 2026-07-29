@@ -259,7 +259,13 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   void _scheduleRemoteSync(SshProfile? profile, String remotePath) {
     final key = profile == null ? 'none' : '${profile.id}|$remotePath';
-    if (_remoteSyncKey == key) return;
+    // Always re-attach when the controller signals that the current session
+    // needs re-validation (no session, disconnected, or has a remote error).
+    // This handles the "silent stale" case where the SSH/SFTP channel has
+    // died but TCP port-22 is still reachable (so ConnectionStatus stays
+    // "connected" and no disconnect event is ever fired).
+    final forceSync = _controller.needsRevalidation;
+    if (!forceSync && _remoteSyncKey == key) return;
     _remoteSyncKey = key;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;

@@ -110,6 +110,21 @@ class SftpWorkspaceController extends ChangeNotifier {
   int get remoteVisibleItemCount =>
       remoteVisibleRows.where((row) => row.name != '..').length;
 
+  /// Returns true if the current session should be re-validated on the next
+  /// visit to the SFTP view. This covers three cases:
+  ///   1. There is no active session yet.
+  ///   2. The session exists but is flagged as disconnected/error by the
+  ///      ConnectionManager (detectable disconnect).
+  ///   3. There is an outstanding remote error — the channel may be silently
+  ///      dead even though TCP port-22 is still reachable (undetectable
+  ///      disconnect: NAT timeout, SSH server idle timeout, etc.).
+  bool get needsRevalidation {
+    if (_remoteSessionId == null) return true;
+    if (isRemoteDisconnected) return true;
+    if (_remoteError != null) return true;
+    return false;
+  }
+
   /// Returns true if the connection was just lost and a notification should be shown.
   /// This is reset when the user reconnects or clears the session.
   bool get shouldNotifyDisconnection {
@@ -173,12 +188,16 @@ class SftpWorkspaceController extends ChangeNotifier {
         ? '~'
         : initialPath.trim();
     // Check if we can reuse existing session - but only if it's still connected
+    // and has no outstanding error (an error means the SFTP channel may be
+    // silently dead even though TCP port-22 is still reachable).
     if (_remoteProfileId == profile.id && _remoteSessionId != null) {
       // Verify the session is still connected before reusing
       final session = _connectionManager.sessions
           .where((s) => s.id == _remoteSessionId)
           .firstOrNull;
-      if (session != null && session.status == ConnectionStatus.connected) {
+      if (session != null &&
+          session.status == ConnectionStatus.connected &&
+          _remoteError == null) {
         if (_remoteRows.isEmpty && !_loadingRemote) {
           await loadRemoteDirectory(_remotePath);
         } else if (_remotePath != normalizedPath && _remoteRows.isEmpty) {
@@ -186,7 +205,7 @@ class SftpWorkspaceController extends ChangeNotifier {
         }
         return;
       }
-      // Session is stale/disconnected, clear it and reconnect
+      // Session is stale, disconnected, or errored — clear and reconnect.
       await clearRemoteSession();
     }
     _remotePath = normalizedPath;

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -53,6 +55,11 @@ class CustomTextEdit extends StatefulWidget {
 
 class CustomTextEditState extends State<CustomTextEdit> with TextInputClient {
   TextInputConnection? _connection;
+
+  /// Tracks whether a reset is already scheduled to prevent multiple
+  /// back-to-back resets from queuing up (which causes the cursor-bounce
+  /// glitch visible when typing quickly or holding backspace in nano).
+  bool _resetPending = false;
 
   @override
   void initState() {
@@ -231,11 +238,31 @@ class CustomTextEditState extends State<CustomTextEdit> with TextInputClient {
       widget.onInsert(textDelta);
     }
 
-    // Reset editing state if composing is done
+    // Reset editing state asynchronously so the platform doesn't see a
+    // synchronous cursor jump within the same event loop turn. This eliminates
+    // the cursor-glitch / "bounce-back" visible in nano when deleting text.
     if (_currentEditingState.composing.isCollapsed &&
         _currentEditingState.text != _initEditingState.text) {
-      _connection!.setEditingState(_initEditingState);
+      _scheduleReset();
     }
+  }
+
+  /// Schedules a single deferred reset of the internal editing state back to
+  /// [_initEditingState]. Using a microtask instead of calling
+  /// [TextInputConnection.setEditingState] synchronously prevents the platform
+  /// from seeing a cursor-position jump in the same frame, which was the root
+  /// cause of the glitch observed in nano (and similar full-screen TUI apps).
+  void _scheduleReset() {
+    if (_resetPending) return;
+    _resetPending = true;
+    scheduleMicrotask(() {
+      _resetPending = false;
+      if (!mounted) return;
+      final connection = _connection;
+      if (connection == null || !connection.attached) return;
+      _currentEditingState = _initEditingState.copyWith();
+      connection.setEditingState(_currentEditingState);
+    });
   }
 
   @override

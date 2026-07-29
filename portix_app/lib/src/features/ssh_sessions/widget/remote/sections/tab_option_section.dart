@@ -11,6 +11,7 @@ class TerminalSessionTab extends StatelessWidget {
     this.onTap,
     this.onClose,
     this.onReconnect,
+    this.onDuplicate,
     this.reconnectNearClose = false,
   });
 
@@ -23,7 +24,87 @@ class TerminalSessionTab extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onClose;
   final VoidCallback? onReconnect;
+  final VoidCallback? onDuplicate;
   final bool reconnectNearClose;
+
+  void _showContextMenu(BuildContext context, Offset position) {
+    final canReconnect =
+        status == session_models.ConnectionStatus.disconnected ||
+        status == session_models.ConnectionStatus.error;
+
+    showMenu<_TabMenuAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        position.dx + 1,
+        position.dy + 1,
+      ),
+      color: const Color(0xFF1A2535),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: const BorderSide(color: AppColors.border),
+      ),
+      items: [
+        PopupMenuItem(
+          value: _TabMenuAction.duplicate,
+          height: 38,
+          child: Row(
+            children: [
+              const Icon(
+                Icons.copy_all_rounded,
+                color: AppColors.cyan,
+                size: 16,
+              ),
+              const SizedBox(width: 10),
+              Text('Duplicate', style: portixTitle(13)),
+            ],
+          ),
+        ),
+        if (canReconnect && onReconnect != null)
+          PopupMenuItem(
+            value: _TabMenuAction.reconnect,
+            height: 38,
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.refresh_rounded,
+                  color: AppColors.amber,
+                  size: 16,
+                ),
+                const SizedBox(width: 10),
+                Text('Reconnect', style: portixTitle(13)),
+              ],
+            ),
+          ),
+        PopupMenuItem(
+          value: _TabMenuAction.close,
+          height: 38,
+          child: Row(
+            children: [
+              const Icon(
+                Icons.close_rounded,
+                color: AppColors.muted,
+                size: 16,
+              ),
+              const SizedBox(width: 10),
+              Text('Close', style: portixTitle(13)),
+            ],
+          ),
+        ),
+      ],
+    ).then((action) {
+      if (action == null) return;
+      switch (action) {
+        case _TabMenuAction.duplicate:
+          onDuplicate?.call();
+        case _TabMenuAction.reconnect:
+          onReconnect?.call();
+        case _TabMenuAction.close:
+          onClose?.call();
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +116,9 @@ class TerminalSessionTab extends StatelessWidget {
     final tab = GestureDetector(
       key: ValueKey('terminal-session-tab-$sessionId'),
       onTap: onTap,
+      onSecondaryTapUp: onDuplicate == null
+          ? null
+          : (details) => _showContextMenu(context, details.globalPosition),
       child: Container(
         height: 36,
         width: 200,
@@ -204,3 +288,5 @@ class SessionProfileOption extends StatelessWidget {
     );
   }
 }
+
+enum _TabMenuAction { duplicate, reconnect, close }

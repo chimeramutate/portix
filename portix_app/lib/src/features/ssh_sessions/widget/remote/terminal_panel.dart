@@ -1064,6 +1064,65 @@ class _TerminalPanelState extends State<TerminalPanel> {
     unawaited(_connectionManager.resizeTerminal(session.id, _cols, _rows));
   }
 
+  Future<void> _duplicateSession(String sessionId) async {
+    final session = _sessionById(sessionId);
+    if (session == null) return;
+    final profile = widget.profiles
+        .where((profile) => profile.id == session.profileId)
+        .firstOrNull;
+    if (profile == null) return;
+
+    final existingSessionIds = _sshSessions.map((s) => s.id).toSet();
+    final prevSessionId = _sessionId;
+
+    final result = await _connectionManager.connect(_toManagerProfile(profile));
+    final failure = result.fold<Object?>((f) => f, (_) => null);
+    if (failure != null || !mounted) {
+      if (mounted) unawaited(_showConnectionFailedDialog(profile, failure!));
+      return;
+    }
+
+    final newSession = _connectionManager.sessions
+        .where(
+          (s) =>
+              s.profileId == profile.id &&
+              s.kind == session_models.SessionKind.ssh &&
+              !existingSessionIds.contains(s.id),
+        )
+        .lastOrNull;
+
+    if (newSession == null || !mounted) return;
+
+    _terminalForSession(newSession.id).write('\x1b[2J\x1b[H');
+    setState(() {
+      _placeSessionInOrder(newSession.id);
+      _sessionId = newSession.id;
+      _connectedProfileId = newSession.profileId;
+      _activeTabClosed = false;
+      // Keep the existing split layout — the duplicated session becomes the
+      // new active standalone session, not inserted into the split tree.
+      if (_splitRoot == null || prevSessionId == null) {
+        _splitRoot = SplitLeaf(newSession.id);
+      }
+      _workspaceActive = false;
+    });
+    _updateTabScrollAffordances();
+    widget.onSessionChanged?.call(true);
+    _notifyActiveSessionChanged(newSession.id);
+    await _connectionManager.resizeTerminal(newSession.id, _cols, _rows);
+
+    // Scroll the tab bar to reveal the new tab.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _tabScrollController.hasClients) {
+        _tabScrollController.animateTo(
+          _tabScrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
   Future<void> _openNewSessionForCurrentProfile() async {
     final profile = await _pickSessionProfile();
     if (profile == null) return;
@@ -1996,6 +2055,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
             onTap: () => _activateSession(session),
             onClose: () => _closeTab(session.id),
             onReconnect: () => _reconnectSession(session.id),
+            onDuplicate: () => _duplicateSession(session.id),
           ),
         );
       },

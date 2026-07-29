@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -12,6 +13,15 @@ import 'rust_bridge_backend.dart';
 import 'session_models.dart';
 import 'ssh_profile.dart';
 
+/// How often the Flutter-side heartbeat probes each connected session.
+/// This runs independently of the Rust keepalive so disconnect is detected
+/// as soon as either side notices — whichever fires first.
+const Duration _heartbeatInterval = Duration(seconds: 5);
+
+/// Timeout for a single heartbeat probe. Must be shorter than
+/// [_heartbeatInterval] so probes do not stack.
+const Duration _heartbeatTimeout = Duration(seconds: 4);
+
 class ConnectionManager extends ChangeNotifier {
   ConnectionManager({
     ConnectionBackend? backend,
@@ -21,6 +31,7 @@ class ConnectionManager extends ChangeNotifier {
     _statusSub = _backend.connectionStatusStream.listen(_handleStatus);
     _outputSub = _backend.terminalOutputStream.listen(_handleTerminalOutput);
     _errorSub = _backend.errorEventStream.listen(_handleError);
+    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) => _runHeartbeat());
   }
 
   final ConnectionBackend _backend;
@@ -29,6 +40,9 @@ class ConnectionManager extends ChangeNotifier {
   late final StreamSubscription<ConnectionStatusEvent> _statusSub;
   late final StreamSubscription<TerminalOutputEvent> _outputSub;
   late final StreamSubscription<ConnectionErrorEvent> _errorSub;
+  late final Timer _heartbeatTimer;
+  // Sessions currently being probed — avoid parallel probes for the same session.
+  final Set<String> _heartbeatInFlight = {};
   final Map<String, String> _backendToUiSessionIds = {};
   final Map<String, Future<void>> _pendingSecretWrites = {};
   final Map<String, Object> _secretWriteErrors = {};
@@ -490,6 +504,82 @@ class ConnectionManager extends ChangeNotifier {
     }
   }
 
+  /// Flutter-side heartbeat: probe every connected session by attempting a
+  /// lightweight TCP socket connect to the SSH port. This runs independently
+  /// of the Rust keepalive so UI reflects a lost connection within
+  /// [_heartbeatInterval] + [_heartbeatTimeout] (~9 s worst-case) instead of
+  /// waiting for the Rust keepalive cycle (~17 s).
+  Future<void> _runHeartbeat() async {
+    // Collect all currently-connected sessions with a known profile.
+    final candidates = _sessions.where(
+      (s) => s.status == ConnectionStatus.connected,
+    ).toList(growable: false);
+
+    for (final session in candidates) {
+      if (_heartbeatInFlight.contains(session.id)) continue;
+
+      // Find the SshProfile for this session so we know host + port.
+      final profile = _profiles
+          .where((p) => p.id == session.profileId)
+          .firstOrNull;
+      if (profile == null) continue;
+      final host = profile.host.trim();
+      final port = profile.port;
+      if (host.isEmpty) continue;
+
+      _heartbeatInFlight.add(session.id);
+      unawaited(
+        _probeSession(session.id, host, port).whenComplete(
+          () => _heartbeatInFlight.remove(session.id),
+        ),
+      );
+    }
+  }
+
+  Future<void> _probeSession(
+    String uiSessionId,
+    String host,
+    int port,
+  ) async {
+    try {
+      final socket = await Socket.connect(
+        host,
+        port,
+        timeout: _heartbeatTimeout,
+      );
+      // Connection succeeded — remote is still reachable.
+      await socket.close();
+    } on SocketException {
+      // TCP refused or timed out — remote is gone.
+      _markSessionDead(uiSessionId, 'Connection lost. Host is unreachable.');
+    } on TimeoutException {
+      _markSessionDead(uiSessionId, 'Connection timed out.');
+    } catch (_) {
+      // Any other OS-level error also counts as unreachable.
+      _markSessionDead(uiSessionId, 'Connection lost.');
+    }
+  }
+
+  void _markSessionDead(String uiSessionId, String message) {
+    final index = _sessions.indexWhere((s) => s.id == uiSessionId);
+    if (index == -1) return;
+    final session = _sessions[index];
+    // Only act if still considered connected — avoid double-firing.
+    if (session.status != ConnectionStatus.connected) return;
+
+    _sessions[index] = session.copyWith(status: ConnectionStatus.error);
+    notifyListeners();
+    _errors.add(ConnectionErrorEvent(message: message, sessionId: uiSessionId));
+
+    // Tell Rust to clean up the session too (best-effort).
+    final backendId = _backendSessionIdForUiSession(uiSessionId) ?? uiSessionId;
+    unawaited(
+      _backend
+          .disconnect(backendId)
+          .catchError((_) {}),
+    );
+  }
+
   void _handleStatus(ConnectionStatusEvent event) {
     final sessionId =
         _backendToUiSessionIds[event.sessionId] ?? event.sessionId;
@@ -753,6 +843,7 @@ class ConnectionManager extends ChangeNotifier {
 
   @override
   void dispose() {
+    _heartbeatTimer.cancel();
     _statusSub.cancel();
     _outputSub.cancel();
     _errorSub.cancel();
