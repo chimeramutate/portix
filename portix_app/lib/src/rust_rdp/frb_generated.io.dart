@@ -12,8 +12,8 @@ import 'domain/session.dart';
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_io.dart';
 
-abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
-  RustLibApiImplPlatform({
+abstract class RdpRustLibApiImplPlatform extends BaseApiImpl<RdpRustLibWire> {
+  RdpRustLibApiImplPlatform({
     required super.handler,
     required super.wire,
     required super.generalizedFrbRustBinding,
@@ -33,52 +33,28 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool dco_decode_bool(dynamic raw);
 
   @protected
-  SshProfile dco_decode_box_autoadd_ssh_profile(dynamic raw);
-
-  @protected
-  ConnectionStatus dco_decode_connection_status(dynamic raw);
+  RdpProfile dco_decode_box_autoadd_rdp_profile(dynamic raw);
 
   @protected
   int dco_decode_i_32(dynamic raw);
 
   @protected
-  PlatformInt64 dco_decode_i_64(dynamic raw);
-
-  @protected
-  List<String> dco_decode_list_String(dynamic raw);
-
-  @protected
-  List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
-
-  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
-
-  @protected
-  List<RemoteFileEntry> dco_decode_list_remote_file_entry(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
-  RemoteFileEntry dco_decode_remote_file_entry(dynamic raw);
+  RdpConnectionStatus dco_decode_rdp_connection_status(dynamic raw);
 
   @protected
-  RemoteSystemSnapshot dco_decode_remote_system_snapshot(dynamic raw);
+  RdpProfile dco_decode_rdp_profile(dynamic raw);
 
   @protected
-  SessionInfo dco_decode_session_info(dynamic raw);
-
-  @protected
-  SshProfile dco_decode_ssh_profile(dynamic raw);
+  RdpSessionInfo dco_decode_rdp_session_info(dynamic raw);
 
   @protected
   int dco_decode_u_16(dynamic raw);
-
-  @protected
-  int dco_decode_u_32(dynamic raw);
-
-  @protected
-  BigInt dco_decode_u_64(dynamic raw);
 
   @protected
   int dco_decode_u_8(dynamic raw);
@@ -101,56 +77,30 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
-  SshProfile sse_decode_box_autoadd_ssh_profile(SseDeserializer deserializer);
-
-  @protected
-  ConnectionStatus sse_decode_connection_status(SseDeserializer deserializer);
+  RdpProfile sse_decode_box_autoadd_rdp_profile(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
-  PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
-
-  @protected
-  List<String> sse_decode_list_String(SseDeserializer deserializer);
-
-  @protected
-  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
-
-  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
-
-  @protected
-  List<RemoteFileEntry> sse_decode_list_remote_file_entry(
-    SseDeserializer deserializer,
-  );
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
-  RemoteFileEntry sse_decode_remote_file_entry(SseDeserializer deserializer);
-
-  @protected
-  RemoteSystemSnapshot sse_decode_remote_system_snapshot(
+  RdpConnectionStatus sse_decode_rdp_connection_status(
     SseDeserializer deserializer,
   );
 
   @protected
-  SessionInfo sse_decode_session_info(SseDeserializer deserializer);
+  RdpProfile sse_decode_rdp_profile(SseDeserializer deserializer);
 
   @protected
-  SshProfile sse_decode_ssh_profile(SseDeserializer deserializer);
+  RdpSessionInfo sse_decode_rdp_session_info(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_16(SseDeserializer deserializer);
-
-  @protected
-  int sse_decode_u_32(SseDeserializer deserializer);
-
-  @protected
-  BigInt sse_decode_u_64(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_8(SseDeserializer deserializer);
@@ -177,28 +127,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
-  void sse_encode_box_autoadd_ssh_profile(
-    SshProfile self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_connection_status(
-    ConnectionStatus self,
+  void sse_encode_box_autoadd_rdp_profile(
+    RdpProfile self,
     SseSerializer serializer,
   );
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_list_String(List<String> self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_prim_u_8_strict(
@@ -207,40 +142,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  void sse_encode_list_remote_file_entry(
-    List<RemoteFileEntry> self,
-    SseSerializer serializer,
-  );
-
-  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
-  void sse_encode_remote_file_entry(
-    RemoteFileEntry self,
+  void sse_encode_rdp_connection_status(
+    RdpConnectionStatus self,
     SseSerializer serializer,
   );
 
   @protected
-  void sse_encode_remote_system_snapshot(
-    RemoteSystemSnapshot self,
+  void sse_encode_rdp_profile(RdpProfile self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_rdp_session_info(
+    RdpSessionInfo self,
     SseSerializer serializer,
   );
-
-  @protected
-  void sse_encode_session_info(SessionInfo self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_ssh_profile(SshProfile self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_16(int self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_u_32(int self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_u_64(BigInt self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_8(int self, SseSerializer serializer);
@@ -251,15 +171,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
 // Section: wire_class
 
-class RustLibWire implements BaseWire {
-  factory RustLibWire.fromExternalLibrary(ExternalLibrary lib) =>
-      RustLibWire(lib.ffiDynamicLibrary);
+class RdpRustLibWire implements BaseWire {
+  factory RdpRustLibWire.fromExternalLibrary(ExternalLibrary lib) =>
+      RdpRustLibWire(lib.ffiDynamicLibrary);
 
   /// Holds the symbol lookup function.
   final ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName)
   _lookup;
 
   /// The symbols are looked up in [dynamicLibrary].
-  RustLibWire(ffi.DynamicLibrary dynamicLibrary)
+  RdpRustLibWire(ffi.DynamicLibrary dynamicLibrary)
     : _lookup = dynamicLibrary.lookup;
 }

@@ -1,3 +1,6 @@
+# SSH backend — produces libportix_serv.so
+# Run: flutter_rust_bridge_codegen generate
 rust_input: crate::api
 rust_root: ../portix_serv/
 dart_output: lib/src/rust
+c_output: ../portix_serv/binding.h
