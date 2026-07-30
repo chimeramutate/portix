@@ -10,7 +10,6 @@ name = "portix_rdp"
 # versions (rc.0 vs rc.1) that Cargo cannot unify in a single crate.
 # Flutter loads libportix_rdp.so independently alongside libportix_serv.so.
 crate-type = ["cdylib", "staticlib", "rlib"]
-
 [dependencies]
 ironrdp-graphics = "0.9"
 ironrdp-tokio = { version = "0.10", features = ["reqwest"] }
@@ -20,7 +19,6 @@ url = "2"
 ironrdp-connector = "0.10"
 ironrdp-session   = "0.11"
 ironrdp-async     = "0.10"
-ironrdp-tokio     = "0.10"
 ironrdp-input     = "0.7"
 ironrdp-pdu       = "0.9"
 ironrdp-tls       = { version = "0.2", features = ["rustls-ring"] }
@@ -33,8 +31,10 @@ serde_json = "1"
 thiserror = "2"
 uuid     = { version = "1", features = ["v4", "serde"] }
 once_cell = "1"
+base64 = "0.22"
+
 # FRB — this crate has its own bridge entry point (libportix_rdp.so).
 # Separated from portix_serv because curve25519-dalek version conflict
 # between russh (=5.0.0-rc.0) and IronRDP/picky (=5.0.0-rc.1) cannot
 # be resolved within a single Cargo dependency tree.
-flutter_rust_bridge = "=2.12.0"
+flutter_rust_bridge = "=2.11.1"

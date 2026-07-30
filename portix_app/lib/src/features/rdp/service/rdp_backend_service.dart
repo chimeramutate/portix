@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/domain/entities/rdp/index.dart';
@@ -163,10 +165,10 @@ class RdpBackendService {
   /// Stream bitmap frame updates (RGBA pixel data) dari semua RDP session.
   /// Setiap event adalah JSON-serialised [RdpFrameEvent].
   Stream<RdpFrameEvent> frameStream() {
-    return rdp_api.rdpFrameStream().map(
-      (json) =>
-          RdpFrameEvent.fromJson(jsonDecode(json) as Map<String, Object?>),
-    );
+    return rdp_api.rdpFrameStream().map((json) {
+      final decoded = jsonDecode(json) as Map<String, Object?>;
+      return RdpFrameEvent.fromJson(decoded);
+    });
   }
 
   /// Stream status updates dari semua RDP session.
@@ -214,17 +216,33 @@ class RdpFrameEvent {
     required this.y,
   });
 
-  factory RdpFrameEvent.fromJson(Map<String, Object?> json) => RdpFrameEvent(
-    sessionId: json['session_id']! as String,
-    data: (json['data']! as List<dynamic>).cast<int>(),
-    width: json['width']! as int,
-    height: json['height']! as int,
-    x: json['x']! as int,
-    y: json['y']! as int,
-  );
+  factory RdpFrameEvent.fromJson(Map<String, Object?> json) {
+    final rawData = json['data']!;
+    Uint8List pixels;
+
+    if (rawData is String) {
+      // New format: base64-encoded string dari Rust — decode ke bytes
+      pixels = base64Decode(rawData);
+    } else if (rawData is List) {
+      // Old/fallback format: array of int
+      pixels = Uint8List.fromList(rawData.cast<int>());
+    } else {
+      pixels = Uint8List(0);
+    }
+
+    return RdpFrameEvent(
+      sessionId: json['session_id']! as String,
+      data: pixels,
+      width: json['width']! as int,
+      height: json['height']! as int,
+      x: json['x']! as int,
+      y: json['y']! as int,
+    );
+  }
 
   final String sessionId;
-  final List<int> data;
+  // Decoded RGBA8888 pixel data
+  final Uint8List data;
   final int width;
   final int height;
   final int x;

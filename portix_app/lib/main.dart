@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/features/rdp/bloc/index.dart';
+import 'package:portix/src/features/rdp/page/rdp_frame_test_page.dart';
 
 import 'src/core/di/injection.dart';
 import 'src/features/ssh_profiles/bloc/index.dart';
@@ -31,6 +32,9 @@ class PortixApp extends StatelessWidget {
       title: 'Portix',
       debugShowCheckedModeBanner: false,
       theme: appTheme,
+      routes: {
+        '/rdp-frame-test': (_) => const RdpFrameTestPage(),
+      },
       builder: (context, child) {
         final media = MediaQuery.of(context);
         final scale = media.textScaler

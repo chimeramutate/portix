@@ -1,12 +1,15 @@
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use ironrdp_connector::{ClientConnector, Config, Credentials, DesktopSize, ServerName};
 use ironrdp_graphics::image_processing::PixelFormat;
-use ironrdp_pdu::geometry::InclusiveRectangle;
-use ironrdp_pdu::input::fast_path::{FastPathInputEvent, KeyboardFlags};
+use ironrdp_input::{Database, MouseButton, MousePosition, Operation, Scancode};
+use ironrdp_pdu::Encode;
+use ironrdp_pdu::cursor::WriteCursor;
+use ironrdp_pdu::geometry::{InclusiveRectangle, Rectangle};
+use ironrdp_pdu::input::fast_path::FastPathInput;
 use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{ActiveStageBuilder, ActiveStageOutput};
 use ironrdp_tokio::reqwest::ReqwestNetworkClient;
-use ironrdp_tokio::{TokioFramed, connect_begin, connect_finalize, mark_as_upgraded};
-use ironrdp_input::MouseButton;
+use ironrdp_tokio::{FramedWrite, TokioFramed, connect_begin, connect_finalize, mark_as_upgraded};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{Duration, timeout};
@@ -20,9 +23,20 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Commands sent from Flutter to an active RDP session.
 pub enum RdpCommand {
-    MouseMove { x: u16, y: u16 },
-    MouseButton { x: u16, y: u16, button: u8, down: bool },
-    KeyboardInput { scancode: u16, down: bool },
+    MouseMove {
+        x: u16,
+        y: u16,
+    },
+    MouseButton {
+        x: u16,
+        y: u16,
+        button: u8,
+        down: bool,
+    },
+    KeyboardInput {
+        scancode: u16,
+        down: bool,
+    },
     Disconnect,
 }
 
@@ -43,30 +57,29 @@ impl RdpRuntime {
         status_tx: broadcast::Sender<RdpStatusEvent>,
         error_tx: broadcast::Sender<RdpErrorEvent>,
     ) -> Self {
-        Self { profile, session_id, frame_tx, status_tx, error_tx }
+        Self {
+            profile,
+            session_id,
+            frame_tx,
+            status_tx,
+            error_tx,
+        }
     }
 
     pub async fn run(self, mut command_rx: mpsc::Receiver<RdpCommand>) -> Result<()> {
         // ── 1. TCP connect ─────────────────────────────────────────────────
-        let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect(self.profile.socket_addr()))
-            .await
-            .map_err(|_| RdpError::ConnectionTimeout)?
-            .map_err(RdpError::Io)?;
+        let tcp = timeout(
+            CONNECT_TIMEOUT,
+            TcpStream::connect(self.profile.socket_addr()),
+        )
+        .await
+        .map_err(|_| RdpError::ConnectionTimeout)?
+        .map_err(RdpError::Io)?;
         tcp.set_nodelay(true)?;
 
-        // The real, resolved peer address — `ClientConnector::new` needs a
-        // concrete `SocketAddr`, not a hostname string. Reading it back off
-        // the already-connected socket is more reliable than re-resolving
-        // `self.profile.socket_addr()` (which may be a hostname/string and
-        // isn't guaranteed to be the same type `ClientConnector` expects).
         let client_addr = tcp.peer_addr().map_err(RdpError::Io)?;
 
         // ── 2. Build Config ────────────────────────────────────────────────
-        // `Config` has NO `Default` impl in this version and NO `server_name`
-        // field at all (`ServerName` is passed separately to
-        // `connect_finalize`, not stored in `Config`). Every field below is
-        // therefore required — values follow the defaults used by IronRDP's
-        // own `ironrdp-client` reference implementation.
         let credentials = Credentials::UsernamePassword {
             username: self.profile.username.clone(),
             password: self.profile.password.clone().unwrap_or_default(),
@@ -101,35 +114,22 @@ impl RdpRuntime {
             performance_flags: ironrdp_pdu::rdp::client_info::PerformanceFlags::default(),
             license_cache: None,
             timezone_info: ironrdp_pdu::rdp::client_info::TimezoneInfo::default(),
-            compression_type: Some(ironrdp_pdu::rdp::client_info::CompressionType::K64),
+            compression_type: None,
             enable_server_pointer: true,
             pointer_software_rendering: true,
             multitransport_flags: None,
         };
 
         // ── 3. Pre-TLS connection sequence ─────────────────────────────────
-        // `connector` stays owned + `mut`: it is borrowed by `connect_begin`
-        // and `mark_as_upgraded`, then consumed (moved) by `connect_finalize`.
-        // It must NOT be moved into `connect_begin` directly.
         let mut connector = ClientConnector::new(config, client_addr);
-
-        // `MovableTokioStream` does not exist in this crate version.
-        // `TokioFramed<S>` (= `Framed<TokioStream<S>>`) takes the raw stream
-        // directly — no manual wrapping needed.
         let mut framed = TokioFramed::new(tcp);
 
-        let should_upgrade = timeout(
-            CONNECT_TIMEOUT,
-            connect_begin(&mut framed, &mut connector),
-        )
-        .await
-        .map_err(|_| RdpError::ConnectionTimeout)?
-        .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+        let should_upgrade = timeout(CONNECT_TIMEOUT, connect_begin(&mut framed, &mut connector))
+            .await
+            .map_err(|_| RdpError::ConnectionTimeout)?
+            .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
 
         // ── 4. TLS upgrade ─────────────────────────────────────────────────
-        // `into_inner()` returns (stream, leftover). The leftover bytes may
-        // already contain buffered server data from the pre-TLS phase and
-        // must be carried over into the post-TLS Framed, not discarded.
         let (raw_stream, leftover) = framed.into_inner();
 
         let (upgraded_stream, server_cert_der) = timeout(
@@ -144,18 +144,8 @@ impl RdpRuntime {
             ironrdp_tls::extract_tls_server_public_key(&server_cert_der).unwrap_or_default();
 
         let mut tls_framed = TokioFramed::new_with_leftover(upgraded_stream, leftover);
-
-        // `mark_as_upgraded` takes the connector, not the framed stream.
         let upgraded = mark_as_upgraded(should_upgrade, &mut connector);
 
-        // Required by `connect_finalize` for CredSSP (NLA). `ironrdp-tokio`
-        // ships a ready-made implementation behind the "reqwest" feature —
-        // enable it in Cargo.toml:
-        //   ironrdp-tokio = { version = "0.10", features = ["reqwest"] }
-        // and add `reqwest` + `url` as direct dependencies.
-        // This handles TCP/UDP/HTTP(S) KDC requests for Kerberos; if you
-        // only ever use NTLM, it's still safe to use (it just never gets
-        // called since NTLM doesn't need network round-trips).
         let mut network_client = ReqwestNetworkClient::new();
 
         let connection_result = timeout(
@@ -177,10 +167,6 @@ impl RdpRuntime {
         // ── 5. Active session ──────────────────────────────────────────────
         self.emit_status(RdpConnectionStatus::Connected, Some("connected"));
 
-        // `DecodedImage::new` takes (PixelFormat, width, height) — not an
-        // InclusiveRectangle. `PixelFormat` comes from `ironrdp-graphics`,
-        // which needs to be added as a direct dependency (it's only a
-        // transitive one via `ironrdp-session` today).
         let mut image = DecodedImage::new(
             PixelFormat::RgbA32,
             self.profile.desktop_width,
@@ -199,9 +185,12 @@ impl RdpRuntime {
         }
         .build();
 
+        // Database bawaan ironrdp-input: menyimpan state keyboard/mouse dan
+        // menghasilkan FastPathInputEvent lewat Database::apply(operations).
+        let mut input_db = Database::new();
+
         loop {
             tokio::select! {
-                // Incoming PDUs from the RDP server
                 pdu_result = tls_framed.read_pdu() => {
                     let (action, pdu_bytes) = pdu_result
                         .map_err(|e| RdpError::Protocol(e.to_string()))?;
@@ -213,14 +202,8 @@ impl RdpRuntime {
                     for output in outputs {
                         match output {
                             ActiveStageOutput::ResponseFrame(frame) => {
-                                tls_framed
-                                    .write_all(&frame)
-                                    .await
-                                    .map_err(RdpError::Io)?;
+                                tls_framed.write_all(&frame).await.map_err(RdpError::Io)?;
                             }
-                            // `GraphicsUpdate` DOES carry the changed
-                            // rectangle in this version — your original
-                            // pattern was correct here.
                             ActiveStageOutput::GraphicsUpdate(region) => {
                                 self.emit_frame(&image, &region);
                             }
@@ -232,7 +215,6 @@ impl RdpRuntime {
                     }
                 }
 
-                // Commands from Flutter layer
                 cmd = command_rx.recv() => {
                     match cmd {
                         Some(RdpCommand::Disconnect) | None => {
@@ -248,21 +230,76 @@ impl RdpRuntime {
                         }
 
                         Some(RdpCommand::MouseMove { x, y }) => {
-                            active_stage.update_mouse_pos(x, y);
-                            // For MVP, just send mouse move to keep session alive
-                            // Full input handling will be added post-MVP
+                            let events = input_db.apply([Operation::MouseMove(MousePosition { x, y })]);
+                            if events.is_empty() {
+                                continue;
+                            }
+
+                            let fast_path_input = FastPathInput::new(events.into_vec())
+                                .map_err(|e| RdpError::Protocol(e.to_string()))?;
+
+                            let mut buf = vec![0u8; fast_path_input.size()];
+                            let mut cursor = WriteCursor::new(&mut buf);
+                            fast_path_input.encode(&mut cursor).map_err(|e| RdpError::Protocol(e.to_string()))?;
+
+                            tls_framed.write_all(&buf).await.map_err(RdpError::Io)?;
                         }
 
                         Some(RdpCommand::MouseButton { x, y, button, down }) => {
-                            // For MVP, mouse button input is placeholder
-                            // Full input handling will be added post-MVP
-                            let _ = (x, y, button, down);
+                            let mouse_button = match button {
+                                0 => MouseButton::Left,
+                                1 => MouseButton::Middle,
+                                2 => MouseButton::Right,
+                                _ => continue,
+                            };
+
+                            let op = if down {
+                                Operation::MouseButtonPressed(mouse_button)
+                            } else {
+                                Operation::MouseButtonReleased(mouse_button)
+                            };
+
+                            // Sinkronkan posisi kursor dulu supaya event tombol
+                            // memakai koordinat yang tepat.
+                            let mut events = input_db.apply([Operation::MouseMove(MousePosition { x, y })]);
+                            events.extend(input_db.apply([op]));
+
+                            if events.is_empty() {
+                                continue;
+                            }
+
+                            let fast_path_input = FastPathInput::new(events.into_vec())
+                                .map_err(|e| RdpError::Protocol(e.to_string()))?;
+
+                            let mut buf = vec![0u8; fast_path_input.size()];
+                            let mut cursor = WriteCursor::new(&mut buf);
+                            fast_path_input.encode(&mut cursor).map_err(|e| RdpError::Protocol(e.to_string()))?;
+
+                            tls_framed.write_all(&buf).await.map_err(RdpError::Io)?;
                         }
 
                         Some(RdpCommand::KeyboardInput { scancode, down }) => {
-                            // For MVP, keyboard input is placeholder
-                            // Full input handling will be added post-MVP
-                            let _ = (scancode, down);
+                            let code = Scancode::from_u16(scancode);
+
+                            let op = if down {
+                                Operation::KeyPressed(code)
+                            } else {
+                                Operation::KeyReleased(code)
+                            };
+
+                            let events = input_db.apply([op]);
+                            if events.is_empty() {
+                                continue;
+                            }
+
+                            let fast_path_input = FastPathInput::new(events.into_vec())
+                                .map_err(|e| RdpError::Protocol(e.to_string()))?;
+
+                            let mut buf = vec![0u8; fast_path_input.size()];
+                            let mut cursor = WriteCursor::new(&mut buf);
+                            fast_path_input.encode(&mut cursor).map_err(|e| RdpError::Protocol(e.to_string()))?;
+
+                            tls_framed.write_all(&buf).await.map_err(RdpError::Io)?;
                         }
                     }
                 }
@@ -278,14 +315,6 @@ impl RdpRuntime {
         });
     }
 
-    /// Sends only the changed region to the Flutter side, as a tightly
-    /// packed (width * height * bytes_per_pixel) buffer.
-    ///
-    /// NOTE: `DecodedImage::data_for_rect` exists in this version but
-    /// returns a slice spanning full image rows (not tightly packed) when
-    /// `region` doesn't cover the full image width, so it can't be sent
-    /// as-is with just `region`'s width/height. This copies row-by-row
-    /// using the image's real stride instead.
     fn emit_frame(&self, image: &DecodedImage, region: &InclusiveRectangle) {
         let bpp = image.bytes_per_pixel();
         let stride = image.stride();
@@ -300,6 +329,7 @@ impl RdpRuntime {
             return;
         }
 
+        // Kumpulkan pixel dari region yang berubah menjadi satu Vec<u8> padat
         let mut packed = Vec::with_capacity(w * h * bpp);
         for row in 0..h {
             let row_start = (y + row) * stride + x * bpp;
@@ -307,9 +337,14 @@ impl RdpRuntime {
             packed.extend_from_slice(&full_data[row_start..row_end]);
         }
 
+        // Encode pixel data ke base64 untuk transfer JSON yang efisien
+        // (JSON array of ints ~4x lebih besar dari base64 string)
+        let encoded_data = BASE64.encode(&packed);
+
+        // Kirim sebagai base64 string ke Flutter
         let _ = self.frame_tx.send(RdpFrameEvent {
             session_id: self.session_id.clone(),
-            data: packed,
+            data: encoded_data, // Base64-encoded BGRA pixel data
             width: w as u32,
             height: h as u32,
             x: x as u32,

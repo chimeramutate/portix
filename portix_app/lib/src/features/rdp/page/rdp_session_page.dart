@@ -24,59 +24,15 @@ class RdpSessionPage extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.close),
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            tooltip: 'Close session',
+            onPressed: () => Navigator.of(context).pop(),
           ),
         ],
       ),
-      backgroundColor: AppColors.bg,
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    profile.name,
-                    style: const TextStyle(
-                      color: AppColors.text,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'Host: ${profile.address}',
-                    style: const TextStyle(color: AppColors.muted),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Username: ${profile.username}',
-                    style: const TextStyle(color: AppColors.muted),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Resolution: ${profile.desktopWidth}×${profile.desktopHeight}',
-                    style: const TextStyle(color: AppColors.muted),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Expanded(child: RdpFrameViewer(sessionId: sessionId)),
-          ],
-        ),
+      backgroundColor: Colors.black,
+      body: RdpFrameViewer(
+        sessionId: sessionId,
+        desktopWidth: profile.desktopWidth > 0 ? profile.desktopWidth : 1280,
+        desktopHeight: profile.desktopHeight > 0 ? profile.desktopHeight : 800,
       ),
     );
   }
