@@ -13,7 +13,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(frb_expand)"] }
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
-flutter_rust_bridge = "=2.11.1"
+flutter_rust_bridge = "=2.12.0"
 once_cell = "1"
 russh = { version = "0.61.2", features = ["ring"] }
 serde = { version = "1", features = ["derive"] }
@@ -25,7 +25,12 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # IronRDP — pure-Rust RDP client
 # Isolated in a separate workspace crate (portix_rdp) to avoid
 # the curve25519-dalek pre-release conflict with russh.
-# These are NOT included here — they live in ../portix_rdp/Cargo.toml
+# russh requires curve25519-dalek =5.0.0-rc.0
+# IronRDP/picky requires curve25519-dalek =5.0.0-rc.1
+# These two versions cannot coexist in a single Cargo dependency tree,
+# so portix_rdp is compiled as a SEPARATE cdylib (libportix_rdp.so)
+# with its own independent flutter_rust_bridge entry point.
+# Flutter loads BOTH .so files independently at runtime.
 
 [dev-dependencies]
 tempfile = "3"
