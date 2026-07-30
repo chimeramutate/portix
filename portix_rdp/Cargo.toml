@@ -12,6 +12,10 @@ name = "portix_rdp"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
+ironrdp-graphics = "0.9"
+ironrdp-tokio = { version = "0.10", features = ["reqwest"] }
+reqwest = "0.12"
+url = "2"
 # IronRDP core
 ironrdp-connector = "0.10"
 ironrdp-session   = "0.11"

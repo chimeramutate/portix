@@ -1,10 +1,10 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:portix/src/core/result/either.dart';
-
+import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/domain/entities/rdp/index.dart';
 import 'package:portix/src/domain/repositories/rdp/index.dart';
-import '../service/rdp_launch_service.dart';
+import 'package:portix/src/features/rdp/service/rdp_backend_service.dart';
+import 'package:portix/src/features/rdp/service/rdp_launch_service.dart';
 
 part 'rdp_workspace_event.dart';
 part 'rdp_workspace_state.dart';
@@ -14,7 +14,8 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
     required RdpProfileRepository repository,
     RdpLaunchService? launchService,
   }) : _repository = repository,
-       _launchService = launchService ?? RdpLaunchService(repository: repository),
+       _launchService =
+           launchService ?? RdpLaunchService(repository: repository),
        super(const RdpWorkspaceState()) {
     on<RdpProfilesRequested>(_onProfilesRequested);
     on<RdpNewProfileRequested>(_onNewProfileRequested);
@@ -42,10 +43,17 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
     final result = await _repository.getProfiles();
     result.fold(
       (failure) => emit(
-        state.copyWith(status: RdpWorkspaceStatus.failure, message: failure.message),
+        state.copyWith(
+          status: RdpWorkspaceStatus.failure,
+          message: failure.message,
+        ),
       ),
       (profiles) => emit(
-        state.copyWith(status: RdpWorkspaceStatus.ready, profiles: profiles, clearSelection: true),
+        state.copyWith(
+          status: RdpWorkspaceStatus.ready,
+          profiles: profiles,
+          clearSelection: true,
+        ),
       ),
     );
   }
@@ -91,7 +99,9 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
     RdpProfileEditRequested event,
     Emitter<RdpWorkspaceState> emit,
   ) {
-    final profile = state.profiles.where((p) => p.id == event.profileId).firstOrNull;
+    final profile = state.profiles
+        .where((p) => p.id == event.profileId)
+        .firstOrNull;
     if (profile == null) return;
     emit(
       state.copyWith(
@@ -120,8 +130,10 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
           clearPassword: event.password.isEmpty,
           domain: event.domain.isNotEmpty ? event.domain : null,
           group: event.group,
-          desktopWidth: int.tryParse(event.desktopWidth) ?? current.desktopWidth,
-          desktopHeight: int.tryParse(event.desktopHeight) ?? current.desktopHeight,
+          desktopWidth:
+              int.tryParse(event.desktopWidth) ?? current.desktopWidth,
+          desktopHeight:
+              int.tryParse(event.desktopHeight) ?? current.desktopHeight,
           fullScreen: event.fullScreen,
           redirectDrives: event.redirectDrives,
           redirectClipboard: event.redirectClipboard,
@@ -149,7 +161,8 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
     emit(state.copyWith(isBusy: true, message: 'Saving profile...'));
     final result = await _repository.saveProfile(profile);
     result.fold(
-      (failure) => emit(state.copyWith(isBusy: false, message: failure.message)),
+      (failure) =>
+          emit(state.copyWith(isBusy: false, message: failure.message)),
       (saved) {
         final profiles = [
           saved,
@@ -176,9 +189,12 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
     emit(state.copyWith(isBusy: true));
     final result = await _repository.deleteProfile(event.profileId);
     result.fold(
-      (failure) => emit(state.copyWith(isBusy: false, message: failure.message)),
+      (failure) =>
+          emit(state.copyWith(isBusy: false, message: failure.message)),
       (_) {
-        final profiles = state.profiles.where((p) => p.id != event.profileId).toList();
+        final profiles = state.profiles
+            .where((p) => p.id != event.profileId)
+            .toList();
         emit(
           state.copyWith(
             isBusy: false,
@@ -198,9 +214,13 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
     emit(state.copyWith(isBusy: true, message: 'Importing RDP file...'));
     final result = await _repository.importRdpFile(event.filePath);
     result.fold(
-      (failure) => emit(state.copyWith(isBusy: false, message: failure.message)),
+      (failure) =>
+          emit(state.copyWith(isBusy: false, message: failure.message)),
       (profile) {
-        final profiles = [profile, ...state.profiles.where((p) => p.id != profile.id)];
+        final profiles = [
+          profile,
+          ...state.profiles.where((p) => p.id != profile.id),
+        ];
         emit(
           state.copyWith(
             isBusy: false,
@@ -218,7 +238,9 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
     RdpLaunchRequested event,
     Emitter<RdpWorkspaceState> emit,
   ) async {
-    final profile = state.profiles.where((p) => p.id == event.profileId).firstOrNull;
+    final profile = state.profiles
+        .where((p) => p.id == event.profileId)
+        .firstOrNull;
     if (profile == null) return;
 
     if (!profile.isConnectable) {
@@ -227,17 +249,97 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
     }
 
     emit(state.copyWith(isBusy: true, message: 'Launching RDP session...'));
-    final result = await _launchService.launch(profile);
-    result.fold(
-      (failure) => emit(state.copyWith(isBusy: false, message: failure.message)),
-      (launchResult) => emit(
-        state.copyWith(
-          isBusy: false,
-          lastLaunchResult: launchResult.methodLabel,
-          message: 'Launched via ${launchResult.methodLabel}',
-        ),
-      ),
-    );
+    // First try embedded Rust RDP backend (portix_rdp). If it fails,
+    // fallback to external launch via RdpLaunchService.
+    try {
+      final rdpService = sl<RdpBackendService>();
+      // ignore: avoid_print
+      print(
+        'RDP launch requested for profile ${profile.id} ${profile.address}',
+      );
+      final backendResult = await rdpService.connect(profile);
+      backendResult.fold(
+        (failure) async {
+          // ignore: avoid_print
+          print('RDP embedded connect failed: ${failure.message}');
+          // Embedded backend failed — try external launcher as fallback.
+          final result = await _launchService.launch(profile);
+          result.fold(
+            (failure2) {
+              // ignore: avoid_print
+              print('RDP external launcher failed: ${failure2.message}');
+              emit(
+                state.copyWith(
+                  isBusy: false,
+                  message: failure2.message,
+                  lastSessionId: null,
+                ),
+              );
+            },
+            (launchResult) {
+              // ignore: avoid_print
+              print(
+                'RDP external launcher succeeded: ${launchResult.methodLabel}',
+              );
+              emit(
+                state.copyWith(
+                  isBusy: false,
+                  lastSessionId: null,
+                  lastLaunchResult: 'External: ${launchResult.methodLabel}',
+                  message: 'Launched via ${launchResult.methodLabel}',
+                ),
+              );
+            },
+          );
+        },
+        (conn) {
+          // ignore: avoid_print
+          print('RDP embedded connect succeeded: session=${conn.sessionId}');
+          emit(
+            state.copyWith(
+              isBusy: false,
+              lastLaunchResult: 'Embedded RDP backend',
+              lastSessionId: conn.sessionId,
+              message: 'Launched embedded RDP session (id: ${conn.sessionId})',
+            ),
+          );
+        },
+      );
+    } catch (error) {
+      // ignore: avoid_print
+      print('RDP launch caught unexpected error: $error');
+      // ignore: avoid_print
+      print('RDP launch caught unexpected error: $error');
+      // If unexpected error, attempt external launcher as last resort.
+      final result = await _launchService.launch(profile);
+      result.fold(
+        (failure) {
+          // ignore: avoid_print
+          print('RDP external launcher fallback failed: ${failure.message}');
+          emit(
+            state.copyWith(
+              isBusy: false,
+              message: failure.message,
+              lastSessionId: null,
+            ),
+          );
+        },
+        (launchResult) {
+          // ignore: avoid_print
+          print(
+            'RDP external launcher fallback succeeded: ${launchResult.methodLabel}',
+          );
+          emit(
+            state.copyWith(
+              isBusy: false,
+              lastSessionId: null,
+              lastLaunchResult: launchResult.methodLabel,
+              message: 'Launched via ${launchResult.methodLabel}',
+            ),
+          );
+        },
+      );
+    }
   }
 
   void _onNavigationChanged(

@@ -28,6 +28,9 @@ class RdpBackendService {
     await RdpRustLib.init();
   }
 
+  /// Helper for logging: show the expected production library path.
+  static String productionPathHint() => _productionLibraryPath();
+
   /// Initialise the RDP Rust library in production mode (loads libportix_rdp.so
   /// from the same directory as the application executable).
   static Future<void> initProduction() async {

@@ -49,6 +49,10 @@ impl RdpRuntime {
     }
 
     pub async fn run(self, mut command_rx: mpsc::Receiver<RdpCommand>) -> Result<()> {
+        println!(
+            "[portix_rdp] RdpRuntime starting for session={} profile={} host={} port={}",
+            self.session_id, self.profile.id, self.profile.host, self.profile.port,
+        );
         // MVP: Emit "connecting" status
         self.emit_status(
             RdpConnectionStatus::Connecting,
@@ -69,17 +73,32 @@ impl RdpRuntime {
         loop {
             match command_rx.recv().await {
                 Some(RdpCommand::Disconnect) | None => {
+                    println!(
+                        "[portix_rdp] session {} received disconnect", self.session_id,
+                    );
                     self.emit_status(
                         RdpConnectionStatus::Disconnected,
                         Some("Disconnected by user"),
                     );
                     return Ok(());
                 }
-                Some(RdpCommand::MouseMove { .. })
-                | Some(RdpCommand::MouseButton { .. })
-                | Some(RdpCommand::KeyboardInput { .. }) => {
-                    // MVP: Input commands are received but not yet forwarded to RDP server
-                    // This will be implemented post-MVP with full IronRDP integration
+                Some(RdpCommand::MouseMove { x, y }) => {
+                    println!(
+                        "[portix_rdp] session {} received MouseMove x={} y={}",
+                        self.session_id, x, y,
+                    );
+                }
+                Some(RdpCommand::MouseButton { x, y, button, down }) => {
+                    println!(
+                        "[portix_rdp] session {} received MouseButton x={} y={} button={} down={}",
+                        self.session_id, x, y, button, down,
+                    );
+                }
+                Some(RdpCommand::KeyboardInput { scancode, down }) => {
+                    println!(
+                        "[portix_rdp] session {} received KeyboardInput scancode={} down={}",
+                        self.session_id, scancode, down,
+                    );
                 }
             }
         }
