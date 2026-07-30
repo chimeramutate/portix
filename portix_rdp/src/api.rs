@@ -38,6 +38,11 @@ pub async fn rdp_parse_file(
 
 /// Connect to an RDP server using the provided profile.
 pub async fn rdp_connect(profile: RdpProfile) -> anyhow::Result<RdpSessionInfo> {
+    // Debug logging for FRB connect entry
+    println!(
+        "[portix_rdp] rdp_connect called: profile_id={}, host={}, port={}",
+        profile.id, profile.host, profile.port,
+    );
     Ok(RDP_MANAGER.connect(profile).await?)
 }
 
@@ -82,6 +87,7 @@ pub async fn rdp_send_keyboard_input(
 
 /// Stream of bitmap frame updates from all RDP sessions (JSON-serialised RdpFrameEvent).
 pub async fn rdp_frame_stream(sink: StreamSink<String>) -> anyhow::Result<()> {
+    println!("[portix_rdp] rdp_frame_stream subscription started");
     let mut rx = RDP_MANAGER.frame_stream();
     tokio::spawn(async move {
         forward_json_stream(&mut rx, sink).await;
@@ -91,6 +97,7 @@ pub async fn rdp_frame_stream(sink: StreamSink<String>) -> anyhow::Result<()> {
 
 /// Stream of connection status updates from all RDP sessions.
 pub async fn rdp_status_stream(sink: StreamSink<String>) -> anyhow::Result<()> {
+    println!("[portix_rdp] rdp_status_stream subscription started");
     let mut rx = RDP_MANAGER.status_stream();
     tokio::spawn(async move {
         forward_json_stream(&mut rx, sink).await;
@@ -100,6 +107,7 @@ pub async fn rdp_status_stream(sink: StreamSink<String>) -> anyhow::Result<()> {
 
 /// Stream of error events from all RDP sessions.
 pub async fn rdp_error_stream(sink: StreamSink<String>) -> anyhow::Result<()> {
+    println!("[portix_rdp] rdp_error_stream subscription started");
     let mut rx = RDP_MANAGER.error_stream();
     tokio::spawn(async move {
         forward_json_stream(&mut rx, sink).await;

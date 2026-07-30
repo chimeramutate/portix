@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
+import 'package:portix/src/features/rdp/bloc/index.dart';
 
 import 'src/core/di/injection.dart';
 import 'src/features/ssh_profiles/bloc/index.dart';
@@ -47,6 +48,10 @@ class PortixApp extends StatelessWidget {
                 sl<SshWorkspaceBloc>()..add(const ProfilesRequested()),
           ),
           BlocProvider(create: (_) => sl<SshSessionBloc>()),
+          BlocProvider(
+            create: (_) =>
+                sl<RdpWorkspaceBloc>()..add(const RdpProfilesRequested()),
+          ),
         ],
         child: const PortixWorkspacePage(),
       ),

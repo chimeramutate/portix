@@ -12,7 +12,7 @@ use crate::domain::errors::{RdpError, Result};
 use crate::domain::events::{RdpErrorEvent, RdpFrameEvent, RdpStatusEvent};
 use crate::domain::profile::{parse_rdp_file, RdpProfile};
 use crate::domain::session::{RdpConnectionStatus, RdpSessionInfo};
-use crate::infrastructure::rdp_client_mvp::{RdpCommand, RdpRuntime};
+use crate::infrastructure::rdp_client::{RdpCommand, RdpRuntime};
 
 struct SessionHandle {
     info: RdpSessionInfo,
@@ -90,6 +90,11 @@ impl RdpSessionManager {
         let session_id_task = session_id.clone();
         let status_tx = self.status_tx.clone();
         let error_tx = self.error_tx.clone();
+
+        println!(
+            "[portix_rdp] spawning runtime for session {} profile={}",
+            session_id, profile.id,
+        );
 
         tokio::spawn(async move {
             let result = runtime.run(command_rx).await;

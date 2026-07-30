@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/features/sftp/bloc/index.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
 
-import 'package:portix/src/core/theme/app_theme.dart';
 import '../bloc/index.dart';
 
 class WorkspaceTopBar extends StatelessWidget {
@@ -43,6 +43,7 @@ class WorkspaceTopBar extends StatelessWidget {
             WorkspaceView.sftp => _SftpTopBar(state: state),
             WorkspaceView.remoteFolder => const _RemoteTopBar(),
             WorkspaceView.settings => const _SimpleTopBar(title: 'Settings'),
+            WorkspaceView.rdp => const _SimpleTopBar(title: 'Remote Desktop'),
             _ => _GalleryTopBar(state: state),
           },
         );

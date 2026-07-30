@@ -16,6 +16,7 @@ class RdpWorkspaceState extends Equatable {
     this.isBusy = false,
     this.message = '',
     this.lastLaunchResult,
+    this.lastSessionId,
   });
 
   final RdpWorkspaceStatus status;
@@ -28,6 +29,7 @@ class RdpWorkspaceState extends Equatable {
   final bool isBusy;
   final String message;
   final String? lastLaunchResult;
+  final String? lastSessionId;
 
   RdpProfile? get selectedProfile {
     if (profiles.isEmpty || selectedId == null) return null;
@@ -43,7 +45,12 @@ class RdpWorkspaceState extends Equatable {
     final normalized = searchQuery.trim().toLowerCase();
     return profiles.where((p) {
       final matchesGroup = groupFilter == 'All' || p.group == groupFilter;
-      final text = [p.name, p.host, p.username, p.group].join(' ').toLowerCase();
+      final text = [
+        p.name,
+        p.host,
+        p.username,
+        p.group,
+      ].join(' ').toLowerCase();
       final matchesSearch = normalized.isEmpty || text.contains(normalized);
       return matchesGroup && matchesSearch;
     }).toList();
@@ -62,6 +69,7 @@ class RdpWorkspaceState extends Equatable {
     bool? isBusy,
     String? message,
     String? lastLaunchResult,
+    String? lastSessionId,
     bool clearLastLaunchResult = false,
   }) {
     return RdpWorkspaceState(
@@ -69,7 +77,9 @@ class RdpWorkspaceState extends Equatable {
       activeView: activeView ?? this.activeView,
       profiles: profiles ?? this.profiles,
       selectedId: clearSelection ? null : selectedId ?? this.selectedId,
-      editingProfile: clearEditingProfile ? null : editingProfile ?? this.editingProfile,
+      editingProfile: clearEditingProfile
+          ? null
+          : editingProfile ?? this.editingProfile,
       groupFilter: groupFilter ?? this.groupFilter,
       searchQuery: searchQuery ?? this.searchQuery,
       isBusy: isBusy ?? this.isBusy,
@@ -77,13 +87,23 @@ class RdpWorkspaceState extends Equatable {
       lastLaunchResult: clearLastLaunchResult
           ? null
           : lastLaunchResult ?? this.lastLaunchResult,
+      lastSessionId: lastSessionId ?? this.lastSessionId,
     );
   }
 
   @override
   List<Object?> get props => [
-    status, activeView, profiles, selectedId, editingProfile,
-    groupFilter, searchQuery, isBusy, message, lastLaunchResult,
+    status,
+    activeView,
+    profiles,
+    selectedId,
+    editingProfile,
+    groupFilter,
+    searchQuery,
+    isBusy,
+    message,
+    lastLaunchResult,
+    lastSessionId,
   ];
 }
 
