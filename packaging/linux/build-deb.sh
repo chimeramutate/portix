@@ -35,6 +35,15 @@ mkdir -p "$DEB_ROOT/usr/share/icons/hicolor/64x64/apps"
 cp -r "$BUNDLE_DIR"/* "$DEB_ROOT/opt/portix/"
 chmod +x "$DEB_ROOT/opt/portix/portix"
 
+# Verify both Rust libraries are present in the bundle
+for lib in libportix_serv.so libportix_rdp.so; do
+  if [ ! -f "$DEB_ROOT/opt/portix/lib/$lib" ]; then
+    echo "Warning: $lib not found in bundle. Build the Rust crate first:"
+    echo "  SSH:  cd portix_serv && cargo build --release"
+    echo "  RDP:  cd portix_rdp && cargo build --release"
+  fi
+done
+
 # Create symlink
 ln -sf /opt/portix/portix "$DEB_ROOT/usr/bin/portix"
 
