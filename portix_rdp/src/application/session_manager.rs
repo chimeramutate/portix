@@ -68,18 +68,21 @@ impl RdpSessionManager {
     pub async fn connect(&self, profile: RdpProfile) -> Result<RdpSessionInfo> {
         profile.validate()?;
 
+        // Simpan profile_id sebelum profile dipindahkan (moved) ke RdpRuntime
+        let profile_id = profile.id.clone();
+        
         let session_id = Uuid::new_v4().to_string();
         let (command_tx, command_rx) = mpsc::channel::<RdpCommand>(32);
 
         let info = RdpSessionInfo {
             id: session_id.clone(),
-            profile_id: profile.id.clone(),
+            profile_id: profile_id.clone(),
             status: RdpConnectionStatus::Connecting,
         };
 
         // Spawn the RDP runtime task
         let runtime = RdpRuntime::new(
-            profile,
+            profile, // <--- profile dipindahkan di sini
             session_id.clone(),
             self.frame_tx.clone(),
             self.status_tx.clone(),
@@ -93,7 +96,7 @@ impl RdpSessionManager {
 
         println!(
             "[portix_rdp] spawning runtime for session {} profile={}",
-            session_id, profile.id,
+            session_id, profile_id, // <--- Gunakan profile_id yang sudah disimpan
         );
 
         tokio::spawn(async move {

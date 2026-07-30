@@ -81,6 +81,14 @@ class RdpWorkspaceView extends StatelessWidget {
                     icon: const Icon(Icons.upload_file),
                     label: const Text('Import .rdp'),
                   ),
+                  const SizedBox(width: 10),
+                  // Tombol test render frame — untuk debug sizing
+                  OutlinedButton.icon(
+                    onPressed: () =>
+                        Navigator.of(context).pushNamed('/rdp-frame-test'),
+                    icon: const Icon(Icons.bug_report, size: 16),
+                    label: const Text('Frame Test'),
+                  ),
                 ],
               ),
               if (state.message.isNotEmpty)

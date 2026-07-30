@@ -18,8 +18,10 @@ pub struct RdpErrorEvent {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RdpFrameEvent {
     pub session_id: String,
-    /// RGBA pixel data
-    pub data: Vec<u8>,
+    /// Pixel data dikodekan sebagai base64 string (BGRA8888, row-major, no padding).
+    /// Menggunakan base64 agar transfer melalui JSON jauh lebih efisien dibanding
+    /// array of integers (base64 ~1.33x ukuran data mentah, vs JSON int array ~4x).
+    pub data: String,
     pub width: u32,
     pub height: u32,
     pub x: u32,
