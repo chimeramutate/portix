@@ -5,17 +5,12 @@ edition = "2024"
 
 [lib]
 name = "portix_rdp"
-# Separate cdylib from portix_serv — required because russh and IronRDP
-# both transitively require curve25519-dalek but at different pre-release
-# versions (rc.0 vs rc.1) that Cargo cannot unify in a single crate.
-# Flutter loads libportix_rdp.so independently alongside libportix_serv.so.
 crate-type = ["cdylib", "staticlib", "rlib"]
+
 [dependencies]
+# ── IronRDP ────────────────────────────────────────────────────────────────
 ironrdp-graphics = "0.9"
 ironrdp-tokio = { version = "0.10", features = ["reqwest"] }
-reqwest = "0.12"
-url = "2"
-# IronRDP core
 ironrdp-connector = "0.10"
 ironrdp-session   = "0.11"
 ironrdp-async     = "0.10"
@@ -23,18 +18,20 @@ ironrdp-input     = "0.7"
 ironrdp-pdu       = "0.9"
 ironrdp-tls       = { version = "0.2", features = ["rustls-ring"] }
 
-# Runtime & utilities
-tokio    = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util"] }
-anyhow   = "1"
-serde    = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2"
-uuid     = { version = "1", features = ["v4", "serde"] }
-once_cell = "1"
-base64 = "0.22"
+# ── Network ────────────────────────────────────────────────────────────────
+reqwest = "0.12"
+url = "2"
 
-# FRB — this crate has its own bridge entry point (libportix_rdp.so).
-# Separated from portix_serv because curve25519-dalek version conflict
-# between russh (=5.0.0-rc.0) and IronRDP/picky (=5.0.0-rc.1) cannot
-# be resolved within a single Cargo dependency tree.
-flutter_rust_bridge = "=2.11.1"
+# ── Runtime & utilities ───────────────────────────────────────────────────
+tokio      = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util"] }
+tokio-util = "0.7" 
+anyhow     = "1"
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror  = "2"
+uuid       = { version = "1", features = ["v4", "serde"] }
+once_cell  = "1"
+base64     = "0.22"
+
+# ── Flutter bridge ─────────────────────────────────────────────────────────
+flutter_rust_bridge = "=2.12.0"

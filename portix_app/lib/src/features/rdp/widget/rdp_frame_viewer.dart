@@ -13,11 +13,13 @@ class RdpFrameViewer extends StatefulWidget {
     required this.sessionId,
     required this.desktopWidth,
     required this.desktopHeight,
+    this.onDisconnect,
   });
 
   final String sessionId;
   final int desktopWidth;
   final int desktopHeight;
+  final VoidCallback? onDisconnect;
 
   @override
   State<RdpFrameViewer> createState() => _RdpFrameViewerState();
@@ -28,26 +30,22 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
   StreamSubscription<RdpStatusEvent>? _statusSub;
   StreamSubscription<RdpErrorEvent>? _errorSub;
 
-  /// Full-resolution BGRA pixel buffer (bufferWidth * bufferHeight * 4 bytes).
-  /// Tiles di-blit langsung ke sini, lalu di-decode ke ui.Image sekali per frame.
   Uint8List _pixelBuffer = Uint8List(0);
   int _bufferWidth = 0;
   int _bufferHeight = 0;
 
-  /// Antrian tile yang belum di-render. Semua tile di-blit ke buffer
-  /// terlebih dahulu, baru satu kali decode ke ui.Image per animation frame.
   final List<RdpFrameEvent> _pendingTiles = [];
   bool _renderScheduled = false;
 
   ui.Image? _image;
   String? _statusMessage;
+  bool _isDisconnected = false;
 
   final FocusNode _focusNode = FocusNode();
 
   @override
   void initState() {
     super.initState();
-    // Inisialisasi buffer dengan warna biru gelap (dark navy seperti xrdp background)
     _resetBuffer(widget.desktopWidth, widget.desktopHeight);
 
     final svc = sl<RdpBackendService>();
@@ -65,47 +63,35 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
         .listen(_onErrorEvent);
   }
 
-  /// Init buffer dengan warna background default (solid black BGRA: 0,0,0,255)
   void _resetBuffer(int w, int h) {
     _bufferWidth = w > 0 ? w : 1280;
     _bufferHeight = h > 0 ? h : 800;
     final size = _bufferWidth * _bufferHeight * 4;
     _pixelBuffer = Uint8List(size);
-    // Fill alpha=255 agar tidak transparent
     for (int i = 3; i < size; i += 4) {
       _pixelBuffer[i] = 255;
     }
   }
 
-  /// Terima tile, masukkan ke antrian, jadwalkan render di frame berikutnya.
-  /// Dengan pendekatan ini, semua tile yang datang dalam satu "burst" di-blit
-  /// bersama sebelum satu decode → mengurangi total decode calls secara drastis.
   void _onFrame(RdpFrameEvent frame) {
+    if (_isDisconnected) return;
     if (frame.width == 0 || frame.height == 0) return;
-    if (frame.data.isEmpty) return;
-
-    debugPrint(
-      '[RDP] tile: x=${frame.x} y=${frame.y} w=${frame.width} h=${frame.height}'
-      ' bytes=${frame.data.length} expected=${frame.width * frame.height * 4}',
-    );
 
     _pendingTiles.add(frame);
 
     if (!_renderScheduled) {
       _renderScheduled = true;
-      // Jadwalkan render setelah microtask queue selesai (batching tiles)
       Future.microtask(_flushTiles);
     }
   }
 
   Future<void> _flushTiles() async {
-    if (!mounted) {
+    if (!mounted || _isDisconnected) {
       _pendingTiles.clear();
       _renderScheduled = false;
       return;
     }
 
-    // Ambil semua tile yang pending
     final tiles = List<RdpFrameEvent>.from(_pendingTiles);
     _pendingTiles.clear();
     _renderScheduled = false;
@@ -113,19 +99,19 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
     if (tiles.isEmpty) return;
 
     try {
-      // Blit semua tiles ke pixel buffer
       for (final tile in tiles) {
         _blitTile(tile);
       }
 
-      // Satu kali decode untuk semua tiles yang sudah di-blit
+      final safeBufferCopy = Uint8List.fromList(_pixelBuffer);
+
       final newImage = await _decodePixelBuffer(
-        _pixelBuffer,
+        safeBufferCopy,
         _bufferWidth,
         _bufferHeight,
       );
 
-      if (!mounted) {
+      if (!mounted || _isDisconnected) {
         newImage.dispose();
         return;
       }
@@ -138,7 +124,6 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
     }
   }
 
-  /// Blit satu tile ke dalam pixel buffer di posisi (tile.x, tile.y).
   void _blitTile(RdpFrameEvent tile) {
     final tileX = tile.x;
     final tileY = tile.y;
@@ -146,19 +131,18 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
     final tileH = tile.height;
     final tileData = tile.data;
 
-    // Jika tile melebihi buffer, perbesar buffer sambil mempertahankan konten lama
     if (tileX + tileW > _bufferWidth || tileY + tileH > _bufferHeight) {
-      final newW =
-          (tileX + tileW > _bufferWidth) ? (tileX + tileW) : _bufferWidth;
-      final newH =
-          (tileY + tileH > _bufferHeight) ? (tileY + tileH) : _bufferHeight;
+      final newW = (tileX + tileW > _bufferWidth)
+          ? (tileX + tileW)
+          : _bufferWidth;
+      final newH = (tileY + tileH > _bufferHeight)
+          ? (tileY + tileH)
+          : _bufferHeight;
 
       final newBuf = Uint8List(newW * newH * 4);
-      // Fill alpha=255
       for (int i = 3; i < newBuf.length; i += 4) {
         newBuf[i] = 255;
       }
-      // Salin konten lama baris per baris
       for (int row = 0; row < _bufferHeight; row++) {
         final srcStart = row * _bufferWidth * 4;
         final dstStart = row * newW * 4;
@@ -170,18 +154,17 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
       _bufferHeight = newH;
     }
 
-    // Validasi ukuran data tile
     final expectedBytes = tileW * tileH * 4;
     if (tileData.length < expectedBytes) {
       debugPrint(
-          'RDP tile size mismatch: got ${tileData.length}, expected $expectedBytes');
+        'RDP tile size mismatch: got ${tileData.length}, expected $expectedBytes',
+      );
       return;
     }
 
-    // Blit baris per baris dari tile ke buffer
     for (int row = 0; row < tileH; row++) {
       final dstRow = tileY + row;
-      if (dstRow >= _bufferHeight) break; // Jangan tulis di luar buffer
+      if (dstRow >= _bufferHeight) break;
 
       final dstOffset = (dstRow * _bufferWidth + tileX) * 4;
       final srcOffset = row * tileW * 4;
@@ -201,15 +184,36 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
   void _onStatus(RdpStatusEvent event) {
     if (!mounted) return;
     setState(() => _statusMessage = event.message ?? event.status.name);
+
+    if (event.status == RdpConnectionState.disconnected ||
+        event.status == RdpConnectionState.error) {
+      _handleDisconnect();
+    }
   }
 
   void _onErrorEvent(RdpErrorEvent event) {
     if (!mounted) return;
     setState(() => _statusMessage = 'Error: ${event.message}');
+
+    if (!event.isTransient) {
+      _handleDisconnect();
+    }
+  }
+
+  void _handleDisconnect() {
+    if (_isDisconnected) return;
+    _isDisconnected = true;
+    Future.delayed(const Duration(seconds: 1), () {
+      if (mounted) {
+        widget.onDisconnect?.call();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _isDisconnected = true;
+    sl<RdpBackendService>().disconnect(widget.sessionId);
     _frameSub?.cancel();
     _statusSub?.cancel();
     _errorSub?.cancel();
@@ -231,6 +235,7 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
   }
 
   void _handlePointerMove(PointerMoveEvent e) {
+    if (_isDisconnected) return;
     final box = context.findRenderObject() as RenderBox?;
     if (box == null) return;
     final (x, y) = _toDesktopCoords(e.localPosition, box.size);
@@ -238,6 +243,7 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
   }
 
   void _handlePointerDown(PointerDownEvent e) {
+    if (_isDisconnected) return;
     final box = context.findRenderObject() as RenderBox?;
     if (box == null) return;
     final (x, y) = _toDesktopCoords(e.localPosition, box.size);
@@ -256,6 +262,7 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
   }
 
   void _handlePointerUp(PointerUpEvent e) {
+    if (_isDisconnected) return;
     final box = context.findRenderObject() as RenderBox?;
     if (box == null) return;
     final (x, y) = _toDesktopCoords(e.localPosition, box.size);
@@ -277,6 +284,7 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
   }
 
   void _handleKey(KeyEvent event) {
+    if (_isDisconnected) return;
     final scancode = _mapToPs2Scancode(event.physicalKey);
     if (scancode == 0) return;
     final down = event is KeyDownEvent || event is KeyRepeatEvent;
@@ -331,21 +339,13 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
   }
 }
 
-/// Decode pixel buffer ke ui.Image.
-/// IronRDP PixelFormat::RgbA32 ternyata menyimpan byte dalam urutan B,G,R,A
-/// (terkonfirmasi dari warna: dengan bgra8888 warna xrdp logo benar).
-/// Flutter ui.PixelFormat.bgra8888 = byte[0]=B, [1]=G, [2]=R, [3]=A ✓
-Future<ui.Image> _decodePixelBuffer(
-  Uint8List pixels,
-  int width,
-  int height,
-) {
+Future<ui.Image> _decodePixelBuffer(Uint8List pixels, int width, int height) {
   final completer = Completer<ui.Image>();
   ui.decodeImageFromPixels(
     pixels,
     width,
     height,
-    ui.PixelFormat.bgra8888, // Confirmed: IronRDP byte order is BGRA
+    ui.PixelFormat.rgba8888,
     completer.complete,
   );
   return completer.future;
@@ -357,11 +357,28 @@ class _RdpPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final imageRatio = image.width / image.height;
+    final widgetRatio = size.width / size.height;
+
+    Rect dstRect;
+
+    if (widgetRatio > imageRatio) {
+      final scaledHeight = size.height;
+      final scaledWidth = scaledHeight * imageRatio;
+      final dx = (size.width - scaledWidth) / 2;
+      dstRect = Rect.fromLTWH(dx, 0, scaledWidth, scaledHeight);
+    } else {
+      final scaledWidth = size.width;
+      final scaledHeight = scaledWidth / imageRatio;
+      final dy = (size.height - scaledHeight) / 2;
+      dstRect = Rect.fromLTWH(0, dy, scaledWidth, scaledHeight);
+    }
+
     canvas.drawImageRect(
       image,
       Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
-      Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..filterQuality = FilterQuality.medium,
+      dstRect,
+      Paint()..filterQuality = FilterQuality.low,
     );
   }
 
