@@ -13,6 +13,7 @@ use ironrdp_tokio::{FramedWrite, TokioFramed, connect_begin, connect_finalize, m
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{Duration, timeout};
+use tokio_util::sync::CancellationToken; 
 
 use crate::domain::errors::{RdpError, Result};
 use crate::domain::events::{RdpErrorEvent, RdpFrameEvent, RdpStatusEvent};
@@ -21,7 +22,7 @@ use crate::domain::session::RdpConnectionStatus;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// Commands sent from Flutter to an active RDP session.
+#[derive(Debug)]
 pub enum RdpCommand {
     MouseMove {
         x: u16,
@@ -66,8 +67,15 @@ impl RdpRuntime {
         }
     }
 
-    pub async fn run(self, mut command_rx: mpsc::Receiver<RdpCommand>) -> Result<()> {
-        // ── 1. TCP connect ─────────────────────────────────────────────────
+    pub async fn run(
+        self,
+        mut command_rx: mpsc::Receiver<RdpCommand>,
+        cancel_token: CancellationToken, 
+    ) -> Result<()> {
+        if cancel_token.is_cancelled() {
+            return Err(RdpError::Cancelled);
+        }
+
         let tcp = timeout(
             CONNECT_TIMEOUT,
             TcpStream::connect(self.profile.socket_addr()),
@@ -79,7 +87,6 @@ impl RdpRuntime {
 
         let client_addr = tcp.peer_addr().map_err(RdpError::Io)?;
 
-        // ── 2. Build Config ────────────────────────────────────────────────
         let credentials = Credentials::UsernamePassword {
             username: self.profile.username.clone(),
             password: self.profile.password.clone().unwrap_or_default(),
@@ -104,7 +111,7 @@ impl RdpRuntime {
             bitmap: None,
             dig_product_id: String::new(),
             client_dir: String::new(),
-            alternate_shell: String::new(),
+            alternate_shell: self.profile.alternate_shell.clone().unwrap_or_default(),
             work_dir: String::new(),
             platform: ironrdp_pdu::rdp::capability_sets::MajorPlatformType::UNSPECIFIED,
             hardware_id: None,
@@ -115,12 +122,11 @@ impl RdpRuntime {
             license_cache: None,
             timezone_info: ironrdp_pdu::rdp::client_info::TimezoneInfo::default(),
             compression_type: None,
-            enable_server_pointer: true,
-            pointer_software_rendering: true,
+            enable_server_pointer: false,
+            pointer_software_rendering: false,
             multitransport_flags: None,
         };
 
-        // ── 3. Pre-TLS connection sequence ─────────────────────────────────
         let mut connector = ClientConnector::new(config, client_addr);
         let mut framed = TokioFramed::new(tcp);
 
@@ -129,7 +135,6 @@ impl RdpRuntime {
             .map_err(|_| RdpError::ConnectionTimeout)?
             .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
 
-        // ── 4. TLS upgrade ─────────────────────────────────────────────────
         let (raw_stream, leftover) = framed.into_inner();
 
         let (upgraded_stream, server_cert_der) = timeout(
@@ -164,7 +169,6 @@ impl RdpRuntime {
         .map_err(|_| RdpError::ConnectionTimeout)?
         .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
 
-        // ── 5. Active session ──────────────────────────────────────────────
         self.emit_status(RdpConnectionStatus::Connected, Some("connected"));
 
         let mut image = DecodedImage::new(
@@ -180,17 +184,22 @@ impl RdpRuntime {
             message_channel_id: connection_result.message_channel_id,
             share_id: connection_result.share_id,
             compression_type: connection_result.compression_type,
-            enable_server_pointer: true,
-            pointer_software_rendering: true,
+            enable_server_pointer: false,      
+            pointer_software_rendering: false, 
         }
         .build();
+        
 
-        // Database bawaan ironrdp-input: menyimpan state keyboard/mouse dan
-        // menghasilkan FastPathInputEvent lewat Database::apply(operations).
         let mut input_db = Database::new();
 
         loop {
             tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    println!("[portix_rdp] session {} cancelled, initiating graceful shutdown", self.session_id);
+                    let _ = active_stage.graceful_shutdown();
+                    return Err(RdpError::Cancelled);
+                }
+
                 pdu_result = tls_framed.read_pdu() => {
                     let (action, pdu_bytes) = pdu_result
                         .map_err(|e| RdpError::Protocol(e.to_string()))?;
@@ -202,12 +211,14 @@ impl RdpRuntime {
                     for output in outputs {
                         match output {
                             ActiveStageOutput::ResponseFrame(frame) => {
+                                
                                 tls_framed.write_all(&frame).await.map_err(RdpError::Io)?;
                             }
                             ActiveStageOutput::GraphicsUpdate(region) => {
                                 self.emit_frame(&image, &region);
                             }
                             ActiveStageOutput::Terminate(_) => {
+                                println!("[portix_rdp] session {} terminated by server", self.session_id);
                                 return Ok(());
                             }
                             _ => {}
@@ -218,11 +229,14 @@ impl RdpRuntime {
                 cmd = command_rx.recv() => {
                     match cmd {
                         Some(RdpCommand::Disconnect) | None => {
+                            println!("[portix_rdp] session {} disconnect requested", self.session_id);
+                            
                             let shutdown_outputs = active_stage
                                 .graceful_shutdown()
                                 .map_err(|e| RdpError::Protocol(e.to_string()))?;
                             for output in shutdown_outputs {
                                 if let ActiveStageOutput::ResponseFrame(frame) = output {
+                                    
                                     tls_framed.write_all(&frame).await.map_err(RdpError::Io)?;
                                 }
                             }
@@ -235,14 +249,7 @@ impl RdpRuntime {
                                 continue;
                             }
 
-                            let fast_path_input = FastPathInput::new(events.into_vec())
-                                .map_err(|e| RdpError::Protocol(e.to_string()))?;
-
-                            let mut buf = vec![0u8; fast_path_input.size()];
-                            let mut cursor = WriteCursor::new(&mut buf);
-                            fast_path_input.encode(&mut cursor).map_err(|e| RdpError::Protocol(e.to_string()))?;
-
-                            tls_framed.write_all(&buf).await.map_err(RdpError::Io)?;
+                            self.send_fast_path(&mut tls_framed, events.into_vec()).await?;
                         }
 
                         Some(RdpCommand::MouseButton { x, y, button, down }) => {
@@ -259,8 +266,6 @@ impl RdpRuntime {
                                 Operation::MouseButtonReleased(mouse_button)
                             };
 
-                            // Sinkronkan posisi kursor dulu supaya event tombol
-                            // memakai koordinat yang tepat.
                             let mut events = input_db.apply([Operation::MouseMove(MousePosition { x, y })]);
                             events.extend(input_db.apply([op]));
 
@@ -268,14 +273,7 @@ impl RdpRuntime {
                                 continue;
                             }
 
-                            let fast_path_input = FastPathInput::new(events.into_vec())
-                                .map_err(|e| RdpError::Protocol(e.to_string()))?;
-
-                            let mut buf = vec![0u8; fast_path_input.size()];
-                            let mut cursor = WriteCursor::new(&mut buf);
-                            fast_path_input.encode(&mut cursor).map_err(|e| RdpError::Protocol(e.to_string()))?;
-
-                            tls_framed.write_all(&buf).await.map_err(RdpError::Io)?;
+                            self.send_fast_path(&mut tls_framed, events.into_vec()).await?;
                         }
 
                         Some(RdpCommand::KeyboardInput { scancode, down }) => {
@@ -292,19 +290,30 @@ impl RdpRuntime {
                                 continue;
                             }
 
-                            let fast_path_input = FastPathInput::new(events.into_vec())
-                                .map_err(|e| RdpError::Protocol(e.to_string()))?;
-
-                            let mut buf = vec![0u8; fast_path_input.size()];
-                            let mut cursor = WriteCursor::new(&mut buf);
-                            fast_path_input.encode(&mut cursor).map_err(|e| RdpError::Protocol(e.to_string()))?;
-
-                            tls_framed.write_all(&buf).await.map_err(RdpError::Io)?;
+                            self.send_fast_path(&mut tls_framed, events.into_vec()).await?;
                         }
                     }
                 }
             }
         }
+    }
+
+    async fn send_fast_path<W: FramedWrite + Unpin>(
+        &self,
+        framed: &mut W,
+        events: Vec<ironrdp_pdu::input::fast_path::FastPathInputEvent>,
+    ) -> Result<()> {
+        let fast_path_input = FastPathInput::new(events)
+            .map_err(|e| RdpError::Protocol(e.to_string()))?;
+
+        let mut buf = vec![0u8; fast_path_input.size()];
+        let mut cursor = WriteCursor::new(&mut buf);
+        fast_path_input.encode(&mut cursor)
+            .map_err(|e| RdpError::Protocol(e.to_string()))?;
+
+        
+        framed.write_all(&buf).await.map_err(RdpError::Io)?;
+        Ok(())
     }
 
     fn emit_status(&self, status: RdpConnectionStatus, message: Option<&str>) {
@@ -329,7 +338,6 @@ impl RdpRuntime {
             return;
         }
 
-        // Kumpulkan pixel dari region yang berubah menjadi satu Vec<u8> padat
         let mut packed = Vec::with_capacity(w * h * bpp);
         for row in 0..h {
             let row_start = (y + row) * stride + x * bpp;
@@ -337,18 +345,20 @@ impl RdpRuntime {
             packed.extend_from_slice(&full_data[row_start..row_end]);
         }
 
-        // Encode pixel data ke base64 untuk transfer JSON yang efisien
-        // (JSON array of ints ~4x lebih besar dari base64 string)
         let encoded_data = BASE64.encode(&packed);
 
-        // Kirim sebagai base64 string ke Flutter
-        let _ = self.frame_tx.send(RdpFrameEvent {
+        if let Err(e) = self.frame_tx.send(RdpFrameEvent {
             session_id: self.session_id.clone(),
-            data: encoded_data, // Base64-encoded BGRA pixel data
+            data: encoded_data,
             width: w as u32,
             height: h as u32,
             x: x as u32,
             y: y as u32,
-        });
+        }) {
+            println!(
+                "[portix_rdp] frame send failed for session {} (receiver dropped): {}",
+                self.session_id, e
+            );
+        }
     }
 }

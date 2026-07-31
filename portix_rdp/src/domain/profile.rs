@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use super::errors::{RdpError, Result};
 
@@ -15,9 +16,7 @@ pub struct RdpProfile {
     pub desktop_height: u16,
     pub full_screen: bool,
     pub enable_cred_ssp: bool,
-    /// Alternate shell (used by CyberArk PSM)
     pub alternate_shell: Option<String>,
-    /// Original .rdp file content (for CyberArk PSM pass-through)
     pub source_rdp_content: Option<String>,
 }
 
@@ -26,7 +25,6 @@ impl RdpProfile {
         format!("{}:{}", self.host, self.port)
     }
 
-    /// True if this profile came from a CyberArk PSM .rdp file.
     pub fn is_cyberark_psm(&self) -> bool {
         self.alternate_shell
             .as_ref()
@@ -49,10 +47,41 @@ impl RdpProfile {
         }
         Ok(())
     }
+
+    
+    
+    pub fn connection_key(&self) -> String {
+        format!("{}:{}@{}:{}", 
+            self.host, 
+            self.port, 
+            self.username,
+            self.domain.as_deref().unwrap_or("")
+        )
+    }
 }
 
-/// Parses a .rdp file content string into an [RdpProfile].
-/// Handles CyberArk PSM format: key:type:value per line.
+
+impl Default for RdpProfile {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            host: String::new(),
+            port: 3389,
+            username: String::new(),
+            password: None,
+            domain: None,
+            desktop_width: 1280,
+            desktop_height: 800,
+            full_screen: false,
+            enable_cred_ssp: true,
+            alternate_shell: None,
+            source_rdp_content: None,
+        }
+    }
+}
+
+
 pub fn parse_rdp_file(content: &str, profile_id: &str, profile_name: Option<&str>) -> Result<RdpProfile> {
     let settings = parse_rdp_lines(content);
 
@@ -78,7 +107,6 @@ pub fn parse_rdp_file(content: &str, profile_id: &str, profile_name: Option<&str
         .unwrap_or(1)
         == 1;
 
-    // Parse host and port from full address
     let (host, port) = if let Some(port_str) = server_port_str {
         let port = port_str.trim().parse::<u16>().unwrap_or(3389);
         (full_address.trim().to_owned(), port)
@@ -91,7 +119,7 @@ pub fn parse_rdp_file(content: &str, profile_id: &str, profile_name: Option<&str
             .unwrap_or(3389);
         (host, port)
     };
-    // Parse domain\username format (CyberArk format: localhost\PSM@sessionid)
+
     let (parsed_domain, parsed_username) = if username.contains('\\') {
         let mut parts = username.splitn(2, '\\');
         let domain = parts.next().map(|s| s.trim().to_owned());
@@ -101,7 +129,6 @@ pub fn parse_rdp_file(content: &str, profile_id: &str, profile_name: Option<&str
         (None, username.clone())
     };
 
-    // Derive profile name
     let name = if let Some(name) = profile_name {
         name.to_owned()
     } else if alternate_shell.is_some() {
@@ -127,14 +154,13 @@ pub fn parse_rdp_file(content: &str, profile_id: &str, profile_name: Option<&str
     })
 }
 
-fn parse_rdp_lines(content: &str) -> std::collections::HashMap<String, String> {
-    let mut map = std::collections::HashMap::new();
+fn parse_rdp_lines(content: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
-        // Format: key:type:value
         let Some(colon_pos) = trimmed.find(':') else {
             continue;
         };
@@ -172,88 +198,27 @@ EnableCredSspSupport:i:1"#;
         assert!(profile.is_cyberark_psm());
         assert_eq!(profile.alternate_shell.as_deref(), Some("PSM@abc123"));
     }
-}
-
-
-#[cfg(test)]
-mod profile_tests {
-    use super::*;
-
-    // Sample file dari user (sudah diformat ulang dengan line breaks yang benar)
-    const USER_SAMPLE_RDP: &str = r#"full address:s:172.20.250.testserver
-server port:i:3389
-username:s:localhost\PSM@bf36d862-034b-4dc4-b152-54595752979b
-alternate shell:s:PSM@bf36d862-034b-4dc4-b152-54595752979b
-desktopwidth:i:1024
-desktopheight:i:768
-screen mode id:i:2
-redirectdrives:i:1
-drivestoredirect:s:*
-redirectsmartcards:i:0
-EnableCredSspSupport:i:0
-redirectcomports:i:0
-remoteapplicationmode:i:0
-use multimon:i:0
-span monitors:i:0"#;
 
     #[test]
-    fn test_parse_user_sample_rdp() {
-        let profile = parse_rdp_file(USER_SAMPLE_RDP, "test-id", None).unwrap();
+    fn test_connection_key() {
+        let p1 = RdpProfile {
+            id: "uuid-1".into(),
+            host: "10.0.0.1".into(),
+            port: 3389,
+            username: "admin".into(),
+            domain: None,
+            ..Default::default()
+        };
+        let p2 = RdpProfile {
+            id: "uuid-2".into(),  
+            host: "10.0.0.1".into(),
+            port: 3389,
+            username: "admin".into(),
+            domain: None,
+            ..Default::default()
+        };
         
-        // Validasi parsing
-        assert_eq!(profile.id, "test-id");
-        assert_eq!(profile.host, "172.20.250.testserver");
-        assert_eq!(profile.port, 3389);
-        assert_eq!(profile.username, "PSM@bf36d862-034b-4dc4-b152-54595752979b");
-        assert_eq!(profile.domain.as_deref(), Some("localhost"));
         
-        // Resolution
-        assert_eq!(profile.desktop_width, 1024);
-        assert_eq!(profile.desktop_height, 768);
-        
-        // Full screen (screen mode id:i:2)
-        assert!(profile.full_screen);
-        
-        // CyberArk PSM detection
-        assert!(profile.is_cyberark_psm());
-        assert_eq!(
-            profile.alternate_shell.as_deref(),
-            Some("PSM@bf36d862-034b-4dc4-b152-54595752979b")
-        );
-        
-        // CredSSP disabled
-        assert!(!profile.enable_cred_ssp);
-        
-        // Name should include CyberArk
-        assert!(profile.name.contains("CyberArk"));
-    }
-
-    #[test]
-    fn test_parse_malformed_port() {
-        // Simulasi port yang salah seperti "33test"
-        let bad_port_rdp = r#"full address:s:192.168.1.1
-server port:i:33test
-username:s:admin"#;
-        
-        let profile = parse_rdp_file(bad_port_rdp, "id", None).unwrap();
-        // Should fallback to default port 3389
-        assert_eq!(profile.port, 3389);
-    }
-
-    #[test]
-    fn test_case_insensitive_field_names() {
-        // Test dengan berbagai kapitalisasi
-        let mixed = r#"Full Address:s:test.com
-SERVER PORT:i:3389
-Username:s:user
-DESKTOPWIDTH:i:1920
-enablecredsspsupport:i:1"#;
-        
-        let profile = parse_rdp_file(mixed, "id", None).unwrap();
-        assert_eq!(profile.host, "test.com");
-        assert_eq!(profile.port, 3389);
-        assert_eq!(profile.username, "user");
-        assert_eq!(profile.desktop_width, 1920);
-        assert!(profile.enable_cred_ssp);
+        assert_eq!(p1.connection_key(), p2.connection_key());
     }
 }

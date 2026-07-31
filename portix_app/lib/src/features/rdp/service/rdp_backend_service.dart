@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
@@ -11,30 +10,47 @@ import 'package:portix/src/rust_rdp/api.dart' as rdp_api;
 import 'package:portix/src/rust_rdp/domain/profile.dart' as rdp_profile;
 import 'package:portix/src/rust_rdp/frb_generated.dart';
 
-/// Service untuk berinteraksi dengan RDP backend (portix_rdp via Rust bridge).
-///
-/// Handles:
-/// - Parsing .rdp files menggunakan Rust backend
-/// - Connecting ke RDP server via IronRDP
-/// - Streaming bitmap frames dan input forwarding
-///
-/// Requires [RdpBackendService.init] to be called once at app startup
-/// (or [RdpBackendService.initDev] in dev mode) before using any method.
 class RdpBackendService {
-  const RdpBackendService();
+  RdpBackendService() {
+    _initStreamSubscriptions();
+  }
 
-  // ── Lifecycle ────────────────────────────────────────────────────────────
+  final Map<String, String> _activeSessions = {};
+  final Map<String, String> _sessionToProfile = {};
 
-  /// Initialise the RDP Rust library in development mode (loads from default path).
+  void _initStreamSubscriptions() {
+    statusStream().listen((event) {
+      switch (event.status) {
+        case RdpConnectionState.connected:
+          break;
+        case RdpConnectionState.disconnected:
+        case RdpConnectionState.error:
+          final profileId = _sessionToProfile.remove(event.sessionId);
+          if (profileId != null) {
+            _activeSessions.remove(profileId);
+          }
+          break;
+        case RdpConnectionState.connecting:
+          break;
+      }
+    });
+
+    errorStream().listen((event) {
+      if (event.sessionId != null) {
+        final profileId = _sessionToProfile.remove(event.sessionId);
+        if (profileId != null) {
+          _activeSessions.remove(profileId);
+        }
+      }
+    });
+  }
+
   static Future<void> initDev() async {
     await RdpRustLib.init();
   }
 
-  /// Helper for logging: show the expected production library path.
   static String productionPathHint() => _productionLibraryPath();
 
-  /// Initialise the RDP Rust library in production mode (loads libportix_rdp.so
-  /// from the same directory as the application executable).
   static Future<void> initProduction() async {
     await RdpRustLib.init(
       externalLibrary: ExternalLibrary.open(
@@ -44,10 +60,6 @@ class RdpBackendService {
     );
   }
 
-  // ── Parsing ──────────────────────────────────────────────────────────────
-
-  /// Parse file .rdp dan return [RdpProfile].
-  /// File dibaca lalu content-nya dikirim ke Rust backend untuk parsing.
   Future<Either<Failure, RdpProfile>> parseRdpFile(String filePath) async {
     try {
       final file = File(filePath);
@@ -61,7 +73,6 @@ class RdpBackendService {
     }
   }
 
-  /// Parse konten string .rdp langsung (tanpa membaca file).
   Future<Either<Failure, RdpProfile>> parseRdpContent(
     String content, {
     String? profileName,
@@ -71,13 +82,6 @@ class RdpBackendService {
         rdpContent: content,
         profileName: profileName,
       );
-      // rdpParseFile returns RdpSessionInfo; the full profile is embedded
-      // in the session. We return a minimal RdpProfile derived from it.
-      // The caller can call connect() later with this profile.
-      //
-      // Note: For now we use the Dart-side parser to get the full profile
-      // data (host, port, etc.) because rdpParseFile only returns session
-      // metadata. The Rust parse is used for validation.
       final parser = RdpFileParser();
       final profile = parser.parse(
         content,
@@ -90,15 +94,31 @@ class RdpBackendService {
     }
   }
 
-  // ── Connection ───────────────────────────────────────────────────────────
-
-  /// Connect ke RDP server menggunakan profile.
   Future<Either<Failure, RdpConnectionResult>> connect(
     RdpProfile profile,
   ) async {
     try {
+      final existingSessionId = _activeSessions[profile.id];
+      if (existingSessionId != null) {
+        debugPrint(
+          '[RDP] Dart-side: profile ${profile.id} already has session $existingSessionId',
+        );
+        return Right(
+          RdpConnectionResult(
+            sessionId: existingSessionId,
+            profileId: profile.id,
+            host: profile.host,
+            port: profile.port,
+          ),
+        );
+      }
+
       final rustProfile = profile.toRustProfile();
       final sessionInfo = await rdp_api.rdpConnect(profile: rustProfile);
+
+      _activeSessions[profile.id] = sessionInfo.id;
+      _sessionToProfile[sessionInfo.id] = profile.id;
+
       return Right(
         RdpConnectionResult(
           sessionId: sessionInfo.id,
@@ -108,29 +128,55 @@ class RdpBackendService {
         ),
       );
     } catch (e) {
+      final errorMsg = e.toString();
+      if (errorMsg.contains('already has active session')) {
+        debugPrint('[RDP] Recovering from duplicate session error');
+
+        return Left(Failure('Session already active. Please try again.'));
+      }
+
       return Left(Failure('Gagal connect ke RDP server: $e'));
     }
   }
 
-  /// Disconnect dari RDP session.
   Future<Either<Failure, void>> disconnect(String sessionId) async {
     try {
+      final profileId = _sessionToProfile.remove(sessionId);
+      if (profileId != null) {
+        _activeSessions.remove(profileId);
+      }
+
       await rdp_api.rdpDisconnect(sessionId: sessionId);
       return const Right(null);
     } catch (e) {
+      final errorMsg = e.toString();
+      if (errorMsg.contains('not found') || errorMsg.contains('may already')) {
+        debugPrint('[RDP] Disconnect: session $sessionId already gone');
+        return const Right(null);
+      }
       return Left(Failure('Gagal disconnect: $e'));
     }
   }
 
-  // ── Input Forwarding ─────────────────────────────────────────────────────
-
-  /// Send mouse move event ke RDP session.
-  Future<void> sendMouseMove(String sessionId, int x, int y) async {
-    await rdp_api.rdpSendMouseMove(sessionId: sessionId, x: x, y: y);
+  bool isSessionActiveForProfile(String profileId) {
+    return _activeSessions.containsKey(profileId);
   }
 
-  /// Send mouse button event ke RDP session.
-  /// button: 1=left, 2=right, 3=middle
+  String? getActiveSessionId(String profileId) {
+    return _activeSessions[profileId];
+  }
+
+  Map<String, String> get activeSessions => Map.unmodifiable(_activeSessions);
+
+  Future<void> sendMouseMove(String sessionId, int x, int y) async {
+    if (!_sessionToProfile.containsKey(sessionId)) return;
+    try {
+      await rdp_api.rdpSendMouseMove(sessionId: sessionId, x: x, y: y);
+    } catch (e) {
+      debugPrint('[RDP] sendMouseMove error: $e');
+    }
+  }
+
   Future<void> sendMouseButton(
     String sessionId,
     int x,
@@ -138,32 +184,37 @@ class RdpBackendService {
     int button,
     bool down,
   ) async {
-    await rdp_api.rdpSendMouseButton(
-      sessionId: sessionId,
-      x: x,
-      y: y,
-      button: button,
-      down: down,
-    );
+    if (!_sessionToProfile.containsKey(sessionId)) return;
+    try {
+      await rdp_api.rdpSendMouseButton(
+        sessionId: sessionId,
+        x: x,
+        y: y,
+        button: button,
+        down: down,
+      );
+    } catch (e) {
+      debugPrint('[RDP] sendMouseButton error: $e');
+    }
   }
 
-  /// Send keyboard scancode input ke RDP session.
   Future<void> sendKeyboardInput(
     String sessionId,
     int scancode,
     bool down,
   ) async {
-    await rdp_api.rdpSendKeyboardInput(
-      sessionId: sessionId,
-      scancode: scancode,
-      down: down,
-    );
+    if (!_sessionToProfile.containsKey(sessionId)) return;
+    try {
+      await rdp_api.rdpSendKeyboardInput(
+        sessionId: sessionId,
+        scancode: scancode,
+        down: down,
+      );
+    } catch (e) {
+      debugPrint('[RDP] sendKeyboardInput error: $e');
+    }
   }
 
-  // ── Event Streams ────────────────────────────────────────────────────────
-
-  /// Stream bitmap frame updates (RGBA pixel data) dari semua RDP session.
-  /// Setiap event adalah JSON-serialised [RdpFrameEvent].
   Stream<RdpFrameEvent> frameStream() {
     return rdp_api.rdpFrameStream().map((json) {
       final decoded = jsonDecode(json) as Map<String, Object?>;
@@ -171,7 +222,6 @@ class RdpBackendService {
     });
   }
 
-  /// Stream status updates dari semua RDP session.
   Stream<RdpStatusEvent> statusStream() {
     return rdp_api.rdpStatusStream().map(
       (json) =>
@@ -179,18 +229,19 @@ class RdpBackendService {
     );
   }
 
-  /// Stream error events dari semua RDP session.
   Stream<RdpErrorEvent> errorStream() {
     return rdp_api.rdpErrorStream().map(
       (json) =>
           RdpErrorEvent.fromJson(jsonDecode(json) as Map<String, Object?>),
     );
   }
+
+  void dispose() {
+    _activeSessions.clear();
+    _sessionToProfile.clear();
+  }
 }
 
-// ── Result types ─────────────────────────────────────────────────────────────
-
-/// Result dari koneksi RDP yang sukses.
 class RdpConnectionResult {
   const RdpConnectionResult({
     required this.sessionId,
@@ -205,7 +256,6 @@ class RdpConnectionResult {
   final int port;
 }
 
-/// Bitmap frame event dari RDP session.
 class RdpFrameEvent {
   const RdpFrameEvent({
     required this.sessionId,
@@ -221,10 +271,8 @@ class RdpFrameEvent {
     Uint8List pixels;
 
     if (rawData is String) {
-      // New format: base64-encoded string dari Rust — decode ke bytes
       pixels = base64Decode(rawData);
     } else if (rawData is List) {
-      // Old/fallback format: array of int
       pixels = Uint8List.fromList(rawData.cast<int>());
     } else {
       pixels = Uint8List(0);
@@ -241,7 +289,6 @@ class RdpFrameEvent {
   }
 
   final String sessionId;
-  // Decoded RGBA8888 pixel data
   final Uint8List data;
   final int width;
   final int height;
@@ -249,7 +296,6 @@ class RdpFrameEvent {
   final int y;
 }
 
-/// Status event dari RDP session.
 class RdpStatusEvent {
   const RdpStatusEvent({
     required this.sessionId,
@@ -275,23 +321,26 @@ class RdpStatusEvent {
   };
 }
 
-/// Error event dari RDP session.
 class RdpErrorEvent {
-  const RdpErrorEvent({required this.message, this.sessionId});
+  const RdpErrorEvent({required this.message, this.sessionId, this.code});
 
   factory RdpErrorEvent.fromJson(Map<String, Object?> json) => RdpErrorEvent(
     message: json['message'] as String? ?? 'Unknown RDP error',
     sessionId: json['session_id'] as String?,
+    code: json['code'] as String?,
   );
 
   final String message;
   final String? sessionId;
+  final String? code;
+
+  bool get isTransient =>
+      code == 'SESSION_NOT_FOUND' ||
+      code == 'CANCELLED' ||
+      code == 'DISCONNECTED';
 }
 
-/// Status koneksi RDP (Dart-side representation).
 enum RdpConnectionState { disconnected, connecting, connected, error }
-
-// ── Private helpers ───────────────────────────────────────────────────────────
 
 extension on RdpProfile {
   rdp_profile.RdpProfile toRustProfile() => rdp_profile.RdpProfile(
@@ -306,9 +355,7 @@ extension on RdpProfile {
     desktopHeight: desktopHeight,
     fullScreen: fullScreen,
     enableCredSsp: enableCredSsp,
-    // Empty string → null for Rust Option<String>
     alternateShell: alternateShell.isEmpty ? null : alternateShell,
-    // Dart RdpProfile doesn't carry raw .rdp file content
     sourceRdpContent: null,
   );
 }

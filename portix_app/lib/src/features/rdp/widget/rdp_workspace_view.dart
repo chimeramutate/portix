@@ -16,11 +16,14 @@ class RdpWorkspaceView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<RdpWorkspaceBloc, RdpWorkspaceState>(
+      // ✅ PERBAIKAN: Navigasi hanya jika session ID benar-benar berubah
       listenWhen: (previous, current) =>
-          previous.lastSessionId == null && current.lastSessionId != null,
+          previous.lastSessionId != current.lastSessionId &&
+          current.lastSessionId != null,
       listener: (context, state) {
         final profile = state.selectedProfile;
         if (profile == null) return;
+
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) => RdpSessionPage(
@@ -333,8 +336,9 @@ class _RdpDetailsPanel extends StatelessWidget {
                 },
                 icon: const Icon(Icons.delete_outline),
                 label: const Text('Delete'),
+                // ✅ PERBAIKAN: Update ke WidgetStateProperty (Flutter 3.22+)
                 style: ButtonStyle(
-                  foregroundColor: MaterialStateProperty.all(AppColors.danger),
+                  foregroundColor: WidgetStateProperty.all(AppColors.danger),
                 ),
               ),
             ],

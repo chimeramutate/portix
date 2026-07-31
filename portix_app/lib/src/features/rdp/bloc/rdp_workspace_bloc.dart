@@ -238,6 +238,12 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
     RdpLaunchRequested event,
     Emitter<RdpWorkspaceState> emit,
   ) async {
+    // ✅ 1. Guard terhadap multiple clicks
+    if (state.isBusy) {
+      print('RDP launch ignored: already launching/processing');
+      return;
+    }
+
     final profile = state.profiles
         .where((p) => p.id == event.profileId)
         .firstOrNull;
@@ -249,24 +255,27 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
     }
 
     emit(state.copyWith(isBusy: true, message: 'Launching RDP session...'));
-    // First try embedded Rust RDP backend (portix_rdp). If it fails,
-    // fallback to external launch via RdpLaunchService.
+
     try {
       final rdpService = sl<RdpBackendService>();
-      // ignore: avoid_print
       print(
         'RDP launch requested for profile ${profile.id} ${profile.address}',
       );
+
+      // ✅ 2. Panggil connect (sudah handle deduplication di dalamnya)
       final backendResult = await rdpService.connect(profile);
+
       backendResult.fold(
         (failure) async {
-          // ignore: avoid_print
           print('RDP embedded connect failed: ${failure.message}');
-          // Embedded backend failed — try external launcher as fallback.
+
+          // ✅ 3. LANGSUNG FALLBACK. Tidak ada pengecekan "already has active session" lagi
+          // karena RdpBackendService.connect() sekarang sudah mengembalikan Right()
+          // jika sessionnya sudah ada.
+
           final result = await _launchService.launch(profile);
           result.fold(
             (failure2) {
-              // ignore: avoid_print
               print('RDP external launcher failed: ${failure2.message}');
               emit(
                 state.copyWith(
@@ -277,7 +286,6 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
               );
             },
             (launchResult) {
-              // ignore: avoid_print
               print(
                 'RDP external launcher succeeded: ${launchResult.methodLabel}',
               );
@@ -293,7 +301,7 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
           );
         },
         (conn) {
-          // ignore: avoid_print
+          // ✅ 4. SUKSES. Baik itu session baru, maupun session lama yang di-reuse
           print('RDP embedded connect succeeded: session=${conn.sessionId}');
           emit(
             state.copyWith(
@@ -306,15 +314,10 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
         },
       );
     } catch (error) {
-      // ignore: avoid_print
       print('RDP launch caught unexpected error: $error');
-      // ignore: avoid_print
-      print('RDP launch caught unexpected error: $error');
-      // If unexpected error, attempt external launcher as last resort.
       final result = await _launchService.launch(profile);
       result.fold(
         (failure) {
-          // ignore: avoid_print
           print('RDP external launcher fallback failed: ${failure.message}');
           emit(
             state.copyWith(
@@ -325,7 +328,6 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
           );
         },
         (launchResult) {
-          // ignore: avoid_print
           print(
             'RDP external launcher fallback succeeded: ${launchResult.methodLabel}',
           );
