@@ -1,4 +1,3 @@
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use ironrdp_connector::{ClientConnector, Config, Credentials, DesktopSize, ServerName};
 use ironrdp_graphics::image_processing::PixelFormat;
 use ironrdp_input::{Database, MouseButton, MousePosition, Operation, Scancode};
@@ -10,10 +9,12 @@ use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{ActiveStageBuilder, ActiveStageOutput};
 use ironrdp_tokio::reqwest::ReqwestNetworkClient;
 use ironrdp_tokio::{FramedWrite, TokioFramed, connect_begin, connect_finalize, mark_as_upgraded};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{Duration, timeout};
-use tokio_util::sync::CancellationToken; 
+use tokio_util::sync::CancellationToken;
 
 use crate::domain::errors::{RdpError, Result};
 use crate::domain::events::{RdpErrorEvent, RdpFrameEvent, RdpStatusEvent};
@@ -21,7 +22,7 @@ use crate::domain::profile::RdpProfile;
 use crate::domain::session::RdpConnectionStatus;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
-
+const FRAME_CHUNK_SIZE: usize = 256 * 1024;
 #[derive(Debug)]
 pub enum RdpCommand {
     MouseMove {
@@ -41,6 +42,45 @@ pub enum RdpCommand {
     Disconnect,
 }
 
+#[derive(Debug)]
+struct RgbaFrame {
+    width: u32,
+    height: u32,
+    data: Vec<u8>,
+}
+
+impl RgbaFrame {
+    fn new(width: u32, height: u32) -> Self {
+        let len = width as usize * height as usize * 4;
+
+        Self {
+            width,
+            height,
+            data: vec![0; len],
+        }
+    }
+
+    fn as_event(
+        &self,
+        session_id: &str,
+        frame_id: u64,
+        chunk_index: u32,
+        chunk_count: u32,
+    ) -> RdpFrameEvent {
+        RdpFrameEvent {
+            session_id: session_id.to_owned(),
+            data: self.data.clone(),
+            width: self.width,
+            height: self.height,
+            x: 0,
+            y: 0,
+            frame_id,
+            chunk_index,
+            chunk_count,
+        }
+    }
+}
+
 pub struct RdpRuntime {
     profile: RdpProfile,
     session_id: String,
@@ -48,6 +88,7 @@ pub struct RdpRuntime {
     status_tx: broadcast::Sender<RdpStatusEvent>,
     #[allow(dead_code)]
     error_tx: broadcast::Sender<RdpErrorEvent>,
+    next_frame_id: Arc<AtomicU64>,
 }
 
 impl RdpRuntime {
@@ -57,6 +98,7 @@ impl RdpRuntime {
         frame_tx: broadcast::Sender<RdpFrameEvent>,
         status_tx: broadcast::Sender<RdpStatusEvent>,
         error_tx: broadcast::Sender<RdpErrorEvent>,
+        next_frame_id: Arc<AtomicU64>,
     ) -> Self {
         Self {
             profile,
@@ -64,13 +106,18 @@ impl RdpRuntime {
             frame_tx,
             status_tx,
             error_tx,
+            next_frame_id,
         }
+    }
+
+    fn next_frame_id(&self) -> u64 {
+        self.next_frame_id.fetch_add(1, Ordering::Relaxed)
     }
 
     pub async fn run(
         self,
         mut command_rx: mpsc::Receiver<RdpCommand>,
-        cancel_token: CancellationToken, 
+        cancel_token: CancellationToken,
     ) -> Result<()> {
         if cancel_token.is_cancelled() {
             return Err(RdpError::Cancelled);
@@ -171,11 +218,15 @@ impl RdpRuntime {
 
         self.emit_status(RdpConnectionStatus::Connected, Some("connected"));
 
-        let mut image = DecodedImage::new(
-            PixelFormat::RgbA32,
-            self.profile.desktop_width,
-            self.profile.desktop_height,
+        let desktop_width = connection_result.desktop_size.width;
+        let desktop_height = connection_result.desktop_size.height;
+
+        println!(
+            "[portix_rdp] negotiated desktop size: {}x{}",
+            desktop_width, desktop_height
         );
+
+        let mut image = DecodedImage::new(PixelFormat::RgbA32, desktop_width, desktop_height);
 
         let mut active_stage = ActiveStageBuilder {
             static_channels: connection_result.static_channels,
@@ -184,11 +235,10 @@ impl RdpRuntime {
             message_channel_id: connection_result.message_channel_id,
             share_id: connection_result.share_id,
             compression_type: connection_result.compression_type,
-            enable_server_pointer: false,      
-            pointer_software_rendering: false, 
+            enable_server_pointer: false,
+            pointer_software_rendering: false,
         }
         .build();
-        
 
         let mut input_db = Database::new();
 
@@ -211,7 +261,7 @@ impl RdpRuntime {
                     for output in outputs {
                         match output {
                             ActiveStageOutput::ResponseFrame(frame) => {
-                                
+
                                 tls_framed.write_all(&frame).await.map_err(RdpError::Io)?;
                             }
                             ActiveStageOutput::GraphicsUpdate(region) => {
@@ -230,13 +280,13 @@ impl RdpRuntime {
                     match cmd {
                         Some(RdpCommand::Disconnect) | None => {
                             println!("[portix_rdp] session {} disconnect requested", self.session_id);
-                            
+
                             let shutdown_outputs = active_stage
                                 .graceful_shutdown()
                                 .map_err(|e| RdpError::Protocol(e.to_string()))?;
                             for output in shutdown_outputs {
                                 if let ActiveStageOutput::ResponseFrame(frame) = output {
-                                    
+
                                     tls_framed.write_all(&frame).await.map_err(RdpError::Io)?;
                                 }
                             }
@@ -303,15 +353,15 @@ impl RdpRuntime {
         framed: &mut W,
         events: Vec<ironrdp_pdu::input::fast_path::FastPathInputEvent>,
     ) -> Result<()> {
-        let fast_path_input = FastPathInput::new(events)
-            .map_err(|e| RdpError::Protocol(e.to_string()))?;
+        let fast_path_input =
+            FastPathInput::new(events).map_err(|e| RdpError::Protocol(e.to_string()))?;
 
         let mut buf = vec![0u8; fast_path_input.size()];
         let mut cursor = WriteCursor::new(&mut buf);
-        fast_path_input.encode(&mut cursor)
+        fast_path_input
+            .encode(&mut cursor)
             .map_err(|e| RdpError::Protocol(e.to_string()))?;
 
-        
         framed.write_all(&buf).await.map_err(RdpError::Io)?;
         Ok(())
     }
@@ -325,40 +375,69 @@ impl RdpRuntime {
     }
 
     fn emit_frame(&self, image: &DecodedImage, region: &InclusiveRectangle) {
-        let bpp = image.bytes_per_pixel();
-        let stride = image.stride();
-        let full_data = image.data();
+        let image_width = usize::from(image.width());
+        let image_height = usize::from(image.height());
 
-        let x = usize::from(region.left);
-        let y = usize::from(region.top);
-        let w = usize::from(region.width());
-        let h = usize::from(region.height());
-
-        if w == 0 || h == 0 {
+        if image_width == 0 || image_height == 0 {
             return;
         }
 
-        let mut packed = Vec::with_capacity(w * h * bpp);
-        for row in 0..h {
-            let row_start = (y + row) * stride + x * bpp;
-            let row_end = row_start + w * bpp;
-            packed.extend_from_slice(&full_data[row_start..row_end]);
+        let left = region.left as usize;
+        let top = region.top as usize;
+        let right = region.right as usize;
+        let bottom = region.bottom as usize;
+
+        if left >= image_width || top >= image_height {
+            return;
         }
 
-        let encoded_data = BASE64.encode(&packed);
+        let right = right.min(image_width - 1);
+        let bottom = bottom.min(image_height - 1);
 
-        if let Err(e) = self.frame_tx.send(RdpFrameEvent {
-            session_id: self.session_id.clone(),
-            data: encoded_data,
-            width: w as u32,
-            height: h as u32,
-            x: x as u32,
-            y: y as u32,
-        }) {
-            println!(
-                "[portix_rdp] frame send failed for session {} (receiver dropped): {}",
-                self.session_id, e
-            );
+        let width = right - left + 1;
+        let height = bottom - top + 1;
+
+        let bpp = image.bytes_per_pixel();
+        let stride = image.stride();
+        let source = image.data();
+
+        let row_bytes = width * bpp;
+
+        let mut packed = Vec::with_capacity(row_bytes * height);
+
+        for y in top..=bottom {
+            let start = y * stride + left * bpp;
+            let end = start + row_bytes;
+
+            if end > source.len() {
+                return;
+            }
+
+            packed.extend_from_slice(&source[start..end]);
+        }
+
+        let frame_id = self.next_frame_id();
+
+        let chunk_count = packed.len().div_ceil(FRAME_CHUNK_SIZE);
+
+        for chunk_index in 0..chunk_count {
+            let start = chunk_index * FRAME_CHUNK_SIZE;
+            let end = (start + FRAME_CHUNK_SIZE).min(packed.len());
+
+            let _ = self.frame_tx.send(RdpFrameEvent {
+                session_id: self.session_id.clone(),
+                data: packed[start..end].to_vec(),
+
+                width: width as u32,
+                height: height as u32,
+
+                x: left as u32,
+                y: top as u32,
+
+                frame_id,
+                chunk_index: chunk_index as u32,
+                chunk_count: chunk_count as u32,
+            });
         }
     }
 }
