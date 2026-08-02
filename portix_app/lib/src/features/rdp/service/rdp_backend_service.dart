@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -7,7 +6,9 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/domain/entities/rdp/index.dart';
 import 'package:portix/src/rust_rdp/api.dart' as rdp_api;
+import 'package:portix/src/rust_rdp/domain/events.dart';
 import 'package:portix/src/rust_rdp/domain/profile.dart' as rdp_profile;
+import 'package:portix/src/rust_rdp/domain/session.dart';
 import 'package:portix/src/rust_rdp/frb_generated.dart';
 
 class RdpBackendService {
@@ -21,16 +22,16 @@ class RdpBackendService {
   void _initStreamSubscriptions() {
     statusStream().listen((event) {
       switch (event.status) {
-        case RdpConnectionState.connected:
+        case RdpConnectionStatus.connected:
           break;
-        case RdpConnectionState.disconnected:
-        case RdpConnectionState.error:
+        case RdpConnectionStatus.disconnected:
+        case RdpConnectionStatus.error:
           final profileId = _sessionToProfile.remove(event.sessionId);
           if (profileId != null) {
             _activeSessions.remove(profileId);
           }
           break;
-        case RdpConnectionState.connecting:
+        case RdpConnectionStatus.connecting:
           break;
       }
     });
@@ -131,7 +132,6 @@ class RdpBackendService {
       final errorMsg = e.toString();
       if (errorMsg.contains('already has active session')) {
         debugPrint('[RDP] Recovering from duplicate session error');
-
         return Left(Failure('Session already active. Please try again.'));
       }
 
@@ -215,25 +215,17 @@ class RdpBackendService {
     }
   }
 
+  // Stream sekarang langsung mengembalikan object dari FRB tanpa jsonDecode
   Stream<RdpFrameEvent> frameStream() {
-    return rdp_api.rdpFrameStream().map((json) {
-      final decoded = jsonDecode(json) as Map<String, Object?>;
-      return RdpFrameEvent.fromJson(decoded);
-    });
+    return rdp_api.rdpFrameStream();
   }
 
   Stream<RdpStatusEvent> statusStream() {
-    return rdp_api.rdpStatusStream().map(
-      (json) =>
-          RdpStatusEvent.fromJson(jsonDecode(json) as Map<String, Object?>),
-    );
+    return rdp_api.rdpStatusStream();
   }
 
   Stream<RdpErrorEvent> errorStream() {
-    return rdp_api.rdpErrorStream().map(
-      (json) =>
-          RdpErrorEvent.fromJson(jsonDecode(json) as Map<String, Object?>),
-    );
+    return rdp_api.rdpErrorStream();
   }
 
   void dispose() {
@@ -255,92 +247,6 @@ class RdpConnectionResult {
   final String host;
   final int port;
 }
-
-class RdpFrameEvent {
-  const RdpFrameEvent({
-    required this.sessionId,
-    required this.data,
-    required this.width,
-    required this.height,
-    required this.x,
-    required this.y,
-  });
-
-  factory RdpFrameEvent.fromJson(Map<String, Object?> json) {
-    final rawData = json['data']!;
-    Uint8List pixels;
-
-    if (rawData is String) {
-      pixels = base64Decode(rawData);
-    } else if (rawData is List) {
-      pixels = Uint8List.fromList(rawData.cast<int>());
-    } else {
-      pixels = Uint8List(0);
-    }
-
-    return RdpFrameEvent(
-      sessionId: json['session_id']! as String,
-      data: pixels,
-      width: json['width']! as int,
-      height: json['height']! as int,
-      x: json['x']! as int,
-      y: json['y']! as int,
-    );
-  }
-
-  final String sessionId;
-  final Uint8List data;
-  final int width;
-  final int height;
-  final int x;
-  final int y;
-}
-
-class RdpStatusEvent {
-  const RdpStatusEvent({
-    required this.sessionId,
-    required this.status,
-    this.message,
-  });
-
-  factory RdpStatusEvent.fromJson(Map<String, Object?> json) => RdpStatusEvent(
-    sessionId: json['session_id']! as String,
-    status: _statusFromString(json['status']! as String),
-    message: json['message'] as String?,
-  );
-
-  final String sessionId;
-  final RdpConnectionState status;
-  final String? message;
-
-  static RdpConnectionState _statusFromString(String s) => switch (s) {
-    'Connecting' || 'connecting' => RdpConnectionState.connecting,
-    'Connected' || 'connected' => RdpConnectionState.connected,
-    'Error' || 'error' => RdpConnectionState.error,
-    _ => RdpConnectionState.disconnected,
-  };
-}
-
-class RdpErrorEvent {
-  const RdpErrorEvent({required this.message, this.sessionId, this.code});
-
-  factory RdpErrorEvent.fromJson(Map<String, Object?> json) => RdpErrorEvent(
-    message: json['message'] as String? ?? 'Unknown RDP error',
-    sessionId: json['session_id'] as String?,
-    code: json['code'] as String?,
-  );
-
-  final String message;
-  final String? sessionId;
-  final String? code;
-
-  bool get isTransient =>
-      code == 'SESSION_NOT_FOUND' ||
-      code == 'CANCELLED' ||
-      code == 'DISCONNECTED';
-}
-
-enum RdpConnectionState { disconnected, connecting, connected, error }
 
 extension on RdpProfile {
   rdp_profile.RdpProfile toRustProfile() => rdp_profile.RdpProfile(

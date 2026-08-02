@@ -13,9 +13,7 @@ pub struct RdpStatusEvent {
 pub struct RdpErrorEvent {
     pub session_id: Option<String>,
     pub message: String,
-    
-    
-    
+
     #[serde(default = "default_error_code")]
     pub code: String,
 }
@@ -23,14 +21,19 @@ pub struct RdpErrorEvent {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RdpFrameEvent {
     pub session_id: String,
-    
-    pub data: String,
+
+    pub data: Vec<u8>,
+
     pub width: u32,
     pub height: u32,
+
     pub x: u32,
     pub y: u32,
-}
 
+    pub frame_id: u64,
+    pub chunk_index: u32,
+    pub chunk_count: u32,
+}
 
 fn default_error_code() -> String {
     "UNKNOWN".to_string()
