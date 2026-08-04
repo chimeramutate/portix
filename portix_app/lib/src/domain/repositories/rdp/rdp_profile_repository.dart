@@ -161,17 +161,27 @@ class RdpProfileRepository {
       username: j['username']?.toString() ?? '',
       domain: j['domain'] as String?,
       group: j['group']?.toString() ?? 'RDP',
-      tags: (j['tags'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
-      color: enumValue(RdpProfileColor.values, j['color'], RdpProfileColor.blue),
+      tags: (j['tags'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
+      color: enumValue(
+        RdpProfileColor.values,
+        j['color'],
+        RdpProfileColor.blue,
+      ),
       desktopWidth: int.tryParse(j['desktopWidth']?.toString() ?? '') ?? 1280,
       desktopHeight: int.tryParse(j['desktopHeight']?.toString() ?? '') ?? 800,
       fullScreen: j['fullScreen'] as bool? ?? false,
       redirectDrives: j['redirectDrives'] as bool? ?? false,
       redirectClipboard: j['redirectClipboard'] as bool? ?? true,
       alternateShell: j['alternateShell']?.toString() ?? '',
-      enableCredSsp: j['enableCredSsp'] as bool? ?? true,
+      enableCredSsp: j['enableCredSsp'] as bool? ?? false,
       sourceRdpFilePath: j['sourceRdpFilePath'] as String?,
-      status: enumValue(RdpProfileStatus.values, j['status'], RdpProfileStatus.offline),
+      status: enumValue(
+        RdpProfileStatus.values,
+        j['status'],
+        RdpProfileStatus.offline,
+      ),
       lastUsedLabel: j['lastUsedLabel']?.toString() ?? 'never',
     );
   }

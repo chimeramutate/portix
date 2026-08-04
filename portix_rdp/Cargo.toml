@@ -35,3 +35,6 @@ base64     = "0.22"
 
 # ── Flutter bridge ─────────────────────────────────────────────────────────
 flutter_rust_bridge = "=2.11.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }

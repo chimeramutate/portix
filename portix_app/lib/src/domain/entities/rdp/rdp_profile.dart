@@ -20,7 +20,7 @@ class RdpProfile extends Equatable {
     this.redirectDrives = false,
     this.redirectClipboard = true,
     this.alternateShell = '',
-    this.enableCredSsp = true,
+    this.enableCredSsp = false,
     this.sourceRdpFilePath,
     this.status = RdpProfileStatus.offline,
     this.lastUsedLabel = 'never',

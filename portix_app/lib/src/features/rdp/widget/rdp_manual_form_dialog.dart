@@ -38,7 +38,7 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
   bool _fullScreen = false;
   bool _redirectDrives = false;
   bool _redirectClipboard = true;
-  bool _enableCredSsp = true;
+  bool _enableCredSsp = false;
 
   @override
   void initState() {
@@ -255,8 +255,12 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
                 CheckboxListTile(
                   value: _enableCredSsp,
                   onChanged: (value) =>
-                      setState(() => _enableCredSsp = value ?? true),
+                      setState(() => _enableCredSsp = value ?? false),
                   title: const Text('Enable CredSSP (NLA)'),
+                  subtitle: const Text(
+                    'Aktifkan hanya jika server support NLA (Windows Server 2012+)',
+                    style: TextStyle(fontSize: 11),
+                  ),
                   controlAffinity: ListTileControlAffinity.leading,
                 ),
               ],

@@ -64,18 +64,37 @@ pub async fn rdp_send_keyboard_input(
 pub async fn rdp_frame_stream(sink: StreamSink<RdpFrameEvent>) -> anyhow::Result<()> {
     println!("[portix_rdp] rdp_frame_stream subscription started");
     let mut rx = RDP_MANAGER.frame_stream();
+    let error_tx = RDP_MANAGER.error_stream_sender();
+
     tokio::spawn(async move {
+        let mut frame_count = 0u32;
         loop {
             match rx.recv().await {
                 Ok(event) => {
-                    if sink.add(event).is_err() {
+                    frame_count += 1;
+                    println!("[rdp_frame_stream] received frame #{} id={}", frame_count, event.frame_id);
+                    
+                    if let Err(e) = sink.add(event) {
+                        eprintln!("[rdp_frame_stream CRITICAL] sink error on frame #{}: {}", frame_count, e);
+                        let _ = error_tx.send(RdpErrorEvent {
+                            session_id: None,
+                            message: format!("Frame stream sink closed after {} frames: {}", frame_count, e),
+                            code: "FRAME_SINK_ERROR".to_string(),
+                        });
                         break;
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    eprintln!("[rdp_frame_stream] WARNING: lagged {} frames (buffer too small?)", n);
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    println!("[rdp_frame_stream] broadcast closed");
+                    break;
+                }
             }
         }
+        println!("[rdp_frame_stream] handler terminated after {} frames", frame_count);
     });
     Ok(())
 }
@@ -83,18 +102,33 @@ pub async fn rdp_frame_stream(sink: StreamSink<RdpFrameEvent>) -> anyhow::Result
 pub async fn rdp_status_stream(sink: StreamSink<RdpStatusEvent>) -> anyhow::Result<()> {
     println!("[portix_rdp] rdp_status_stream subscription started");
     let mut rx = RDP_MANAGER.status_stream();
+    let error_tx = RDP_MANAGER.error_stream_sender();
+
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(event) => {
-                    if sink.add(event).is_err() {
+                    if let Err(e) = sink.add(event) {
+                        eprintln!("[portix_rdp] status_stream sink error: {}", e);
+                        let _ = error_tx.send(RdpErrorEvent {
+                            session_id: None,
+                            message: format!("Status stream sink closed: {}", e),
+                            code: "STATUS_SINK_CLOSED".to_string(),
+                        });
                         break;
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    eprintln!("[portix_rdp] status_stream lagged {} events", n);
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    eprintln!("[portix_rdp] status_stream closed");
+                    break;
+                }
             }
         }
+        println!("[portix_rdp] status_stream handler terminated");
     });
     Ok(())
 }
@@ -102,18 +136,28 @@ pub async fn rdp_status_stream(sink: StreamSink<RdpStatusEvent>) -> anyhow::Resu
 pub async fn rdp_error_stream(sink: StreamSink<RdpErrorEvent>) -> anyhow::Result<()> {
     println!("[portix_rdp] rdp_error_stream subscription started");
     let mut rx = RDP_MANAGER.error_stream();
+
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(event) => {
-                    if sink.add(event).is_err() {
+                    if let Err(e) = sink.add(event) {
+                        eprintln!("[portix_rdp] error_stream sink error (critical): {}", e);
                         break;
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    eprintln!("[portix_rdp] error_stream lagged {} events", n);
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    eprintln!("[portix_rdp] error_stream closed");
+                    break;
+                }
             }
         }
+        println!("[portix_rdp] error_stream handler terminated");
     });
     Ok(())
 }
+

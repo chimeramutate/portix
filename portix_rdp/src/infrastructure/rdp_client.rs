@@ -42,44 +42,10 @@ pub enum RdpCommand {
     Disconnect,
 }
 
-#[derive(Debug)]
-struct RgbaFrame {
-    width: u32,
-    height: u32,
-    data: Vec<u8>,
-}
-
-impl RgbaFrame {
-    fn new(width: u32, height: u32) -> Self {
-        let len = width as usize * height as usize * 4;
-
-        Self {
-            width,
-            height,
-            data: vec![0; len],
-        }
-    }
-
-    fn as_event(
-        &self,
-        session_id: &str,
-        frame_id: u64,
-        chunk_index: u32,
-        chunk_count: u32,
-    ) -> RdpFrameEvent {
-        RdpFrameEvent {
-            session_id: session_id.to_owned(),
-            data: self.data.clone(),
-            width: self.width,
-            height: self.height,
-            x: 0,
-            y: 0,
-            frame_id,
-            chunk_index,
-            chunk_count,
-        }
-    }
-}
+// RgbaFrame was previously used for a now-removed code path that
+// incorrectly hardcoded x: 0, y: 0 in as_event().  It has been
+// removed.  The correct path is emit_frame() which extracts the
+// dirty rectangle with proper coordinates directly from DecodedImage.
 
 pub struct RdpRuntime {
     profile: RdpProfile,
@@ -123,98 +89,27 @@ impl RdpRuntime {
             return Err(RdpError::Cancelled);
         }
 
-        let tcp = timeout(
-            CONNECT_TIMEOUT,
-            TcpStream::connect(self.profile.socket_addr()),
-        )
-        .await
-        .map_err(|_| RdpError::ConnectionTimeout)?
-        .map_err(RdpError::Io)?;
-        tcp.set_nodelay(true)?;
-
-        let client_addr = tcp.peer_addr().map_err(RdpError::Io)?;
-
-        let credentials = Credentials::UsernamePassword {
-            username: self.profile.username.clone(),
-            password: self.profile.password.clone().unwrap_or_default(),
-        };
-        let config = Config {
-            desktop_size: DesktopSize {
-                width: self.profile.desktop_width,
-                height: self.profile.desktop_height,
-            },
-            desktop_scale_factor: 0,
-            enable_tls: true,
-            enable_credssp: self.profile.enable_cred_ssp,
-            credentials,
-            domain: self.profile.domain.clone(),
-            client_build: 0,
-            client_name: "Portix".to_owned(),
-            keyboard_type: ironrdp_pdu::gcc::KeyboardType::IbmEnhanced,
-            keyboard_subtype: 0,
-            keyboard_functional_keys_count: 12,
-            keyboard_layout: 0,
-            ime_file_name: String::new(),
-            bitmap: None,
-            dig_product_id: String::new(),
-            client_dir: String::new(),
-            alternate_shell: self.profile.alternate_shell.clone().unwrap_or_default(),
-            work_dir: String::new(),
-            platform: ironrdp_pdu::rdp::capability_sets::MajorPlatformType::UNSPECIFIED,
-            hardware_id: None,
-            request_data: None,
-            autologon: false,
-            enable_audio_playback: true,
-            performance_flags: ironrdp_pdu::rdp::client_info::PerformanceFlags::default(),
-            license_cache: None,
-            timezone_info: ironrdp_pdu::rdp::client_info::TimezoneInfo::default(),
-            compression_type: None,
-            enable_server_pointer: false,
-            pointer_software_rendering: false,
-            multitransport_flags: None,
+        // ── Attempt 1: connect dengan setting CredSSP dari profile ────────────
+        // Jika NegotiationFailed DAN profile mengaktifkan CredSSP, lakukan
+        // fallback otomatis ke TLS-only (tanpa NLA).  Ini menangani server
+        // Windows yang hanya support PROTOCOL_SSL tanpa PROTOCOL_HYBRID.
+        let connection_result = match self.try_connect(self.profile.enable_cred_ssp, &cancel_token).await {
+            Ok(result) => result,
+            Err(RdpError::NegotiationFailed(ref msg)) if self.profile.enable_cred_ssp => {
+                println!(
+                    "[portix_rdp] NLA negotiation failed ({}), retrying without CredSSP …",
+                    msg
+                );
+                self.emit_status(
+                    RdpConnectionStatus::Connecting,
+                    Some("NLA failed, retrying with TLS-only"),
+                );
+                self.try_connect(false, &cancel_token).await?
+            }
+            Err(e) => return Err(e),
         };
 
-        let mut connector = ClientConnector::new(config, client_addr);
-        let mut framed = TokioFramed::new(tcp);
-
-        let should_upgrade = timeout(CONNECT_TIMEOUT, connect_begin(&mut framed, &mut connector))
-            .await
-            .map_err(|_| RdpError::ConnectionTimeout)?
-            .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
-
-        let (raw_stream, leftover) = framed.into_inner();
-
-        let (upgraded_stream, server_cert_der) = timeout(
-            CONNECT_TIMEOUT,
-            ironrdp_tls::upgrade(raw_stream, self.profile.host.as_str()),
-        )
-        .await
-        .map_err(|_| RdpError::ConnectionTimeout)?
-        .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
-
-        let server_public_key =
-            ironrdp_tls::extract_tls_server_public_key(&server_cert_der).unwrap_or_default();
-
-        let mut tls_framed = TokioFramed::new_with_leftover(upgraded_stream, leftover);
-        let upgraded = mark_as_upgraded(should_upgrade, &mut connector);
-
-        let mut network_client = ReqwestNetworkClient::new();
-
-        let connection_result = timeout(
-            CONNECT_TIMEOUT,
-            connect_finalize(
-                upgraded,
-                connector,
-                &mut tls_framed,
-                &mut network_client,
-                ServerName::new(self.profile.host.clone()),
-                server_public_key.to_vec(),
-                None,
-            ),
-        )
-        .await
-        .map_err(|_| RdpError::ConnectionTimeout)?
-        .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+        let (mut tls_framed, connection_result) = connection_result;
 
         self.emit_status(RdpConnectionStatus::Connected, Some("connected"));
 
@@ -222,11 +117,12 @@ impl RdpRuntime {
         let desktop_height = connection_result.desktop_size.height;
 
         println!(
-            "[portix_rdp] negotiated desktop size: {}x{}",
-            desktop_width, desktop_height
+            "[portix_rdp] negotiated desktop size: {}x{} (credssp={})",
+            desktop_width, desktop_height, self.profile.enable_cred_ssp
         );
 
-        let mut image = DecodedImage::new(PixelFormat::RgbA32, desktop_width, desktop_height);
+        // Di dalam RdpRuntime::run, ubah format PixelFormat menjadi BgrX32
+        let mut image = DecodedImage::new(PixelFormat::BgrX32, desktop_width, desktop_height);
 
         let mut active_stage = ActiveStageBuilder {
             static_channels: connection_result.static_channels,
@@ -265,6 +161,7 @@ impl RdpRuntime {
                                 tls_framed.write_all(&frame).await.map_err(RdpError::Io)?;
                             }
                             ActiveStageOutput::GraphicsUpdate(region) => {
+                                println!("[run] GraphicsUpdate received: region=({},{}) to ({},{})",region.left, region.top, region.right, region.bottom);
                                 self.emit_frame(&image, &region);
                             }
                             ActiveStageOutput::Terminate(_) => {
@@ -348,6 +245,128 @@ impl RdpRuntime {
         }
     }
 
+    /// Buka koneksi TCP + TLS + RDP negotiation dengan satu attempt.
+    ///
+    /// Dipanggil oleh `run()` dua kali jika diperlukan:
+    ///   1. Dengan `enable_credssp = profile.enable_cred_ssp`
+    ///   2. Fallback dengan `enable_credssp = false` jika attempt 1 gagal NegotiationFailed
+    async fn try_connect(
+        &self,
+        enable_credssp: bool,
+        cancel_token: &CancellationToken,
+    ) -> Result<(ironrdp_tokio::TokioFramed<ironrdp_tls::TlsStream<TcpStream>>, ironrdp_connector::ConnectionResult)> {
+        if cancel_token.is_cancelled() {
+            return Err(RdpError::Cancelled);
+        }
+
+        println!(
+            "[portix_rdp] try_connect host={} credssp={}",
+            self.profile.host, enable_credssp
+        );
+
+        let tcp = timeout(
+            CONNECT_TIMEOUT,
+            TcpStream::connect(self.profile.socket_addr()),
+        )
+        .await
+        .map_err(|_| RdpError::ConnectionTimeout)?
+        .map_err(RdpError::Io)?;
+        tcp.set_nodelay(true)?;
+
+        let client_addr = tcp.peer_addr().map_err(RdpError::Io)?;
+
+        let credentials = Credentials::UsernamePassword {
+            username: self.profile.username.clone(),
+            password: self.profile.password.clone().unwrap_or_default(),
+        };
+
+        let config = Config {
+            desktop_size: DesktopSize {
+                width: self.profile.desktop_width,
+                height: self.profile.desktop_height,
+            },
+            desktop_scale_factor: 0,
+            enable_tls: true,
+            enable_credssp,
+            credentials,
+            domain: self.profile.domain.clone(),
+            client_build: 7601, // Gunakan build standar yang kompatibel universal
+            client_name: "Portix-Universal".to_owned(),
+            keyboard_type: ironrdp_pdu::gcc::KeyboardType::IbmEnhanced,
+            keyboard_subtype: 0,
+            keyboard_functional_keys_count: 12,
+            keyboard_layout: 0x0409, // Standar English (US) untuk menghindari mismatch scancode
+            ime_file_name: String::new(),
+            bitmap: None,
+            dig_product_id: String::new(),
+            client_dir: String::new(),
+            alternate_shell: self.profile.alternate_shell.clone().unwrap_or_default(),
+            work_dir: String::new(),
+            platform: ironrdp_pdu::rdp::capability_sets::MajorPlatformType::UNSPECIFIED,
+            hardware_id: None,
+            request_data: None,
+            autologon: false,
+            enable_audio_playback: false, // Nonaktifkan fitur opsional untuk stabilitas universal
+            
+            // [UNIVERSAL FIX]: Kosongkan performance flags agar server mengirim bitmap mentah/standar
+            performance_flags: ironrdp_pdu::rdp::client_info::PerformanceFlags::empty(), 
+            
+            license_cache: None,
+            timezone_info: ironrdp_pdu::rdp::client_info::TimezoneInfo::default(),
+            
+            // [UNIVERSAL FIX]: Paksa nonaktifkan kompresi agresif untuk mencegah salah dekompresi tile ganjil
+            compression_type: None, 
+            
+            enable_server_pointer: true, // Biarkan server handle pointer agar tidak glitch
+            pointer_software_rendering: true,
+            multitransport_flags: None,
+        };
+
+        let mut connector = ClientConnector::new(config, client_addr);
+        let mut framed = TokioFramed::new(tcp);
+
+        let should_upgrade = timeout(CONNECT_TIMEOUT, connect_begin(&mut framed, &mut connector))
+            .await
+            .map_err(|_| RdpError::ConnectionTimeout)?
+            .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+
+        let (raw_stream, leftover) = framed.into_inner();
+
+        let (upgraded_stream, server_cert_der) = timeout(
+            CONNECT_TIMEOUT,
+            ironrdp_tls::upgrade(raw_stream, self.profile.host.as_str()),
+        )
+        .await
+        .map_err(|_| RdpError::ConnectionTimeout)?
+        .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+
+        let server_public_key =
+            ironrdp_tls::extract_tls_server_public_key(&server_cert_der).unwrap_or_default();
+
+        let mut tls_framed = TokioFramed::new_with_leftover(upgraded_stream, leftover);
+        let upgraded = mark_as_upgraded(should_upgrade, &mut connector);
+
+        let mut network_client = ReqwestNetworkClient::new();
+
+        let connection_result = timeout(
+            CONNECT_TIMEOUT,
+            connect_finalize(
+                upgraded,
+                connector,
+                &mut tls_framed,
+                &mut network_client,
+                ServerName::new(self.profile.host.clone()),
+                server_public_key.to_vec(),
+                None,
+            ),
+        )
+        .await
+        .map_err(|_| RdpError::ConnectionTimeout)?
+        .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+
+        Ok((tls_framed, connection_result))
+    }
+
     async fn send_fast_path<W: FramedWrite + Unpin>(
         &self,
         framed: &mut W,
@@ -373,7 +392,6 @@ impl RdpRuntime {
             message: message.map(str::to_owned),
         });
     }
-
     fn emit_frame(&self, image: &DecodedImage, region: &InclusiveRectangle) {
         let image_width = usize::from(image.width());
         let image_height = usize::from(image.height());
@@ -397,47 +415,113 @@ impl RdpRuntime {
         let width = right - left + 1;
         let height = bottom - top + 1;
 
+        if width < image_width || height < image_height {
+            println!("[emit_frame] SKIP dirty rect ({}x{} < {}x{})", 
+                    width, height, image_width, image_height);
+            return;  // ← SKIP patch kecil
+        }
+
         let bpp = image.bytes_per_pixel();
-        let stride = image.stride();
+        let raw_stride = image.stride();
         let source = image.data();
 
-        let row_bytes = width * bpp;
+        if bpp != 4 {
+            return;
+        }
 
-        let mut packed = Vec::with_capacity(row_bytes * height);
+        let tight_stride = image_width * bpp;
 
-        for y in top..=bottom {
-            let start = y * stride + left * bpp;
-            let end = start + row_bytes;
+        println!(
+            "[emit_frame] DEBUG: raw_stride={} tight_stride={} region=({},{}) to ({},{})",
+            raw_stride, tight_stride, left, top, right, bottom
+        );
 
-            if end > source.len() {
-                return;
+        let mut packed = vec![0u8; width * height * 4];
+        let target_row_stride = width * 4;
+
+        let mut rows_copied = 0u32;
+        let mut rows_filled = 0u32;
+
+        for (row_idx, y) in (top..=bottom).enumerate() {
+            let src_row_start = y * tight_stride + left * bpp;
+            let src_row_len = width * bpp;
+            let src_row_end = src_row_start + src_row_len;
+
+            let dst_row_start = row_idx * target_row_stride;
+            let dst_row_end = dst_row_start + src_row_len;
+
+            if dst_row_end > packed.len() {
+                println!("[emit_frame] row {} dst out of bounds", y);
+                continue;
             }
 
-            packed.extend_from_slice(&source[start..end]);
+            if src_row_end <= source.len() {
+                // ✓ Row tersedia, copy
+                packed[dst_row_start..dst_row_end]
+                    .copy_from_slice(&source[src_row_start..src_row_end]);
+                rows_copied += 1;
+            } else {
+                // ✗ Row tidak tersedia, fill dengan BLACK
+                println!(
+                    "[emit_frame] row {} out of bounds (src_end={} > len={}), filling with black",
+                    y, src_row_end, source.len()
+                );
+                
+                // Fill dengan black pixel (0, 0, 0, FF)
+                for chunk in packed[dst_row_start..dst_row_end].chunks_exact_mut(4) {
+                    chunk[0] = 0x00; // B
+                    chunk[1] = 0x00; // G
+                    chunk[2] = 0x00; // R
+                    chunk[3] = 0xFF; // A
+                }
+                rows_filled += 1;
+            }
+        }
+
+        println!(
+            "[emit_frame] frame region=({},{}) to ({},{}) w={} h={} rows: copied={} filled={} total_bytes={}",
+            left, top, right, bottom, width, height, rows_copied, rows_filled, packed.len()
+        );
+
+        for pixel in packed.chunks_exact_mut(4) {
+            let b = pixel[0];
+            let g = pixel[1];
+            let r = pixel[2];
+            let a = pixel[3];
+            
+            pixel[0] = r;
+            pixel[1] = g;
+            pixel[2] = b;
+            pixel[3] = a;
         }
 
         let frame_id = self.next_frame_id();
-
         let chunk_count = packed.len().div_ceil(FRAME_CHUNK_SIZE);
 
         for chunk_index in 0..chunk_count {
             let start = chunk_index * FRAME_CHUNK_SIZE;
             let end = (start + FRAME_CHUNK_SIZE).min(packed.len());
 
+             if chunk_index == 0 {
+                println!(
+                    "[emit_frame] chunk 0: data_len={} region=x:{} y:{} w:{} h:{}",
+                    end - start, left, top, width, height
+                );
+            }
+
             let _ = self.frame_tx.send(RdpFrameEvent {
                 session_id: self.session_id.clone(),
                 data: packed[start..end].to_vec(),
-
                 width: width as u32,
                 height: height as u32,
-
                 x: left as u32,
                 y: top as u32,
-
                 frame_id,
                 chunk_index: chunk_index as u32,
                 chunk_count: chunk_count as u32,
             });
         }
+
+        
     }
 }

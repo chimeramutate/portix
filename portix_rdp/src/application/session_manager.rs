@@ -39,9 +39,12 @@ pub struct RdpSessionManager {
 
 impl RdpSessionManager {
     pub fn new() -> Self {
-        let (frame_tx, _) = broadcast::channel(32);
-        let (status_tx, _) = broadcast::channel(64);
-        let (error_tx, _) = broadcast::channel(64);
+        // Frame channel: buffer besar agar burst dirty rect di awal koneksi
+        // tidak ter-drop saat Dart subscriber belum ready.
+        // xRDP login screen bisa mengirim 20+ dirty rect sekaligus.
+        let (frame_tx, _) = broadcast::channel(2048);
+        let (status_tx, _) = broadcast::channel(256);
+        let (error_tx, _) = broadcast::channel(128);
 
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -56,6 +59,7 @@ impl RdpSessionManager {
             next_frame_id: Arc::new(AtomicU64::new(0)),
         }
     }
+
 
     /// Mendapatkan ID frame baru.
     ///
@@ -440,8 +444,17 @@ impl RdpSessionManager {
     // ERROR STREAM
     // ==============================================================
 
+    
     pub fn error_stream(&self) -> broadcast::Receiver<RdpErrorEvent> {
         self.error_tx.subscribe()
+    }
+
+    // ==============================================================
+    // ERROR STREAM SENDER
+    // ==============================================================
+
+    pub fn error_stream_sender(&self) -> broadcast::Sender<RdpErrorEvent> {
+        self.error_tx.clone()
     }
 }
 

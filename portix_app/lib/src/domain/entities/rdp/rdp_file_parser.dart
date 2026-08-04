@@ -16,7 +16,11 @@ class RdpFileParser {
   /// Parse the contents of a .rdp file and return an [RdpProfile].
   /// [filePath] is used to set [RdpProfile.sourceRdpFilePath].
   /// [profileId] is the UUID to assign; generate one before calling.
-  RdpProfile parse(String content, {required String profileId, String? filePath}) {
+  RdpProfile parse(
+    String content, {
+    required String profileId,
+    String? filePath,
+  }) {
     final settings = _parseLines(content);
 
     final fullAddress = settings['full address'] ?? '';
@@ -25,8 +29,10 @@ class RdpFileParser {
     final alternateShell = settings['alternate shell'] ?? '';
     final desktopWidth = int.tryParse(settings['desktopwidth'] ?? '') ?? 1280;
     final desktopHeight = int.tryParse(settings['desktopheight'] ?? '') ?? 800;
-    final redirectDrives = (int.tryParse(settings['redirectdrives'] ?? '0') ?? 0) == 1;
-    final enableCredSsp = (int.tryParse(settings['EnableCredSspSupport'] ?? '1') ?? 1) == 1;
+    final redirectDrives =
+        (int.tryParse(settings['redirectdrives'] ?? '0') ?? 0) == 1;
+    final enableCredSsp =
+        (int.tryParse(settings['EnableCredSspSupport'] ?? '0') ?? 0) == 1;
     final screenModeId = int.tryParse(settings['screen mode id'] ?? '1') ?? 1;
 
     // Parse host and port from full address (may include :port)
@@ -150,7 +156,10 @@ class RdpFileParser {
       // Remove trailing UUID pattern like ".97879249-5c68-..."
       final cleanName = withoutExt
           .replaceAll(
-            RegExp(r'\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', caseSensitive: false),
+            RegExp(
+              r'\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
+              caseSensitive: false,
+            ),
             '',
           )
           .trim();
