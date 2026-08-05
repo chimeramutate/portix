@@ -21,22 +21,31 @@ class RdpSessionPage extends StatefulWidget {
 class _RdpSessionPageState extends State<RdpSessionPage> {
   bool _isFullScreen = false;
 
+  /// Toolbar overlay visibility (fullscreen mode only)
+  bool _showOverlayToolbar = false;
+
   @override
   void dispose() {
-    // Restore system UI tanpa memanggil setState — widget sudah disposing.
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
 
   void _enterFullScreen() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    setState(() => _isFullScreen = true);
+    setState(() {
+      _isFullScreen = true;
+      _showOverlayToolbar = false;
+    });
   }
 
   void _exitFullScreen() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    // Hanya setState jika widget masih aktif di tree.
-    if (mounted) setState(() => _isFullScreen = false);
+    if (mounted) {
+      setState(() {
+        _isFullScreen = false;
+        _showOverlayToolbar = false;
+      });
+    }
   }
 
   void _toggleFullScreen() {
@@ -47,45 +56,159 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
     }
   }
 
+  void _toggleOverlayToolbar() {
+    setState(() => _showOverlayToolbar = !_showOverlayToolbar);
+  }
+
+  int get _desktopWidth =>
+      widget.profile.desktopWidth > 0 ? widget.profile.desktopWidth : 1280;
+  int get _desktopHeight =>
+      widget.profile.desktopHeight > 0 ? widget.profile.desktopHeight : 800;
+
   @override
   Widget build(BuildContext context) {
+    final viewer = RdpFrameViewer(
+      sessionId: widget.sessionId,
+      desktopWidth: _desktopWidth,
+      desktopHeight: _desktopHeight,
+      // Single-tap di fullscreen → tampilkan/sembunyikan toolbar overlay
+      onSingleTapUp: _isFullScreen ? _toggleOverlayToolbar : null,
+      onDoubleTap: _isFullScreen ? _exitFullScreen : null,
+      onDisconnect: () {
+        _exitFullScreen();
+        if (context.mounted) {
+          Navigator.of(context).maybePop();
+        }
+      },
+    );
+
+    if (_isFullScreen) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            viewer,
+            // Overlay toolbar — muncul saat user tap sekali
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOut,
+              top: _showOverlayToolbar ? 0 : -72,
+              left: 0,
+              right: 0,
+              child: _FullscreenToolbar(
+                profileName: widget.profile.name,
+                resolution: '${_desktopWidth}×$_desktopHeight',
+                onExitFullscreen: _exitFullScreen,
+                onDisconnect: () {
+                  _exitFullScreen();
+                  if (context.mounted) Navigator.of(context).maybePop();
+                },
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.black,
-      extendBodyBehindAppBar: true,
-      appBar: _isFullScreen
-          ? null
-          : AppBar(
-              title: Text('RDP: ${widget.profile.name}'),
-              backgroundColor: AppColors.surface,
-              foregroundColor: AppColors.text,
-              elevation: 1,
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.fullscreen),
-                  tooltip: 'Fullscreen',
-                  onPressed: _toggleFullScreen,
+      appBar: AppBar(
+        title: Text(
+          'RDP: ${widget.profile.name}',
+          style: const TextStyle(fontSize: 14),
+        ),
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.text,
+        elevation: 1,
+        actions: [
+          // Resolusi info
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Center(
+              child: Text(
+                '${_desktopWidth}×$_desktopHeight',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.muted,
                 ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
+              ),
             ),
-      body: RdpFrameViewer(
-        sessionId: widget.sessionId,
-        desktopWidth: widget.profile.desktopWidth > 0
-            ? widget.profile.desktopWidth
-            : 1280,
-        desktopHeight: widget.profile.desktopHeight > 0
-            ? widget.profile.desktopHeight
-            : 800,
-        onDoubleTap: _isFullScreen ? _exitFullScreen : null,
-        onDisconnect: () {
-          _exitFullScreen();
-          if (context.mounted) {
-            Navigator.of(context).maybePop();
-          }
-        },
+          ),
+          IconButton(
+            icon: const Icon(Icons.fullscreen),
+            tooltip: 'Enter fullscreen (or double-tap)',
+            onPressed: _toggleFullScreen,
+          ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: 'Disconnect',
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ],
+      ),
+      body: viewer,
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FULLSCREEN OVERLAY TOOLBAR
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _FullscreenToolbar extends StatelessWidget {
+  const _FullscreenToolbar({
+    required this.profileName,
+    required this.resolution,
+    required this.onExitFullscreen,
+    required this.onDisconnect,
+  });
+
+  final String profileName;
+  final String resolution;
+  final VoidCallback onExitFullscreen;
+  final VoidCallback onDisconnect;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 56,
+      color: Colors.black.withOpacity(0.85),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        children: [
+          const Icon(Icons.desktop_windows, color: Colors.white70, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              profileName,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Text(
+            resolution,
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          const SizedBox(width: 12),
+          TextButton.icon(
+            onPressed: onExitFullscreen,
+            icon: const Icon(Icons.fullscreen_exit, size: 18),
+            label: const Text('Exit Fullscreen'),
+            style: TextButton.styleFrom(foregroundColor: Colors.white70),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            tooltip: 'Disconnect',
+            color: Colors.redAccent,
+            onPressed: onDisconnect,
+          ),
+        ],
       ),
     );
   }

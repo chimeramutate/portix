@@ -7,6 +7,10 @@ edition = "2024"
 name = "portix_rdp"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
+[[bin]]
+name = "rdp_capture"
+path = "src/bin/rdp_capture.rs"
+
 [dependencies]
 # ── IronRDP ────────────────────────────────────────────────────────────────
 ironrdp-graphics = "0.9"
@@ -36,5 +40,9 @@ base64     = "0.22"
 # ── Flutter bridge ─────────────────────────────────────────────────────────
 flutter_rust_bridge = "=2.11.1"
 
+# ── PNG encoding (for test binary only) ───────────────────────────────────
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+png = "0.17"

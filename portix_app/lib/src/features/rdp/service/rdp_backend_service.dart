@@ -64,13 +64,13 @@ class RdpBackendService {
   }
 
   static Future<void> initDev() async {
-    await RdpRustLib.init();
+    await RustLib.init();
   }
 
   static String productionPathHint() => _productionLibraryPath();
 
   static Future<void> initProduction() async {
-    await RdpRustLib.init(
+    await RustLib.init(
       externalLibrary: ExternalLibrary.open(
         _productionLibraryPath(),
         debugInfo: 'Portix RDP library',

@@ -51,6 +51,18 @@ pub async fn rdp_send_mouse_button(
         .await?)
 }
 
+pub async fn rdp_send_mouse_wheel(
+    session_id: String,
+    x: u16,
+    y: u16,
+    delta: i16,
+    is_vertical: bool,
+) -> anyhow::Result<()> {
+    Ok(RDP_MANAGER
+        .send_mouse_wheel(session_id, x, y, delta, is_vertical)
+        .await?)
+}
+
 pub async fn rdp_send_keyboard_input(
     session_id: String,
     scancode: u16,

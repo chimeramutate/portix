@@ -1,9 +1,9 @@
 use ironrdp_connector::{ClientConnector, Config, Credentials, DesktopSize, ServerName};
 use ironrdp_graphics::image_processing::PixelFormat;
-use ironrdp_input::{Database, MouseButton, MousePosition, Operation, Scancode};
+use ironrdp_input::{Database, MouseButton, MousePosition, Operation, Scancode, WheelRotations};
 use ironrdp_pdu::Encode;
 use ironrdp_pdu::cursor::WriteCursor;
-use ironrdp_pdu::geometry::{InclusiveRectangle, Rectangle};
+use ironrdp_pdu::geometry::InclusiveRectangle;
 use ironrdp_pdu::input::fast_path::FastPathInput;
 use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{ActiveStageBuilder, ActiveStageOutput};
@@ -34,6 +34,12 @@ pub enum RdpCommand {
         y: u16,
         button: u8,
         down: bool,
+    },
+    MouseWheel {
+        x: u16,
+        y: u16,
+        delta: i16,
+        is_vertical: bool,
     },
     KeyboardInput {
         scancode: u16,
@@ -121,8 +127,9 @@ impl RdpRuntime {
             desktop_width, desktop_height, self.profile.enable_cred_ssp
         );
 
-        // Di dalam RdpRuntime::run, ubah format PixelFormat menjadi BgrX32
-        let mut image = DecodedImage::new(PixelFormat::BgrX32, desktop_width, desktop_height);
+        // RgbA32: byte order R,G,B,A — sesuai dengan Flutter rgba8888
+        // BgrX32 TIDAK digunakan karena menghasilkan channel-swap artifact
+        let mut image = DecodedImage::new(PixelFormat::RgbA32, desktop_width, desktop_height);
 
         let mut active_stage = ActiveStageBuilder {
             static_channels: connection_result.static_channels,
@@ -215,6 +222,20 @@ impl RdpRuntime {
 
                             let mut events = input_db.apply([Operation::MouseMove(MousePosition { x, y })]);
                             events.extend(input_db.apply([op]));
+
+                            if events.is_empty() {
+                                continue;
+                            }
+
+                            self.send_fast_path(&mut tls_framed, events.into_vec()).await?;
+                        }
+
+                        Some(RdpCommand::MouseWheel { x, y, delta, is_vertical }) => {
+                            let mut events = input_db.apply([Operation::MouseMove(MousePosition { x, y })]);
+                            events.extend(input_db.apply([Operation::WheelRotations(WheelRotations {
+                                is_vertical,
+                                rotation_units: delta,
+                            })]));
 
                             if events.is_empty() {
                                 continue;
@@ -415,35 +436,27 @@ impl RdpRuntime {
         let width = right - left + 1;
         let height = bottom - top + 1;
 
-        if width < image_width || height < image_height {
-            println!("[emit_frame] SKIP dirty rect ({}x{} < {}x{})", 
-                    width, height, image_width, image_height);
-            return;  // ← SKIP patch kecil
-        }
-
         let bpp = image.bytes_per_pixel();
         let raw_stride = image.stride();
         let source = image.data();
 
         if bpp != 4 {
+            eprintln!("[emit_frame] ERROR: bytes_per_pixel={}, expected 4", bpp);
             return;
         }
 
-        let tight_stride = image_width * bpp;
+        // ============================================================
+        // FIX #1: Use raw_stride (with padding) from image, not tight_stride
+        // ============================================================
 
-        println!(
-            "[emit_frame] DEBUG: raw_stride={} tight_stride={} region=({},{}) to ({},{})",
-            raw_stride, tight_stride, left, top, right, bottom
-        );
-
+        // ============================================================
+        // Packing: tight-packed RGBA (no row padding in packed buffer)
+        // ============================================================
         let mut packed = vec![0u8; width * height * 4];
         let target_row_stride = width * 4;
 
-        let mut rows_copied = 0u32;
-        let mut rows_filled = 0u32;
-
         for (row_idx, y) in (top..=bottom).enumerate() {
-            let src_row_start = y * tight_stride + left * bpp;
+            let src_row_start = y * raw_stride + left * bpp;
             let src_row_len = width * bpp;
             let src_row_end = src_row_start + src_row_len;
 
@@ -451,48 +464,29 @@ impl RdpRuntime {
             let dst_row_end = dst_row_start + src_row_len;
 
             if dst_row_end > packed.len() {
-                println!("[emit_frame] row {} dst out of bounds", y);
+                eprintln!("[emit_frame] ERROR row {}: dst out of bounds", y);
                 continue;
             }
 
             if src_row_end <= source.len() {
-                // ✓ Row tersedia, copy
-                packed[dst_row_start..dst_row_end]
-                    .copy_from_slice(&source[src_row_start..src_row_end]);
-                rows_copied += 1;
-            } else {
-                // ✗ Row tidak tersedia, fill dengan BLACK
-                println!(
-                    "[emit_frame] row {} out of bounds (src_end={} > len={}), filling with black",
-                    y, src_row_end, source.len()
-                );
-                
-                // Fill dengan black pixel (0, 0, 0, FF)
-                for chunk in packed[dst_row_start..dst_row_end].chunks_exact_mut(4) {
-                    chunk[0] = 0x00; // B
-                    chunk[1] = 0x00; // G
-                    chunk[2] = 0x00; // R
-                    chunk[3] = 0xFF; // A
+                if let Some(src_slice) = source.get(src_row_start..src_row_end) {
+                    packed[dst_row_start..dst_row_end].copy_from_slice(src_slice);
                 }
-                rows_filled += 1;
+            } else {
+                eprintln!(
+                    "[emit_frame] ERROR row {}: src out of bounds ({}..{} > {})",
+                    y, src_row_start, src_row_end, source.len()
+                );
+                // Fill with black
+                for chunk in packed[dst_row_start..dst_row_end].chunks_exact_mut(4) {
+                    chunk[0] = 0x00; chunk[1] = 0x00; chunk[2] = 0x00; chunk[3] = 0xFF;
+                }
             }
         }
 
-        println!(
-            "[emit_frame] frame region=({},{}) to ({},{}) w={} h={} rows: copied={} filled={} total_bytes={}",
-            left, top, right, bottom, width, height, rows_copied, rows_filled, packed.len()
-        );
-
+        // Force alpha = 0xFF (RgbA32 may produce alpha=0 → transparent)
         for pixel in packed.chunks_exact_mut(4) {
-            let b = pixel[0];
-            let g = pixel[1];
-            let r = pixel[2];
-            let a = pixel[3];
-            
-            pixel[0] = r;
-            pixel[1] = g;
-            pixel[2] = b;
-            pixel[3] = a;
+            pixel[3] = 0xFF;
         }
 
         let frame_id = self.next_frame_id();
@@ -501,13 +495,6 @@ impl RdpRuntime {
         for chunk_index in 0..chunk_count {
             let start = chunk_index * FRAME_CHUNK_SIZE;
             let end = (start + FRAME_CHUNK_SIZE).min(packed.len());
-
-             if chunk_index == 0 {
-                println!(
-                    "[emit_frame] chunk 0: data_len={} region=x:{} y:{} w:{} h:{}",
-                    end - start, left, top, width, height
-                );
-            }
 
             let _ = self.frame_tx.send(RdpFrameEvent {
                 session_id: self.session_id.clone(),
@@ -521,7 +508,5 @@ impl RdpRuntime {
                 chunk_count: chunk_count as u32,
             });
         }
-
-        
     }
 }

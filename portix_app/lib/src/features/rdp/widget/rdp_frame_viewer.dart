@@ -19,6 +19,7 @@ class RdpFrameViewer extends StatefulWidget {
     required this.desktopHeight,
     this.onDisconnect,
     this.onDoubleTap,
+    this.onSingleTapUp,
   });
 
   final String sessionId;
@@ -29,6 +30,9 @@ class RdpFrameViewer extends StatefulWidget {
   /// Called when the user double-taps the viewer.
   /// Typically used to exit fullscreen mode.
   final VoidCallback? onDoubleTap;
+
+  /// Called on single tap up — used to toggle overlay toolbar in fullscreen.
+  final VoidCallback? onSingleTapUp;
 
   @override
   State<RdpFrameViewer> createState() => _RdpFrameViewerState();
@@ -106,7 +110,7 @@ class _RdpFrameViewerState extends State<RdpFrameViewer>
   /// Replaced at most ~60 times per second via the Ticker.
   ui.Image? _image;
 
-  int get _rowBytes => (_fbWidth * 4 + 63) & ~63;
+  int get _rowBytes => _fbWidth * 4; // tight-packed RGBA, no alignment padding
 
   /// Whether the framebuffer has been modified since the last repaint.
   bool _framebufferDirty = false;
@@ -211,60 +215,32 @@ class _RdpFrameViewerState extends State<RdpFrameViewer>
   // ================================================================
 
   void _onTick(Duration _) {
-    if (_isDisconnected || !mounted) {
-      debugPrint(
-        '[RDP TICKER] tick skipped: disconnected=$_isDisconnected mounted=$mounted',
-      );
-      return;
-    }
-    if (!_framebufferDirty || _isDecoding) {
-      debugPrint(
-        '[RDP TICKER] tick skipped: dirty=$_framebufferDirty decoding=$_isDecoding',
-      );
-      return;
-    }
+    if (_isDisconnected || !mounted) return;
+    if (!_framebufferDirty || _isDecoding) return;
 
-    debugPrint('[RDP TICKER] encoding framebuffer...');
     _framebufferDirty = false;
     _isDecoding = true;
 
     final snapshot = Uint8List.fromList(_framebuffer);
-
     _decodeFramebuffer(snapshot);
   }
 
   Future<void> _decodeFramebuffer(Uint8List snapshot) async {
-    debugPrint(
-      '[RDP DECODE] starting decode snapshot.length=${snapshot.length}',
-    );
-
     if (_isDisconnected || !mounted) {
-      debugPrint(
-        '[RDP DECODE] aborted: disconnected=$_isDisconnected mounted=$mounted',
-      );
       _isDecoding = false;
       return;
     }
 
     ui.Image? image;
     try {
-      debugPrint('[RDP DECODE] calling _decodeImage...');
       image = await _decodeImage(snapshot, _fbWidth, _fbHeight);
 
-      debugPrint(
-        '[RDP DECODE] image decoded successfully: ${image.width}x${image.height}',
-      );
-
       if (_isDisconnected || !mounted) {
-        debugPrint(
-          '[RDP DECODE] disposing decoded image (disconnected or unmounted)',
-        );
         image.dispose();
         return;
       }
 
       final old = _image;
-      debugPrint('[RDP DECODE] setState with new image');
       setState(() => _image = image);
       old?.dispose();
     } catch (error, st) {
@@ -274,9 +250,6 @@ class _RdpFrameViewerState extends State<RdpFrameViewer>
       _isDecoding = false;
 
       if (!_isDisconnected && mounted && _framebufferDirty) {
-        debugPrint(
-          '[RDP DECODE] framebuffer dirty again, scheduling next decode',
-        );
         _framebufferDirty = false;
         _isDecoding = true;
         final next = Uint8List.fromList(_framebuffer);
@@ -288,34 +261,29 @@ class _RdpFrameViewerState extends State<RdpFrameViewer>
   Future<ui.Image> _decodeImage(Uint8List bytes, int width, int height) async {
     final expectedSize = _rowBytes * height;
     if (bytes.length != expectedSize) {
-      throw StateError('Buffer size mismatch');
+      throw StateError(
+        'Buffer size mismatch: got=${bytes.length} expected=$expectedSize '
+        '(${width}x${height} stride=$_rowBytes)',
+      );
     }
 
-    final completer = Completer<ui.Image>();
+    // Use ImageDescriptor.raw — explicit rowBytes, no hidden alignment
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    final descriptor = ui.ImageDescriptor.raw(
+      buffer,
+      width: width,
+      height: height,
+      rowBytes: _rowBytes,
+      pixelFormat: ui.PixelFormat.rgba8888, // matches Rust RgbA32
+    );
 
-    // Try multiple formats
-    final formats = [
-      (ui.PixelFormat.bgra8888, "BgrA8888"),
-      (ui.PixelFormat.rgba8888, "RgbA8888"),
-    ];
+    final codec = await descriptor.instantiateCodec(
+      targetWidth: width,
+      targetHeight: height,
+    );
 
-    for (final (format, name) in formats) {
-      try {
-        debugPrint('[RDP DECODE] trying format: $name');
-        ui.decodeImageFromPixels(bytes, width, height, format, (
-          ui.Image image,
-        ) {
-          debugPrint('[RDP DECODE] SUCCESS with format: $name');
-          completer.complete(image);
-        }, rowBytes: _rowBytes);
-        return completer.future; // ← Exit setelah first success
-      } catch (e) {
-        debugPrint('[RDP DECODE] $name failed: $e');
-      }
-    }
-
-    completer.completeError(StateError('All formats failed'));
-    return completer.future;
+    final frame = await codec.getNextFrame();
+    return frame.image;
   }
 
   // Future<void> _decodeFramebuffer(Uint8List snapshot) async {
@@ -370,50 +338,55 @@ class _RdpFrameViewerState extends State<RdpFrameViewer>
   // ================================================================
 
   void _blitRect(int x, int y, int w, int h, Uint8List patchData) {
-    if (w <= 0 || h <= 0) return;
+    if (w <= 0 || h <= 0) {
+      debugPrint('[RDP BLIT ERROR] invalid dimensions w=$w h=$h');
+      return;
+    }
 
     final expectedPatchBytes = w * h * 4;
     if (patchData.length != expectedPatchBytes) {
       debugPrint(
-        '[RDP BLIT ERROR] patch size mismatch '
-        'got=${patchData.length} expected=$expectedPatchBytes',
+        '[RDP BLIT ERROR] patch size mismatch: '
+        'got=${patchData.length} expected=$expectedPatchBytes (${w}x$h RGBA)',
       );
       return;
     }
 
-    debugPrint('[RDP BLIT] rect x=$x y=$y w=$w h=$h');
+    // ════════════════════════════════════════════════════════════════
+    // VALIDATION: Clipping check
+    // ════════════════════════════════════════════════════════════════
+    if (x < 0 || y < 0 || x + w > _fbWidth || y + h > _fbHeight) {
+      debugPrint(
+        '[RDP BLIT WARN] rect out of bounds: pos=($x,$y) size=($w,$h) '
+        'vs framebuffer=($_fbWidth,$_fbHeight)',
+      );
+      return; // Discard out-of-bounds rects
+    }
 
-    // ─── TEST: DISABLE CLIPPING ───
-    // Cek apakah clipping logic yang bikin diagonal garis
+    debugPrint(
+      '[RDP BLIT] pos=($x,$y) size=($w,$h) patch=${patchData.length} bytes',
+    );
 
-    final srcStride = w * 4; // Patch stride (tight-packed)
-    final destStride = _rowBytes; // Framebuffer stride
+    // ════════════════════════════════════════════════════════════════
+    // FIXED: Use correct strides
+    // srcStride = w * 4 (tight-packed in patch)
+    // destStride = _rowBytes (framebuffer with alignment)
+    // ════════════════════════════════════════════════════════════════
+    final srcStride = w * 4;
+    final destStride = _rowBytes;
     final copyBytes = w * 4;
 
     for (var row = 0; row < h; row++) {
       final srcOffset = row * srcStride;
       final dstOffset = (y + row) * destStride + x * 4;
 
-      // Boundary check
-      if (srcOffset + copyBytes > patchData.length) {
-        debugPrint('[RDP BLIT] row $row: src out of bounds');
-        return;
-      }
-      if (dstOffset + copyBytes > _framebuffer.length) {
-        debugPrint('[RDP BLIT] row $row: dst out of bounds');
-        return;
-      }
+      if (srcOffset + copyBytes > patchData.length) return;
+      if (dstOffset + copyBytes > _framebuffer.length) return;
 
-      _framebuffer.setRange(
-        dstOffset,
-        dstOffset + copyBytes,
-        patchData,
-        srcOffset,
-      );
+      _framebuffer.setRange(dstOffset, dstOffset + copyBytes, patchData, srcOffset);
     }
 
     _framebufferDirty = true;
-    debugPrint('[RDP BLIT] done, dirty=true');
   }
 
   // ================================================================
@@ -421,67 +394,21 @@ class _RdpFrameViewerState extends State<RdpFrameViewer>
   // ================================================================
 
   void _onFrame(RdpFrameEvent frame) {
-    if (frame.chunkCount == 1) {
-      debugPrint(
-        '[RDP FRAME SINGLE] id=${frame.frameId} '
-        'size=${frame.width}x${frame.height} pos=${frame.x},${frame.y} '
-        'data=${frame.data.length}',
-      );
-    } else {
-      debugPrint(
-        '[RDP FRAME MULTI] id=${frame.frameId} '
-        'chunk=${frame.chunkIndex}/${frame.chunkCount} '
-        'size=${frame.width}x${frame.height} '
-        'data=${frame.data.length}',
-      );
-    }
-
-    if (frame.data.isEmpty && frame.chunkCount == 1) {
-      debugPrint(
-        '[RDP FRAME ERROR] empty data! '
-        'id=${frame.frameId} size=${frame.width}x${frame.height}',
-      );
-      return; // Skip frame kosong
-    }
-
-    if (_isDisconnected) {
-      debugPrint('[RDP _onFrame] DROPPED: disconnected');
-      return;
-    }
+    if (frame.data.isEmpty && frame.chunkCount == 1) return;
+    if (_isDisconnected) return;
 
     final w = frame.width;
     final h = frame.height;
 
-    if (w <= 0 || h <= 0) {
-      debugPrint(
-        '[RDP FRAME ERROR] invalid size ${w}x$h frame=${frame.frameId}',
-      );
-      return;
-    }
-
-    if (frame.chunkCount == 0) {
-      debugPrint('[RDP FRAME ERROR] chunkCount=0 frame=${frame.frameId}');
-      return;
-    }
-
-    if (frame.chunkIndex >= frame.chunkCount) {
-      debugPrint(
-        '[RDP FRAME ERROR] invalid chunk frame=${frame.frameId} '
-        'chunk=${frame.chunkIndex} count=${frame.chunkCount}',
-      );
-      return;
-    }
+    if (w <= 0 || h <= 0) return;
+    if (frame.chunkCount == 0) return;
+    if (frame.chunkIndex >= frame.chunkCount) return;
 
     // Single chunk — skip assembly
     if (frame.chunkCount == 1) {
-      debugPrint('[RDP _onFrame] SINGLE CHUNK: proceeding to _onCompleteFrame');
       _onCompleteFrame(frame);
       return;
     }
-
-    debugPrint(
-      '[RDP _onFrame] MULTI CHUNK: assembly for frame=${frame.frameId}',
-    );
 
     // Multi-chunk assembly
     var assembly = _assemblies[frame.frameId];
@@ -523,18 +450,8 @@ class _RdpFrameViewerState extends State<RdpFrameViewer>
     }
 
     assembly.chunks[frame.chunkIndex] = frame.data;
-    debugPrint(
-      '[RDP ASSEMBLY] chunk received frame=${frame.frameId} '
-      'chunk=${frame.chunkIndex}/${frame.chunkCount} '
-      'progress=${assembly.chunks.length}/${frame.chunkCount}',
-    );
 
-    if (!assembly.isComplete) {
-      debugPrint('[RDP ASSEMBLY] not complete yet, waiting for more chunks');
-      return;
-    }
-
-    debugPrint('[RDP ASSEMBLY] complete, building bytes...');
+    if (!assembly.isComplete) return;
 
     Uint8List bytes;
     try {
@@ -554,11 +471,6 @@ class _RdpFrameViewerState extends State<RdpFrameViewer>
       _discardAssembly(frame.frameId);
       return;
     }
-
-    debugPrint(
-      '[RDP ASSEMBLY] assembled complete frame='
-      '${frame.frameId} bytes=${bytes.length}',
-    );
 
     final completeFrame = RdpFrameEvent(
       sessionId: frame.sessionId,
@@ -581,39 +493,22 @@ class _RdpFrameViewerState extends State<RdpFrameViewer>
   // ================================================================
 
   void _onCompleteFrame(RdpFrameEvent frame) {
-    debugPrint(
-      '[RDP _onCompleteFrame] ENTRY frame=${frame.frameId} '
-      'size=${frame.width}x${frame.height} pos=${frame.x},${frame.y}',
-    );
-
-    if (_isDisconnected) {
-      debugPrint('[RDP _onCompleteFrame] DROPPED: disconnected');
-      return;
-    }
+    if (_isDisconnected) return;
 
     final expected = frame.width * frame.height * 4;
     if (frame.data.length != expected) {
       debugPrint(
-        '[RDP FRAME ERROR] frame=${frame.frameId} '
-        'bytes=${frame.data.length} expected=$expected '
-        'size=${frame.width}x${frame.height}',
+        '[RDP FRAME ERROR] size mismatch: frame=${frame.frameId} '
+        'data=${frame.data.length} expected=$expected '
+        'for ${frame.width}x${frame.height}',
       );
       return;
     }
 
-    if (frame.frameId < _lastCompletedFrameId) {
-      debugPrint(
-        '[RDP FRAME DROP] old frame=${frame.frameId} last=$_lastCompletedFrameId',
-      );
-      return;
-    }
+    if (frame.frameId < _lastCompletedFrameId) return;
     _lastCompletedFrameId = frame.frameId;
 
-    debugPrint('[RDP _onCompleteFrame] calling _blitRect...');
     _blitRect(frame.x, frame.y, frame.width, frame.height, frame.data);
-    debugPrint(
-      '[RDP _onCompleteFrame] after _blitRect, dirty=$_framebufferDirty',
-    );
   }
 
   // ================================================================
@@ -862,6 +757,33 @@ class _RdpFrameViewerState extends State<RdpFrameViewer>
     );
   }
 
+  void _handlePointerSignal(PointerSignalEvent event) {
+    if (_isDisconnected) return;
+    if (event is! PointerScrollEvent) return;
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final (x, y) = _toDesktopCoords(event.localPosition, box.size);
+
+    // button 3 = scroll up, button 4 = scroll down (standard RDP wheel codes)
+    final scrollUp = event.scrollDelta.dy < 0;
+    final button = scrollUp ? 3 : 4;
+    // Press + release in one go to simulate a wheel click
+    unawaited(
+      sl<RdpBackendService>()
+          .sendMouseButton(widget.sessionId, x, y, button, true)
+          .then((_) {
+            if (_isDisconnected) return;
+            sl<RdpBackendService>().sendMouseButton(
+              widget.sessionId,
+              x,
+              y,
+              button,
+              false,
+            );
+          }),
+    );
+  }
+
   // ================================================================
   // KEYBOARD
   // ================================================================
@@ -940,18 +862,47 @@ class _RdpFrameViewerState extends State<RdpFrameViewer>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircularProgressIndicator(color: Colors.white),
-            const SizedBox(height: 16),
+            const SizedBox(
+              width: 40,
+              height: 40,
+              child: CircularProgressIndicator(
+                color: Colors.white54,
+                strokeWidth: 2,
+              ),
+            ),
+            const SizedBox(height: 20),
             const Text(
-              'Waiting for frame...',
-              style: TextStyle(color: Colors.white70),
+              'Connecting to remote desktop…',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${widget.desktopWidth} × ${widget.desktopHeight}',
+              style: const TextStyle(color: Colors.white38, fontSize: 12),
             ),
             if (_statusMessage != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                _statusMessage!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white10,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _statusMessage!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 12,
+                  ),
+                ),
               ),
             ],
           ],
@@ -965,18 +916,22 @@ class _RdpFrameViewerState extends State<RdpFrameViewer>
         // Desktop image — stretched to fill the entire widget area.
         Positioned.fill(child: CustomPaint(painter: _RdpPainter(image))),
 
-        // Input layer — keyboard + mouse + double-tap to exit fullscreen.
+        // Input layer — keyboard + mouse + scroll + gestures.
         KeyboardListener(
           focusNode: _focusNode,
           autofocus: true,
           onKeyEvent: _handleKey,
           child: GestureDetector(
             onDoubleTap: widget.onDoubleTap,
+            onTapUp: widget.onSingleTapUp != null
+                ? (_) => widget.onSingleTapUp!()
+                : null,
             child: Listener(
               behavior: HitTestBehavior.opaque,
               onPointerMove: _handlePointerMove,
               onPointerDown: _handlePointerDown,
               onPointerUp: _handlePointerUp,
+              onPointerSignal: _handlePointerSignal,
               child: const SizedBox.expand(),
             ),
           ),

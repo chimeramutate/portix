@@ -12,22 +12,22 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 Future<RdpSessionInfo> rdpParseFile({
   required String rdpContent,
   String? profileName,
-}) => RdpRustLib.instance.api.crateApiRdpParseFile(
+}) => RustLib.instance.api.crateApiRdpParseFile(
   rdpContent: rdpContent,
   profileName: profileName,
 );
 
 Future<RdpSessionInfo> rdpConnect({required RdpProfile profile}) =>
-    RdpRustLib.instance.api.crateApiRdpConnect(profile: profile);
+    RustLib.instance.api.crateApiRdpConnect(profile: profile);
 
 Future<void> rdpDisconnect({required String sessionId}) =>
-    RdpRustLib.instance.api.crateApiRdpDisconnect(sessionId: sessionId);
+    RustLib.instance.api.crateApiRdpDisconnect(sessionId: sessionId);
 
 Future<void> rdpSendMouseMove({
   required String sessionId,
   required int x,
   required int y,
-}) => RdpRustLib.instance.api.crateApiRdpSendMouseMove(
+}) => RustLib.instance.api.crateApiRdpSendMouseMove(
   sessionId: sessionId,
   x: x,
   y: y,
@@ -39,7 +39,7 @@ Future<void> rdpSendMouseButton({
   required int y,
   required int button,
   required bool down,
-}) => RdpRustLib.instance.api.crateApiRdpSendMouseButton(
+}) => RustLib.instance.api.crateApiRdpSendMouseButton(
   sessionId: sessionId,
   x: x,
   y: y,
@@ -47,21 +47,35 @@ Future<void> rdpSendMouseButton({
   down: down,
 );
 
+Future<void> rdpSendMouseWheel({
+  required String sessionId,
+  required int x,
+  required int y,
+  required int delta,
+  required bool isVertical,
+}) => RustLib.instance.api.crateApiRdpSendMouseWheel(
+  sessionId: sessionId,
+  x: x,
+  y: y,
+  delta: delta,
+  isVertical: isVertical,
+);
+
 Future<void> rdpSendKeyboardInput({
   required String sessionId,
   required int scancode,
   required bool down,
-}) => RdpRustLib.instance.api.crateApiRdpSendKeyboardInput(
+}) => RustLib.instance.api.crateApiRdpSendKeyboardInput(
   sessionId: sessionId,
   scancode: scancode,
   down: down,
 );
 
 Stream<RdpFrameEvent> rdpFrameStream() =>
-    RdpRustLib.instance.api.crateApiRdpFrameStream();
+    RustLib.instance.api.crateApiRdpFrameStream();
 
 Stream<RdpStatusEvent> rdpStatusStream() =>
-    RdpRustLib.instance.api.crateApiRdpStatusStream();
+    RustLib.instance.api.crateApiRdpStatusStream();
 
 Stream<RdpErrorEvent> rdpErrorStream() =>
-    RdpRustLib.instance.api.crateApiRdpErrorStream();
+    RustLib.instance.api.crateApiRdpErrorStream();
