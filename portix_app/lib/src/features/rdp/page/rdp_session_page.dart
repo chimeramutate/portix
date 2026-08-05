@@ -173,7 +173,7 @@ class _FullscreenToolbar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 56,
-      color: Colors.black.withOpacity(0.85),
+      color: const Color.fromRGBO(0, 0, 0, 0.85),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [

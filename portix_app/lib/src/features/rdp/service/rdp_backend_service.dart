@@ -5,8 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/domain/entities/rdp/index.dart';
-import 'package:portix/src/domain/repositories/rdp/index.dart';
-import 'package:portix/src/features/rdp/service/rdp_backend_service.dart';
 import 'package:portix/src/rust_rdp/api.dart' as rdp_api;
 import 'package:portix/src/rust_rdp/domain/events.dart';
 import 'package:portix/src/rust_rdp/domain/profile.dart' as rdp_profile;
@@ -31,11 +29,6 @@ class RdpBackendService {
   //
   // Batas: 256 frame per session (≈ burst awal xRDP login screen).
   // ──────────────────────────────────────────────────────────────────────
-  static const int _maxBufferedFrames = 256;
-  final Map<String, List<RdpFrameEvent>> _frameBuffer = {};
-  final Map<String, StreamController<RdpFrameEvent>> _frameControllers = {};
-  StreamSubscription<RdpFrameEvent>? _rawFrameSub;
-
   void _initStreamSubscriptions() {
     statusStream().listen((event) {
       switch (event.status) {
