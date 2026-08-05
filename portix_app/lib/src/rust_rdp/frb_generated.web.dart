@@ -15,8 +15,8 @@ import 'domain/session.dart';
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 
-abstract class RdpRustLibApiImplPlatform extends BaseApiImpl<RdpRustLibWire> {
-  RdpRustLibApiImplPlatform({
+abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
+  RustLibApiImplPlatform({
     required super.handler,
     required super.wire,
     required super.generalizedFrbRustBinding,
@@ -49,6 +49,9 @@ abstract class RdpRustLibApiImplPlatform extends BaseApiImpl<RdpRustLibWire> {
 
   @protected
   RdpProfile dco_decode_box_autoadd_rdp_profile(dynamic raw);
+
+  @protected
+  int dco_decode_i_16(dynamic raw);
 
   @protected
   int dco_decode_i_32(dynamic raw);
@@ -118,6 +121,9 @@ abstract class RdpRustLibApiImplPlatform extends BaseApiImpl<RdpRustLibWire> {
 
   @protected
   RdpProfile sse_decode_box_autoadd_rdp_profile(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_i_16(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
@@ -200,6 +206,9 @@ abstract class RdpRustLibApiImplPlatform extends BaseApiImpl<RdpRustLibWire> {
   );
 
   @protected
+  void sse_encode_i_16(int self, SseSerializer serializer);
+
+  @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
 
   @protected
@@ -256,13 +265,13 @@ abstract class RdpRustLibApiImplPlatform extends BaseApiImpl<RdpRustLibWire> {
 
 // Section: wire_class
 
-class RdpRustLibWire implements BaseWire {
-  RdpRustLibWire.fromExternalLibrary(ExternalLibrary lib);
+class RustLibWire implements BaseWire {
+  RustLibWire.fromExternalLibrary(ExternalLibrary lib);
 }
 
 @JS('wasm_bindgen')
-external RdpRustLibWasmModule get wasmModule;
+external RustLibWasmModule get wasmModule;
 
 @JS()
 @anonymous
-extension type RdpRustLibWasmModule._(JSObject _) implements JSObject {}
+extension type RustLibWasmModule._(JSObject _) implements JSObject {}

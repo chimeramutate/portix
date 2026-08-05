@@ -15,16 +15,15 @@ import 'frb_generated.io.dart'
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 /// Main entrypoint of the Rust API
-class RdpRustLib
-    extends BaseEntrypoint<RdpRustLibApi, RdpRustLibApiImpl, RdpRustLibWire> {
+class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   @internal
-  static final instance = RdpRustLib._();
+  static final instance = RustLib._();
 
-  RdpRustLib._();
+  RustLib._();
 
   /// Initialize flutter_rust_bridge
   static Future<void> init({
-    RdpRustLibApi? api,
+    RustLibApi? api,
     BaseHandler? handler,
     ExternalLibrary? externalLibrary,
     bool forceSameCodegenVersion = true,
@@ -39,7 +38,7 @@ class RdpRustLib
 
   /// Initialize flutter_rust_bridge in mock mode.
   /// No libraries for FFI are loaded.
-  static void initMock({required RdpRustLibApi api}) {
+  static void initMock({required RustLibApi api}) {
     instance.initMockImpl(api: api);
   }
 
@@ -50,12 +49,12 @@ class RdpRustLib
   static void dispose() => instance.disposeImpl();
 
   @override
-  ApiImplConstructor<RdpRustLibApiImpl, RdpRustLibWire>
-  get apiImplConstructor => RdpRustLibApiImpl.new;
+  ApiImplConstructor<RustLibApiImpl, RustLibWire> get apiImplConstructor =>
+      RustLibApiImpl.new;
 
   @override
-  WireConstructor<RdpRustLibWire> get wireConstructor =>
-      RdpRustLibWire.fromExternalLibrary;
+  WireConstructor<RustLibWire> get wireConstructor =>
+      RustLibWire.fromExternalLibrary;
 
   @override
   Future<void> executeRustInitializers() async {
@@ -70,7 +69,7 @@ class RdpRustLib
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 731336336;
+  int get rustContentHash => 827715397;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -80,7 +79,7 @@ class RdpRustLib
       );
 }
 
-abstract class RdpRustLibApi extends BaseApi {
+abstract class RustLibApi extends BaseApi {
   Future<void> crateApiInitRdpApp();
 
   Future<RdpSessionInfo> crateApiRdpConnect({required RdpProfile profile});
@@ -116,12 +115,19 @@ abstract class RdpRustLibApi extends BaseApi {
     required int y,
   });
 
+  Future<void> crateApiRdpSendMouseWheel({
+    required String sessionId,
+    required int x,
+    required int y,
+    required int delta,
+    required bool isVertical,
+  });
+
   Stream<RdpStatusEvent> crateApiRdpStatusStream();
 }
 
-class RdpRustLibApiImpl extends RdpRustLibApiImplPlatform
-    implements RdpRustLibApi {
-  RdpRustLibApiImpl({
+class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
+  RustLibApiImpl({
     required super.handler,
     required super.wire,
     required super.generalizedFrbRustBinding,
@@ -423,6 +429,46 @@ class RdpRustLibApiImpl extends RdpRustLibApiImplPlatform
   );
 
   @override
+  Future<void> crateApiRdpSendMouseWheel({
+    required String sessionId,
+    required int x,
+    required int y,
+    required int delta,
+    required bool isVertical,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sessionId, serializer);
+          sse_encode_u_16(x, serializer);
+          sse_encode_u_16(y, serializer);
+          sse_encode_i_16(delta, serializer);
+          sse_encode_bool(isVertical, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 10,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRdpSendMouseWheelConstMeta,
+        argValues: [sessionId, x, y, delta, isVertical],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRdpSendMouseWheelConstMeta => const TaskConstMeta(
+    debugName: "rdp_send_mouse_wheel",
+    argNames: ["sessionId", "x", "y", "delta", "isVertical"],
+  );
+
+  @override
   Stream<RdpStatusEvent> crateApiRdpStatusStream() {
     final sink = RustStreamSink<RdpStatusEvent>();
     unawaited(
@@ -434,7 +480,7 @@ class RdpRustLibApiImpl extends RdpRustLibApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 10,
+              funcId: 11,
               port: port_,
             );
           },
@@ -500,6 +546,12 @@ class RdpRustLibApiImpl extends RdpRustLibApiImplPlatform
   RdpProfile dco_decode_box_autoadd_rdp_profile(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_rdp_profile(raw);
+  }
+
+  @protected
+  int dco_decode_i_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
   }
 
   @protected
@@ -685,6 +737,12 @@ class RdpRustLibApiImpl extends RdpRustLibApiImplPlatform
   RdpProfile sse_decode_box_autoadd_rdp_profile(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_rdp_profile(deserializer));
+  }
+
+  @protected
+  int sse_decode_i_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getInt16();
   }
 
   @protected
@@ -925,6 +983,12 @@ class RdpRustLibApiImpl extends RdpRustLibApiImplPlatform
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_rdp_profile(self, serializer);
+  }
+
+  @protected
+  void sse_encode_i_16(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putInt16(self);
   }
 
   @protected

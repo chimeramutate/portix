@@ -402,6 +402,31 @@ impl RdpSessionManager {
     }
 
     // ==============================================================
+    // MOUSE WHEEL
+    // ==============================================================
+
+    pub async fn send_mouse_wheel(
+        &self,
+        session_id: String,
+        x: u16,
+        y: u16,
+        delta: i16,
+        is_vertical: bool,
+    ) -> Result<()> {
+        let sessions = self.sessions.lock().await;
+
+        if let Some(handle) = sessions.get(&session_id) {
+            handle
+                .command_tx
+                .send(RdpCommand::MouseWheel { x, y, delta, is_vertical })
+                .await
+                .map_err(|_| RdpError::Disconnected)?;
+        }
+
+        Ok(())
+    }
+
+    // ==============================================================
     // KEYBOARD
     // ==============================================================
 
