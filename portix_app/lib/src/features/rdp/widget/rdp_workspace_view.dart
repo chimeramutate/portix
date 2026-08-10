@@ -10,13 +10,20 @@ import 'package:portix/src/features/rdp/widget/rdp_file_import_dialog.dart';
 import 'package:portix/src/features/rdp/widget/rdp_manual_form_dialog.dart';
 import 'package:portix/src/features/rdp/widget/rdp_profile_card.dart';
 
-class RdpWorkspaceView extends StatelessWidget {
+class RdpWorkspaceView extends StatefulWidget {
   const RdpWorkspaceView({super.key});
+
+  @override
+  State<RdpWorkspaceView> createState() => _RdpWorkspaceViewState();
+}
+
+class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
+  // Guard navigasi agar tidak push dua kali untuk session yang sama
+  String? _navigatedSessionId;
 
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<RdpWorkspaceBloc, RdpWorkspaceState>(
-      // ✅ PERBAIKAN: Navigasi hanya jika session ID benar-benar berubah
       listenWhen: (previous, current) =>
           previous.lastSessionId != current.lastSessionId &&
           current.lastSessionId != null,
@@ -24,14 +31,23 @@ class RdpWorkspaceView extends StatelessWidget {
         final profile = state.selectedProfile;
         if (profile == null) return;
 
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => RdpSessionPage(
-              profile: profile,
-              sessionId: state.lastSessionId!,
-            ),
-          ),
-        );
+        final sessionId = state.lastSessionId!;
+
+        // Hindari navigasi ganda ke session yang sama
+        if (_navigatedSessionId == sessionId) return;
+        _navigatedSessionId = sessionId;
+
+        Navigator.of(context)
+            .push(
+              MaterialPageRoute(
+                builder: (context) =>
+                    RdpSessionPage(profile: profile, sessionId: sessionId),
+              ),
+            )
+            .then((_) {
+              // Reset saat kembali agar koneksi baru bisa dibuka
+              _navigatedSessionId = null;
+            });
       },
       builder: (context, state) {
         if (state.status == RdpWorkspaceStatus.loading) {

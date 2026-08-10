@@ -94,14 +94,11 @@ mod tests {
             x: 0,
             y: 0,
             frame_id: 42,
-            chunk_index: 0,
-            chunk_count: 1,
         };
         assert_eq!(event.data.len(), 320);
         assert_eq!(event.width, 10);
         assert_eq!(event.height, 8);
         assert_eq!(event.frame_id, 42);
-        assert_eq!(event.chunk_count, 1);
     }
 
     #[test]
@@ -114,8 +111,6 @@ mod tests {
             x: 0,
             y: 0,
             frame_id: 1,
-            chunk_index: 0,
-            chunk_count: 1,
         };
         let json = serde_json::to_string(&event).unwrap();
         let decoded: RdpFrameEvent = serde_json::from_str(&json).unwrap();
@@ -133,13 +128,10 @@ mod tests {
             x: 100,
             y: 200,
             frame_id: 99,
-            chunk_index: 2,
-            chunk_count: 5,
+
         };
         assert_eq!(event.x, 100);
         assert_eq!(event.y, 200);
-        assert_eq!(event.chunk_index, 2);
-        assert_eq!(event.chunk_count, 5);
     }
 
     #[test]
@@ -152,8 +144,7 @@ mod tests {
             x: 0,
             y: 0,
             frame_id: 0,
-            chunk_index: 0,
-            chunk_count: 1,
+
         };
         let mut cloned = original.clone();
         cloned.data[0] = 99;

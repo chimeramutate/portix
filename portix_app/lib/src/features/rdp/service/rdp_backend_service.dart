@@ -13,24 +13,39 @@ import 'package:portix/src/rust_rdp/frb_generated.dart';
 
 class RdpBackendService {
   RdpBackendService() {
-    _initStreamSubscriptions();
+    _initPersistentStreams();
   }
 
   final Map<String, String> _activeSessions = {};
   final Map<String, String> _sessionToProfile = {};
 
   // ──────────────────────────────────────────────────────────────────────
-  // FRAME BUFFER PER SESSION
+  // PERSISTENT BROADCAST STREAMS
   //
-  // Rust mulai mengirim frame SEGERA setelah connect() — jauh sebelum
-  // viewer widget selesai dibuat dan subscribe ke stream.
-  // Buffer ini menampung frame yang datang sebelum viewer subscribe,
-  // lalu di-flush saat viewer pertama kali listen via frameStream().
+  // StreamController.broadcast() tidak pernah close dan tidak bergantung
+  // pada jumlah listener. Subscriber Rust dibuat sekali saat init dan
+  // me-forward semua event ke controller ini.
   //
-  // Batas: 256 frame per session (≈ burst awal xRDP login screen).
+  // Viewer dan internal listener cukup listen ke _frame/status/errorCtrl
+  // tanpa pernah menyentuh Rust API secara langsung.
   // ──────────────────────────────────────────────────────────────────────
-  void _initStreamSubscriptions() {
-    statusStream().listen((event) {
+  final _frameCtrl = StreamController<RdpFrameEvent>.broadcast();
+  final _statusCtrl = StreamController<RdpStatusEvent>.broadcast();
+  final _errorCtrl = StreamController<RdpErrorEvent>.broadcast();
+
+  StreamSubscription<RdpFrameEvent>? _frameSub;
+  StreamSubscription<RdpStatusEvent>? _statusSub;
+  StreamSubscription<RdpErrorEvent>? _errorSub;
+
+  void _initPersistentStreams() {
+    // Subscribe ke Rust SEKALI — event di-forward ke controller broadcast
+    _frameSub = rdp_api.rdpFrameStream().listen(
+      _frameCtrl.add,
+      onError: _frameCtrl.addError,
+    );
+
+    _statusSub = rdp_api.rdpStatusStream().listen((event) {
+      // Update session map
       switch (event.status) {
         case RdpConnectionStatus.connected:
           break;
@@ -44,26 +59,33 @@ class RdpBackendService {
         case RdpConnectionStatus.connecting:
           break;
       }
-    });
+      _statusCtrl.add(event);
+    }, onError: _statusCtrl.addError);
 
-    errorStream().listen((event) {
+    _errorSub = rdp_api.rdpErrorStream().listen((event) {
       if (event.sessionId != null) {
         final profileId = _sessionToProfile.remove(event.sessionId);
         if (profileId != null) {
           _activeSessions.remove(profileId);
         }
       }
-    });
+      _errorCtrl.add(event);
+    }, onError: _errorCtrl.addError);
   }
 
+  // Stream publik — viewer dan internal listener pakai ini
+  Stream<RdpFrameEvent> frameStream() => _frameCtrl.stream;
+  Stream<RdpStatusEvent> statusStream() => _statusCtrl.stream;
+  Stream<RdpErrorEvent> errorStream() => _errorCtrl.stream;
+
   static Future<void> initDev() async {
-    await RustLib.init();
+    await RdpRustLib.init();
   }
 
   static String productionPathHint() => _productionLibraryPath();
 
   static Future<void> initProduction() async {
-    await RustLib.init(
+    await RdpRustLib.init(
       externalLibrary: ExternalLibrary.open(
         _productionLibraryPath(),
         debugInfo: 'Portix RDP library',
@@ -225,20 +247,13 @@ class RdpBackendService {
     }
   }
 
-  // Stream sekarang langsung mengembalikan object dari FRB tanpa jsonDecode
-  Stream<RdpFrameEvent> frameStream() {
-    return rdp_api.rdpFrameStream();
-  }
-
-  Stream<RdpStatusEvent> statusStream() {
-    return rdp_api.rdpStatusStream();
-  }
-
-  Stream<RdpErrorEvent> errorStream() {
-    return rdp_api.rdpErrorStream();
-  }
-
   void dispose() {
+    _frameSub?.cancel();
+    _statusSub?.cancel();
+    _errorSub?.cancel();
+    _frameCtrl.close();
+    _statusCtrl.close();
+    _errorCtrl.close();
     _activeSessions.clear();
     _sessionToProfile.clear();
   }

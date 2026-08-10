@@ -31,8 +31,6 @@ pub struct RdpFrameEvent {
     pub y: u32,
 
     pub frame_id: u64,
-    pub chunk_index: u32,
-    pub chunk_count: u32,
 }
 
 fn default_error_code() -> String {

@@ -15,15 +15,16 @@ import 'frb_generated.io.dart'
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 /// Main entrypoint of the Rust API
-class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
+class RdpRustLib
+    extends BaseEntrypoint<RdpRustLibApi, RdpRustLibApiImpl, RdpRustLibWire> {
   @internal
-  static final instance = RustLib._();
+  static final instance = RdpRustLib._();
 
-  RustLib._();
+  RdpRustLib._();
 
   /// Initialize flutter_rust_bridge
   static Future<void> init({
-    RustLibApi? api,
+    RdpRustLibApi? api,
     BaseHandler? handler,
     ExternalLibrary? externalLibrary,
     bool forceSameCodegenVersion = true,
@@ -38,7 +39,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 
   /// Initialize flutter_rust_bridge in mock mode.
   /// No libraries for FFI are loaded.
-  static void initMock({required RustLibApi api}) {
+  static void initMock({required RdpRustLibApi api}) {
     instance.initMockImpl(api: api);
   }
 
@@ -49,12 +50,12 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   static void dispose() => instance.disposeImpl();
 
   @override
-  ApiImplConstructor<RustLibApiImpl, RustLibWire> get apiImplConstructor =>
-      RustLibApiImpl.new;
+  ApiImplConstructor<RdpRustLibApiImpl, RdpRustLibWire>
+  get apiImplConstructor => RdpRustLibApiImpl.new;
 
   @override
-  WireConstructor<RustLibWire> get wireConstructor =>
-      RustLibWire.fromExternalLibrary;
+  WireConstructor<RdpRustLibWire> get wireConstructor =>
+      RdpRustLibWire.fromExternalLibrary;
 
   @override
   Future<void> executeRustInitializers() async {
@@ -79,7 +80,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
       );
 }
 
-abstract class RustLibApi extends BaseApi {
+abstract class RdpRustLibApi extends BaseApi {
   Future<void> crateApiInitRdpApp();
 
   Future<RdpSessionInfo> crateApiRdpConnect({required RdpProfile profile});
@@ -126,8 +127,9 @@ abstract class RustLibApi extends BaseApi {
   Stream<RdpStatusEvent> crateApiRdpStatusStream();
 }
 
-class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
-  RustLibApiImpl({
+class RdpRustLibApiImpl extends RdpRustLibApiImplPlatform
+    implements RdpRustLibApi {
+  RdpRustLibApiImpl({
     required super.handler,
     required super.wire,
     required super.generalizedFrbRustBinding,
@@ -595,8 +597,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   RdpFrameEvent dco_decode_rdp_frame_event(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 9)
-      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
     return RdpFrameEvent(
       sessionId: dco_decode_String(arr[0]),
       data: dco_decode_list_prim_u_8_strict(arr[1]),
@@ -605,8 +607,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       x: dco_decode_u_32(arr[4]),
       y: dco_decode_u_32(arr[5]),
       frameId: dco_decode_u_64(arr[6]),
-      chunkIndex: dco_decode_u_32(arr[7]),
-      chunkCount: dco_decode_u_32(arr[8]),
     );
   }
 
@@ -801,8 +801,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_x = sse_decode_u_32(deserializer);
     var var_y = sse_decode_u_32(deserializer);
     var var_frameId = sse_decode_u_64(deserializer);
-    var var_chunkIndex = sse_decode_u_32(deserializer);
-    var var_chunkCount = sse_decode_u_32(deserializer);
     return RdpFrameEvent(
       sessionId: var_sessionId,
       data: var_data,
@@ -811,8 +809,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       x: var_x,
       y: var_y,
       frameId: var_frameId,
-      chunkIndex: var_chunkIndex,
-      chunkCount: var_chunkCount,
     );
   }
 
@@ -1050,8 +1046,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_32(self.x, serializer);
     sse_encode_u_32(self.y, serializer);
     sse_encode_u_64(self.frameId, serializer);
-    sse_encode_u_32(self.chunkIndex, serializer);
-    sse_encode_u_32(self.chunkCount, serializer);
   }
 
   @protected
