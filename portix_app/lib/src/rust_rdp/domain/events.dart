@@ -39,8 +39,6 @@ class RdpFrameEvent {
   final int x;
   final int y;
   final BigInt frameId;
-  final int chunkIndex;
-  final int chunkCount;
 
   const RdpFrameEvent({
     required this.sessionId,
@@ -50,8 +48,6 @@ class RdpFrameEvent {
     required this.x,
     required this.y,
     required this.frameId,
-    required this.chunkIndex,
-    required this.chunkCount,
   });
 
   @override
@@ -62,9 +58,7 @@ class RdpFrameEvent {
       height.hashCode ^
       x.hashCode ^
       y.hashCode ^
-      frameId.hashCode ^
-      chunkIndex.hashCode ^
-      chunkCount.hashCode;
+      frameId.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -77,9 +71,7 @@ class RdpFrameEvent {
           height == other.height &&
           x == other.x &&
           y == other.y &&
-          frameId == other.frameId &&
-          chunkIndex == other.chunkIndex &&
-          chunkCount == other.chunkCount;
+          frameId == other.frameId;
 }
 
 class RdpStatusEvent {

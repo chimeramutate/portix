@@ -42,7 +42,7 @@ impl RdpSessionManager {
         // Frame channel: buffer besar agar burst dirty rect di awal koneksi
         // tidak ter-drop saat Dart subscriber belum ready.
         // xRDP login screen bisa mengirim 20+ dirty rect sekaligus.
-        let (frame_tx, _) = broadcast::channel(2048);
+        let (frame_tx, _) = broadcast::channel(8192);
         let (status_tx, _) = broadcast::channel(256);
         let (error_tx, _) = broadcast::channel(128);
 

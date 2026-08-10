@@ -622,8 +622,6 @@ impl SseDecode for crate::domain::events::RdpFrameEvent {
         let mut var_x = <u32>::sse_decode(deserializer);
         let mut var_y = <u32>::sse_decode(deserializer);
         let mut var_frameId = <u64>::sse_decode(deserializer);
-        let mut var_chunkIndex = <u32>::sse_decode(deserializer);
-        let mut var_chunkCount = <u32>::sse_decode(deserializer);
         return crate::domain::events::RdpFrameEvent {
             session_id: var_sessionId,
             data: var_data,
@@ -632,8 +630,6 @@ impl SseDecode for crate::domain::events::RdpFrameEvent {
             x: var_x,
             y: var_y,
             frame_id: var_frameId,
-            chunk_index: var_chunkIndex,
-            chunk_count: var_chunkCount,
         };
     }
 }
@@ -829,8 +825,6 @@ impl flutter_rust_bridge::IntoDart for crate::domain::events::RdpFrameEvent {
             self.x.into_into_dart().into_dart(),
             self.y.into_into_dart().into_dart(),
             self.frame_id.into_into_dart().into_dart(),
-            self.chunk_index.into_into_dart().into_dart(),
-            self.chunk_count.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1051,8 +1045,6 @@ impl SseEncode for crate::domain::events::RdpFrameEvent {
         <u32>::sse_encode(self.x, serializer);
         <u32>::sse_encode(self.y, serializer);
         <u64>::sse_encode(self.frame_id, serializer);
-        <u32>::sse_encode(self.chunk_index, serializer);
-        <u32>::sse_encode(self.chunk_count, serializer);
     }
 }
 

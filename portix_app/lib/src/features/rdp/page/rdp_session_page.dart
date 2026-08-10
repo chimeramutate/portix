@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/domain/entities/rdp/index.dart';
+import 'package:portix/src/features/rdp/service/rdp_backend_service.dart';
 import 'package:portix/src/features/rdp/widget/rdp_frame_viewer.dart';
 
 class RdpSessionPage extends StatefulWidget {
@@ -27,6 +29,8 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
   @override
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    // Disconnect session saat halaman di-close
+    sl<RdpBackendService>().disconnect(widget.sessionId);
     super.dispose();
   }
 
@@ -128,10 +132,7 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
             child: Center(
               child: Text(
                 '${_desktopWidth}×$_desktopHeight',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.muted,
-                ),
+                style: const TextStyle(fontSize: 12, color: AppColors.muted),
               ),
             ),
           ),

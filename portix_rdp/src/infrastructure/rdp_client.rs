@@ -22,7 +22,7 @@ use crate::domain::profile::RdpProfile;
 use crate::domain::session::RdpConnectionStatus;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
-const FRAME_CHUNK_SIZE: usize = 256 * 1024;
+
 #[derive(Debug)]
 pub enum RdpCommand {
     MouseMove {
@@ -414,13 +414,17 @@ impl RdpRuntime {
         });
     }
     fn emit_frame(&self, image: &DecodedImage, region: &InclusiveRectangle) {
-        let image_width = usize::from(image.width());
-        let image_height = usize::from(image.height());
+        let image_width = image.width() as usize;
+        let image_height = image.height() as usize;
 
         if image_width == 0 || image_height == 0 {
+            eprintln!("[emit_frame] skip: empty image");
             return;
         }
 
+        // ------------------------------------------------------------
+        // 1. Normalize dirty rectangle
+        // ------------------------------------------------------------
         let left = region.left as usize;
         let top = region.top as usize;
         let right = region.right as usize;
@@ -433,80 +437,214 @@ impl RdpRuntime {
         let right = right.min(image_width - 1);
         let bottom = bottom.min(image_height - 1);
 
-        let width = right - left + 1;
-        let height = bottom - top + 1;
-
-        let bpp = image.bytes_per_pixel();
-        let raw_stride = image.stride();
-        let source = image.data();
-
-        if bpp != 4 {
-            eprintln!("[emit_frame] ERROR: bytes_per_pixel={}, expected 4", bpp);
+        if right < left || bottom < top {
             return;
         }
 
-        // ============================================================
-        // FIX #1: Use raw_stride (with padding) from image, not tight_stride
-        // ============================================================
+        let width = right - left + 1;
+        let height = bottom - top + 1;
 
-        // ============================================================
-        // Packing: tight-packed RGBA (no row padding in packed buffer)
-        // ============================================================
-        let mut packed = vec![0u8; width * height * 4];
-        let target_row_stride = width * 4;
+        // ------------------------------------------------------------
+        // 2. Read source framebuffer - USE CALCULATED STRIDE
+        // ------------------------------------------------------------
+        let bpp = image.bytes_per_pixel();
+        let source = image.data();
+        let source_stride = image_width * bpp;
+    
 
-        for (row_idx, y) in (top..=bottom).enumerate() {
-            let src_row_start = y * raw_stride + left * bpp;
-            let src_row_len = width * bpp;
-            let src_row_end = src_row_start + src_row_len;
+        // ==========================================
+        // DIAGNOSTIC 2: Cek apakah IronRDP menipu soal stride
+        // ==========================================
+        static IRONRDP_BUF_LOGGED: std::sync::Once = std::sync::Once::new();
+        IRONRDP_BUF_LOGGED.call_once(|| {
+            eprintln!(
+                "[IRONRDP BUF] w={} h={} bpp={} \
+                reported_stride={} calc_stride={} \
+                actual_buf_len={} expected_tight_len={}",
+                image_width, 
+                image_height, 
+                bpp, 
+                image.stride(), 
+                source_stride, 
+                source.len(), 
+                source_stride * image_height
+            );
+        });
+        // ==========================================
+        if bpp != 4 {
+            eprintln!("[emit_frame] unsupported pixel format: bpp={} expected=4", bpp);
+            return;
+        }
 
-            let dst_row_start = row_idx * target_row_stride;
-            let dst_row_end = dst_row_start + src_row_len;
+        // *** CRITICAL FIX ***
+        // Use calculated stride (width * bpp) instead of image.stride()
+        // IronRDP may write bitmap data tightly packed regardless of
+        // what image.stride() reports. Mismatch causes tilted rendering.
+        let source_stride = image_width * bpp;
 
-            if dst_row_end > packed.len() {
-                eprintln!("[emit_frame] ERROR row {}: dst out of bounds", y);
-                continue;
-            }
-
-            if src_row_end <= source.len() {
-                if let Some(src_slice) = source.get(src_row_start..src_row_end) {
-                    packed[dst_row_start..dst_row_end].copy_from_slice(src_slice);
-                }
-            } else {
-                eprintln!(
-                    "[emit_frame] ERROR row {}: src out of bounds ({}..{} > {})",
-                    y, src_row_start, src_row_end, source.len()
-                );
-                // Fill with black
-                for chunk in packed[dst_row_start..dst_row_end].chunks_exact_mut(4) {
-                    chunk[0] = 0x00; chunk[1] = 0x00; chunk[2] = 0x00; chunk[3] = 0xFF;
+        // DEBUG: Log stride comparison (remove after confirming fix)
+        let reported_stride = image.stride();
+        if reported_stride != source_stride {
+            static mut STRIDE_WARNED: bool = false;
+            unsafe {
+                if !STRIDE_WARNED {
+                    eprintln!(
+                        "[emit_frame] STRIDE MISMATCH: reported={} calculated={} \
+                        Using calculated stride to fix tilted rendering",
+                        reported_stride, source_stride
+                    );
+                    STRIDE_WARNED = true;
                 }
             }
         }
 
-        // Force alpha = 0xFF (RgbA32 may produce alpha=0 → transparent)
+        let expected_source_len = source_stride * image_height;
+
+        if source.len() < expected_source_len {
+            eprintln!(
+                "[emit_frame] invalid framebuffer: len={} expected_at_least={} stride={} height={}",
+                source.len(), expected_source_len, source_stride, image_height
+            );
+            return;
+        }
+
+        // ------------------------------------------------------------
+        // 3. Allocate ONLY dirty rectangle (tightly packed)
+        // ------------------------------------------------------------
+        let target_stride = width * 4;
+        let target_len = target_stride * height;
+        let mut packed = vec![0u8; target_len];
+            // ------------------------------------------------------------
+    // 3.5 STRIDE HUNTER: Mencari jarak baris sesungguhnya
+    // ------------------------------------------------------------
+    if width >= 10 && height >= 2 {
+        let y0_offset = top * source_stride + left * bpp;
+        let y1_offset = (top + 1) * source_stride + left * bpp;
+        
+        let pattern_len = 40; // Ambil 10 pixel pertama baris 0 sebagai pola
+        
+        if y0_offset + pattern_len <= source.len() && y1_offset + source_stride + 100 <= source.len() {
+            let pattern = &source[y0_offset..y0_offset + pattern_len];
+            let mut found_offset: Option<usize> = None;
+            
+            // Scan di area baris ke-1 (dan sedikit di bawahnya) untuk mencari pola yang sama
+            for i in y1_offset..(y1_offset + source_stride + 100).min(source.len() - pattern_len) {
+                if &source[i..i + pattern_len] == pattern {
+                    found_offset = Some(i);
+                    break;
+                }
+            }
+            
+            if let Some(offset) = found_offset {
+                let actual_dist = offset - y0_offset;
+                let delta = actual_dist as i64 - source_stride as i64;
+                if delta != 0 {
+                    eprintln!("[STRIDE HUNTER] ⚠️ BINGO! Ada padding tersembunyi! Expected stride={}, Actual={}, Delta={} bytes ({} pixel)", 
+                        source_stride, actual_dist, delta, delta / 4);
+                } else {
+                    eprintln!("[STRIDE HUNTER] Stride sesungguhnya memang 100% rapat ({}). Bug BUKAN di stride.", source_stride);
+                }
+            } else {
+                eprintln!("[STRIDE HUNTER] Pola baris tidak ditemukan di baris berikutnya. Data mungkin dienkripsi/dikompresi berbeda.");
+            }
+        }
+    }
+    // ------------------------------------------------------------
+
+    // ------------------------------------------------------------
+    // 4. Copy dirty rectangle row-by-row
+    // ------------------------------------------------------------
+        // ------------------------------------------------------------
+        // 4. Copy dirty rectangle row-by-row
+        // ------------------------------------------------------------
+        for row in 0..height {
+            let y = top + row;
+
+            // Source: use calculated stride
+            let source_offset = y * source_stride + left * bpp;
+            let source_end = source_offset + target_stride;
+
+            // Destination: tightly packed
+            let target_offset = row * target_stride;
+            let target_end = target_offset + target_stride;
+
+            if source_end > source.len() {
+                eprintln!(
+                    "[emit_frame] source OOB: row={} source={}..{} len={}",
+                    y, source_offset, source_end, source.len()
+                );
+                return;
+            }
+
+            if target_end > packed.len() {
+                eprintln!(
+                    "[emit_frame] target OOB: row={} target={}..{} len={}",
+                    row, target_offset, target_end, packed.len()
+                );
+                return;
+            }
+
+            packed[target_offset..target_end]
+                .copy_from_slice(&source[source_offset..source_end]);
+        }
+
+        // ------------------------------------------------------------
+        // 5. Force RGBA alpha
+        // ------------------------------------------------------------
         for pixel in packed.chunks_exact_mut(4) {
             pixel[3] = 0xFF;
         }
 
+        // ------------------------------------------------------------
+        // 6. Create and send frame event
+        // ------------------------------------------------------------
         let frame_id = self.next_frame_id();
-        let chunk_count = packed.len().div_ceil(FRAME_CHUNK_SIZE);
 
-        for chunk_index in 0..chunk_count {
-            let start = chunk_index * FRAME_CHUNK_SIZE;
-            let end = (start + FRAME_CHUNK_SIZE).min(packed.len());
+        let event = RdpFrameEvent {
+            session_id: self.session_id.clone(),
+            data: packed,
+            width: width as u32,
+            height: height as u32,
+            x: left as u32,
+            y: top as u32,
+            frame_id,
+        };
+            // ------------------------------------------------------------
+    // 6.5 DIAGNOSTIC: Dump memori IronRDP ke file PPM
+    // ------------------------------------------------------------
+    // Kita ambil momen saat jendela tengah sudah tergambar (sekitar frame 35-42)
+    // lalu simpan SELURUH framebuffer mentah ke file.
+    if frame_id >= 35 && frame_id <= 42 {
+        static DUMPED: std::sync::Once = std::sync::Once::new();
+        DUMPED.call_once(|| {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::File::create("/tmp/ironrdp_dump.ppm") {
+                // Header PPM (P6 = binary RGB)
+                let _ = write!(f, "P6\n{} {}\n255\n", image_width, image_height);
+                // Tulis setiap pixel (abaikan channel Alpha)
+                for i in (0..source.len()).step_by(4) {
+                    let _ = f.write_all(&[source[i], source[i+1], source[i+2]]);
+                }
+                eprintln!("[DUMP] ✅ Framebuffer IronRDP berhasil disimpan ke: /tmp/ironrdp_dump.ppm");
+                eprintln!("[DUMP] Buka file tersebut dengan aplikasi Gambar (Image Viewer) di Linuxmu.");
+            }
+        });
+    }
+    // ------------------------------------------------------------
 
-            let _ = self.frame_tx.send(RdpFrameEvent {
-                session_id: self.session_id.clone(),
-                data: packed[start..end].to_vec(),
-                width: width as u32,
-                height: height as u32,
-                x: left as u32,
-                y: top as u32,
-                frame_id,
-                chunk_index: chunk_index as u32,
-                chunk_count: chunk_count as u32,
-            });
+    // ------------------------------------------------------------
+    // 7. Create frame event
+    // ------------------------------------------------------------
+        // Debug output (reduce verbosity - only log large updates)
+        if width > 50 || height > 50 {
+            println!(
+                "[FRAME] id={} pos=({},{}) rect={}x{} bytes={}",
+                frame_id, left, top, width, height, event.data.len()
+            );
+        }
+
+        if let Err(e) = self.frame_tx.send(event) {
+            eprintln!("[emit_frame] ERROR: failed to send frame {}: {}", frame_id, e);
         }
     }
 }
