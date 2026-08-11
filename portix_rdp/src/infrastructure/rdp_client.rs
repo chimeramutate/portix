@@ -48,10 +48,6 @@ pub enum RdpCommand {
     Disconnect,
 }
 
-// RgbaFrame was previously used for a now-removed code path that
-// incorrectly hardcoded x: 0, y: 0 in as_event().  It has been
-// removed.  The correct path is emit_frame() which extracts the
-// dirty rectangle with proper coordinates directly from DecodedImage.
 
 pub struct RdpRuntime {
     profile: RdpProfile,
@@ -95,10 +91,10 @@ impl RdpRuntime {
             return Err(RdpError::Cancelled);
         }
 
-        // ── Attempt 1: connect dengan setting CredSSP dari profile ────────────
-        // Jika NegotiationFailed DAN profile mengaktifkan CredSSP, lakukan
-        // fallback otomatis ke TLS-only (tanpa NLA).  Ini menangani server
-        // Windows yang hanya support PROTOCOL_SSL tanpa PROTOCOL_HYBRID.
+        
+        
+        
+        
         let connection_result = match self.try_connect(self.profile.enable_cred_ssp, &cancel_token).await {
             Ok(result) => result,
             Err(RdpError::NegotiationFailed(ref msg)) if self.profile.enable_cred_ssp => {
@@ -127,8 +123,8 @@ impl RdpRuntime {
             desktop_width, desktop_height, self.profile.enable_cred_ssp
         );
 
-        // RgbA32: byte order R,G,B,A — sesuai dengan Flutter rgba8888
-        // BgrX32 TIDAK digunakan karena menghasilkan channel-swap artifact
+        
+        
         let mut image = DecodedImage::new(PixelFormat::RgbA32, desktop_width, desktop_height);
 
         let mut active_stage = ActiveStageBuilder {
@@ -266,11 +262,6 @@ impl RdpRuntime {
         }
     }
 
-    /// Buka koneksi TCP + TLS + RDP negotiation dengan satu attempt.
-    ///
-    /// Dipanggil oleh `run()` dua kali jika diperlukan:
-    ///   1. Dengan `enable_credssp = profile.enable_cred_ssp`
-    ///   2. Fallback dengan `enable_credssp = false` jika attempt 1 gagal NegotiationFailed
     async fn try_connect(
         &self,
         enable_credssp: bool,
@@ -311,12 +302,12 @@ impl RdpRuntime {
             enable_credssp,
             credentials,
             domain: self.profile.domain.clone(),
-            client_build: 7601, // Gunakan build standar yang kompatibel universal
+            client_build: 7601, 
             client_name: "Portix-Universal".to_owned(),
             keyboard_type: ironrdp_pdu::gcc::KeyboardType::IbmEnhanced,
             keyboard_subtype: 0,
             keyboard_functional_keys_count: 12,
-            keyboard_layout: 0x0409, // Standar English (US) untuk menghindari mismatch scancode
+            keyboard_layout: 0x0409, 
             ime_file_name: String::new(),
             bitmap: None,
             dig_product_id: String::new(),
@@ -327,18 +318,18 @@ impl RdpRuntime {
             hardware_id: None,
             request_data: None,
             autologon: false,
-            enable_audio_playback: false, // Nonaktifkan fitur opsional untuk stabilitas universal
+            enable_audio_playback: false, 
             
-            // [UNIVERSAL FIX]: Kosongkan performance flags agar server mengirim bitmap mentah/standar
+            
             performance_flags: ironrdp_pdu::rdp::client_info::PerformanceFlags::empty(), 
             
             license_cache: None,
             timezone_info: ironrdp_pdu::rdp::client_info::TimezoneInfo::default(),
             
-            // [UNIVERSAL FIX]: Paksa nonaktifkan kompresi agresif untuk mencegah salah dekompresi tile ganjil
+            
             compression_type: None, 
             
-            enable_server_pointer: true, // Biarkan server handle pointer agar tidak glitch
+            enable_server_pointer: true, 
             pointer_software_rendering: true,
             multitransport_flags: None,
         };
@@ -422,9 +413,9 @@ impl RdpRuntime {
             return;
         }
 
-        // ------------------------------------------------------------
-        // 1. Normalize dirty rectangle
-        // ------------------------------------------------------------
+        
+        
+        
         let left = region.left as usize;
         let top = region.top as usize;
         let right = region.right as usize;
@@ -444,17 +435,17 @@ impl RdpRuntime {
         let width = right - left + 1;
         let height = bottom - top + 1;
 
-        // ------------------------------------------------------------
-        // 2. Read source framebuffer - USE CALCULATED STRIDE
-        // ------------------------------------------------------------
+        
+        
+        
         let bpp = image.bytes_per_pixel();
         let source = image.data();
         let source_stride = image_width * bpp;
     
 
-        // ==========================================
-        // DIAGNOSTIC 2: Cek apakah IronRDP menipu soal stride
-        // ==========================================
+        
+        
+        
         static IRONRDP_BUF_LOGGED: std::sync::Once = std::sync::Once::new();
         IRONRDP_BUF_LOGGED.call_once(|| {
             eprintln!(
@@ -470,19 +461,19 @@ impl RdpRuntime {
                 source_stride * image_height
             );
         });
-        // ==========================================
+        
         if bpp != 4 {
             eprintln!("[emit_frame] unsupported pixel format: bpp={} expected=4", bpp);
             return;
         }
 
-        // *** CRITICAL FIX ***
-        // Use calculated stride (width * bpp) instead of image.stride()
-        // IronRDP may write bitmap data tightly packed regardless of
-        // what image.stride() reports. Mismatch causes tilted rendering.
+        
+        
+        
+        
         let source_stride = image_width * bpp;
 
-        // DEBUG: Log stride comparison (remove after confirming fix)
+        
         let reported_stride = image.stride();
         if reported_stride != source_stride {
             static mut STRIDE_WARNED: bool = false;
@@ -508,63 +499,55 @@ impl RdpRuntime {
             return;
         }
 
-        // ------------------------------------------------------------
-        // 3. Allocate ONLY dirty rectangle (tightly packed)
-        // ------------------------------------------------------------
+        
+        
+        
         let target_stride = width * 4;
         let target_len = target_stride * height;
         let mut packed = vec![0u8; target_len];
-            // ------------------------------------------------------------
-    // 3.5 STRIDE HUNTER: Mencari jarak baris sesungguhnya
-    // ------------------------------------------------------------
-    if width >= 10 && height >= 2 {
-        let y0_offset = top * source_stride + left * bpp;
-        let y1_offset = (top + 1) * source_stride + left * bpp;
-        
-        let pattern_len = 40; // Ambil 10 pixel pertama baris 0 sebagai pola
-        
-        if y0_offset + pattern_len <= source.len() && y1_offset + source_stride + 100 <= source.len() {
-            let pattern = &source[y0_offset..y0_offset + pattern_len];
-            let mut found_offset: Option<usize> = None;
             
-            // Scan di area baris ke-1 (dan sedikit di bawahnya) untuk mencari pola yang sama
-            for i in y1_offset..(y1_offset + source_stride + 100).min(source.len() - pattern_len) {
-                if &source[i..i + pattern_len] == pattern {
-                    found_offset = Some(i);
-                    break;
+    
+    
+        if width >= 10 && height >= 2 {
+            let y0_offset = top * source_stride + left * bpp;
+            let y1_offset = (top + 1) * source_stride + left * bpp;
+            
+            let pattern_len = 40; 
+            
+            if y0_offset + pattern_len <= source.len() && y1_offset + source_stride + 100 <= source.len() {
+                let pattern = &source[y0_offset..y0_offset + pattern_len];
+                let mut found_offset: Option<usize> = None;
+                
+                
+                for i in y1_offset..(y1_offset + source_stride + 100).min(source.len() - pattern_len) {
+                    if &source[i..i + pattern_len] == pattern {
+                        found_offset = Some(i);
+                        break;
+                    }
                 }
-            }
-            
-            if let Some(offset) = found_offset {
-                let actual_dist = offset - y0_offset;
-                let delta = actual_dist as i64 - source_stride as i64;
-                if delta != 0 {
-                    eprintln!("[STRIDE HUNTER] ⚠️ BINGO! Ada padding tersembunyi! Expected stride={}, Actual={}, Delta={} bytes ({} pixel)", 
-                        source_stride, actual_dist, delta, delta / 4);
+                
+                if let Some(offset) = found_offset {
+                    let actual_dist = offset - y0_offset;
+                    let delta = actual_dist as i64 - source_stride as i64;
+                    if delta != 0 {
+                        eprintln!("[STRIDE HUNTER] ⚠️ BINGO! Ada padding tersembunyi! Expected stride={}, Actual={}, Delta={} bytes ({} pixel)", 
+                            source_stride, actual_dist, delta, delta / 4);
+                    } else {
+                        eprintln!("[STRIDE HUNTER] Stride sesungguhnya memang 100% rapat ({}). Bug BUKAN di stride.", source_stride);
+                    }
                 } else {
-                    eprintln!("[STRIDE HUNTER] Stride sesungguhnya memang 100% rapat ({}). Bug BUKAN di stride.", source_stride);
+                    eprintln!("[STRIDE HUNTER] Pola baris tidak ditemukan di baris berikutnya. Data mungkin dienkripsi/dikompresi berbeda.");
                 }
-            } else {
-                eprintln!("[STRIDE HUNTER] Pola baris tidak ditemukan di baris berikutnya. Data mungkin dienkripsi/dikompresi berbeda.");
             }
-        }
-    }
-    // ------------------------------------------------------------
-
-    // ------------------------------------------------------------
-    // 4. Copy dirty rectangle row-by-row
-    // ------------------------------------------------------------
-        // ------------------------------------------------------------
-        // 4. Copy dirty rectangle row-by-row
-        // ------------------------------------------------------------
+        }    
         for row in 0..height {
             let y = top + row;
 
-            // Source: use calculated stride
+            
             let source_offset = y * source_stride + left * bpp;
             let source_end = source_offset + target_stride;
 
-            // Destination: tightly packed
+            
             let target_offset = row * target_stride;
             let target_end = target_offset + target_stride;
 
@@ -588,16 +571,16 @@ impl RdpRuntime {
                 .copy_from_slice(&source[source_offset..source_end]);
         }
 
-        // ------------------------------------------------------------
-        // 5. Force RGBA alpha
-        // ------------------------------------------------------------
+        
+        
+        
         for pixel in packed.chunks_exact_mut(4) {
             pixel[3] = 0xFF;
         }
 
-        // ------------------------------------------------------------
-        // 6. Create and send frame event
-        // ------------------------------------------------------------
+        
+        
+        
         let frame_id = self.next_frame_id();
 
         let event = RdpFrameEvent {
@@ -609,19 +592,19 @@ impl RdpRuntime {
             y: top as u32,
             frame_id,
         };
-            // ------------------------------------------------------------
-    // 6.5 DIAGNOSTIC: Dump memori IronRDP ke file PPM
-    // ------------------------------------------------------------
-    // Kita ambil momen saat jendela tengah sudah tergambar (sekitar frame 35-42)
-    // lalu simpan SELURUH framebuffer mentah ke file.
+            
+    
+    
+    
+    
     if frame_id >= 35 && frame_id <= 42 {
         static DUMPED: std::sync::Once = std::sync::Once::new();
         DUMPED.call_once(|| {
             use std::io::Write;
             if let Ok(mut f) = std::fs::File::create("/tmp/ironrdp_dump.ppm") {
-                // Header PPM (P6 = binary RGB)
+                
                 let _ = write!(f, "P6\n{} {}\n255\n", image_width, image_height);
-                // Tulis setiap pixel (abaikan channel Alpha)
+                
                 for i in (0..source.len()).step_by(4) {
                     let _ = f.write_all(&[source[i], source[i+1], source[i+2]]);
                 }
@@ -630,12 +613,12 @@ impl RdpRuntime {
             }
         });
     }
-    // ------------------------------------------------------------
+    
 
-    // ------------------------------------------------------------
-    // 7. Create frame event
-    // ------------------------------------------------------------
-        // Debug output (reduce verbosity - only log large updates)
+    
+    
+    
+        
         if width > 50 || height > 50 {
             println!(
                 "[FRAME] id={} pos=({},{}) rect={}x{} bytes={}",
