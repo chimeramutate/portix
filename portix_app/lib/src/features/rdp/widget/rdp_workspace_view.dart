@@ -6,6 +6,7 @@ import 'package:portix/src/domain/entities/rdp/index.dart';
 import 'package:portix/src/domain/repositories/rdp/index.dart';
 import 'package:portix/src/features/rdp/bloc/index.dart';
 import 'package:portix/src/features/rdp/page/rdp_session_page.dart';
+import 'package:portix/src/features/rdp/service/rdp_backend_service.dart';
 import 'package:portix/src/features/rdp/widget/rdp_file_import_dialog.dart';
 import 'package:portix/src/features/rdp/widget/rdp_manual_form_dialog.dart';
 import 'package:portix/src/features/rdp/widget/rdp_profile_card.dart';
@@ -217,6 +218,7 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     );
   }
 
+  // ── New Profile: manual create + save to database ─────────────────────────
   Future<void> _openNewProfileDialog(BuildContext context) async {
     final profile = await RdpManualFormDialog.show(context);
     if (profile == null) return;
@@ -224,39 +226,240 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     final result = await sl<RdpProfileRepository>().saveProfile(profile);
     result.fold(
       (failure) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(failure.message)));
+        _showError(failure.message);
       },
       (_) {
         context.read<RdpWorkspaceBloc>().add(const RdpProfilesRequested());
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('RDP profile saved successfully.')),
+        _showSuccess('RDP profile saved successfully.');
+      },
+    );
+  }
+
+  // ── Import .rdp: pick + parse + connect (no save) ──────────────────────────
+  Future<void> _openRdpImportDialog(BuildContext context) async {
+    try {
+      // 1. Pick and parse .rdp file
+      final profile = await RdpFileImportDialog.pickAndParse();
+      if (profile == null) return; // User cancelled
+
+      if (!mounted) return;
+
+      // 2. Connect directly (both Cyberark PSM and manual RDP)
+      await _connectRdpSession(context, profile);
+    } catch (e) {
+      _showError('Failed to import .rdp: $e');
+    }
+  }
+
+  // ── Connect RDP session ────────────────────────────────────────────────────
+  Future<void> _connectRdpSession(
+    BuildContext context,
+    RdpProfile profile,
+  ) async {
+    try {
+      // 1. Show connection options dialog
+      final connectionOptions = await _showRdpConnectionDialog(
+        context,
+        profile,
+        isCyberark: profile.isCyberArkPsm,
+      );
+
+      if (connectionOptions == null) return;
+
+      // 2. Get password
+      String password = '';
+      if (profile.isCyberArkPsm) {
+        // Cyberark: NO password prompt (PSM gateway handle auth)
+        // TODO: Implement proper Cyberark vault retrieval
+        // password = await sl<CyberarkService>().retrievePassword(profile);
+        password = '';
+      } else {
+        // Manual RDP: prompt for password
+        password = await _promptPassword(context, profile.username);
+        if (password.isEmpty) return; // User cancelled
+      }
+
+      if (!mounted) return;
+
+      // 3. Connect
+      final sessionId = await _connectToRdp(
+        profile: profile,
+        password: password,
+        localSharePath: connectionOptions['localFolder'] as String?,
+        enableFileSharing: connectionOptions['enableSharing'] as bool? ?? false,
+      );
+
+      if (mounted) {
+        _showSuccess('Connected to ${profile.host}');
+
+        // 4. Navigate to RDP session
+        if (_navigatedSessionId == sessionId) return;
+        _navigatedSessionId = sessionId;
+
+        Navigator.of(context)
+            .push(
+              MaterialPageRoute(
+                builder: (context) =>
+                    RdpSessionPage(profile: profile, sessionId: sessionId),
+              ),
+            )
+            .then((_) {
+              _navigatedSessionId = null;
+              _scheduleSessionCleanup(profile.id);
+            });
+      }
+    } catch (e) {
+      if (mounted) _showError('Connection failed: $e');
+    }
+  }
+
+  // ── Dialog: Connection options ─────────────────────────────────────────────
+  Future<Map<String, Object?>?> _showRdpConnectionDialog(
+    BuildContext context,
+    RdpProfile profile, {
+    required bool isCyberark,
+  }) async {
+    bool enableSharing = false;
+
+    return showDialog<Map<String, Object?>>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text(
+                isCyberark ? 'CyberArk PSM Connection' : 'RDP Connection',
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Host: ${profile.host}:${profile.port}'),
+                  Text('User: ${profile.username}'),
+                  if (profile.domain != null) Text('Domain: ${profile.domain}'),
+                  const SizedBox(height: 16),
+                  if (profile.redirectDrives)
+                    CheckboxListTile(
+                      value: enableSharing,
+                      onChanged: (value) {
+                        setState(() => enableSharing = value ?? false);
+                      },
+                      title: const Text('Enable file sharing'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(null),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(
+                    dialogContext,
+                  ).pop({'localFolder': null, 'enableSharing': enableSharing}),
+                  child: const Text('Connect'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
   }
 
-  Future<void> _openRdpImportDialog(BuildContext context) async {
-    final profile = await RdpFileImportDialog.show(context);
-    if (profile == null) return;
+  // ── Prompt password for manual RDP ─────────────────────────────────────────
+  Future<String> _promptPassword(BuildContext context, String username) async {
+    final controller = TextEditingController();
 
-    final result = await sl<RdpProfileRepository>().saveProfile(profile);
-    result.fold(
-      (failure) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(failure.message)));
-      },
-      (_) {
-        context.read<RdpWorkspaceBloc>().add(const RdpProfilesRequested());
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('RDP profile imported successfully.')),
+    final password = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Password'),
+          content: TextField(
+            controller: controller,
+            obscureText: true,
+            decoration: InputDecoration(
+              labelText: 'Password for $username',
+              hintText: 'Enter your password',
+            ),
+            autofocus: true,
+            onSubmitted: (_) =>
+                Navigator.of(dialogContext).pop(controller.text),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(null),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+              child: const Text('Connect'),
+            ),
+          ],
         );
       },
     );
+
+    return password ?? '';
+  }
+
+  // ── Connect to RDP via backend service ─────────────────────────────────────
+  Future<String> _connectToRdp({
+    required RdpProfile profile,
+    required String password,
+    String? localSharePath,
+    bool enableFileSharing = false,
+  }) async {
+    final backendService = sl<RdpBackendService>();
+    final profileToUse = profile.copyWith(
+      password: password.isNotEmpty ? password : null,
+    );
+
+    final result = await backendService.connect(profileToUse);
+
+    return result.fold<String>(
+      (failure) => throw StateError(failure.message),
+      (connectionResult) => connectionResult.sessionId,
+    );
+  }
+
+  // ── Show success message ───────────────────────────────────────────────────
+  void _showSuccess(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  // ── Show error message ─────────────────────────────────────────────────────
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  // ── Schedule cleanup after session ends ─────────────────────────────────────
+  void _scheduleSessionCleanup(String profileId) {
+    // Cleanup handled by backend session lifecycle
+    // This is a placeholder for future cleanup logic
   }
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RDP Details Panel
+// ══════════════════════════════════════════════════════════════════════════════
 
 class _RdpDetailsPanel extends StatelessWidget {
   const _RdpDetailsPanel({required this.profile});
@@ -352,7 +555,6 @@ class _RdpDetailsPanel extends StatelessWidget {
                 },
                 icon: const Icon(Icons.delete_outline),
                 label: const Text('Delete'),
-                // ✅ PERBAIKAN: Update ke WidgetStateProperty (Flutter 3.22+)
                 style: ButtonStyle(
                   foregroundColor: WidgetStateProperty.all(AppColors.danger),
                 ),
@@ -364,6 +566,10 @@ class _RdpDetailsPanel extends StatelessWidget {
     );
   }
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Detail Row Widget
+// ══════════════════════════════════════════════════════════════════════════════
 
 class _DetailRow extends StatelessWidget {
   const _DetailRow({required this.label, required this.value});

@@ -14,6 +14,7 @@ class _StubRdpProfileRepository extends RdpProfileRepository {
   final List<RdpProfile> _data;
   bool failNext = false;
   String failMessage = 'stub error';
+  Either<Failure, RdpProfile>? importResult;
 
   @override
   Future<Either<Failure, List<RdpProfile>>> getProfiles() async {
@@ -52,6 +53,11 @@ class _StubRdpProfileRepository extends RdpProfileRepository {
 
   @override
   Future<Either<Failure, RdpProfile>> importRdpFile(String filePath) async {
+    if (importResult != null) {
+      final result = importResult!;
+      importResult = null;
+      return result;
+    }
     return Left(Failure('not implemented in stub'));
   }
 }
