@@ -84,7 +84,8 @@ class RdpProfileRepository {
   // .rdp file import
   // ---------------------------------------------------------------------------
 
-  /// Import a .rdp file from [filePath] and add it as a new profile.
+  /// Import a .rdp file from [filePath] and return a temporary profile for
+  /// session-based connection without persisting it to the saved profile list.
   Future<Either<Failure, RdpProfile>> importRdpFile(String filePath) async {
     try {
       final file = File(filePath);
@@ -94,7 +95,7 @@ class RdpProfileRepository {
       final content = await file.readAsString();
       final id = 'rdp-${DateTime.now().microsecondsSinceEpoch}';
       final profile = _parser.parse(content, profileId: id, filePath: filePath);
-      return saveProfile(profile);
+      return Right(profile.copyWith(status: RdpProfileStatus.offline));
     } catch (error) {
       return Left(Failure('Failed to import .rdp file: $error'));
     }

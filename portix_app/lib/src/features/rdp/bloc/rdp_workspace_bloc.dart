@@ -217,17 +217,14 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
       (failure) =>
           emit(state.copyWith(isBusy: false, message: failure.message)),
       (profile) {
-        final profiles = [
-          profile,
-          ...state.profiles.where((p) => p.id != profile.id),
-        ];
         emit(
           state.copyWith(
             isBusy: false,
-            profiles: profiles,
-            selectedId: profile.id,
+            profiles: state.profiles,
+            selectedId: null,
             activeView: RdpView.gallery,
-            message: 'Imported: ${profile.name}',
+            message:
+                'Temporary session prepared for ${profile.name}. It will not be saved as a profile.',
           ),
         );
       },
