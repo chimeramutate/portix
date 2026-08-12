@@ -24,8 +24,12 @@ class RdpProfile extends Equatable {
     this.sourceRdpFilePath,
     this.status = RdpProfileStatus.offline,
     this.lastUsedLabel = 'never',
-    this.LocalSharePath = '',
+    this.localSharePath,
+    this.localShareName = defaultLocalShareName,
   });
+
+  static const String defaultLocalShareName = 'PORTIX';
+  static const String defaultLocalSharePath = '~/PortixShare';
 
   final String id;
   final String name;
@@ -47,7 +51,19 @@ class RdpProfile extends Equatable {
   final bool redirectDrives;
   final bool redirectClipboard;
 
-  final String? LocalSharePath;
+  final String? localSharePath;
+  final String localShareName;
+
+  String get effectiveLocalSharePath {
+    final path = localSharePath?.trim();
+    return path == null || path.isEmpty ? defaultLocalSharePath : path;
+  }
+
+  String get effectiveLocalShareName {
+    final name = localShareName.trim();
+    return name.isEmpty ? defaultLocalShareName : name;
+  }
+
   // CyberArk PSM fields
   final String alternateShell;
   final bool enableCredSsp;
@@ -88,6 +104,9 @@ class RdpProfile extends Equatable {
     bool clearSourceRdpFilePath = false,
     RdpProfileStatus? status,
     String? lastUsedLabel,
+    String? localSharePath,
+    bool clearLocalSharePath = false,
+    String? localShareName,
   }) {
     return RdpProfile(
       id: id ?? this.id,
@@ -112,6 +131,10 @@ class RdpProfile extends Equatable {
           : sourceRdpFilePath ?? this.sourceRdpFilePath,
       status: status ?? this.status,
       lastUsedLabel: lastUsedLabel ?? this.lastUsedLabel,
+      localSharePath: clearLocalSharePath
+          ? null
+          : localSharePath ?? this.localSharePath,
+      localShareName: localShareName ?? this.localShareName,
     );
   }
 
@@ -136,6 +159,8 @@ class RdpProfile extends Equatable {
     sourceRdpFilePath,
     status,
     lastUsedLabel,
+    localSharePath,
+    localShareName,
   ];
 }
 

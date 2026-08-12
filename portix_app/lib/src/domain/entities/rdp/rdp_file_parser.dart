@@ -29,8 +29,10 @@ class RdpFileParser {
     final alternateShell = settings['alternate shell'] ?? '';
     final desktopWidth = int.tryParse(settings['desktopwidth'] ?? '') ?? 1280;
     final desktopHeight = int.tryParse(settings['desktopheight'] ?? '') ?? 800;
+    final driveStoreRedirect = settings['drivestoredirect'] ?? '';
     final redirectDrives =
-        (int.tryParse(settings['redirectdrives'] ?? '0') ?? 0) == 1;
+        (int.tryParse(settings['redirectdrives'] ?? '0') ?? 0) == 1 ||
+        driveStoreRedirect.trim().isNotEmpty;
     final enableCredSsp =
         (int.tryParse(settings['EnableCredSspSupport'] ?? '0') ?? 0) == 1;
     final screenModeId = int.tryParse(settings['screen mode id'] ?? '1') ?? 1;
@@ -80,6 +82,7 @@ class RdpFileParser {
       fullScreen: screenModeId == 2,
       redirectDrives: redirectDrives,
       redirectClipboard: true,
+      localSharePath: redirectDrives ? RdpProfile.defaultLocalSharePath : null,
       alternateShell: alternateShell,
       enableCredSsp: enableCredSsp,
       sourceRdpFilePath: filePath,
@@ -106,6 +109,7 @@ class RdpFileParser {
       'desktopheight:i:${profile.desktopHeight}',
       'screen mode id:i:${profile.fullScreen ? 2 : 1}',
       'redirectdrives:i:${profile.redirectDrives ? 1 : 0}',
+      if (profile.redirectDrives) 'drivestoredirect:s:*',
       'redirectclipboard:i:${profile.redirectClipboard ? 1 : 0}',
       'redirectsmartcards:i:0',
       'EnableCredSspSupport:i:${profile.enableCredSsp ? 1 : 0}',

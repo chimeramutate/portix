@@ -103,18 +103,28 @@ class RdpBackendService {
   }
 
   static Future<void> initDev() async {
+    if (RdpRustLib.instance.initialized) return;
     await RdpRustLib.init();
   }
 
   static String productionPathHint() => _productionLibraryPath();
 
   static Future<void> initProduction() async {
+    if (RdpRustLib.instance.initialized) return;
     await RdpRustLib.init(
       externalLibrary: ExternalLibrary.open(
         _productionLibraryPath(),
         debugInfo: 'Portix RDP library',
       ),
     );
+  }
+
+  void attachExistingSession({
+    required String profileId,
+    required String sessionId,
+  }) {
+    _activeSessions[profileId] = sessionId;
+    _sessionToProfile[sessionId] = profileId;
   }
 
   Future<Either<Failure, RdpProfile>> parseRdpFile(String filePath) async {
@@ -124,7 +134,7 @@ class RdpBackendService {
         return Left(Failure('File tidak ditemukan: $filePath'));
       }
       final content = await file.readAsString();
-      return parseRdpContent(content);
+      return parseRdpContent(content, filePath: filePath);
     } catch (e) {
       return Left(Failure('Gagal membaca file .rdp: $e'));
     }
@@ -133,6 +143,7 @@ class RdpBackendService {
   Future<Either<Failure, RdpProfile>> parseRdpContent(
     String content, {
     String? profileName,
+    String? filePath,
   }) async {
     try {
       final sessionInfo = await rdp_api.rdpParseFile(
@@ -143,7 +154,7 @@ class RdpBackendService {
       final profile = parser.parse(
         content,
         profileId: sessionInfo.id,
-        filePath: null,
+        filePath: filePath,
       );
       return Right(profile);
     } catch (e) {
@@ -171,6 +182,9 @@ class RdpBackendService {
       }
 
       final rustProfile = profile.toRustProfile();
+      if (rustProfile.redirectDrives && rustProfile.localSharePath != null) {
+        await Directory(rustProfile.localSharePath!).create(recursive: true);
+      }
       final sessionInfo = await rdp_api.rdpConnect(profile: rustProfile);
 
       _activeSessions[profile.id] = sessionInfo.id;
@@ -271,6 +285,26 @@ class RdpBackendService {
     }
   }
 
+  Future<void> pasteTextAsKeystrokes(String sessionId, String text) async {
+    if (!_sessionToProfile.containsKey(sessionId)) return;
+
+    for (final codeUnit in text.codeUnits) {
+      final stroke = _KeyboardStroke.fromAscii(codeUnit);
+      if (stroke == null) continue;
+
+      if (stroke.shift) {
+        await sendKeyboardInput(sessionId, _KeyboardStroke.shiftLeft, true);
+      }
+      await sendKeyboardInput(sessionId, stroke.hidUsage, true);
+      await sendKeyboardInput(sessionId, stroke.hidUsage, false);
+      if (stroke.shift) {
+        await sendKeyboardInput(sessionId, _KeyboardStroke.shiftLeft, false);
+      }
+
+      await Future<void>.delayed(const Duration(milliseconds: 8));
+    }
+  }
+
   void dispose() {
     _frameSub?.cancel();
     _statusSub?.cancel();
@@ -297,6 +331,69 @@ class RdpConnectionResult {
   final int port;
 }
 
+class _KeyboardStroke {
+  const _KeyboardStroke(this.hidUsage, {this.shift = false});
+
+  static const int shiftLeft = 0xE1;
+
+  final int hidUsage;
+  final bool shift;
+
+  static _KeyboardStroke? fromAscii(int codeUnit) {
+    if (codeUnit >= 0x61 && codeUnit <= 0x7A) {
+      return _KeyboardStroke(0x04 + codeUnit - 0x61);
+    }
+    if (codeUnit >= 0x41 && codeUnit <= 0x5A) {
+      return _KeyboardStroke(0x04 + codeUnit - 0x41, shift: true);
+    }
+    if (codeUnit >= 0x31 && codeUnit <= 0x39) {
+      return _KeyboardStroke(0x1E + codeUnit - 0x31);
+    }
+
+    return switch (codeUnit) {
+      0x30 => const _KeyboardStroke(0x27),
+      0x0A => const _KeyboardStroke(0x28),
+      0x0D => const _KeyboardStroke(0x28),
+      0x08 => const _KeyboardStroke(0x2A),
+      0x09 => const _KeyboardStroke(0x2B),
+      0x20 => const _KeyboardStroke(0x2C),
+      0x2D => const _KeyboardStroke(0x2D),
+      0x3D => const _KeyboardStroke(0x2E),
+      0x5B => const _KeyboardStroke(0x2F),
+      0x5D => const _KeyboardStroke(0x30),
+      0x5C => const _KeyboardStroke(0x31),
+      0x3B => const _KeyboardStroke(0x33),
+      0x27 => const _KeyboardStroke(0x34),
+      0x60 => const _KeyboardStroke(0x35),
+      0x2C => const _KeyboardStroke(0x36),
+      0x2E => const _KeyboardStroke(0x37),
+      0x2F => const _KeyboardStroke(0x38),
+      0x21 => const _KeyboardStroke(0x1E, shift: true),
+      0x40 => const _KeyboardStroke(0x1F, shift: true),
+      0x23 => const _KeyboardStroke(0x20, shift: true),
+      0x24 => const _KeyboardStroke(0x21, shift: true),
+      0x25 => const _KeyboardStroke(0x22, shift: true),
+      0x5E => const _KeyboardStroke(0x23, shift: true),
+      0x26 => const _KeyboardStroke(0x24, shift: true),
+      0x2A => const _KeyboardStroke(0x25, shift: true),
+      0x28 => const _KeyboardStroke(0x26, shift: true),
+      0x29 => const _KeyboardStroke(0x27, shift: true),
+      0x5F => const _KeyboardStroke(0x2D, shift: true),
+      0x2B => const _KeyboardStroke(0x2E, shift: true),
+      0x7B => const _KeyboardStroke(0x2F, shift: true),
+      0x7D => const _KeyboardStroke(0x30, shift: true),
+      0x7C => const _KeyboardStroke(0x31, shift: true),
+      0x3A => const _KeyboardStroke(0x33, shift: true),
+      0x22 => const _KeyboardStroke(0x34, shift: true),
+      0x7E => const _KeyboardStroke(0x35, shift: true),
+      0x3C => const _KeyboardStroke(0x36, shift: true),
+      0x3E => const _KeyboardStroke(0x37, shift: true),
+      0x3F => const _KeyboardStroke(0x38, shift: true),
+      _ => null,
+    };
+  }
+}
+
 extension on RdpProfile {
   rdp_profile.RdpProfile toRustProfile() {
     return rdp_profile.RdpProfile(
@@ -318,14 +415,32 @@ extension on RdpProfile {
       redirectDrives: redirectDrives,
       redirectClipboard: redirectClipboard,
 
-      // Nama share yang akan terlihat di remote Windows.
-      // Misalnya: "PORTIX"
-      localShareName: LocalSharePath ?? 'PORTIX',
+      localSharePath: redirectDrives
+          ? _expandLocalSharePath(effectiveLocalSharePath)
+          : null,
+      localShareName: effectiveLocalShareName,
 
       alternateShell: alternateShell.isEmpty ? null : alternateShell,
 
       sourceRdpContent: null,
     );
+  }
+
+  String _expandLocalSharePath(String path) {
+    final trimmed = path.trim();
+    if (!trimmed.startsWith('~')) return trimmed;
+
+    final home =
+        Platform.environment['HOME'] ??
+        Platform.environment['USERPROFILE'] ??
+        Directory.current.path;
+
+    if (trimmed == '~') return home;
+    if (trimmed.startsWith('~/') || trimmed.startsWith(r'~\')) {
+      return '$home${Platform.pathSeparator}${trimmed.substring(2)}';
+    }
+
+    return trimmed;
   }
 }
 

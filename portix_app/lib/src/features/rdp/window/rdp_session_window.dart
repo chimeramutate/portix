@@ -1,15 +1,13 @@
 import 'package:flutter/material.dart';
 
+import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/features/rdp/page/rdp_session_page.dart';
 import 'package:portix/src/features/rdp/service/rdp_backend_service.dart';
 
 import 'rdp_window_arguments.dart';
 
 class RdpSessionWindow extends StatefulWidget {
-  const RdpSessionWindow({
-    super.key,
-    required this.arguments,
-  });
+  const RdpSessionWindow({super.key, required this.arguments});
 
   final RdpWindowArguments arguments;
 
@@ -31,6 +29,10 @@ class _RdpSessionWindowState extends State<RdpSessionWindow> {
     try {
       // Child window has its own Flutter engine.
       await RdpBackendService.initDev();
+      sl<RdpBackendService>().attachExistingSession(
+        profileId: widget.arguments.profileId,
+        sessionId: widget.arguments.sessionId,
+      );
 
       if (!mounted) return;
       setState(() => _ready = true);
@@ -62,20 +64,9 @@ class _RdpSessionWindowState extends State<RdpSessionWindow> {
       );
     }
 
-    // Use the REAL RdpProfile here.
-    //
-    // Recommended production implementation:
-    //   1. resolve profile by widget.arguments.profileId from repository
-    //   2. pass that RdpProfile to RdpSessionPage.
-    //
-    // Do NOT call rdpConnect again. The main window already created
-    // this session and we only attach the viewer to sessionId.
     return RdpSessionPage(
       sessionId: widget.arguments.sessionId,
-      profile: throw UnimplementedError(
-        'Resolve RdpProfile(${widget.arguments.profileId}) '
-        'from repository before constructing RdpSessionPage.',
-      ),
+      profile: widget.arguments.profile,
     );
   }
 }

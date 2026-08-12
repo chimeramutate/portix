@@ -99,11 +99,9 @@ class RdpLaunchService {
     try {
       // ironrdp-client can accept an .rdp file as argument (planned CLI feature)
       // For now, parse the file and pass params; IronRDP GUI mode opens with file.
-      final process = await Process.start(
-        _ironRdpBinaryPath,
-        [rdpFilePath],
-        mode: ProcessStartMode.detached,
-      );
+      final process = await Process.start(_ironRdpBinaryPath, [
+        rdpFilePath,
+      ], mode: ProcessStartMode.detached);
       return Right(
         RdpLaunchResult(
           method: RdpLaunchMethod.ironRdp,
@@ -134,9 +132,7 @@ class RdpLaunchService {
 
       if (result.exitCode != 0) {
         return Left(
-          Failure(
-            'Failed to open RDP file: ${result.stderr}'.trim(),
-          ),
+          Failure('Failed to open RDP file: ${result.stderr}'.trim()),
         );
       }
 
@@ -200,11 +196,12 @@ class RdpLaunchService {
   ) async {
     // Try opening Microsoft Remote Desktop app if installed
     try {
-      await Process.start(
-        'open',
-        ['-a', 'Microsoft Remote Desktop', '--args', '${profile.host}:${profile.port}'],
-        mode: ProcessStartMode.detached,
-      );
+      await Process.start('open', [
+        '-a',
+        'Microsoft Remote Desktop',
+        '--args',
+        '${profile.host}:${profile.port}',
+      ], mode: ProcessStartMode.detached);
       return Right(
         RdpLaunchResult(
           method: RdpLaunchMethod.systemDefault,
@@ -236,7 +233,8 @@ class RdpLaunchService {
       '/w:${profile.desktopWidth}',
       '/h:${profile.desktopHeight}',
       if (profile.fullScreen) '/f',
-      if (profile.redirectDrives) '/drives',
+      if (profile.redirectDrives)
+        '/drive:${profile.effectiveLocalShareName},${_expandLocalSharePath(profile.effectiveLocalSharePath)}',
       if (profile.redirectClipboard) '+clipboard',
       if (!profile.enableCredSsp) '-sec-nla',
       '/from-stdin',
@@ -257,11 +255,25 @@ class RdpLaunchService {
     );
   }
 
+  String _expandLocalSharePath(String path) {
+    final trimmed = path.trim();
+    if (!trimmed.startsWith('~')) return trimmed;
+
+    final home =
+        Platform.environment['HOME'] ??
+        Platform.environment['USERPROFILE'] ??
+        Directory.current.path;
+
+    if (trimmed == '~') return home;
+    if (trimmed.startsWith('~/') || trimmed.startsWith(r'~\')) {
+      return '$home${Platform.pathSeparator}${trimmed.substring(2)}';
+    }
+
+    return trimmed;
+  }
+
   List<String> _buildIronRdpArgs(RdpProfile profile) {
-    final args = <String>[
-      '--host', profile.host,
-      '--port', '${profile.port}',
-    ];
+    final args = <String>['--host', profile.host, '--port', '${profile.port}'];
 
     if (profile.username.isNotEmpty) {
       args.addAll(['--user', profile.username]);
@@ -287,10 +299,9 @@ class RdpLaunchService {
 
   Future<bool> _isIronRdpAvailable() async {
     try {
-      final result = await Process.run(
-        _ironRdpBinaryPath,
-        ['--version'],
-      ).timeout(const Duration(seconds: 3));
+      final result = await Process.run(_ironRdpBinaryPath, [
+        '--version',
+      ]).timeout(const Duration(seconds: 3));
       return result.exitCode == 0 || result.exitCode == 1;
     } catch (_) {
       return false;
@@ -299,12 +310,7 @@ class RdpLaunchService {
 }
 
 /// Describes how an RDP session was launched.
-enum RdpLaunchMethod {
-  ironRdp,
-  mstsc,
-  xfreerdp,
-  systemDefault,
-}
+enum RdpLaunchMethod { ironRdp, mstsc, xfreerdp, systemDefault }
 
 /// Result from a successful RDP launch.
 class RdpLaunchResult {

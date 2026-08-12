@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/di/injection.dart';
@@ -316,6 +318,21 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
         '$backendFailure',
       );
 
+      if (Platform.isMacOS) {
+        if (!emit.isDone) {
+          emit(
+            state.copyWith(
+              isBusy: false,
+              lastSessionId: null,
+              message:
+                  backendFailure ??
+                  'Failed to launch embedded Portix RDP session.',
+            ),
+          );
+        }
+        return;
+      }
+
       final launchResult = await _launchService.launch(profile);
 
       String? externalMethod;
@@ -377,6 +394,19 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
       // ============================================================
 
       try {
+        if (Platform.isMacOS) {
+          if (!emit.isDone) {
+            emit(
+              state.copyWith(
+                isBusy: false,
+                lastSessionId: null,
+                message: 'Failed to launch embedded Portix RDP session: $error',
+              ),
+            );
+          }
+          return;
+        }
+
         final launchResult = await _launchService.launch(profile);
 
         String? methodLabel;
