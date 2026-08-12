@@ -235,7 +235,6 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
     RdpLaunchRequested event,
     Emitter<RdpWorkspaceState> emit,
   ) async {
-    // ✅ 1. Guard terhadap multiple clicks
     if (state.isBusy) {
       print('RDP launch ignored: already launching/processing');
       return;
@@ -244,7 +243,10 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
     final profile = state.profiles
         .where((p) => p.id == event.profileId)
         .firstOrNull;
-    if (profile == null) return;
+
+    if (profile == null) {
+      return;
+    }
 
     if (!profile.isConnectable) {
       emit(state.copyWith(message: 'Host is required to connect.'));
@@ -255,89 +257,181 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
 
     try {
       final rdpService = sl<RdpBackendService>();
+
       print(
-        'RDP launch requested for profile ${profile.id} ${profile.address}',
+        'RDP launch requested for profile '
+        '${profile.id} ${profile.address}',
       );
 
-      // ✅ 2. Panggil connect (sudah handle deduplication di dalamnya)
       final backendResult = await rdpService.connect(profile);
 
+      // ============================================================
+      // EMBEDDED CONNECT
+      // ============================================================
+
+      String? sessionId;
+      String? backendFailure;
+
       backendResult.fold(
-        (failure) async {
-          print('RDP embedded connect failed: ${failure.message}');
-
-          // ✅ 3. LANGSUNG FALLBACK. Tidak ada pengecekan "already has active session" lagi
-          // karena RdpBackendService.connect() sekarang sudah mengembalikan Right()
-          // jika sessionnya sudah ada.
-
-          final result = await _launchService.launch(profile);
-          result.fold(
-            (failure2) {
-              print('RDP external launcher failed: ${failure2.message}');
-              emit(
-                state.copyWith(
-                  isBusy: false,
-                  message: failure2.message,
-                  lastSessionId: null,
-                ),
-              );
-            },
-            (launchResult) {
-              print(
-                'RDP external launcher succeeded: ${launchResult.methodLabel}',
-              );
-              emit(
-                state.copyWith(
-                  isBusy: false,
-                  lastSessionId: null,
-                  lastLaunchResult: 'External: ${launchResult.methodLabel}',
-                  message: 'Launched via ${launchResult.methodLabel}',
-                ),
-              );
-            },
-          );
+        (failure) {
+          backendFailure = failure.message;
         },
-        (conn) {
-          // ✅ 4. SUKSES. Baik itu session baru, maupun session lama yang di-reuse
-          print('RDP embedded connect succeeded: session=${conn.sessionId}');
+        (connection) {
+          sessionId = connection.sessionId;
+        },
+      );
+
+      // ============================================================
+      // EMBEDDED SUCCESS
+      // ============================================================
+
+      if (sessionId != null) {
+        print(
+          'RDP embedded connect succeeded: '
+          'session=$sessionId',
+        );
+
+        if (!emit.isDone) {
           emit(
             state.copyWith(
               isBusy: false,
               lastLaunchResult: 'Embedded RDP backend',
-              lastSessionId: conn.sessionId,
-              message: 'Launched embedded RDP session (id: ${conn.sessionId})',
+              lastSessionId: sessionId,
+              message:
+                  'Launched embedded RDP session '
+                  '(id: $sessionId)',
             ),
           );
-        },
+        }
+
+        return;
+      }
+
+      // ============================================================
+      // EMBEDDED FAILED -> EXTERNAL FALLBACK
+      // ============================================================
+
+      print(
+        'RDP embedded connect failed: '
+        '$backendFailure',
       );
-    } catch (error) {
-      print('RDP launch caught unexpected error: $error');
-      final result = await _launchService.launch(profile);
-      result.fold(
+
+      final launchResult = await _launchService.launch(profile);
+
+      String? externalMethod;
+      String? externalFailure;
+
+      launchResult.fold(
         (failure) {
-          print('RDP external launcher fallback failed: ${failure.message}');
-          emit(
-            state.copyWith(
-              isBusy: false,
-              message: failure.message,
-              lastSessionId: null,
-            ),
-          );
+          externalFailure = failure.message;
         },
-        (launchResult) {
-          print(
-            'RDP external launcher fallback succeeded: ${launchResult.methodLabel}',
-          );
-          emit(
-            state.copyWith(
-              isBusy: false,
-              lastSessionId: null,
-              lastLaunchResult: launchResult.methodLabel,
-              message: 'Launched via ${launchResult.methodLabel}',
-            ),
-          );
+        (result) {
+          externalMethod = result.methodLabel;
         },
       );
+
+      // ============================================================
+      // EXTERNAL SUCCESS
+      // ============================================================
+
+      if (externalMethod != null) {
+        print(
+          'RDP external launcher succeeded: '
+          '$externalMethod',
+        );
+
+        if (!emit.isDone) {
+          emit(
+            state.copyWith(
+              isBusy: false,
+              lastSessionId: null,
+              lastLaunchResult: 'External: $externalMethod',
+              message: 'Launched via $externalMethod',
+            ),
+          );
+        }
+
+        return;
+      }
+
+      // ============================================================
+      // BOTH FAILED
+      // ============================================================
+
+      if (!emit.isDone) {
+        emit(
+          state.copyWith(
+            isBusy: false,
+            lastSessionId: null,
+            message:
+                externalFailure ?? backendFailure ?? 'Failed to launch RDP.',
+          ),
+        );
+      }
+    } catch (error, stackTrace) {
+      print('RDP launch caught unexpected error: $error');
+      print(stackTrace);
+
+      // ============================================================
+      // UNEXPECTED ERROR -> EXTERNAL FALLBACK
+      // ============================================================
+
+      try {
+        final launchResult = await _launchService.launch(profile);
+
+        String? methodLabel;
+        String? failureMessage;
+
+        launchResult.fold(
+          (failure) {
+            failureMessage = failure.message;
+          },
+          (result) {
+            methodLabel = result.methodLabel;
+          },
+        );
+
+        if (methodLabel != null) {
+          if (!emit.isDone) {
+            emit(
+              state.copyWith(
+                isBusy: false,
+                lastSessionId: null,
+                lastLaunchResult: methodLabel,
+                message: 'Launched via $methodLabel',
+              ),
+            );
+          }
+
+          return;
+        }
+
+        if (!emit.isDone) {
+          emit(
+            state.copyWith(
+              isBusy: false,
+              lastSessionId: null,
+              message: failureMessage ?? 'Failed to launch RDP.',
+            ),
+          );
+        }
+      } catch (fallbackError, fallbackStackTrace) {
+        print(
+          'RDP external fallback exception: '
+          '$fallbackError',
+        );
+        print(fallbackStackTrace);
+
+        if (!emit.isDone) {
+          emit(
+            state.copyWith(
+              isBusy: false,
+              lastSessionId: null,
+              message: 'Failed to launch RDP: $fallbackError',
+            ),
+          );
+        }
+      }
     }
   }
 

@@ -19,7 +19,6 @@ class RdpWorkspaceView extends StatefulWidget {
 }
 
 class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
-  // Guard navigasi agar tidak push dua kali untuk session yang sama
   String? _navigatedSessionId;
 
   @override
@@ -34,7 +33,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
 
         final sessionId = state.lastSessionId!;
 
-        // Hindari navigasi ganda ke session yang sama
         if (_navigatedSessionId == sessionId) return;
         _navigatedSessionId = sessionId;
 
@@ -46,7 +44,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
               ),
             )
             .then((_) {
-              // Reset saat kembali agar koneksi baru bisa dibuka
               _navigatedSessionId = null;
             });
       },
@@ -58,7 +55,7 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
         if (state.status == RdpWorkspaceStatus.failure) {
           return Center(
             child: Padding(
-              padding: const EdgeInsets.all(24.0),
+              padding: const EdgeInsets.all(24),
               child: Text(
                 state.message.isNotEmpty
                     ? state.message
@@ -70,6 +67,29 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
           );
         }
 
+        // ============================================================
+        // EDIT / FORM VIEW
+        // ============================================================
+
+        if (state.activeView == RdpView.form && state.editingProfile != null) {
+          return _RdpEditView(
+            profile: state.editingProfile!,
+            onCancel: () {
+              context.read<RdpWorkspaceBloc>().add(
+                const RdpProfileSelectionCleared(),
+              );
+
+              context.read<RdpWorkspaceBloc>().add(
+                const RdpNavigationChanged(RdpView.gallery),
+              );
+            },
+          );
+        }
+
+        // ============================================================
+        // GALLERY VIEW
+        // ============================================================
+
         final profiles = state.filteredProfiles;
         final selectedProfile = state.selectedProfile;
 
@@ -78,6 +98,9 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ========================================================
+              // HEADER
+              // ========================================================
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -102,15 +125,16 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
                     label: const Text('Import .rdp'),
                   ),
                   const SizedBox(width: 10),
-                  // Tombol test render frame — untuk debug sizing
                   OutlinedButton.icon(
-                    onPressed: () =>
-                        Navigator.of(context).pushNamed('/rdp-frame-test'),
+                    onPressed: () {
+                      Navigator.of(context).pushNamed('/rdp-frame-test');
+                    },
                     icon: const Icon(Icons.bug_report, size: 16),
                     label: const Text('Frame Test'),
                   ),
                 ],
               ),
+
               if (state.message.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 10, bottom: 4),
@@ -119,64 +143,45 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
                     style: const TextStyle(color: AppColors.cyan),
                   ),
                 ),
+
               const SizedBox(height: 16),
+
+              // ========================================================
+              // PROFILE GRID
+              // ========================================================
               Expanded(
                 child: profiles.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: const [
-                              Icon(
-                                Icons.desktop_windows_outlined,
-                                size: 64,
-                                color: AppColors.muted,
-                              ),
-                              SizedBox(height: 18),
-                              Text(
-                                'No RDP profiles yet.',
-                                style: TextStyle(
-                                  color: AppColors.text,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Use the toolbar above to add a new profile or import a .rdp file.',
-                                style: TextStyle(
-                                  color: AppColors.muted,
-                                  fontSize: 14,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
+                    ? _EmptyProfiles()
                     : LayoutBuilder(
                         builder: (context, constraints) {
+                          final crossAxisCount = constraints.maxWidth >= 1400
+                              ? 3
+                              : constraints.maxWidth >= 900
+                              ? 2
+                              : 1;
+
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Expanded(
                                 child: GridView.builder(
+                                  padding: EdgeInsets.zero,
                                   gridDelegate:
                                       SliverGridDelegateWithFixedCrossAxisCount(
-                                        crossAxisCount:
-                                            constraints.maxWidth >= 1400
-                                            ? 3
-                                            : constraints.maxWidth >= 900
-                                            ? 2
-                                            : 1,
-                                        mainAxisSpacing: 14,
-                                        crossAxisSpacing: 14,
-                                        childAspectRatio: 1.2,
+                                        crossAxisCount: crossAxisCount,
+
+                                        // IMPORTANT:
+                                        // Jangan gunakan childAspectRatio tinggi.
+                                        // Profile card sekarang fixed-height.
+                                        mainAxisExtent: 68,
+
+                                        mainAxisSpacing: 6,
+                                        crossAxisSpacing: 6,
                                       ),
                                   itemCount: profiles.length,
                                   itemBuilder: (context, index) {
                                     final profile = profiles[index];
+
                                     return RdpProfileCard(
                                       profile: profile,
                                       selected:
@@ -185,27 +190,13 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
                                   },
                                 ),
                               ),
-                              if (selectedProfile != null) ...[
-                                const SizedBox(height: 14),
-                                _RdpDetailsPanel(profile: selectedProfile),
-                              ] else ...[
-                                const SizedBox(height: 14),
-                                Container(
-                                  padding: const EdgeInsets.all(18),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.surface,
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(color: AppColors.border),
-                                  ),
-                                  child: const Text(
-                                    'Klik profil untuk melihat detail dan opsi koneksi.',
-                                    style: TextStyle(
-                                      color: AppColors.muted,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ),
-                              ],
+
+                              const SizedBox(height: 14),
+
+                              if (selectedProfile != null)
+                                _RdpDetailsPanel(profile: selectedProfile)
+                              else
+                                _NoSelectionPanel(),
                             ],
                           );
                         },
@@ -218,46 +209,56 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     );
   }
 
-  // ── New Profile: manual create + save to database ─────────────────────────
+  // ================================================================
+  // NEW PROFILE
+  // ================================================================
+
   Future<void> _openNewProfileDialog(BuildContext context) async {
     final profile = await RdpManualFormDialog.show(context);
+
     if (profile == null) return;
 
     final result = await sl<RdpProfileRepository>().saveProfile(profile);
+
     result.fold(
       (failure) {
         _showError(failure.message);
       },
       (_) {
         context.read<RdpWorkspaceBloc>().add(const RdpProfilesRequested());
+
         _showSuccess('RDP profile saved successfully.');
       },
     );
   }
 
-  // ── Import .rdp: pick + parse + connect (no save) ──────────────────────────
+  // ================================================================
+  // IMPORT .RDP
+  // ================================================================
+
   Future<void> _openRdpImportDialog(BuildContext context) async {
     try {
-      // 1. Pick and parse .rdp file
       final profile = await RdpFileImportDialog.pickAndParse();
-      if (profile == null) return; // User cancelled
+
+      if (profile == null) return;
 
       if (!mounted) return;
 
-      // 2. Connect directly (both Cyberark PSM and manual RDP)
       await _connectRdpSession(context, profile);
     } catch (e) {
       _showError('Failed to import .rdp: $e');
     }
   }
 
-  // ── Connect RDP session ────────────────────────────────────────────────────
+  // ================================================================
+  // CONNECT
+  // ================================================================
+
   Future<void> _connectRdpSession(
     BuildContext context,
     RdpProfile profile,
   ) async {
     try {
-      // 1. Show connection options dialog
       final connectionOptions = await _showRdpConnectionDialog(
         context,
         profile,
@@ -266,22 +267,18 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
 
       if (connectionOptions == null) return;
 
-      // 2. Get password
       String password = '';
+
       if (profile.isCyberArkPsm) {
-        // Cyberark: NO password prompt (PSM gateway handle auth)
-        // TODO: Implement proper Cyberark vault retrieval
-        // password = await sl<CyberarkService>().retrievePassword(profile);
         password = '';
       } else {
-        // Manual RDP: prompt for password
         password = await _promptPassword(context, profile.username);
-        if (password.isEmpty) return; // User cancelled
+
+        if (password.isEmpty) return;
       }
 
       if (!mounted) return;
 
-      // 3. Connect
       final sessionId = await _connectToRdp(
         profile: profile,
         password: password,
@@ -289,31 +286,36 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
         enableFileSharing: connectionOptions['enableSharing'] as bool? ?? false,
       );
 
-      if (mounted) {
-        _showSuccess('Connected to ${profile.host}');
+      if (!mounted) return;
 
-        // 4. Navigate to RDP session
-        if (_navigatedSessionId == sessionId) return;
-        _navigatedSessionId = sessionId;
+      _showSuccess('Connected to ${profile.host}');
 
-        Navigator.of(context)
-            .push(
-              MaterialPageRoute(
-                builder: (context) =>
-                    RdpSessionPage(profile: profile, sessionId: sessionId),
-              ),
-            )
-            .then((_) {
-              _navigatedSessionId = null;
-              _scheduleSessionCleanup(profile.id);
-            });
-      }
+      if (_navigatedSessionId == sessionId) return;
+
+      _navigatedSessionId = sessionId;
+
+      Navigator.of(context)
+          .push(
+            MaterialPageRoute(
+              builder: (context) =>
+                  RdpSessionPage(profile: profile, sessionId: sessionId),
+            ),
+          )
+          .then((_) {
+            _navigatedSessionId = null;
+            _scheduleSessionCleanup(profile.id);
+          });
     } catch (e) {
-      if (mounted) _showError('Connection failed: $e');
+      if (mounted) {
+        _showError('Connection failed: $e');
+      }
     }
   }
 
-  // ── Dialog: Connection options ─────────────────────────────────────────────
+  // ================================================================
+  // CONNECTION OPTIONS
+  // ================================================================
+
   Future<Map<String, Object?>?> _showRdpConnectionDialog(
     BuildContext context,
     RdpProfile profile, {
@@ -342,7 +344,9 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
                     CheckboxListTile(
                       value: enableSharing,
                       onChanged: (value) {
-                        setState(() => enableSharing = value ?? false);
+                        setState(() {
+                          enableSharing = value ?? false;
+                        });
                       },
                       title: const Text('Enable file sharing'),
                       contentPadding: EdgeInsets.zero,
@@ -351,13 +355,18 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(null),
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop(null);
+                  },
                   child: const Text('Cancel'),
                 ),
                 FilledButton(
-                  onPressed: () => Navigator.of(
-                    dialogContext,
-                  ).pop({'localFolder': null, 'enableSharing': enableSharing}),
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop({
+                      'localFolder': null,
+                      'enableSharing': enableSharing,
+                    });
+                  },
                   child: const Text('Connect'),
                 ),
               ],
@@ -368,7 +377,10 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     );
   }
 
-  // ── Prompt password for manual RDP ─────────────────────────────────────────
+  // ================================================================
+  // PASSWORD
+  // ================================================================
+
   Future<String> _promptPassword(BuildContext context, String username) async {
     final controller = TextEditingController();
 
@@ -386,16 +398,21 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
               hintText: 'Enter your password',
             ),
             autofocus: true,
-            onSubmitted: (_) =>
-                Navigator.of(dialogContext).pop(controller.text),
+            onSubmitted: (_) {
+              Navigator.of(dialogContext).pop(controller.text);
+            },
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(null),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(null);
+              },
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(controller.text);
+              },
               child: const Text('Connect'),
             ),
           ],
@@ -403,10 +420,15 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
       },
     );
 
+    controller.dispose();
+
     return password ?? '';
   }
 
-  // ── Connect to RDP via backend service ─────────────────────────────────────
+  // ================================================================
+  // BACKEND CONNECT
+  // ================================================================
+
   Future<String> _connectToRdp({
     required RdpProfile profile,
     required String password,
@@ -414,6 +436,7 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     bool enableFileSharing = false,
   }) async {
     final backendService = sl<RdpBackendService>();
+
     final profileToUse = profile.copyWith(
       password: password.isNotEmpty ? password : null,
     );
@@ -421,14 +444,18 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     final result = await backendService.connect(profileToUse);
 
     return result.fold<String>(
-      (failure) => throw StateError(failure.message),
-      (connectionResult) => connectionResult.sessionId,
+      (failure) {
+        throw StateError(failure.message);
+      },
+      (connectionResult) {
+        return connectionResult.sessionId;
+      },
     );
   }
 
-  // ── Show success message ───────────────────────────────────────────────────
   void _showSuccess(String message) {
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -438,9 +465,9 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     );
   }
 
-  // ── Show error message ─────────────────────────────────────────────────────
   void _showError(String message) {
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -450,16 +477,611 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     );
   }
 
-  // ── Schedule cleanup after session ends ─────────────────────────────────────
   void _scheduleSessionCleanup(String profileId) {
-    // Cleanup handled by backend session lifecycle
-    // This is a placeholder for future cleanup logic
+    // Backend menangani lifecycle session.
   }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// RDP Details Panel
-// ══════════════════════════════════════════════════════════════════════════════
+// ====================================================================
+// EDIT PROFILE VIEW
+// ====================================================================
+
+class _RdpEditView extends StatefulWidget {
+  const _RdpEditView({required this.profile, required this.onCancel});
+
+  final RdpProfile profile;
+  final VoidCallback onCancel;
+
+  @override
+  State<_RdpEditView> createState() => _RdpEditViewState();
+}
+
+class _RdpEditViewState extends State<_RdpEditView> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _hostController;
+  late final TextEditingController _portController;
+  late final TextEditingController _usernameController;
+  late final TextEditingController _domainController;
+  late final TextEditingController _widthController;
+  late final TextEditingController _heightController;
+  late final TextEditingController _shellController;
+  late final TextEditingController _passwordController;
+
+  late bool _fullScreen;
+  late bool _redirectDrives;
+  late bool _redirectClipboard;
+  late bool _enableCredSsp;
+
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final p = widget.profile;
+
+    _nameController = TextEditingController(text: p.name);
+
+    _hostController = TextEditingController(text: p.host);
+
+    _portController = TextEditingController(text: p.port.toString());
+
+    _usernameController = TextEditingController(text: p.username);
+
+    _domainController = TextEditingController(text: p.domain ?? '');
+
+    _widthController = TextEditingController(text: p.desktopWidth.toString());
+
+    _heightController = TextEditingController(text: p.desktopHeight.toString());
+
+    _shellController = TextEditingController(text: p.alternateShell ?? '');
+
+    _passwordController = TextEditingController(text: p.password ?? '');
+
+    _fullScreen = p.fullScreen;
+    _redirectDrives = p.redirectDrives;
+    _redirectClipboard = p.redirectClipboard;
+    _enableCredSsp = p.enableCredSsp;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _hostController.dispose();
+    _portController.dispose();
+    _usernameController.dispose();
+    _domainController.dispose();
+    _widthController.dispose();
+    _heightController.dispose();
+    _shellController.dispose();
+    _passwordController.dispose();
+
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ==========================================================
+          // HEADER
+          // ==========================================================
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'Back',
+                onPressed: widget.onCancel,
+                icon: const Icon(Icons.arrow_back),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Edit RDP Profile',
+                style: TextStyle(
+                  color: AppColors.text,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const Spacer(),
+              OutlinedButton(
+                onPressed: _saving ? null : widget.onCancel,
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 10),
+              FilledButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save),
+                label: Text(_saving ? 'Saving...' : 'Save Changes'),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // ==========================================================
+          // FORM
+          // ==========================================================
+          Expanded(
+            child: SingleChildScrollView(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 900),
+                  child: Container(
+                    padding: const EdgeInsets.all(22),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Connection',
+                          style: TextStyle(
+                            color: AppColors.text,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+
+                        const SizedBox(height: 14),
+
+                        _twoColumns(
+                          _field(
+                            controller: _nameController,
+                            label: 'Profile Name',
+                            icon: Icons.label_outline,
+                          ),
+                          _field(
+                            controller: _hostController,
+                            label: 'Host / IP',
+                            icon: Icons.dns_outlined,
+                          ),
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        _twoColumns(
+                          _field(
+                            controller: _portController,
+                            label: 'Port',
+                            icon: Icons.settings_ethernet,
+                            keyboardType: TextInputType.number,
+                          ),
+                          _field(
+                            controller: _usernameController,
+                            label: 'Username',
+                            icon: Icons.person_outline,
+                          ),
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        _twoColumns(
+                          _field(
+                            controller: _passwordController,
+                            label: 'Password',
+                            icon: Icons.lock_outline,
+                            obscureText: true,
+                          ),
+                          _field(
+                            controller: _domainController,
+                            label: 'Domain',
+                            icon: Icons.domain_outlined,
+                          ),
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        const Text(
+                          'Display',
+                          style: TextStyle(
+                            color: AppColors.text,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+
+                        const SizedBox(height: 14),
+
+                        _twoColumns(
+                          _field(
+                            controller: _widthController,
+                            label: 'Desktop Width',
+                            icon: Icons.width_normal_outlined,
+                            keyboardType: TextInputType.number,
+                          ),
+                          _field(
+                            controller: _heightController,
+                            label: 'Desktop Height',
+                            icon: Icons.height_outlined,
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        SwitchListTile(
+                          value: _fullScreen,
+                          onChanged: (value) {
+                            setState(() {
+                              _fullScreen = value;
+                            });
+                          },
+                          title: const Text('Full Screen'),
+                          subtitle: const Text(
+                            'Use the remote desktop in full-screen mode.',
+                          ),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+
+                        const SizedBox(height: 18),
+
+                        const Text(
+                          'Redirection',
+                          style: TextStyle(
+                            color: AppColors.text,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        SwitchListTile(
+                          value: _redirectDrives,
+                          onChanged: (value) {
+                            setState(() {
+                              _redirectDrives = value;
+                            });
+                          },
+                          title: const Text('Drive / File Sharing'),
+                          subtitle: const Text(
+                            'Redirect local drives to the remote session.',
+                          ),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+
+                        SwitchListTile(
+                          value: _redirectClipboard,
+                          onChanged: (value) {
+                            setState(() {
+                              _redirectClipboard = value;
+                            });
+                          },
+                          title: const Text('Clipboard'),
+                          subtitle: const Text('Allow clipboard redirection.'),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+
+                        const SizedBox(height: 18),
+
+                        const Text(
+                          'Security',
+                          style: TextStyle(
+                            color: AppColors.text,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+
+                        SwitchListTile(
+                          value: _enableCredSsp,
+                          onChanged: (value) {
+                            setState(() {
+                              _enableCredSsp = value;
+                            });
+                          },
+                          title: const Text('Enable CredSSP / NLA'),
+                          subtitle: const Text(
+                            'Use Network Level Authentication when available.',
+                          ),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+
+                        const SizedBox(height: 18),
+
+                        _field(
+                          controller: _shellController,
+                          label: 'Alternate Shell',
+                          icon: Icons.terminal_outlined,
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceCard,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.info_outline,
+                                color: AppColors.cyan,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Profile ID: ${widget.profile.id}',
+                                  style: const TextStyle(
+                                    color: AppColors.muted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _twoColumns(Widget first, Widget second) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: first),
+        const SizedBox(width: 12),
+        Expanded(child: second),
+      ],
+    );
+  }
+
+  Widget _field({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    TextInputType? keyboardType,
+    bool obscureText = false,
+  }) {
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      obscureText: obscureText,
+      decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
+    );
+  }
+
+  Future<void> _save() async {
+    final name = _nameController.text.trim();
+
+    final host = _hostController.text.trim();
+
+    final username = _usernameController.text.trim();
+
+    final port = int.tryParse(_portController.text.trim()) ?? 0;
+
+    final width =
+        int.tryParse(_widthController.text.trim()) ??
+        widget.profile.desktopWidth;
+
+    final height =
+        int.tryParse(_heightController.text.trim()) ??
+        widget.profile.desktopHeight;
+
+    // ================================================================
+    // VALIDATION
+    // ================================================================
+
+    if (name.isEmpty) {
+      _error('Profile name is required.');
+      return;
+    }
+
+    if (host.isEmpty) {
+      _error('Host / IP is required.');
+      return;
+    }
+
+    if (port <= 0 || port > 65535) {
+      _error('Port must be between 1 and 65535.');
+      return;
+    }
+
+    if (username.isEmpty) {
+      _error('Username is required.');
+      return;
+    }
+
+    if (width <= 0 || height <= 0) {
+      _error('Desktop resolution is invalid.');
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+    });
+
+    try {
+      // ==============================================================
+      // BUILD UPDATED PROFILE
+      // ==============================================================
+
+      final updatedProfile = widget.profile.copyWith(
+        name: name,
+        host: host,
+        port: port,
+        username: username,
+        domain: _domainController.text.trim().isEmpty
+            ? null
+            : _domainController.text.trim(),
+        password: _passwordController.text.isEmpty
+            ? widget.profile.password
+            : _passwordController.text,
+        desktopWidth: width,
+        desktopHeight: height,
+        fullScreen: _fullScreen,
+        redirectDrives: _redirectDrives,
+        redirectClipboard: _redirectClipboard,
+        enableCredSsp: _enableCredSsp,
+        alternateShell: _shellController.text.trim().isEmpty
+            ? null
+            : _shellController.text.trim(),
+      );
+
+      // ==============================================================
+      // SAVE DIRECTLY TO REPOSITORY
+      // ==============================================================
+      //
+      // Kita sengaja save langsung di sini supaya:
+      //
+      // Edit -> UPDATE
+      //
+      // bukan:
+      //
+      // Edit -> create profile baru
+      //
+      // ID profile lama tetap dipertahankan.
+      // ==============================================================
+
+      final result = await sl<RdpProfileRepository>().saveProfile(
+        updatedProfile,
+      );
+
+      if (!mounted) return;
+
+      result.fold(
+        (failure) {
+          setState(() {
+            _saving = false;
+          });
+
+          _error(failure.message);
+        },
+        (_) {
+          // Refresh list dari database.
+          context.read<RdpWorkspaceBloc>().add(const RdpProfilesRequested());
+
+          setState(() {
+            _saving = false;
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('RDP profile updated successfully.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        },
+      );
+
+      // Setelah save berhasil, kembali ke gallery.
+      if (result.isRight) {
+        context.read<RdpWorkspaceBloc>().add(
+          const RdpProfileSelectionCleared(),
+        );
+
+        context.read<RdpWorkspaceBloc>().add(
+          const RdpNavigationChanged(RdpView.gallery),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _saving = false;
+      });
+
+      _error('Failed to update profile: $e');
+    }
+  }
+
+  void _error(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.danger),
+    );
+  }
+}
+
+// ====================================================================
+// EMPTY PROFILES
+// ====================================================================
+
+class _EmptyProfiles extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            Icon(
+              Icons.desktop_windows_outlined,
+              size: 64,
+              color: AppColors.muted,
+            ),
+            SizedBox(height: 18),
+            Text(
+              'No RDP profiles yet.',
+              style: TextStyle(
+                color: AppColors.text,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Use the toolbar above to add a new profile or import a .rdp file.',
+              style: TextStyle(color: AppColors.muted, fontSize: 14),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ====================================================================
+// NO SELECTION
+// ====================================================================
+
+class _NoSelectionPanel extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: const Text(
+        'Klik profil untuk melihat detail dan opsi koneksi.',
+        style: TextStyle(color: AppColors.muted, fontSize: 14),
+      ),
+    );
+  }
+}
+
+// ====================================================================
+// DETAILS PANEL
+// ====================================================================
 
 class _RdpDetailsPanel extends StatelessWidget {
   const _RdpDetailsPanel({required this.profile});
@@ -486,7 +1108,9 @@ class _RdpDetailsPanel extends StatelessWidget {
               fontWeight: FontWeight.w900,
             ),
           ),
+
           const SizedBox(height: 16),
+
           _DetailRow(label: 'Name', value: profile.name),
           _DetailRow(label: 'Host', value: profile.address),
           _DetailRow(label: 'Username', value: profile.username),
@@ -496,12 +1120,15 @@ class _RdpDetailsPanel extends StatelessWidget {
             value: '${profile.desktopWidth}×${profile.desktopHeight}',
           ),
           _DetailRow(label: 'Status', value: profile.status.name),
+
           if (profile.sourceRdpFilePath != null)
             _DetailRow(
               label: 'Imported from',
               value: profile.sourceRdpFilePath!,
             ),
+
           const SizedBox(height: 12),
+
           Row(
             children: [
               FilledButton.icon(
@@ -515,7 +1142,12 @@ class _RdpDetailsPanel extends StatelessWidget {
                 icon: const Icon(Icons.play_arrow),
                 label: const Text('Connect'),
               ),
+
               const SizedBox(width: 8),
+
+              // ======================================================
+              // EDIT
+              // ======================================================
               OutlinedButton.icon(
                 onPressed: () {
                   context.read<RdpWorkspaceBloc>().add(
@@ -525,29 +1157,41 @@ class _RdpDetailsPanel extends StatelessWidget {
                 icon: const Icon(Icons.edit),
                 label: const Text('Edit'),
               ),
+
               const SizedBox(width: 8),
+
+              // ======================================================
+              // DELETE
+              // ======================================================
               OutlinedButton.icon(
                 onPressed: () async {
                   final ok = await showDialog<bool>(
                     context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: const Text('Delete profile?'),
-                      content: const Text(
-                        'Are you sure you want to delete this profile?',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.of(ctx).pop(false),
-                          child: const Text('Cancel'),
+                    builder: (ctx) {
+                      return AlertDialog(
+                        title: const Text('Delete profile?'),
+                        content: const Text(
+                          'Are you sure you want to delete this profile?',
                         ),
-                        TextButton(
-                          onPressed: () => Navigator.of(ctx).pop(true),
-                          child: const Text('Delete'),
-                        ),
-                      ],
-                    ),
+                        actions: [
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(ctx).pop(false);
+                            },
+                            child: const Text('Cancel'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(ctx).pop(true);
+                            },
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      );
+                    },
                   );
-                  if (ok == true) {
+
+                  if (ok == true && context.mounted) {
                     context.read<RdpWorkspaceBloc>().add(
                       RdpProfileDeleted(profile.id),
                     );
@@ -567,9 +1211,9 @@ class _RdpDetailsPanel extends StatelessWidget {
   }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// Detail Row Widget
-// ══════════════════════════════════════════════════════════════════════════════
+// ====================================================================
+// DETAIL ROW
+// ====================================================================
 
 class _DetailRow extends StatelessWidget {
   const _DetailRow({required this.label, required this.value});

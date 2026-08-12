@@ -50,7 +50,8 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
   // Ini memastikan burst frame awal (login screen ~44 frame) sudah
   // selesai semua sebelum decode dimulai, sehingga hasil decode
   // mencerminkan keseluruhan framebuffer yang sudah penuh.
-  static const _kDecodeDebounce = Duration(milliseconds: 50);
+  static const _kInitialRenderDelay = Duration(milliseconds: 120);
+  static const _kRenderInterval = Duration(milliseconds: 33);
   Timer? _decodeDebounce;
   bool _isDecoding = false;
   int _blitGeneration = 0;
@@ -61,6 +62,7 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
 
   final FocusNode _focusNode = FocusNode();
   int _currentMouseButton = 0;
+  final Set<int> _pressedHidUsages = <int>{};
 
   // ================================================================
   // INIT
@@ -126,22 +128,19 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
   // ================================================================
 
   void _requestDecode() {
-    // Frame pertama: langsung decode tanpa menunggu debounce
-    if (_image == null && !_isDecoding) {
-      _decodeDebounce?.cancel();
-      _runDecode();
-      return;
-    }
-    // Update berikutnya: debounce untuk batching
+    if (_isDisconnected || !mounted) return;
+
+    final delay = _image == null ? _kInitialRenderDelay : _kRenderInterval;
+
     _decodeDebounce?.cancel();
-    _decodeDebounce = Timer(_kDecodeDebounce, _runDecode);
+    _decodeDebounce = Timer(delay, _runDecode);
   }
 
   void _runDecode() {
     if (_isDecoding || _isDisconnected || !mounted) return;
     _isDecoding = true;
     final capturedGen = _blitGeneration;
-    final snapshot = Uint8List.fromList(_framebuffer);
+    final snapshot = _framebuffer;
     _decodeAndDisplay(snapshot, capturedGen);
   }
 
@@ -152,39 +151,26 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
     }
 
     ui.Image? newImage;
-    bool needsRedecode = false;
-
     try {
       newImage = await _createImage(snapshot);
 
       if (_isDisconnected || !mounted) {
         newImage.dispose();
-        newImage = null;
-        return;
-      }
-
-      if (capturedGen != _blitGeneration) {
-        // Ada blit baru selama decode berlangsung — decode ulang segera
-        newImage.dispose();
-        newImage = null;
-        needsRedecode = true;
         return;
       }
 
       final old = _image;
       setState(() => _image = newImage);
       old?.dispose();
+      newImage = null;
     } catch (e, st) {
       debugPrint('[RDP DECODE ERROR] $e\n$st');
       newImage?.dispose();
       newImage = null;
     } finally {
       _isDecoding = false;
-      if ((needsRedecode || capturedGen != _blitGeneration) &&
-          !_isDisconnected &&
-          mounted) {
-        // Blit baru masuk saat decode — langsung decode tanpa debounce
-        _runDecode();
+      if (!_isDisconnected && mounted && capturedGen != _blitGeneration) {
+        _requestDecode();
       }
     }
   }
@@ -198,17 +184,21 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
       rowBytes: _rowBytes,
       pixelFormat: ui.PixelFormat.rgba8888,
     );
+
     final codec = await descriptor.instantiateCodec(
       targetWidth: _fbWidth,
       targetHeight: _fbHeight,
     );
-    final frame = await codec.getNextFrame();
-    return frame.image;
-  }
 
-  // ================================================================
-  // BLIT
-  // ================================================================
+    try {
+      final frame = await codec.getNextFrame();
+      return frame.image;
+    } finally {
+      codec.dispose();
+      descriptor.dispose();
+      buffer.dispose();
+    }
+  }
 
   void _blitRect(int x, int y, int w, int h, Uint8List patch) {
     if (w <= 0 || h <= 0) return;
@@ -247,25 +237,34 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
   void _onCompleteFrame(RdpFrameEvent frame) {
     if (_isDisconnected) return;
 
-    final expected = frame.width * frame.height * 4;
-    if (frame.data.length != expected) {
+    final width = frame.width.toInt();
+    final height = frame.height.toInt();
+    final expected = width * height * 4;
+
+    if (width <= 0 || height <= 0 || frame.data.length != expected) {
       debugPrint(
         '[RDP FRAME ERROR] id=${frame.frameId} '
         'got=${frame.data.length} expected=$expected '
-        '(${frame.width}x${frame.height})',
+        '(${width}x${height})',
       );
       return;
     }
 
-    _blitRect(
-      frame.x.toInt(),
-      frame.y.toInt(),
-      frame.width.toInt(),
-      frame.height.toInt(),
-      frame.data,
-    );
+    final isCompleteFrame =
+        frame.x.toInt() == 0 &&
+        frame.y.toInt() == 0 &&
+        width == _fbWidth &&
+        height == _fbHeight;
 
-    // Debounced decode: timer di-reset setiap frame baru masuk
+    if (isCompleteFrame) {
+      // Runtime mengirim snapshot lengkap setiap tick. Ganti buffer langsung
+      // supaya tidak ada copy 4 MB tambahan di sisi Dart.
+      _framebuffer = frame.data;
+      _blitGeneration++;
+    } else {
+      _blitRect(frame.x.toInt(), frame.y.toInt(), width, height, frame.data);
+    }
+
     _requestDecode();
   }
 
@@ -392,51 +391,64 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
   }
 
   void _handlePointerSignal(PointerSignalEvent event) {
-    if (_isDisconnected) return;
-    if (event is! PointerScrollEvent) return;
+    if (_isDisconnected || event is! PointerScrollEvent) return;
+
     final box = context.findRenderObject() as RenderBox?;
     if (box == null) return;
-    final (x, y) = _toDesktopCoords(event.localPosition, box.size);
 
-    final scrollUp = event.scrollDelta.dy < 0;
-    final button = scrollUp ? 3 : 4;
+    final (x, y) = _toDesktopCoords(event.localPosition, box.size);
+    final dy = event.scrollDelta.dy;
+    if (dy == 0) return;
+
+    final delta = (dy * 120).round().clamp(-32768, 32767);
+
     unawaited(
-      sl<RdpBackendService>()
-          .sendMouseButton(widget.sessionId, x, y, button, true)
-          .then((_) {
-            if (_isDisconnected) return;
-            sl<RdpBackendService>().sendMouseButton(
-              widget.sessionId,
-              x,
-              y,
-              button,
-              false,
-            );
-          }),
+      sl<RdpBackendService>().sendMouseWheel(
+        widget.sessionId,
+        x,
+        y,
+        delta,
+        isVertical: true,
+      ),
     );
   }
 
-  int _mapToScancode(PhysicalKeyboardKey key) => key.usbHidUsage & 0xFFFF;
+  int _hidUsage(PhysicalKeyboardKey key) => key.usbHidUsage & 0xFFFF;
 
   void _handleKey(KeyEvent event) {
     if (_isDisconnected) return;
-    final scancode = _mapToScancode(event.physicalKey);
-    if (scancode == 0) return;
+
+    final hidUsage = _hidUsage(event.physicalKey);
+    if (hidUsage == 0) return;
+
     final down = event is KeyDownEvent || event is KeyRepeatEvent;
+    if (down) {
+      _pressedHidUsages.add(hidUsage);
+    } else if (event is KeyUpEvent) {
+      _pressedHidUsages.remove(hidUsage);
+    }
+
     unawaited(
       sl<RdpBackendService>().sendKeyboardInput(
         widget.sessionId,
-        scancode,
+        hidUsage,
         down,
       ),
     );
   }
 
-  // ================================================================
-  // DISPOSE
-  // ================================================================
+  void _releasePressedKeys() {
+    if (_pressedHidUsages.isEmpty) return;
 
-  @override
+    final svc = sl<RdpBackendService>();
+    final keys = List<int>.of(_pressedHidUsages);
+    _pressedHidUsages.clear();
+
+    for (final hidUsage in keys) {
+      unawaited(svc.sendKeyboardInput(widget.sessionId, hidUsage, false));
+    }
+  }
+
   void dispose() {
     debugPrint('[RDP VIEWER] dispose session=${widget.sessionId}');
 
@@ -446,6 +458,7 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
     _frameSub?.cancel();
     _statusSub?.cancel();
     _errorSub?.cancel();
+    _releasePressedKeys();
 
     // JANGAN disconnect di sini — lifecycle session dikelola oleh
     // RdpSessionPage/Bloc. dispose() hanya cleanup widget resources.
@@ -557,7 +570,7 @@ class _RdpPainter extends CustomPainter {
       image,
       Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
       Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..filterQuality = FilterQuality.medium,
+      Paint()..filterQuality = FilterQuality.low,
     );
   }
 

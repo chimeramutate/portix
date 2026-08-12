@@ -11,13 +11,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 name = "portix-rdp"
 path = "src/main.rs"
 
-[[bin]]
-name = "rdp_capture"
-path = "src/bin/rdp_capture.rs"
 
-[[bin]]
-name = "rdp_viewer"
-path = "src/bin/rdp_viewer.rs"
 
 [dependencies]
 # ── IronRDP ────────────────────────────────────────────────────────────────
@@ -29,6 +23,12 @@ ironrdp-async     = "0.10"
 ironrdp-input     = "0.7"
 ironrdp-pdu       = "0.9"
 ironrdp-tls       = { version = "0.2", features = ["rustls-ring"] }
+
+# RDP device / drive redirection
+
+ironrdp-rdpdr = "0.7"
+ironrdp-rdpdr-native = "0.7"
+
 
 # ── Network ────────────────────────────────────────────────────────────────
 reqwest = "0.12"
@@ -57,3 +57,6 @@ png = "0.17"
 minifb = "0.27"
 
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+# Logging used by IronRDP/RDPDR
+tracing = "0.1"

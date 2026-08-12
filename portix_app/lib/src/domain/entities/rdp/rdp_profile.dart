@@ -24,6 +24,7 @@ class RdpProfile extends Equatable {
     this.sourceRdpFilePath,
     this.status = RdpProfileStatus.offline,
     this.lastUsedLabel = 'never',
+    this.LocalSharePath = '',
   });
 
   final String id;
@@ -46,6 +47,7 @@ class RdpProfile extends Equatable {
   final bool redirectDrives;
   final bool redirectClipboard;
 
+  final String? LocalSharePath;
   // CyberArk PSM fields
   final String alternateShell;
   final bool enableCredSsp;

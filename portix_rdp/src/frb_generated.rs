@@ -650,6 +650,10 @@ impl SseDecode for crate::domain::profile::RdpProfile {
         let mut var_enableCredSsp = <bool>::sse_decode(deserializer);
         let mut var_alternateShell = <Option<String>>::sse_decode(deserializer);
         let mut var_sourceRdpContent = <Option<String>>::sse_decode(deserializer);
+        let mut var_redirectDrives = <bool>::sse_decode(deserializer);
+        let mut var_redirectClipboard = <bool>::sse_decode(deserializer);
+        let mut var_localSharePath = <Option<String>>::sse_decode(deserializer);
+        let mut var_localShareName = <String>::sse_decode(deserializer);
         return crate::domain::profile::RdpProfile {
             id: var_id,
             name: var_name,
@@ -664,6 +668,10 @@ impl SseDecode for crate::domain::profile::RdpProfile {
             enable_cred_ssp: var_enableCredSsp,
             alternate_shell: var_alternateShell,
             source_rdp_content: var_sourceRdpContent,
+            redirect_drives: var_redirectDrives,
+            redirect_clipboard: var_redirectClipboard,
+            local_share_path: var_localSharePath,
+            local_share_name: var_localShareName,
         };
     }
 }
@@ -857,6 +865,10 @@ impl flutter_rust_bridge::IntoDart for crate::domain::profile::RdpProfile {
             self.enable_cred_ssp.into_into_dart().into_dart(),
             self.alternate_shell.into_into_dart().into_dart(),
             self.source_rdp_content.into_into_dart().into_dart(),
+            self.redirect_drives.into_into_dart().into_dart(),
+            self.redirect_clipboard.into_into_dart().into_dart(),
+            self.local_share_path.into_into_dart().into_dart(),
+            self.local_share_name.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1064,6 +1076,10 @@ impl SseEncode for crate::domain::profile::RdpProfile {
         <bool>::sse_encode(self.enable_cred_ssp, serializer);
         <Option<String>>::sse_encode(self.alternate_shell, serializer);
         <Option<String>>::sse_encode(self.source_rdp_content, serializer);
+        <bool>::sse_encode(self.redirect_drives, serializer);
+        <bool>::sse_encode(self.redirect_clipboard, serializer);
+        <Option<String>>::sse_encode(self.local_share_path, serializer);
+        <String>::sse_encode(self.local_share_name, serializer);
     }
 }
 
