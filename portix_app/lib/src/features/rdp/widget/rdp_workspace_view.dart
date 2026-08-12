@@ -1,3 +1,6 @@
+import 'dart:io' show Platform;
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/di/injection.dart';
@@ -7,6 +10,7 @@ import 'package:portix/src/domain/repositories/rdp/index.dart';
 import 'package:portix/src/features/rdp/bloc/index.dart';
 import 'package:portix/src/features/rdp/page/rdp_session_page.dart';
 import 'package:portix/src/features/rdp/service/rdp_backend_service.dart';
+import 'package:portix/src/features/rdp/service/rdp_window_service.dart';
 import 'package:portix/src/features/rdp/widget/rdp_file_import_dialog.dart';
 import 'package:portix/src/features/rdp/widget/rdp_manual_form_dialog.dart';
 import 'package:portix/src/features/rdp/widget/rdp_profile_card.dart';
@@ -36,16 +40,13 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
         if (_navigatedSessionId == sessionId) return;
         _navigatedSessionId = sessionId;
 
-        Navigator.of(context)
-            .push(
-              MaterialPageRoute(
-                builder: (context) =>
-                    RdpSessionPage(profile: profile, sessionId: sessionId),
-              ),
-            )
-            .then((_) {
-              _navigatedSessionId = null;
-            });
+        _openSessionSurface(
+          context,
+          profile: profile,
+          sessionId: sessionId,
+        ).whenComplete(() {
+          _navigatedSessionId = null;
+        });
       },
       builder: (context, state) {
         if (state.status == RdpWorkspaceStatus.loading) {
@@ -294,17 +295,13 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
 
       _navigatedSessionId = sessionId;
 
-      Navigator.of(context)
-          .push(
-            MaterialPageRoute(
-              builder: (context) =>
-                  RdpSessionPage(profile: profile, sessionId: sessionId),
-            ),
-          )
-          .then((_) {
-            _navigatedSessionId = null;
-            _scheduleSessionCleanup(profile.id);
-          });
+      await _openSessionSurface(
+        context,
+        profile: profile,
+        sessionId: sessionId,
+      );
+      _navigatedSessionId = null;
+      _scheduleSessionCleanup(profile.id);
     } catch (e) {
       if (mounted) {
         _showError('Connection failed: $e');
@@ -321,9 +318,12 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     RdpProfile profile, {
     required bool isCyberark,
   }) async {
-    bool enableSharing = false;
+    bool enableSharing = profile.redirectDrives;
+    final localFolderController = TextEditingController(
+      text: profile.effectiveLocalSharePath,
+    );
 
-    return showDialog<Map<String, Object?>>(
+    final result = await showDialog<Map<String, Object?>>(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
@@ -346,11 +346,39 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
                       onChanged: (value) {
                         setState(() {
                           enableSharing = value ?? false;
+                          if (enableSharing &&
+                              localFolderController.text.trim().isEmpty) {
+                            localFolderController.text =
+                                RdpProfile.defaultLocalSharePath;
+                          }
                         });
                       },
                       title: const Text('Enable file sharing'),
                       contentPadding: EdgeInsets.zero,
                     ),
+                  if (profile.redirectDrives && enableSharing) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: localFolderController,
+                      decoration: InputDecoration(
+                        labelText: 'Local shared folder',
+                        prefixIcon: const Icon(Icons.folder_shared_outlined),
+                        suffixIcon: IconButton(
+                          tooltip: 'Choose folder',
+                          onPressed: () async {
+                            final selected = await FilePicker.getDirectoryPath(
+                              dialogTitle: 'Select local folder to share',
+                            );
+                            if (selected == null) return;
+                            setState(() {
+                              localFolderController.text = selected;
+                            });
+                          },
+                          icon: const Icon(Icons.folder_open_outlined),
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
               actions: [
@@ -363,7 +391,7 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
                 FilledButton(
                   onPressed: () {
                     Navigator.of(dialogContext).pop({
-                      'localFolder': null,
+                      'localFolder': localFolderController.text.trim(),
                       'enableSharing': enableSharing,
                     });
                   },
@@ -375,6 +403,8 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
         );
       },
     );
+    localFolderController.dispose();
+    return result;
   }
 
   // ================================================================
@@ -439,6 +469,13 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
 
     final profileToUse = profile.copyWith(
       password: password.isNotEmpty ? password : null,
+      redirectDrives: enableFileSharing,
+      localSharePath: enableFileSharing
+          ? (localSharePath?.trim().isNotEmpty == true
+                ? localSharePath!.trim()
+                : profile.effectiveLocalSharePath)
+          : null,
+      clearLocalSharePath: !enableFileSharing,
     );
 
     final result = await backendService.connect(profileToUse);
@@ -477,6 +514,32 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     );
   }
 
+  Future<void> _openSessionSurface(
+    BuildContext context, {
+    required RdpProfile profile,
+    required String sessionId,
+  }) async {
+    if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
+      try {
+        await RdpWindowService.openSession(
+          profile: profile,
+          sessionId: sessionId,
+        );
+        return;
+      } catch (error) {
+        debugPrint('Failed to open RDP session window: $error');
+      }
+    }
+
+    if (!context.mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) =>
+            RdpSessionPage(profile: profile, sessionId: sessionId),
+      ),
+    );
+  }
+
   void _scheduleSessionCleanup(String profileId) {
     // Backend menangani lifecycle session.
   }
@@ -506,6 +569,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
   late final TextEditingController _heightController;
   late final TextEditingController _shellController;
   late final TextEditingController _passwordController;
+  late final TextEditingController _localSharePathController;
 
   late bool _fullScreen;
   late bool _redirectDrives;
@@ -534,9 +598,15 @@ class _RdpEditViewState extends State<_RdpEditView> {
 
     _heightController = TextEditingController(text: p.desktopHeight.toString());
 
-    _shellController = TextEditingController(text: p.alternateShell ?? '');
+    _shellController = TextEditingController(text: p.alternateShell);
 
     _passwordController = TextEditingController(text: p.password ?? '');
+
+    _localSharePathController = TextEditingController(
+      text: p.localSharePath?.isNotEmpty == true
+          ? p.localSharePath
+          : RdpProfile.defaultLocalSharePath,
+    );
 
     _fullScreen = p.fullScreen;
     _redirectDrives = p.redirectDrives;
@@ -555,6 +625,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
     _heightController.dispose();
     _shellController.dispose();
     _passwordController.dispose();
+    _localSharePathController.dispose();
 
     super.dispose();
   }
@@ -743,14 +814,35 @@ class _RdpEditViewState extends State<_RdpEditView> {
                           onChanged: (value) {
                             setState(() {
                               _redirectDrives = value;
+                              if (_redirectDrives &&
+                                  _localSharePathController.text
+                                      .trim()
+                                      .isEmpty) {
+                                _localSharePathController.text =
+                                    RdpProfile.defaultLocalSharePath;
+                              }
                             });
                           },
                           title: const Text('Drive / File Sharing'),
                           subtitle: const Text(
-                            'Redirect local drives to the remote session.',
+                            'Share a local folder as PORTIX in the remote session.',
                           ),
                           contentPadding: EdgeInsets.zero,
                         ),
+
+                        if (_redirectDrives) ...[
+                          const SizedBox(height: 8),
+                          _field(
+                            controller: _localSharePathController,
+                            label: 'Local Shared Folder',
+                            icon: Icons.folder_shared_outlined,
+                            suffixIcon: IconButton(
+                              tooltip: 'Choose folder',
+                              onPressed: _pickLocalShareFolder,
+                              icon: const Icon(Icons.folder_open_outlined),
+                            ),
+                          ),
+                        ],
 
                         SwitchListTile(
                           value: _redirectClipboard,
@@ -855,12 +947,17 @@ class _RdpEditViewState extends State<_RdpEditView> {
     required IconData icon,
     TextInputType? keyboardType,
     bool obscureText = false,
+    Widget? suffixIcon,
   }) {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
       obscureText: obscureText,
-      decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon),
+        suffixIcon: suffixIcon,
+      ),
     );
   }
 
@@ -910,6 +1007,11 @@ class _RdpEditViewState extends State<_RdpEditView> {
       return;
     }
 
+    if (_redirectDrives && _localSharePathController.text.trim().isEmpty) {
+      _error('Local shared folder is required when drive sharing is enabled.');
+      return;
+    }
+
     setState(() {
       _saving = true;
     });
@@ -935,6 +1037,10 @@ class _RdpEditViewState extends State<_RdpEditView> {
         fullScreen: _fullScreen,
         redirectDrives: _redirectDrives,
         redirectClipboard: _redirectClipboard,
+        localSharePath: _redirectDrives
+            ? _localSharePathController.text.trim()
+            : null,
+        clearLocalSharePath: !_redirectDrives,
         enableCredSsp: _enableCredSsp,
         alternateShell: _shellController.text.trim().isEmpty
             ? null
@@ -1006,6 +1112,16 @@ class _RdpEditViewState extends State<_RdpEditView> {
 
       _error('Failed to update profile: $e');
     }
+  }
+
+  Future<void> _pickLocalShareFolder() async {
+    final selected = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Select local folder to share',
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _localSharePathController.text = selected;
+    });
   }
 
   void _error(String message) {

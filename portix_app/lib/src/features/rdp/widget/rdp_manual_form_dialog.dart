@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:portix/src/domain/entities/rdp/index.dart';
@@ -34,6 +35,9 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
   final _domainController = TextEditingController();
   final _widthController = TextEditingController(text: '1280');
   final _heightController = TextEditingController(text: '800');
+  final _localSharePathController = TextEditingController(
+    text: RdpProfile.defaultLocalSharePath,
+  );
 
   bool _fullScreen = false;
   bool _redirectDrives = false;
@@ -58,6 +62,7 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
     _domainController.dispose();
     _widthController.dispose();
     _heightController.dispose();
+    _localSharePathController.dispose();
     super.dispose();
   }
 
@@ -70,6 +75,9 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
     _domainController.text = profile.domain ?? '';
     _widthController.text = profile.desktopWidth.toString();
     _heightController.text = profile.desktopHeight.toString();
+    _localSharePathController.text = profile.localSharePath?.isNotEmpty == true
+        ? profile.localSharePath!
+        : RdpProfile.defaultLocalSharePath;
     _fullScreen = profile.fullScreen;
     _redirectDrives = profile.redirectDrives;
     _redirectClipboard = profile.redirectClipboard;
@@ -238,11 +246,45 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
 
                 CheckboxListTile(
                   value: _redirectDrives,
-                  onChanged: (value) =>
-                      setState(() => _redirectDrives = value ?? false),
+                  onChanged: (value) {
+                    setState(() {
+                      _redirectDrives = value ?? false;
+                      if (_redirectDrives &&
+                          _localSharePathController.text.trim().isEmpty) {
+                        _localSharePathController.text =
+                            RdpProfile.defaultLocalSharePath;
+                      }
+                    });
+                  },
                   title: const Text('Redirect Drives'),
+                  subtitle: const Text('Share a local folder as PORTIX.'),
                   controlAffinity: ListTileControlAffinity.leading,
                 ),
+
+                if (_redirectDrives) ...[
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _localSharePathController,
+                    decoration: InputDecoration(
+                      labelText: 'Local shared folder *',
+                      hintText: RdpProfile.defaultLocalSharePath,
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.folder_shared_outlined),
+                      suffixIcon: IconButton(
+                        tooltip: 'Choose folder',
+                        onPressed: _pickLocalShareFolder,
+                        icon: const Icon(Icons.folder_open_outlined),
+                      ),
+                    ),
+                    validator: (value) {
+                      if (!_redirectDrives) return null;
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Folder lokal harus diisi jika Redirect Drives aktif';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
 
                 CheckboxListTile(
                   value: _redirectClipboard,
@@ -307,10 +349,23 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
       fullScreen: _fullScreen,
       redirectDrives: _redirectDrives,
       redirectClipboard: _redirectClipboard,
+      localSharePath: _redirectDrives
+          ? _localSharePathController.text.trim()
+          : null,
       alternateShell: '',
       enableCredSsp: _enableCredSsp,
     );
 
     Navigator.of(context).pop(profile);
+  }
+
+  Future<void> _pickLocalShareFolder() async {
+    final selected = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Select local folder to share',
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _localSharePathController.text = selected;
+    });
   }
 }

@@ -139,6 +139,8 @@ class RdpProfileRepository {
     'fullScreen': p.fullScreen,
     'redirectDrives': p.redirectDrives,
     'redirectClipboard': p.redirectClipboard,
+    'localSharePath': p.localSharePath,
+    'localShareName': p.localShareName,
     'alternateShell': p.alternateShell,
     'enableCredSsp': p.enableCredSsp,
     'sourceRdpFilePath': p.sourceRdpFilePath,
@@ -175,6 +177,9 @@ class RdpProfileRepository {
       fullScreen: j['fullScreen'] as bool? ?? false,
       redirectDrives: j['redirectDrives'] as bool? ?? false,
       redirectClipboard: j['redirectClipboard'] as bool? ?? true,
+      localSharePath: j['localSharePath']?.toString(),
+      localShareName:
+          j['localShareName']?.toString() ?? RdpProfile.defaultLocalShareName,
       alternateShell: j['alternateShell']?.toString() ?? '',
       enableCredSsp: j['enableCredSsp'] as bool? ?? false,
       sourceRdpFilePath: j['sourceRdpFilePath'] as String?,

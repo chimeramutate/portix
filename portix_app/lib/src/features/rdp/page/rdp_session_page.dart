@@ -64,6 +64,25 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
     setState(() => _showOverlayToolbar = !_showOverlayToolbar);
   }
 
+  Future<void> _pasteLocalClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text;
+    if (text == null || text.isEmpty) return;
+
+    await sl<RdpBackendService>().pasteTextAsKeystrokes(
+      widget.sessionId,
+      text,
+    );
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Pasted local clipboard to remote session.'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
   int get _desktopWidth =>
       widget.profile.desktopWidth > 0 ? widget.profile.desktopWidth : 1280;
   int get _desktopHeight =>
@@ -103,6 +122,7 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
               child: _FullscreenToolbar(
                 profileName: widget.profile.name,
                 resolution: '${_desktopWidth}×$_desktopHeight',
+                onPasteClipboard: _pasteLocalClipboard,
                 onExitFullscreen: _exitFullScreen,
                 onDisconnect: () {
                   _exitFullScreen();
@@ -137,6 +157,11 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
             ),
           ),
           IconButton(
+            icon: const Icon(Icons.content_paste_go_outlined),
+            tooltip: 'Paste local clipboard to remote',
+            onPressed: _pasteLocalClipboard,
+          ),
+          IconButton(
             icon: const Icon(Icons.fullscreen),
             tooltip: 'Enter fullscreen (or double-tap)',
             onPressed: _toggleFullScreen,
@@ -161,12 +186,14 @@ class _FullscreenToolbar extends StatelessWidget {
   const _FullscreenToolbar({
     required this.profileName,
     required this.resolution,
+    required this.onPasteClipboard,
     required this.onExitFullscreen,
     required this.onDisconnect,
   });
 
   final String profileName;
   final String resolution;
+  final VoidCallback onPasteClipboard;
   final VoidCallback onExitFullscreen;
   final VoidCallback onDisconnect;
 
@@ -196,6 +223,13 @@ class _FullscreenToolbar extends StatelessWidget {
             style: const TextStyle(color: Colors.white54, fontSize: 12),
           ),
           const SizedBox(width: 12),
+          IconButton(
+            icon: const Icon(Icons.content_paste_go_outlined, size: 18),
+            tooltip: 'Paste local clipboard to remote',
+            color: Colors.white70,
+            onPressed: onPasteClipboard,
+          ),
+          const SizedBox(width: 4),
           TextButton.icon(
             onPressed: onExitFullscreen,
             icon: const Icon(Icons.fullscreen_exit, size: 18),

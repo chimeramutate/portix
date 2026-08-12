@@ -153,11 +153,21 @@ void main() {
         'full address:s:10.0.0.1\nusername:s:u\nredirectdrives:i:1\n',
       );
       expect(p.redirectDrives, isTrue);
+      expect(p.localSharePath, equals(RdpProfile.defaultLocalSharePath));
+    });
+
+    test('redirectDrives true when drivestoredirect is present', () {
+      final p = parse(
+        'full address:s:10.0.0.1\nusername:s:u\ndrivestoredirect:s:*\n',
+      );
+      expect(p.redirectDrives, isTrue);
+      expect(p.localSharePath, equals(RdpProfile.defaultLocalSharePath));
     });
 
     test('redirectDrives false by default', () {
       final p = parse('full address:s:10.0.0.1\nusername:s:u\n');
       expect(p.redirectDrives, isFalse);
+      expect(p.localSharePath, isNull);
     });
   });
 
