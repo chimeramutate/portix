@@ -3,7 +3,6 @@ use ironrdp_graphics::image_processing::PixelFormat;
 use ironrdp_input::{Database, MouseButton, MousePosition, Operation, Scancode, WheelRotations};
 use ironrdp_pdu::Encode;
 use ironrdp_pdu::cursor::WriteCursor;
-use ironrdp_pdu::geometry::InclusiveRectangle;
 use ironrdp_pdu::input::fast_path::FastPathInput;
 use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{ActiveStageBuilder, ActiveStageOutput};
@@ -13,7 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc};
-use tokio::time::{Duration, timeout};
+use tokio::time::{Duration, MissedTickBehavior, interval, timeout};
 use tokio_util::sync::CancellationToken;
 
 use crate::domain::errors::{RdpError, Result};
@@ -42,12 +41,135 @@ pub enum RdpCommand {
         is_vertical: bool,
     },
     KeyboardInput {
-        scancode: u16,
+        hid_usage: u16,
         down: bool,
     },
     Disconnect,
 }
 
+// Flutter sends USB HID usages. IronRDP's Database expects RDP/Set-1
+// scancodes, so convert at this boundary. This is the critical fix for
+// the old D->6 / Q->3 problem caused by interpreting HID values as Set-1.
+fn hid_usage_to_set1(hid: u16) -> Option<u16> {
+    Some(match hid {
+        // Letters
+        0x04 => 0x1E,
+        0x05 => 0x30,
+        0x06 => 0x2E,
+        0x07 => 0x20,
+        0x08 => 0x12,
+        0x09 => 0x21,
+        0x0A => 0x22,
+        0x0B => 0x23,
+        0x0C => 0x17,
+        0x0D => 0x24,
+        0x0E => 0x25,
+        0x0F => 0x26,
+        0x10 => 0x32,
+        0x11 => 0x31,
+        0x12 => 0x18,
+        0x13 => 0x19,
+        0x14 => 0x10,
+        0x15 => 0x13,
+        0x16 => 0x1F,
+        0x17 => 0x14,
+        0x18 => 0x16,
+        0x19 => 0x2F,
+        0x1A => 0x11,
+        0x1B => 0x2D,
+        0x1C => 0x15,
+        0x1D => 0x2C,
+
+        // Number row
+        0x1E => 0x02,
+        0x1F => 0x03,
+        0x20 => 0x04,
+        0x21 => 0x05,
+        0x22 => 0x06,
+        0x23 => 0x07,
+        0x24 => 0x08,
+        0x25 => 0x09,
+        0x26 => 0x0A,
+        0x27 => 0x0B,
+
+        // Main keyboard
+        0x28 => 0x1C, // Enter
+        0x29 => 0x01, // Escape
+        0x2A => 0x0E, // Backspace
+        0x2B => 0x0F, // Tab
+        0x2C => 0x39, // Space
+        0x2D => 0x0C, // -
+        0x2E => 0x0D, // =
+        0x2F => 0x1A, // [
+        0x30 => 0x1B, // ]
+        0x31 => 0x2B, // \
+        0x33 => 0x27, // ;
+        0x34 => 0x28, // '
+        0x35 => 0x29, // `
+        0x36 => 0x33, // ,
+        0x37 => 0x34, // .
+        0x38 => 0x35, // /
+        0x39 => 0x3A, // Caps Lock
+
+        // Function/navigation
+        0x3A => 0x3B,
+        0x3B => 0x3C,
+        0x3C => 0x3D,
+        0x3D => 0x3E,
+        0x3E => 0x3F,
+        0x3F => 0x40,
+        0x40 => 0x41,
+        0x41 => 0x42,
+        0x42 => 0x43,
+        0x43 => 0x44,
+        0x44 => 0x57,
+        0x45 => 0x58,
+        0x46 => 0xE037, // Print Screen
+        0x47 => 0x46,   // Scroll Lock
+        0x48 => 0xE045, // Pause
+        0x49 => 0xE052, // Insert
+        0x4A => 0xE047, // Home
+        0x4B => 0xE049, // Page Up
+        0x4C => 0xE053, // Delete
+        0x4D => 0xE04F, // End
+        0x4E => 0xE051, // Page Down
+        0x4F => 0xE04D, // Right
+        0x50 => 0xE04B, // Left
+        0x51 => 0xE050, // Down
+        0x52 => 0xE048, // Up
+        0x53 => 0x45,   // Num Lock
+
+        // Keypad
+        0x54 => 0xE035,
+        0x55 => 0x37,
+        0x56 => 0x4A,
+        0x57 => 0x4E,
+        0x58 => 0xE01C,
+        0x59 => 0x4F,
+        0x5A => 0x50,
+        0x5B => 0x51,
+        0x5C => 0x4B,
+        0x5D => 0x4C,
+        0x5E => 0x4D,
+        0x5F => 0x47,
+        0x60 => 0x48,
+        0x61 => 0x49,
+        0x62 => 0x52,
+        0x63 => 0x53,
+
+        // Modifiers
+        0xE0 => 0x1D,
+        0xE1 => 0x2A,
+        0xE2 => 0x38,
+        0xE3 => 0xE05B,
+        0xE4 => 0xE01D,
+        0xE5 => 0x36,
+        0xE6 => 0xE038,
+        0xE7 => 0xE05C,
+
+        _ => return None,
+    })
+}
 
 pub struct RdpRuntime {
     profile: RdpProfile,
@@ -91,11 +213,10 @@ impl RdpRuntime {
             return Err(RdpError::Cancelled);
         }
 
-        
-        
-        
-        
-        let connection_result = match self.try_connect(self.profile.enable_cred_ssp, &cancel_token).await {
+        let connection_result = match self
+            .try_connect(self.profile.enable_cred_ssp, &cancel_token)
+            .await
+        {
             Ok(result) => result,
             Err(RdpError::NegotiationFailed(ref msg)) if self.profile.enable_cred_ssp => {
                 println!(
@@ -123,8 +244,6 @@ impl RdpRuntime {
             desktop_width, desktop_height, self.profile.enable_cred_ssp
         );
 
-        
-        
         let mut image = DecodedImage::new(PixelFormat::RgbA32, desktop_width, desktop_height);
 
         let mut active_stage = ActiveStageBuilder {
@@ -140,9 +259,19 @@ impl RdpRuntime {
         .build();
 
         let mut input_db = Database::new();
+        let mut frame_dirty = false;
+        let mut frame_tick = interval(Duration::from_millis(33));
+        frame_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
             tokio::select! {
+                _ = frame_tick.tick() => {
+                    if frame_dirty {
+                        self.emit_full_frame(&image);
+                        frame_dirty = false;
+                    }
+                }
+
                 _ = cancel_token.cancelled() => {
                     println!("[portix_rdp] session {} cancelled, initiating graceful shutdown", self.session_id);
                     let _ = active_stage.graceful_shutdown();
@@ -163,9 +292,11 @@ impl RdpRuntime {
 
                                 tls_framed.write_all(&frame).await.map_err(RdpError::Io)?;
                             }
-                            ActiveStageOutput::GraphicsUpdate(region) => {
-                                println!("[run] GraphicsUpdate received: region=({},{}) to ({},{})",region.left, region.top, region.right, region.bottom);
-                                self.emit_frame(&image, &region);
+                            ActiveStageOutput::GraphicsUpdate(_region) => {
+                                // IronRDP has already applied the dirty rectangle to
+                                // `image`. Only mark the framebuffer dirty here.
+                                // A 33ms tick below publishes one stable snapshot.
+                                frame_dirty = true;
                             }
                             ActiveStageOutput::Terminate(_) => {
                                 println!("[portix_rdp] session {} terminated by server", self.session_id);
@@ -240,7 +371,10 @@ impl RdpRuntime {
                             self.send_fast_path(&mut tls_framed, events.into_vec()).await?;
                         }
 
-                        Some(RdpCommand::KeyboardInput { scancode, down }) => {
+                        Some(RdpCommand::KeyboardInput { hid_usage, down }) => {
+                            let Some(scancode) = hid_usage_to_set1(hid_usage) else {
+                                continue;
+                            };
                             let code = Scancode::from_u16(scancode);
 
                             let op = if down {
@@ -266,7 +400,10 @@ impl RdpRuntime {
         &self,
         enable_credssp: bool,
         cancel_token: &CancellationToken,
-    ) -> Result<(ironrdp_tokio::TokioFramed<ironrdp_tls::TlsStream<TcpStream>>, ironrdp_connector::ConnectionResult)> {
+    ) -> Result<(
+        ironrdp_tokio::TokioFramed<ironrdp_tls::TlsStream<TcpStream>>,
+        ironrdp_connector::ConnectionResult,
+    )> {
         if cancel_token.is_cancelled() {
             return Err(RdpError::Cancelled);
         }
@@ -302,12 +439,12 @@ impl RdpRuntime {
             enable_credssp,
             credentials,
             domain: self.profile.domain.clone(),
-            client_build: 7601, 
+            client_build: 7601,
             client_name: "Portix-Universal".to_owned(),
             keyboard_type: ironrdp_pdu::gcc::KeyboardType::IbmEnhanced,
             keyboard_subtype: 0,
             keyboard_functional_keys_count: 12,
-            keyboard_layout: 0x0409, 
+            keyboard_layout: 0x0409,
             ime_file_name: String::new(),
             bitmap: None,
             dig_product_id: String::new(),
@@ -318,18 +455,16 @@ impl RdpRuntime {
             hardware_id: None,
             request_data: None,
             autologon: false,
-            enable_audio_playback: false, 
-            
-            
-            performance_flags: ironrdp_pdu::rdp::client_info::PerformanceFlags::empty(), 
-            
+            enable_audio_playback: false,
+
+            performance_flags: ironrdp_pdu::rdp::client_info::PerformanceFlags::empty(),
+
             license_cache: None,
             timezone_info: ironrdp_pdu::rdp::client_info::TimezoneInfo::default(),
-            
-            
-            compression_type: None, 
-            
-            enable_server_pointer: true, 
+
+            compression_type: None,
+
+            enable_server_pointer: true,
             pointer_software_rendering: true,
             multitransport_flags: None,
         };
@@ -404,230 +539,59 @@ impl RdpRuntime {
             message: message.map(str::to_owned),
         });
     }
-    fn emit_frame(&self, image: &DecodedImage, region: &InclusiveRectangle) {
-        let image_width = image.width() as usize;
-        let image_height = image.height() as usize;
-
-        if image_width == 0 || image_height == 0 {
-            eprintln!("[emit_frame] skip: empty image");
-            return;
-        }
-
-        
-        
-        
-        let left = region.left as usize;
-        let top = region.top as usize;
-        let right = region.right as usize;
-        let bottom = region.bottom as usize;
-
-        if left >= image_width || top >= image_height {
-            return;
-        }
-
-        let right = right.min(image_width - 1);
-        let bottom = bottom.min(image_height - 1);
-
-        if right < left || bottom < top {
-            return;
-        }
-
-        let width = right - left + 1;
-        let height = bottom - top + 1;
-
-        
-        
-        
+    fn emit_full_frame(&self, image: &DecodedImage) {
+        let width = image.width() as usize;
+        let height = image.height() as usize;
         let bpp = image.bytes_per_pixel();
+
+        if width == 0 || height == 0 || bpp != 4 {
+            return;
+        }
+
         let source = image.data();
-        let source_stride = image_width * bpp;
-    
+        let source_stride = image.stride();
+        let row_bytes = width * 4;
+        let expected = source_stride.saturating_mul(height);
 
-        
-        
-        
-        static IRONRDP_BUF_LOGGED: std::sync::Once = std::sync::Once::new();
-        IRONRDP_BUF_LOGGED.call_once(|| {
+        if source.len() < expected || source_stride < row_bytes {
             eprintln!(
-                "[IRONRDP BUF] w={} h={} bpp={} \
-                reported_stride={} calc_stride={} \
-                actual_buf_len={} expected_tight_len={}",
-                image_width, 
-                image_height, 
-                bpp, 
-                image.stride(), 
-                source_stride, 
-                source.len(), 
-                source_stride * image_height
-            );
-        });
-        
-        if bpp != 4 {
-            eprintln!("[emit_frame] unsupported pixel format: bpp={} expected=4", bpp);
-            return;
-        }
-
-        
-        
-        
-        
-        let source_stride = image_width * bpp;
-
-        
-        let reported_stride = image.stride();
-        if reported_stride != source_stride {
-            static mut STRIDE_WARNED: bool = false;
-            unsafe {
-                if !STRIDE_WARNED {
-                    eprintln!(
-                        "[emit_frame] STRIDE MISMATCH: reported={} calculated={} \
-                        Using calculated stride to fix tilted rendering",
-                        reported_stride, source_stride
-                    );
-                    STRIDE_WARNED = true;
-                }
-            }
-        }
-
-        let expected_source_len = source_stride * image_height;
-
-        if source.len() < expected_source_len {
-            eprintln!(
-                "[emit_frame] invalid framebuffer: len={} expected_at_least={} stride={} height={}",
-                source.len(), expected_source_len, source_stride, image_height
+                "[portix_rdp] invalid decoded framebuffer: len={} stride={} expected={} row_bytes={}",
+                source.len(),
+                source_stride,
+                expected,
+                row_bytes
             );
             return;
         }
 
-        
-        
-        
-        let target_stride = width * 4;
-        let target_len = target_stride * height;
-        let mut packed = vec![0u8; target_len];
-            
-    
-    
-        if width >= 10 && height >= 2 {
-            let y0_offset = top * source_stride + left * bpp;
-            let y1_offset = (top + 1) * source_stride + left * bpp;
-            
-            let pattern_len = 40; 
-            
-            if y0_offset + pattern_len <= source.len() && y1_offset + source_stride + 100 <= source.len() {
-                let pattern = &source[y0_offset..y0_offset + pattern_len];
-                let mut found_offset: Option<usize> = None;
-                
-                
-                for i in y1_offset..(y1_offset + source_stride + 100).min(source.len() - pattern_len) {
-                    if &source[i..i + pattern_len] == pattern {
-                        found_offset = Some(i);
-                        break;
-                    }
-                }
-                
-                if let Some(offset) = found_offset {
-                    let actual_dist = offset - y0_offset;
-                    let delta = actual_dist as i64 - source_stride as i64;
-                    if delta != 0 {
-                        eprintln!("[STRIDE HUNTER] ⚠️ BINGO! Ada padding tersembunyi! Expected stride={}, Actual={}, Delta={} bytes ({} pixel)", 
-                            source_stride, actual_dist, delta, delta / 4);
-                    } else {
-                        eprintln!("[STRIDE HUNTER] Stride sesungguhnya memang 100% rapat ({}). Bug BUKAN di stride.", source_stride);
-                    }
-                } else {
-                    eprintln!("[STRIDE HUNTER] Pola baris tidak ditemukan di baris berikutnya. Data mungkin dienkripsi/dikompresi berbeda.");
-                }
-            }
-        }    
+        // The event is a complete framebuffer. Flutter no longer has to guess
+        // whether it has received enough dirty rectangles to paint the screen.
+        let mut data = vec![0u8; row_bytes * height];
+
         for row in 0..height {
-            let y = top + row;
-
-            
-            let source_offset = y * source_stride + left * bpp;
-            let source_end = source_offset + target_stride;
-
-            
-            let target_offset = row * target_stride;
-            let target_end = target_offset + target_stride;
-
-            if source_end > source.len() {
-                eprintln!(
-                    "[emit_frame] source OOB: row={} source={}..{} len={}",
-                    y, source_offset, source_end, source.len()
-                );
-                return;
-            }
-
-            if target_end > packed.len() {
-                eprintln!(
-                    "[emit_frame] target OOB: row={} target={}..{} len={}",
-                    row, target_offset, target_end, packed.len()
-                );
-                return;
-            }
-
-            packed[target_offset..target_end]
-                .copy_from_slice(&source[source_offset..source_end]);
+            let src_start = row * source_stride;
+            let src_end = src_start + row_bytes;
+            let dst_start = row * row_bytes;
+            let dst_end = dst_start + row_bytes;
+            data[dst_start..dst_end].copy_from_slice(&source[src_start..src_end]);
         }
 
-        
-        
-        
-        for pixel in packed.chunks_exact_mut(4) {
+        // DecodedImage is RGBA32. Force alpha opaque for Flutter.
+        for pixel in data.chunks_exact_mut(4) {
             pixel[3] = 0xFF;
         }
 
-        
-        
-        
         let frame_id = self.next_frame_id();
-
         let event = RdpFrameEvent {
             session_id: self.session_id.clone(),
-            data: packed,
+            data,
             width: width as u32,
             height: height as u32,
-            x: left as u32,
-            y: top as u32,
+            x: 0,
+            y: 0,
             frame_id,
         };
-            
-    
-    
-    
-    
-    if frame_id >= 35 && frame_id <= 42 {
-        static DUMPED: std::sync::Once = std::sync::Once::new();
-        DUMPED.call_once(|| {
-            use std::io::Write;
-            if let Ok(mut f) = std::fs::File::create("/tmp/ironrdp_dump.ppm") {
-                
-                let _ = write!(f, "P6\n{} {}\n255\n", image_width, image_height);
-                
-                for i in (0..source.len()).step_by(4) {
-                    let _ = f.write_all(&[source[i], source[i+1], source[i+2]]);
-                }
-                eprintln!("[DUMP] ✅ Framebuffer IronRDP berhasil disimpan ke: /tmp/ironrdp_dump.ppm");
-                eprintln!("[DUMP] Buka file tersebut dengan aplikasi Gambar (Image Viewer) di Linuxmu.");
-            }
-        });
-    }
-    
 
-    
-    
-    
-        
-        if width > 50 || height > 50 {
-            println!(
-                "[FRAME] id={} pos=({},{}) rect={}x{} bytes={}",
-                frame_id, left, top, width, height, event.data.len()
-            );
-        }
-
-        if let Err(e) = self.frame_tx.send(event) {
-            eprintln!("[emit_frame] ERROR: failed to send frame {}: {}", frame_id, e);
-        }
+        let _ = self.frame_tx.send(event);
     }
 }

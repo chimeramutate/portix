@@ -20,65 +20,84 @@ class RdpProfileCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = _accentColor(profile.color);
     final borderColor = selected ? accent : AppColors.border;
-    final cardBg = selected
-        ? AppColors.surfaceCard
-        : AppColors.surface;
+    final cardBg = selected ? AppColors.surfaceCard : AppColors.surface;
 
     return GestureDetector(
-      onTap: () => context.read<RdpWorkspaceBloc>().add(
-        RdpProfileSelected(profile.id),
-      ),
+      onTap: () =>
+          context.read<RdpWorkspaceBloc>().add(RdpProfileSelected(profile.id)),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
         decoration: BoxDecoration(
           color: cardBg,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: borderColor, width: selected ? 1.5 : 1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: borderColor, width: selected ? 1.3 : 1),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Row(
-              children: [
-                _RdpIcon(color: accent, isCyberArk: profile.isCyberArkPsm),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        profile.name.isEmpty ? 'Unnamed' : profile.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: portixTitle(13),
-                      ),
-                      Text(
-                        profile.address,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: portixMuted(11),
-                      ),
-                    ],
+            // Icon
+            _RdpIcon(color: accent, isCyberArk: profile.isCyberArkPsm),
+
+            const SizedBox(width: 9),
+
+            // Name + address
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    profile.name.isEmpty ? 'Unnamed' : profile.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: portixTitle(12.5),
                   ),
-                ),
-                _StatusDot(status: profile.status),
-              ],
+                  const SizedBox(height: 2),
+                  Text(
+                    profile.address,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: portixMuted(10),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 10),
-            Row(
+
+            const SizedBox(width: 8),
+
+            // Metadata
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                if (profile.isCyberArkPsm)
-                  _Chip(label: 'PSM', color: AppColors.amber),
-                if (profile.isCyberArkPsm) const SizedBox(width: 5),
-                _Chip(label: profile.group, color: accent.withValues(alpha: .7)),
-                const Spacer(),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (profile.isCyberArkPsm) ...[
+                      _Chip(label: 'PSM', color: AppColors.amber),
+                      const SizedBox(width: 4),
+                    ],
+
+                    _Chip(
+                      label: profile.group,
+                      color: accent.withValues(alpha: .7),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 3),
+
                 Text(
                   '${profile.desktopWidth}×${profile.desktopHeight}',
-                  style: portixMuted(10),
+                  style: portixMuted(9),
                 ),
               ],
             ),
+
+            const SizedBox(width: 7),
+
+            // Status
+            _StatusDot(status: profile.status),
           ],
         ),
       ),
@@ -95,17 +114,17 @@ class _RdpIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 36,
-      height: 36,
+      width: 30,
+      height: 30,
       decoration: BoxDecoration(
         color: color.withValues(alpha: .12),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: .4)),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: color.withValues(alpha: .35)),
       ),
       child: Icon(
         isCyberArk ? Icons.shield_rounded : Icons.desktop_windows_rounded,
         color: color,
-        size: 18,
+        size: 16,
       ),
     );
   }
@@ -147,7 +166,14 @@ class _Chip extends StatelessWidget {
         borderRadius: BorderRadius.circular(4),
         border: Border.all(color: color.withValues(alpha: .3)),
       ),
-      child: Text(label, style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.w800)),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
     );
   }
 }

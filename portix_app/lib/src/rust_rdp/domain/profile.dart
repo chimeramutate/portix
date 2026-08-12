@@ -21,6 +21,24 @@ class RdpProfile {
   final String? alternateShell;
   final String? sourceRdpContent;
 
+  /// Enable RDP drive redirection.
+  final bool redirectDrives;
+
+  /// Enable clipboard redirection.
+  final bool redirectClipboard;
+
+  /// Local directory exposed to the remote Windows session.
+  ///
+  /// Example:
+  /// /Users/user/Documents/PortixShare
+  final String? localSharePath;
+
+  /// Name exposed through RDPDR.
+  ///
+  /// Remote Windows will normally access it through:
+  /// \\tsclient\Portix
+  final String localShareName;
+
   const RdpProfile({
     required this.id,
     required this.name,
@@ -35,6 +53,10 @@ class RdpProfile {
     required this.enableCredSsp,
     this.alternateShell,
     this.sourceRdpContent,
+    required this.redirectDrives,
+    required this.redirectClipboard,
+    this.localSharePath,
+    required this.localShareName,
   });
 
   @override
@@ -51,7 +73,11 @@ class RdpProfile {
       fullScreen.hashCode ^
       enableCredSsp.hashCode ^
       alternateShell.hashCode ^
-      sourceRdpContent.hashCode;
+      sourceRdpContent.hashCode ^
+      redirectDrives.hashCode ^
+      redirectClipboard.hashCode ^
+      localSharePath.hashCode ^
+      localShareName.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -70,5 +96,9 @@ class RdpProfile {
           fullScreen == other.fullScreen &&
           enableCredSsp == other.enableCredSsp &&
           alternateShell == other.alternateShell &&
-          sourceRdpContent == other.sourceRdpContent;
+          sourceRdpContent == other.sourceRdpContent &&
+          redirectDrives == other.redirectDrives &&
+          redirectClipboard == other.redirectClipboard &&
+          localSharePath == other.localSharePath &&
+          localShareName == other.localShareName;
 }

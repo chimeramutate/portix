@@ -60,7 +60,6 @@ impl RdpSessionManager {
         }
     }
 
-
     /// Mendapatkan ID frame baru.
     ///
     /// ID dimulai dari 1.
@@ -418,7 +417,12 @@ impl RdpSessionManager {
         if let Some(handle) = sessions.get(&session_id) {
             handle
                 .command_tx
-                .send(RdpCommand::MouseWheel { x, y, delta, is_vertical })
+                .send(RdpCommand::MouseWheel {
+                    x,
+                    y,
+                    delta,
+                    is_vertical,
+                })
                 .await
                 .map_err(|_| RdpError::Disconnected)?;
         }
@@ -433,7 +437,7 @@ impl RdpSessionManager {
     pub async fn send_keyboard_input(
         &self,
         session_id: String,
-        scancode: u16,
+        hid_usage: u16,
         down: bool,
     ) -> Result<()> {
         let sessions = self.sessions.lock().await;
@@ -441,7 +445,7 @@ impl RdpSessionManager {
         if let Some(handle) = sessions.get(&session_id) {
             handle
                 .command_tx
-                .send(RdpCommand::KeyboardInput { scancode, down })
+                .send(RdpCommand::KeyboardInput { hid_usage, down })
                 .await
                 .map_err(|_| RdpError::Disconnected)?;
         }
@@ -469,7 +473,6 @@ impl RdpSessionManager {
     // ERROR STREAM
     // ==============================================================
 
-    
     pub fn error_stream(&self) -> broadcast::Receiver<RdpErrorEvent> {
         self.error_tx.subscribe()
     }

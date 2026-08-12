@@ -78,6 +78,30 @@ class RdpBackendService {
   Stream<RdpStatusEvent> statusStream() => _statusCtrl.stream;
   Stream<RdpErrorEvent> errorStream() => _errorCtrl.stream;
 
+  Future<void> sendMouseWheel(
+    String sessionId,
+    int x,
+    int y,
+    int delta, {
+    bool isVertical = true,
+  }) async {
+    if (!_sessionToProfile.containsKey(sessionId)) {
+      return;
+    }
+
+    try {
+      await rdp_api.rdpSendMouseWheel(
+        sessionId: sessionId,
+        x: x,
+        y: y,
+        delta: delta,
+        isVertical: isVertical,
+      );
+    } catch (e) {
+      debugPrint('[RDP] sendMouseWheel error: $e');
+    }
+  }
+
   static Future<void> initDev() async {
     await RdpRustLib.init();
   }
@@ -274,21 +298,35 @@ class RdpConnectionResult {
 }
 
 extension on RdpProfile {
-  rdp_profile.RdpProfile toRustProfile() => rdp_profile.RdpProfile(
-    id: id,
-    name: name,
-    host: host,
-    port: port,
-    username: username,
-    password: password,
-    domain: domain,
-    desktopWidth: desktopWidth,
-    desktopHeight: desktopHeight,
-    fullScreen: fullScreen,
-    enableCredSsp: enableCredSsp,
-    alternateShell: alternateShell.isEmpty ? null : alternateShell,
-    sourceRdpContent: null,
-  );
+  rdp_profile.RdpProfile toRustProfile() {
+    return rdp_profile.RdpProfile(
+      id: id,
+      name: name,
+      host: host,
+      port: port,
+      username: username,
+      password: password,
+      domain: domain,
+
+      desktopWidth: desktopWidth,
+      desktopHeight: desktopHeight,
+      fullScreen: fullScreen,
+
+      enableCredSsp: enableCredSsp,
+
+      // RDP device redirection
+      redirectDrives: redirectDrives,
+      redirectClipboard: redirectClipboard,
+
+      // Nama share yang akan terlihat di remote Windows.
+      // Misalnya: "PORTIX"
+      localShareName: LocalSharePath ?? 'PORTIX',
+
+      alternateShell: alternateShell.isEmpty ? null : alternateShell,
+
+      sourceRdpContent: null,
+    );
+  }
 }
 
 String _productionLibraryPath() {
