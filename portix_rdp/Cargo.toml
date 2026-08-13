@@ -7,9 +7,6 @@ edition = "2024"
 name = "portix_rdp"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
-[[bin]]
-name = "portix-rdp"
-path = "src/main.rs"
 
 [dependencies]
 
@@ -43,9 +40,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = "0.12"
 url = "2"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Runtime & utilities
-# ─────────────────────────────────────────────────────────────────────────────
 
 tokio = {
     version = "1",
@@ -70,15 +64,9 @@ once_cell = "1"
 base64 = "0.22"
 hostname = "0.4"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Flutter Rust Bridge
-# ─────────────────────────────────────────────────────────────────────────────
 
 flutter_rust_bridge = "=2.11.1"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Platform / test dependencies
-# ─────────────────────────────────────────────────────────────────────────────
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 png = "0.17"
@@ -103,20 +91,6 @@ tokio = {
     ]
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Release profile
-# ─────────────────────────────────────────────────────────────────────────────
-#
-# Digunakan untuk build production/distribution.
-#
-# CI menjalankan:
-#
-#   cargo build --profile release-hardened
-#
-# Jadi profile ini WAJIB tersedia di crate portix_rdp.
-#
-# ─────────────────────────────────────────────────────────────────────────────
-
 [profile.release]
 opt-level = 3
 lto = "fat"
@@ -126,13 +100,6 @@ strip = "symbols"
 overflow-checks = false
 debug = false
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Hardened release profile
-# ─────────────────────────────────────────────────────────────────────────────
-#
-# Digunakan oleh GitHub Actions untuk build native library.
-#
-# ─────────────────────────────────────────────────────────────────────────────
 
 [profile.release-hardened]
 inherits = "release"
