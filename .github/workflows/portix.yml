@@ -1,5 +1,29 @@
 name: Build & Release
 
+# ============================================================================
+# TRIGGER POLICY
+#
+# Pull Request:
+#   -> NO GitHub Action
+#
+# Push branch:
+#   -> NO GitHub Action
+#
+# Only TAG triggers GitHub Actions.
+#
+# Stable:
+#   v1.0.0
+#
+# Beta:
+#   v1.0.0-beta.1
+#
+# Development:
+#   develop-123
+#
+# Release:
+#   release-1.0.0
+# ============================================================================
+
 on:
   push:
     tags:
@@ -20,15 +44,27 @@ permissions:
 
 env:
   RUST_BACKTRACE: 1
+
   SERV_DIR: portix_serv
   RDP_DIR: portix_rdp
   APP_DIR: portix_app
   ASSETS_DIR: portix_app/assets
+
   FRB_VERSION: "2.11.1"
 
+# ============================================================================
+# JOBS
+# ============================================================================
+
 jobs:
+  # ==========================================================================
+  # PHASE 0
+  # DETERMINE RELEASE CHANNEL
+  # ==========================================================================
+
   release-info:
     name: "Determine Release Channel"
+
     runs-on: ubuntu-latest
 
     outputs:
@@ -53,40 +89,80 @@ jobs:
 
           echo "Tag: $TAG"
 
+          # ------------------------------------------------------------------
+          # Stable
+          # v1.0.0
+          # ------------------------------------------------------------------
+
           if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+
             CHANNEL="stable"
             VERSION="${TAG#v}"
             PRERELEASE="false"
             MAKE_LATEST="true"
 
+          # ------------------------------------------------------------------
+          # Beta
+          # v1.0.0-beta.1
+          # ------------------------------------------------------------------
+
           elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta.*$ ]]; then
+
             CHANNEL="beta"
             VERSION="${TAG#v}"
             PRERELEASE="true"
             MAKE_LATEST="false"
 
+          # ------------------------------------------------------------------
+          # Development
+          # develop-123
+          # develop-feature-x
+          #
+          # Debian-safe:
+          # 0.0.0~dev.123
+          # ------------------------------------------------------------------
+
           elif [[ "$TAG" =~ ^develop-(.+)$ ]]; then
+
             CHANNEL="development"
+
             DEV_ID="${BASH_REMATCH[1]}"
-            DEV_ID=$(echo "$DEV_ID" | sed 's/[^0-9A-Za-z.+~-]/-/g')
+
+            DEV_ID=$(echo "$DEV_ID" | \
+              sed 's/[^0-9A-Za-z.+~-]/-/g')
+
             VERSION="0.0.0~dev.${DEV_ID}"
+
             PRERELEASE="true"
             MAKE_LATEST="false"
 
+          # ------------------------------------------------------------------
+          # Release
+          # release-1.0.0
+          # ------------------------------------------------------------------
+
           elif [[ "$TAG" =~ ^release-([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+
             CHANNEL="stable"
+
             VERSION="${BASH_REMATCH[1]}"
+
             PRERELEASE="false"
             MAKE_LATEST="true"
 
           else
+
             echo "::error::Unsupported tag format: $TAG"
+
+            echo
             echo "Supported formats:"
             echo "  v1.0.0"
             echo "  v1.0.0-beta.1"
             echo "  develop-123"
             echo "  release-1.0.0"
+
             exit 1
+
           fi
 
           echo "========================================"
@@ -103,8 +179,21 @@ jobs:
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "make_latest=$MAKE_LATEST" >> "$GITHUB_OUTPUT"
 
+  # ==========================================================================
+  # PHASE 1A
+  # BUILD PORTIX SERV
+  #
+  # FRB CONFIG:
+  #
+  # portix_app/flutter_rust_bridge.yaml
+  #
+  # Config points to:
+  # ../portix_serv/
+  # ==========================================================================
+
   build-serv:
     name: "Library portix_serv [${{ matrix.platform }}]"
+
     runs-on: ${{ matrix.os }}
 
     needs:
@@ -112,17 +201,30 @@ jobs:
 
     strategy:
       fail-fast: false
+
       matrix:
         include:
+          # ------------------------------------------------------------------
+          # macOS
+          # ------------------------------------------------------------------
+
           - platform: macOS
             os: macos-latest
             lib_name: libportix_serv.dylib
             artifact_name: macos-portix-serv
 
+          # ------------------------------------------------------------------
+          # Linux
+          # ------------------------------------------------------------------
+
           - platform: Linux
             os: ubuntu-latest
             lib_name: libportix_serv.so
             artifact_name: linux-portix-serv
+
+          # ------------------------------------------------------------------
+          # Windows
+          # ------------------------------------------------------------------
 
           - platform: Windows
             os: windows-latest
@@ -132,6 +234,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      # ----------------------------------------------------------------------
+      # Linux dependencies
+      # ----------------------------------------------------------------------
 
       - name: Install Linux dependencies
         if: matrix.platform == 'Linux'
@@ -151,8 +257,16 @@ jobs:
             libsecret-1-dev \
             libgcrypt20-dev
 
+      # ----------------------------------------------------------------------
+      # Rust
+      # ----------------------------------------------------------------------
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      # ----------------------------------------------------------------------
+      # Cargo cache
+      # ----------------------------------------------------------------------
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -160,23 +274,30 @@ jobs:
           workspaces: portix_serv
           key: portix-serv-${{ matrix.platform }}
 
+      # ----------------------------------------------------------------------
+      # Flutter Rust Bridge Codegen
+      #
+      # IMPORTANT:
+      #
+      # Config is located in:
+      #
+      # portix_app/flutter_rust_bridge.yaml
+      #
+      # NOT:
+      #
+      # portix_serv/flutter_rust_bridge.yaml
+      # ----------------------------------------------------------------------
+
       - name: Install Flutter Rust Bridge Codegen
         shell: bash
         run: |
           set -euo pipefail
 
           cargo install flutter_rust_bridge_codegen \
-            --version "${{ env.FRB_VERSION }}" \
-            --locked
+            --version "${FRB_VERSION}"
 
-      # ----------------------------------------------------------------------
-      # FIX:
-      # Use the existing portix_serv FRB configuration explicitly.
-      # This prevents:
-      # "Please provide rust_input"
-      # ----------------------------------------------------------------------
       - name: Verify FRB config (portix_serv)
-        working-directory: portix_serv
+        working-directory: portix_app
         shell: bash
         run: |
           set -euo pipefail
@@ -184,7 +305,7 @@ jobs:
           CONFIG="flutter_rust_bridge.yaml"
 
           if [ ! -f "$CONFIG" ]; then
-            echo "::error::FRB config not found: portix_serv/$CONFIG"
+            echo "::error::FRB config not found: portix_app/$CONFIG"
             exit 1
           fi
 
@@ -192,22 +313,25 @@ jobs:
           cat "$CONFIG"
 
       - name: Generate Flutter Rust Bridge (portix_serv)
-        working-directory: portix_serv
+        working-directory: portix_app
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Generating FRB bindings for portix_serv..."
-
           flutter_rust_bridge_codegen generate \
             --config-file flutter_rust_bridge.yaml
 
-          if [ ! -f "src/frb_generated.rs" ]; then
-            echo "::error::FRB code generation failed - frb_generated.rs not created"
+          if [ ! -f "../portix_serv/src/frb_generated.rs" ]; then
+            echo "::error::FRB generation failed"
+            echo "::error::Expected: portix_serv/src/frb_generated.rs"
             exit 1
           fi
 
-          echo "FRB generation complete"
+          echo "FRB generation for portix_serv complete"
+
+      # ----------------------------------------------------------------------
+      # Build
+      # ----------------------------------------------------------------------
 
       - name: Build portix_serv
         working-directory: portix_serv
@@ -217,6 +341,10 @@ jobs:
 
           cargo build \
             --profile release-hardened
+
+      # ----------------------------------------------------------------------
+      # Prepare
+      # ----------------------------------------------------------------------
 
       - name: Prepare library
         shell: bash
@@ -247,9 +375,14 @@ jobs:
             strip --strip-all "$FILE" || true
           fi
 
-          cp "$FILE" "dist/${{ matrix.lib_name }}"
+          cp "$FILE" \
+            "dist/${{ matrix.lib_name }}"
 
           ls -lah dist/
+
+      # ----------------------------------------------------------------------
+      # Upload
+      # ----------------------------------------------------------------------
 
       - name: Upload portix_serv
         uses: actions/upload-artifact@v7
@@ -258,8 +391,21 @@ jobs:
           path: dist/${{ matrix.lib_name }}
           if-no-files-found: error
 
+  # ==========================================================================
+  # PHASE 1B
+  # BUILD PORTIX RDP
+  #
+  # FRB CONFIG:
+  #
+  # portix_app/flutter_rust_bridge_rdp.yaml
+  #
+  # Config points to:
+  # ../portix_rdp/
+  # ==========================================================================
+
   build-rdp:
     name: "Library portix_rdp [${{ matrix.platform }}]"
+
     runs-on: ${{ matrix.os }}
 
     needs:
@@ -267,17 +413,30 @@ jobs:
 
     strategy:
       fail-fast: false
+
       matrix:
         include:
+          # ------------------------------------------------------------------
+          # macOS
+          # ------------------------------------------------------------------
+
           - platform: macOS
             os: macos-latest
             lib_name: libportix_rdp.dylib
             artifact_name: macos-portix-rdp
 
+          # ------------------------------------------------------------------
+          # Linux
+          # ------------------------------------------------------------------
+
           - platform: Linux
             os: ubuntu-latest
             lib_name: libportix_rdp.so
             artifact_name: linux-portix-rdp
+
+          # ------------------------------------------------------------------
+          # Windows
+          # ------------------------------------------------------------------
 
           - platform: Windows
             os: windows-latest
@@ -287,6 +446,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      # ----------------------------------------------------------------------
+      # Linux dependencies
+      # ----------------------------------------------------------------------
 
       - name: Install Linux dependencies
         if: matrix.platform == 'Linux'
@@ -306,8 +469,16 @@ jobs:
             libsecret-1-dev \
             libgcrypt20-dev
 
+      # ----------------------------------------------------------------------
+      # Rust
+      # ----------------------------------------------------------------------
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      # ----------------------------------------------------------------------
+      # Cargo cache
+      # ----------------------------------------------------------------------
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -315,21 +486,30 @@ jobs:
           workspaces: portix_rdp
           key: portix-rdp-${{ matrix.platform }}
 
+      # ----------------------------------------------------------------------
+      # Flutter Rust Bridge Codegen
+      #
+      # IMPORTANT:
+      #
+      # Config is located in:
+      #
+      # portix_app/flutter_rust_bridge_rdp.yaml
+      #
+      # NOT:
+      #
+      # portix_rdp/flutter_rust_bridge_rdp.yaml
+      # ----------------------------------------------------------------------
+
       - name: Install Flutter Rust Bridge Codegen
         shell: bash
         run: |
           set -euo pipefail
 
           cargo install flutter_rust_bridge_codegen \
-            --version "${{ env.FRB_VERSION }}" \
-            --locked
+            --version "${FRB_VERSION}"
 
-      # ----------------------------------------------------------------------
-      # FIX:
-      # Use the existing dedicated RDP FRB configuration explicitly.
-      # ----------------------------------------------------------------------
       - name: Verify FRB config (portix_rdp)
-        working-directory: portix_rdp
+        working-directory: portix_app
         shell: bash
         run: |
           set -euo pipefail
@@ -337,7 +517,7 @@ jobs:
           CONFIG="flutter_rust_bridge_rdp.yaml"
 
           if [ ! -f "$CONFIG" ]; then
-            echo "::error::FRB config not found: portix_rdp/$CONFIG"
+            echo "::error::FRB config not found: portix_app/$CONFIG"
             exit 1
           fi
 
@@ -345,22 +525,25 @@ jobs:
           cat "$CONFIG"
 
       - name: Generate Flutter Rust Bridge (portix_rdp)
-        working-directory: portix_rdp
+        working-directory: portix_app
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Generating FRB bindings for portix_rdp..."
-
           flutter_rust_bridge_codegen generate \
             --config-file flutter_rust_bridge_rdp.yaml
 
-          if [ ! -f "src/frb_generated.rs" ]; then
-            echo "::error::FRB code generation failed - frb_generated.rs not created"
+          if [ ! -f "../portix_rdp/src/frb_generated.rs" ]; then
+            echo "::error::FRB generation failed"
+            echo "::error::Expected: portix_rdp/src/frb_generated.rs"
             exit 1
           fi
 
-          echo "FRB generation complete"
+          echo "FRB generation for portix_rdp complete"
+
+      # ----------------------------------------------------------------------
+      # Build
+      # ----------------------------------------------------------------------
 
       - name: Build portix_rdp
         working-directory: portix_rdp
@@ -370,6 +553,10 @@ jobs:
 
           cargo build \
             --profile release-hardened
+
+      # ----------------------------------------------------------------------
+      # Prepare
+      # ----------------------------------------------------------------------
 
       - name: Prepare library
         shell: bash
@@ -400,9 +587,14 @@ jobs:
             strip --strip-all "$FILE" || true
           fi
 
-          cp "$FILE" "dist/${{ matrix.lib_name }}"
+          cp "$FILE" \
+            "dist/${{ matrix.lib_name }}"
 
           ls -lah dist/
+
+      # ----------------------------------------------------------------------
+      # Upload
+      # ----------------------------------------------------------------------
 
       - name: Upload portix_rdp
         uses: actions/upload-artifact@v7
@@ -411,8 +603,29 @@ jobs:
           path: dist/${{ matrix.lib_name }}
           if-no-files-found: error
 
+  # ==========================================================================
+  # PHASE 2
+  # BUILD DESKTOP
+  #
+  # Desktop requires BOTH:
+  #
+  #   portix_serv
+  #   portix_rdp
+  #
+  # IMPORTANT:
+  #
+  # This job only runs when BOTH native library jobs succeed.
+  #
+  # This prevents:
+  #
+  # Artifact not found for name: macos-portix-serv
+  #
+  # when the corresponding build failed.
+  # ==========================================================================
+
   build-desktop:
     name: "Desktop [${{ matrix.platform }}]"
+
     runs-on: ${{ matrix.os }}
 
     needs:
@@ -421,36 +634,54 @@ jobs:
       - build-rdp
 
     if: >
-      always() &&
       needs.release-info.result == 'success' &&
-      (needs.build-serv.result == 'success' || needs.build-serv.result == 'failure') &&
-      (needs.build-rdp.result == 'success' || needs.build-rdp.result == 'failure')
+      needs.build-serv.result == 'success' &&
+      needs.build-rdp.result == 'success'
 
     strategy:
       fail-fast: false
+
       matrix:
         include:
+          # ------------------------------------------------------------------
+          # macOS
+          # ------------------------------------------------------------------
+
           - platform: macOS
             os: macos-latest
             flutter_target: macos
+
             serv_artifact: macos-portix-serv
             rdp_artifact: macos-portix-rdp
+
             serv_lib: libportix_serv.dylib
             rdp_lib: libportix_rdp.dylib
+
+          # ------------------------------------------------------------------
+          # Linux
+          # ------------------------------------------------------------------
 
           - platform: Linux
             os: ubuntu-latest
             flutter_target: linux
+
             serv_artifact: linux-portix-serv
             rdp_artifact: linux-portix-rdp
+
             serv_lib: libportix_serv.so
             rdp_lib: libportix_rdp.so
+
+          # ------------------------------------------------------------------
+          # Windows
+          # ------------------------------------------------------------------
 
           - platform: Windows
             os: windows-latest
             flutter_target: windows
+
             serv_artifact: windows-portix-serv
             rdp_artifact: windows-portix-rdp
+
             serv_lib: portix_serv.dll
             rdp_lib: portix_rdp.dll
 
@@ -458,17 +689,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # ----------------------------------------------------------------------
+      # Download portix_serv
+      # ----------------------------------------------------------------------
+
       - name: Download portix_serv
         uses: actions/download-artifact@v7
         with:
           name: ${{ matrix.serv_artifact }}
           path: rust_libs/serv
 
+      # ----------------------------------------------------------------------
+      # Download portix_rdp
+      # ----------------------------------------------------------------------
+
       - name: Download portix_rdp
         uses: actions/download-artifact@v7
         with:
           name: ${{ matrix.rdp_artifact }}
           path: rust_libs/rdp
+
+      # ----------------------------------------------------------------------
+      # Verify libraries
+      # ----------------------------------------------------------------------
 
       - name: Verify Rust libraries
         shell: bash
@@ -495,11 +738,19 @@ jobs:
           echo "portix_rdp:"
           ls -lah "$RDP"
 
+      # ----------------------------------------------------------------------
+      # Setup Flutter
+      # ----------------------------------------------------------------------
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+
+      # ----------------------------------------------------------------------
+      # Linux dependencies
+      # ----------------------------------------------------------------------
 
       - name: Install Flutter Linux dependencies
         if: matrix.platform == 'Linux'
@@ -519,12 +770,21 @@ jobs:
             libsecret-1-dev \
             libgcrypt20-dev
 
+      # ----------------------------------------------------------------------
+      # Flutter dependencies
+      # ----------------------------------------------------------------------
+
       - name: Flutter pub get
         working-directory: portix_app
         shell: bash
         run: |
           set -euo pipefail
+
           flutter pub get
+
+      # ----------------------------------------------------------------------
+      # FRB HASH CHECK
+      # ----------------------------------------------------------------------
 
       - name: Verify Flutter Rust Bridge
         shell: bash
@@ -536,19 +796,15 @@ jobs:
           import sys
           from pathlib import Path
 
-          dart_file = Path("portix_app/lib/src/rust/frb_generated.dart")
-          rust_file = Path("portix_serv/src/frb_generated.rs")
+          dart_files = [
+              Path("portix_app/lib/src/rust/frb_generated.dart"),
+              Path("portix_app/lib/src/rust_rdp/frb_generated.dart"),
+          ]
 
-          if not dart_file.exists():
-              print(f"ERROR: Dart generated file not found: {dart_file}")
-              sys.exit(1)
-
-          if not rust_file.exists():
-              print(f"ERROR: Rust generated file not found: {rust_file}")
-              sys.exit(1)
-
-          dart_text = dart_file.read_text(encoding="utf-8")
-          rust_text = rust_file.read_text(encoding="utf-8")
+          rust_files = [
+              Path("portix_serv/src/frb_generated.rs"),
+              Path("portix_rdp/src/frb_generated.rs"),
+          ]
 
           dart_patterns = [
               r"rustContentHash\s*=>\s*(-?\d+)",
@@ -560,41 +816,81 @@ jobs:
               r"FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH\s*=\s*(-?\d+)",
           ]
 
-          dart_hash = None
-          for pattern in dart_patterns:
-              match = re.search(pattern, dart_text)
-              if match:
-                  dart_hash = match.group(1)
-                  break
+          def extract_hash(path, patterns):
+              if not path.exists():
+                  return None
 
-          rust_hash = None
-          for pattern in rust_patterns:
-              match = re.search(pattern, rust_text)
-              if match:
-                  rust_hash = match.group(1)
-                  break
+              text = path.read_text(encoding="utf-8")
 
-          print(f"Dart generated file: {dart_file}")
-          print(f"Rust generated file: {rust_file}")
-          print(f"Dart content hash: {dart_hash or ''}")
-          print(f"Rust content hash: {rust_hash or ''}")
+              for pattern in patterns:
+                  match = re.search(pattern, text)
 
-          if dart_hash is None:
-              print("ERROR: Could not find Dart Rust Bridge content hash")
-              sys.exit(1)
+                  if match:
+                      return match.group(1)
 
-          if rust_hash is None:
-              print("ERROR: Could not find Rust Rust Bridge content hash")
-              sys.exit(1)
+              return None
 
-          if dart_hash != rust_hash:
-              print("ERROR: Dart/Rust Bridge content hash mismatch")
-              print(f"Dart: {dart_hash}")
-              print(f"Rust: {rust_hash}")
-              sys.exit(1)
+          for dart_file, rust_file in zip(
+              dart_files,
+              rust_files
+          ):
+              print()
+              print("========================================")
+              print("FRB HASH CHECK")
+              print("========================================")
 
-          print("Bridge hashes match")
+              print(f"Dart: {dart_file}")
+              print(f"Rust: {rust_file}")
+
+              dart_hash = extract_hash(
+                  dart_file,
+                  dart_patterns
+              )
+
+              rust_hash = extract_hash(
+                  rust_file,
+                  rust_patterns
+              )
+
+              print(
+                  f"Dart content hash: {dart_hash or ''}"
+              )
+
+              print(
+                  f"Rust content hash: {rust_hash or ''}"
+              )
+
+              if dart_hash is None:
+                  print(
+                      f"ERROR: Could not find Dart FRB content hash: {dart_file}"
+                  )
+                  sys.exit(1)
+
+              if rust_hash is None:
+                  print(
+                      f"ERROR: Could not find Rust FRB content hash: {rust_file}"
+                  )
+                  sys.exit(1)
+
+              if dart_hash != rust_hash:
+                  print(
+                      "ERROR: Dart/Rust Bridge content hash mismatch"
+                  )
+
+                  print(f"Dart: {dart_hash}")
+                  print(f"Rust: {rust_hash}")
+
+                  sys.exit(1)
+
+              print("Bridge hashes match")
+
+          print()
+          print("All FRB bridge hashes match")
           PY
+
+      # =========================================================================
+      # BUILD MACOS
+      # =========================================================================
 
       - name: Build Flutter macOS
         if: matrix.platform == 'macOS'
@@ -608,6 +904,10 @@ jobs:
             --dart-define=PORTIX_BACKEND=rust \
             --dart-define=RUST_LIBRARY_MODE=production
 
+      # =========================================================================
+      # BUILD LINUX
+      # =========================================================================
+
       - name: Build Flutter Linux
         if: matrix.platform == 'Linux'
         working-directory: portix_app
@@ -620,6 +920,10 @@ jobs:
             --dart-define=PORTIX_BACKEND=rust \
             --dart-define=RUST_LIBRARY_MODE=production
 
+      # =========================================================================
+      # BUILD WINDOWS
+      # =========================================================================
+
       - name: Build Flutter Windows
         if: matrix.platform == 'Windows'
         working-directory: portix_app
@@ -631,6 +935,10 @@ jobs:
             --release `
             --dart-define=PORTIX_BACKEND=rust `
             --dart-define=RUST_LIBRARY_MODE=production
+
+      # =========================================================================
+      # BUNDLE MACOS
+      # =========================================================================
 
       - name: Bundle Rust libraries macOS
         if: matrix.platform == 'macOS'
@@ -650,12 +958,33 @@ jobs:
             exit 1
           fi
 
-          cp "rust_libs/serv/${{ matrix.serv_lib }}" "$APP_PATH/Contents/MacOS/"
-          cp "rust_libs/rdp/${{ matrix.rdp_lib }}" "$APP_PATH/Contents/MacOS/"
+          cp \
+            "rust_libs/serv/${{ matrix.serv_lib }}" \
+            "$APP_PATH/Contents/MacOS/"
 
-          codesign --force --sign - "$APP_PATH/Contents/MacOS/${{ matrix.serv_lib }}"
-          codesign --force --sign - "$APP_PATH/Contents/MacOS/${{ matrix.rdp_lib }}"
-          codesign --force --deep --sign - "$APP_PATH"
+          cp \
+            "rust_libs/rdp/${{ matrix.rdp_lib }}" \
+            "$APP_PATH/Contents/MacOS/"
+
+          codesign \
+            --force \
+            --sign - \
+            "$APP_PATH/Contents/MacOS/${{ matrix.serv_lib }}"
+
+          codesign \
+            --force \
+            --sign - \
+            "$APP_PATH/Contents/MacOS/${{ matrix.rdp_lib }}"
+
+          codesign \
+            --force \
+            --deep \
+            --sign - \
+            "$APP_PATH"
+
+      # =========================================================================
+      # BUNDLE LINUX
+      # =========================================================================
 
       - name: Bundle Rust libraries Linux
         if: matrix.platform == 'Linux'
@@ -670,11 +999,18 @@ jobs:
             exit 1
           fi
 
-          cp "rust_libs/serv/${{ matrix.serv_lib }}" "$BUNDLE/"
-          cp "rust_libs/rdp/${{ matrix.rdp_lib }}" "$BUNDLE/"
+          cp \
+            "rust_libs/serv/${{ matrix.serv_lib }}" \
+            "$BUNDLE/"
+
+          cp \
+            "rust_libs/rdp/${{ matrix.rdp_lib }}" \
+            "$BUNDLE/"
 
           chmod +x \
-            "$BUNDLE/${{ matrix.serv_lib }}" \
+            "$BUNDLE/${{ matrix.serv_lib }}"
+
+          chmod +x \
             "$BUNDLE/${{ matrix.rdp_lib }}"
 
           mkdir -p "$BUNDLE/lib"
@@ -683,6 +1019,7 @@ jobs:
             libsecret-1.so.0 \
             libgcrypt.so.20
           do
+
             LIB_PATH=$(
               ldconfig -p 2>/dev/null \
               | grep "$lib" \
@@ -691,11 +1028,18 @@ jobs:
             )
 
             if [ -n "$LIB_PATH" ] && [ -f "$LIB_PATH" ]; then
+
               if [ ! -f "$BUNDLE/lib/$lib" ]; then
                 cp "$LIB_PATH" "$BUNDLE/lib/$lib"
               fi
+
             fi
+
           done
+
+      # =========================================================================
+      # BUNDLE WINDOWS
+      # =========================================================================
 
       - name: Bundle Rust libraries Windows
         if: matrix.platform == 'Windows'
@@ -710,10 +1054,21 @@ jobs:
             exit 1
           }
 
-          Copy-Item "rust_libs/serv/${{ matrix.serv_lib }}" $releaseDir -Force
-          Copy-Item "rust_libs/rdp/${{ matrix.rdp_lib }}" $releaseDir -Force
+          Copy-Item `
+            "rust_libs/serv/${{ matrix.serv_lib }}" `
+            $releaseDir `
+            -Force
+
+          Copy-Item `
+            "rust_libs/rdp/${{ matrix.rdp_lib }}" `
+            $releaseDir `
+            -Force
 
           Write-Host "Rust libraries bundled"
+
+      # =========================================================================
+      # PACKAGE MACOS
+      # =========================================================================
 
       - name: Package macOS
         if: matrix.platform == 'macOS'
@@ -728,6 +1083,11 @@ jobs:
             -type d \
             | head -n 1)
 
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::macOS .app not found"
+            exit 1
+          fi
+
           ditto \
             -c \
             -k \
@@ -735,6 +1095,10 @@ jobs:
             --keepParent \
             "$APP_PATH" \
             "portix-macos-${{ needs.release-info.outputs.tag }}.zip"
+
+      # =========================================================================
+      # PACKAGE LINUX TAR
+      # =========================================================================
 
       - name: Package Linux TAR
         if: matrix.platform == 'Linux'
@@ -747,6 +1111,10 @@ jobs:
             "portix-linux-${{ needs.release-info.outputs.tag }}.tar.gz" \
             -C portix_app/build/linux/x64/release \
             bundle
+
+      # =========================================================================
+      # PACKAGE LINUX DEB
+      # =========================================================================
 
       - name: Package Linux DEB
         if: matrix.platform == 'Linux'
@@ -768,8 +1136,16 @@ jobs:
             exit 1
           fi
 
-          chmod +x packaging/linux/build-deb.sh
-          bash packaging/linux/build-deb.sh "$VERSION"
+          chmod +x \
+            packaging/linux/build-deb.sh
+
+          bash \
+            packaging/linux/build-deb.sh \
+            "$VERSION"
+
+      # =========================================================================
+      # PACKAGE WINDOWS
+      # =========================================================================
 
       - name: Package Windows
         if: matrix.platform == 'Windows'
@@ -778,6 +1154,7 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           $source = "portix_app/build/windows/x64/runner/Release/*"
+
           $destination = "portix-windows-${{ needs.release-info.outputs.tag }}.zip"
 
           Compress-Archive `
@@ -785,29 +1162,42 @@ jobs:
             -DestinationPath $destination `
             -Force
 
+      # =========================================================================
+      # UPLOAD DESKTOP ARTIFACT
+      # =========================================================================
+
       - name: Upload desktop artifact
         uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.platform }}-${{ needs.release-info.outputs.tag }}
+
           path: |
             portix-*.zip
             portix-*.tar.gz
             *.deb
+
           if-no-files-found: warn
+
+  # ==========================================================================
+  # PHASE 3
+  # RELEASE DESKTOP
+  # ==========================================================================
 
   release-desktop:
     name: "Release Desktop"
+
     runs-on: ubuntu-latest
 
     needs:
       - release-info
       - build-desktop
 
-    if: always() &&
-      needs.release-info.result == 'success'
+    if: >
+      needs.release-info.result == 'success' &&
+      needs.build-desktop.result == 'success'
 
     steps:
-      - name: Download successful desktop artifacts
+      - name: Download desktop artifacts
         uses: actions/download-artifact@v7
         with:
           path: artifacts/
@@ -820,26 +1210,42 @@ jobs:
           set -euo pipefail
 
           echo "Desktop artifacts:"
-          find artifacts -type f -print || true
+
+          find artifacts \
+            -type f \
+            -print
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.release-info.outputs.tag }}
+
           name: >-
             ${{ needs.release-info.outputs.channel == 'beta'
             && format('Portix {0} (Beta)', needs.release-info.outputs.tag)
             || needs.release-info.outputs.channel == 'development'
             && format('Portix {0} (Development)', needs.release-info.outputs.tag)
             || format('Portix {0}', needs.release-info.outputs.tag) }}
+
           prerelease: ${{ needs.release-info.outputs.prerelease }}
+
           make_latest: ${{ needs.release-info.outputs.make_latest }}
+
           files: |
             artifacts/**/*
+
           fail_on_unmatched_files: false
+
+  # ==========================================================================
+  # PHASE 4
+  # RELEASE NATIVE LIBRARIES
+  #
+  # Only runs when BOTH native library builds succeed.
+  # ==========================================================================
 
   release-libs:
     name: "Release Native Libraries"
+
     runs-on: ubuntu-latest
 
     needs:
@@ -847,18 +1253,20 @@ jobs:
       - build-serv
       - build-rdp
 
-    if: always() &&
-      needs.release-info.result == 'success'
+    if: >
+      needs.release-info.result == 'success' &&
+      needs.build-serv.result == 'success' &&
+      needs.build-rdp.result == 'success'
 
     steps:
-      - name: Download successful portix_serv libraries
+      - name: Download portix_serv libraries
         uses: actions/download-artifact@v7
         with:
           path: libs/serv/
           pattern: "*-portix-serv"
           merge-multiple: true
 
-      - name: Download successful portix_rdp libraries
+      - name: Download portix_rdp libraries
         uses: actions/download-artifact@v7
         with:
           path: libs/rdp/
@@ -870,22 +1278,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          find libs -type f -print || true
+          find libs \
+            -type f \
+            -print
 
       - name: Upload native libraries to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.release-info.outputs.tag }}
+
           prerelease: ${{ needs.release-info.outputs.prerelease }}
+
           make_latest: ${{ needs.release-info.outputs.make_latest }}
+
           files: |
             libs/**/*.so
             libs/**/*.dll
             libs/**/*.dylib
+
           fail_on_unmatched_files: false
+
+  # ==========================================================================
+  # PHASE 5
+  # SNAP
+  # ==========================================================================
 
   snap:
     name: "Build Snap"
+
     runs-on: ubuntu-latest
 
     needs:
@@ -893,7 +1313,6 @@ jobs:
       - build-desktop
 
     if: >
-      always() &&
       needs.release-info.result == 'success' &&
       needs.release-info.outputs.channel != 'development' &&
       needs.build-desktop.result == 'success'
@@ -901,6 +1320,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      # ----------------------------------------------------------------------
+      # Prepare Snap assets
+      # ----------------------------------------------------------------------
 
       - name: Prepare Snap assets
         shell: bash
@@ -917,10 +1340,16 @@ jobs:
 
           mkdir -p assets/icons
 
-          cp "$ICON" assets/icons/portix_launcher.png
+          cp \
+            "$ICON" \
+            assets/icons/portix_launcher.png
 
           echo "Snap asset prepared:"
           ls -lah assets/icons/portix_launcher.png
+
+      # ----------------------------------------------------------------------
+      # Version
+      # ----------------------------------------------------------------------
 
       - name: Sync Snap version
         shell: bash
@@ -930,6 +1359,7 @@ jobs:
           VERSION="${{ needs.release-info.outputs.version }}"
 
           VERSION=$(echo "$VERSION" | sed 's/~/./g')
+
           VERSION=$(echo "$VERSION" | sed 's/[^0-9A-Za-z.+-]/-/g')
 
           SNAPCRAFT_FILE="snap/snapcraft.yaml"
@@ -940,16 +1370,32 @@ jobs:
           fi
 
           if grep -qE '^version:' "$SNAPCRAFT_FILE"; then
-            sed -i "s/^version:.*/version: \"${VERSION}\"/" "$SNAPCRAFT_FILE"
+
+            sed -i \
+              "s/^version:.*/version: \"${VERSION}\"/" \
+              "$SNAPCRAFT_FILE"
+
           else
-            sed -i "/^name:/a version: \"${VERSION}\"" "$SNAPCRAFT_FILE"
+
+            sed -i \
+              "/^name:/a version: \"${VERSION}\"" \
+              "$SNAPCRAFT_FILE"
+
           fi
 
           grep '^version:' "$SNAPCRAFT_FILE"
 
+      # ----------------------------------------------------------------------
+      # Build
+      # ----------------------------------------------------------------------
+
       - name: Build Snap
         id: snap
         uses: snapcore/action-build@v1
+
+      # ----------------------------------------------------------------------
+      # Upload artifact
+      # ----------------------------------------------------------------------
 
       - name: Upload Snap artifact
         uses: actions/upload-artifact@v7
@@ -957,6 +1403,10 @@ jobs:
           name: snap-${{ needs.release-info.outputs.tag }}
           path: ${{ steps.snap.outputs.snap }}
           if-no-files-found: error
+
+      # ----------------------------------------------------------------------
+      # Publish stable
+      # ----------------------------------------------------------------------
 
       - name: Publish Snap stable
         if: needs.release-info.outputs.channel == 'stable'
@@ -968,16 +1418,29 @@ jobs:
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_STORE_TOKEN }}
 
+      # ----------------------------------------------------------------------
+      # GitHub Release
+      # ----------------------------------------------------------------------
+
       - name: Upload Snap to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.release-info.outputs.tag }}
+
           prerelease: ${{ needs.release-info.outputs.prerelease }}
+
           make_latest: ${{ needs.release-info.outputs.make_latest }}
+
           files: ${{ steps.snap.outputs.snap }}
+
+  # ==========================================================================
+  # PHASE 6
+  # FLATPAK
+  # ==========================================================================
 
   flatpak:
     name: "Build Flatpak"
+
     runs-on: ubuntu-latest
 
     needs:
@@ -985,7 +1448,6 @@ jobs:
       - build-desktop
 
     if: >
-      always() &&
       needs.release-info.result == 'success' &&
       needs.release-info.outputs.channel != 'development' &&
       needs.build-desktop.result == 'success'
@@ -998,6 +1460,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # ----------------------------------------------------------------------
+      # Download Linux desktop
+      # ----------------------------------------------------------------------
+
       - name: Download Linux desktop artifact
         uses: actions/download-artifact@v7
         with:
@@ -1009,7 +1475,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          find artifact -type f -print
+          find artifact \
+            -type f \
+            -print
+
+      # ----------------------------------------------------------------------
+      # Extract Linux bundle
+      # ----------------------------------------------------------------------
 
       - name: Extract Linux bundle
         shell: bash
@@ -1031,13 +1503,19 @@ jobs:
             -C flatpak/bundle-src \
             --strip-components=1
 
+      # ----------------------------------------------------------------------
+      # Assets
+      # ----------------------------------------------------------------------
+
       - name: Prepare Flatpak assets
         shell: bash
         run: |
           set -euo pipefail
 
           ICON="portix_app/assets/icons/portix_launcher.png"
+
           DESKTOP="portix_app/assets/portix.desktop"
+
           METAINFO="portix_app/assets/portix.metainfo.xml"
 
           mkdir -p flatpak/assets
@@ -1048,25 +1526,53 @@ jobs:
             exit 1
           fi
 
-          cp "$ICON" flatpak/assets/portix_launcher.png
+          cp \
+            "$ICON" \
+            flatpak/assets/portix_launcher.png
 
           if [ -f "flatpak/com.github.asepimam.Portix.desktop" ]; then
-            cp flatpak/com.github.asepimam.Portix.desktop flatpak/assets/
+
+            cp \
+              flatpak/com.github.asepimam.Portix.desktop \
+              flatpak/assets/
+
           elif [ -f "$DESKTOP" ]; then
-            cp "$DESKTOP" flatpak/assets/
+
+            cp \
+              "$DESKTOP" \
+              flatpak/assets/
+
           else
+
             echo "WARNING: Desktop file not found in known locations"
+
           fi
 
           if [ -f "flatpak/com.github.asepimam.Portix.metainfo.xml" ]; then
-            cp flatpak/com.github.asepimam.Portix.metainfo.xml flatpak/assets/
+
+            cp \
+              flatpak/com.github.asepimam.Portix.metainfo.xml \
+              flatpak/assets/
+
           elif [ -f "$METAINFO" ]; then
-            cp "$METAINFO" flatpak/assets/
+
+            cp \
+              "$METAINFO" \
+              flatpak/assets/
+
           else
+
             echo "WARNING: Metainfo file not found in known locations"
+
           fi
 
-          find flatpak/assets -type f -print
+          find flatpak/assets \
+            -type f \
+            -print
+
+      # ----------------------------------------------------------------------
+      # Validate icon
+      # ----------------------------------------------------------------------
 
       - name: Validate Flatpak icon
         shell: bash
@@ -1090,7 +1596,10 @@ jobs:
               print("ERROR: Not a valid PNG")
               sys.exit(1)
 
-          width, height = struct.unpack(">II", data[16:24])
+          width, height = struct.unpack(
+              ">II",
+              data[16:24]
+          )
 
           print(f"Icon size: {width}x{height}")
 
@@ -1101,12 +1610,20 @@ jobs:
           print("Flatpak icon is valid")
           PY
 
+      # ----------------------------------------------------------------------
+      # Build
+      # ----------------------------------------------------------------------
+
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: portix-${{ needs.release-info.outputs.tag }}.flatpak
           manifest-path: flatpak/com.github.asepimam.Portix.yml
           cache-key: flatpak-builder-${{ github.sha }}
+
+      # ----------------------------------------------------------------------
+      # Upload artifact
+      # ----------------------------------------------------------------------
 
       - name: Upload Flatpak artifact
         uses: actions/upload-artifact@v7
@@ -1115,16 +1632,31 @@ jobs:
           path: portix-${{ needs.release-info.outputs.tag }}.flatpak
           if-no-files-found: error
 
+      # ----------------------------------------------------------------------
+      # GitHub Release
+      # ----------------------------------------------------------------------
+
       - name: Upload Flatpak to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.release-info.outputs.tag }}
+
           prerelease: ${{ needs.release-info.outputs.prerelease }}
+
           make_latest: ${{ needs.release-info.outputs.make_latest }}
+
           files: portix-${{ needs.release-info.outputs.tag }}.flatpak
+
+  # ==========================================================================
+  # PHASE 7
+  # FLATHUB
+  #
+  # Stable only.
+  # ==========================================================================
 
   publish-flathub:
     name: "Publish Flathub"
+
     runs-on: ubuntu-latest
 
     needs:
@@ -1133,17 +1665,24 @@ jobs:
       - flatpak
 
     if: >
-      always() &&
       needs.release-info.result == 'success' &&
       needs.release-info.outputs.channel == 'stable' &&
       needs.build-desktop.result == 'success' &&
       needs.flatpak.result == 'success'
 
     steps:
+      # ----------------------------------------------------------------------
+      # Checkout source
+      # ----------------------------------------------------------------------
+
       - name: Checkout source
         uses: actions/checkout@v6
         with:
           path: portix
+
+      # ----------------------------------------------------------------------
+      # Checkout Flathub
+      # ----------------------------------------------------------------------
 
       - name: Checkout Flathub repository
         uses: actions/checkout@v6
@@ -1152,11 +1691,19 @@ jobs:
           token: ${{ secrets.FLATHUB_PAT }}
           path: flathub-repo
 
+      # ----------------------------------------------------------------------
+      # Download Linux artifact
+      # ----------------------------------------------------------------------
+
       - name: Download Linux artifact
         uses: actions/download-artifact@v7
         with:
           name: desktop-Linux-${{ needs.release-info.outputs.tag }}
           path: artifact/
+
+      # ----------------------------------------------------------------------
+      # Calculate SHA256
+      # ----------------------------------------------------------------------
 
       - name: Compute release hash
         id: vars
@@ -1165,6 +1712,7 @@ jobs:
           set -euo pipefail
 
           TAG="${{ needs.release-info.outputs.tag }}"
+
           ARCHIVE="artifact/portix-linux-${TAG}.tar.gz"
 
           if [ ! -f "$ARCHIVE" ]; then
@@ -1182,6 +1730,10 @@ jobs:
 
           echo "SHA256: $SHA256"
           echo "URL:    $URL"
+
+      # ----------------------------------------------------------------------
+      # Update manifest
+      # ----------------------------------------------------------------------
 
       - name: Update Flathub manifest
         shell: bash
@@ -1207,7 +1759,11 @@ jobs:
           url = sys.argv[2]
           sha256 = sys.argv[3]
 
-          with open(manifest_path, "r", encoding="utf-8") as f:
+          with open(
+              manifest_path,
+              "r",
+              encoding="utf-8"
+          ) as f:
               content = f.read()
 
           content = re.sub(
@@ -1222,11 +1778,19 @@ jobs:
               content
           )
 
-          with open(manifest_path, "w", encoding="utf-8") as f:
+          with open(
+              manifest_path,
+              "w",
+              encoding="utf-8"
+          ) as f:
               f.write(content)
 
           print("Flathub manifest updated")
           PY
+
+      # ----------------------------------------------------------------------
+      # Push
+      # ----------------------------------------------------------------------
 
       - name: Commit Flathub update
         shell: bash
@@ -1235,14 +1799,23 @@ jobs:
 
           cd flathub-repo
 
-          git config user.name "portix-release-bot"
-          git config user.email "actions@users.noreply.github.com"
+          git config \
+            user.name \
+            "portix-release-bot"
+
+          git config \
+            user.email \
+            "actions@users.noreply.github.com"
 
           if git diff --quiet; then
             echo "No Flathub changes"
             exit 0
           fi
 
-          git add com.github.asepimam.Portix.yml
-          git commit -m "Update to ${{ needs.release-info.outputs.tag }}"
+          git add \
+            com.github.asepimam.Portix.yml
+
+          git commit \
+            -m "Update to ${{ needs.release-info.outputs.tag }}"
+
           git push origin HEAD
