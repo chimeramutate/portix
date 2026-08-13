@@ -72,19 +72,19 @@ jobs:
           key: pr-check
 
       - name: Check portix_serv
-        working-directory: portix_serv
+        working-directory: ${{ env.SERV_DIR }}
         run: cargo check --all-features
 
       - name: Test portix_serv
-        working-directory: portix_serv
+        working-directory: ${{ env.SERV_DIR }}
         run: cargo test --lib --all-features
 
       - name: Check portix_rdp
-        working-directory: portix_rdp
+        working-directory: ${{ env.RDP_DIR }}
         run: cargo check --all-features
 
       - name: Test portix_rdp
-        working-directory: portix_rdp
+        working-directory: ${{ env.RDP_DIR }}
         run: cargo test --lib --all-features
 
   build-rust-macos:
@@ -125,25 +125,53 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          FILE=$(find "${SERV_DIR}/target" -type f -name "libportix_serv.dylib" | head -n 1)
-          test -n "$FILE"
+
+          FILE=$(find "${SERV_DIR}/target" \
+            -type f \
+            -name "libportix_serv.dylib" \
+            | head -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "ERROR: libportix_serv.dylib not found"
+            exit 1
+          fi
+
           strip -x "$FILE" || true
+
           rm -rf dist-serv
           mkdir -p dist-serv
+
           cp "$FILE" dist-serv/libportix_serv.dylib
-          ls -lah dist-serv/
+
+          echo "macOS server library:"
+          ls -lah dist-serv/libportix_serv.dylib
+          file dist-serv/libportix_serv.dylib
 
       - name: Verify and prepare macOS RDP library
         shell: bash
         run: |
           set -euo pipefail
-          FILE=$(find "${RDP_DIR}/target" -type f -name "libportix_rdp.dylib" | head -n 1)
-          test -n "$FILE"
+
+          FILE=$(find "${RDP_DIR}/target" \
+            -type f \
+            -name "libportix_rdp.dylib" \
+            | head -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "ERROR: libportix_rdp.dylib not found"
+            exit 1
+          fi
+
           strip -x "$FILE" || true
+
           rm -rf dist-rdp
           mkdir -p dist-rdp
+
           cp "$FILE" dist-rdp/libportix_rdp.dylib
-          ls -lah dist-rdp/
+
+          echo "macOS RDP library:"
+          ls -lah dist-rdp/libportix_rdp.dylib
+          file dist-rdp/libportix_rdp.dylib
 
       - name: Trivy scan - macOS server library
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
@@ -229,31 +257,49 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          FILE=$(find "${SERV_DIR}/target" -type f -name "libportix_serv.so" | head -n 1)
+
+          FILE=$(find "${SERV_DIR}/target" \
+            -type f \
+            -name "libportix_serv.so" \
+            | head -n 1)
+
           if [ -z "$FILE" ]; then
             echo "ERROR: libportix_serv.so not found"
             exit 1
           fi
+
           strip --strip-all "$FILE" || true
+
           rm -rf dist-serv
           mkdir -p dist-serv
+
           cp "$FILE" dist-serv/libportix_serv.so
-          ls -lah dist-serv/
+
+          ls -lah dist-serv/libportix_serv.so
 
       - name: Verify and prepare Linux RDP library
         shell: bash
         run: |
           set -euo pipefail
-          FILE=$(find "${RDP_DIR}/target" -type f -name "libportix_rdp.so" | head -n 1)
+
+          FILE=$(find "${RDP_DIR}/target" \
+            -type f \
+            -name "libportix_rdp.so" \
+            | head -n 1)
+
           if [ -z "$FILE" ]; then
             echo "ERROR: libportix_rdp.so not found"
             exit 1
           fi
+
           strip --strip-all "$FILE" || true
+
           rm -rf dist-rdp
           mkdir -p dist-rdp
+
           cp "$FILE" dist-rdp/libportix_rdp.so
-          ls -lah dist-rdp/
+
+          ls -lah dist-rdp/libportix_rdp.so
 
       - name: Trivy scan - Linux server library
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
@@ -325,22 +371,70 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $file = Get-ChildItem -Path "${{ env.SERV_DIR }}/target" -Filter "portix_serv.dll" -File -Recurse | Select-Object -First 1
-          if ($null -eq $file) { throw "Windows server library not found" }
-          Remove-Item -Path "dist-serv" -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Path "dist-serv" -Force | Out-Null
-          Copy-Item $file.FullName "dist-serv/portix_serv.dll" -Force
+
+          $file = Get-ChildItem \
+            -Path "${{ env.SERV_DIR }}/target" \
+            -Filter "portix_serv.dll" \
+            -File \
+            -Recurse |
+            Select-Object -First 1
+
+          if ($null -eq $file) {
+            throw "Windows server library not found"
+          }
+
+          Remove-Item \
+            -Path "dist-serv" \
+            -Recurse \
+            -Force \
+            -ErrorAction SilentlyContinue
+
+          New-Item \
+            -ItemType Directory \
+            -Path "dist-serv" \
+            -Force |
+            Out-Null
+
+          Copy-Item \
+            $file.FullName \
+            "dist-serv/portix_serv.dll" \
+            -Force
+
           Get-ChildItem dist-serv
 
       - name: Prepare Windows RDP library
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $file = Get-ChildItem -Path "${{ env.RDP_DIR }}/target" -Filter "portix_rdp.dll" -File -Recurse | Select-Object -First 1
-          if ($null -eq $file) { throw "Windows RDP library not found" }
-          Remove-Item -Path "dist-rdp" -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Path "dist-rdp" -Force | Out-Null
-          Copy-Item $file.FullName "dist-rdp/portix_rdp.dll" -Force
+
+          $file = Get-ChildItem \
+            -Path "${{ env.RDP_DIR }}/target" \
+            -Filter "portix_rdp.dll" \
+            -File \
+            -Recurse |
+            Select-Object -First 1
+
+          if ($null -eq $file) {
+            throw "Windows RDP library not found"
+          }
+
+          Remove-Item \
+            -Path "dist-rdp" \
+            -Recurse \
+            -Force \
+            -ErrorAction SilentlyContinue
+
+          New-Item \
+            -ItemType Directory \
+            -Path "dist-rdp" \
+            -Force |
+            Out-Null
+
+          Copy-Item \
+            $file.FullName \
+            "dist-rdp/portix_rdp.dll" \
+            -Force
+
           Get-ChildItem dist-rdp
 
       - name: Trivy scan - Windows server library
@@ -405,10 +499,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f portix_serv_lib/libportix_serv.dylib
-          test -f portix_rdp_lib/libportix_rdp.dylib
-          ls -lah portix_serv_lib/libportix_serv.dylib
-          ls -lah portix_rdp_lib/libportix_rdp.dylib
+
+          SERV="portix_serv_lib/libportix_serv.dylib"
+          RDP="portix_rdp_lib/libportix_rdp.dylib"
+
+          test -f "$SERV"
+          test -f "$RDP"
+
+          echo "Server library:"
+          ls -lah "$SERV"
+          file "$SERV"
+
+          echo ""
+          echo "RDP library:"
+          ls -lah "$RDP"
+          file "$RDP"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -424,6 +529,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           python3 <<'PY'
           import re
           import sys
@@ -472,8 +578,33 @@ jobs:
               print("ERROR: Dart/Rust Bridge content hash mismatch")
               sys.exit(1)
 
-          print("Bridge hashes match")
+          print("SSH bridge hashes match")
           PY
+
+      - name: Verify RDP Flutter Rust Bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RDP_DART="portix_app/lib/src/rust_rdp"
+          RDP_BINDING="portix_rdp/binding.h"
+
+          if [ ! -d "$RDP_DART" ]; then
+            echo "ERROR: RDP generated Dart directory not found: $RDP_DART"
+            exit 1
+          fi
+
+          if [ ! -f "$RDP_BINDING" ]; then
+            echo "ERROR: RDP generated C binding not found: $RDP_BINDING"
+            exit 1
+          fi
+
+          echo "RDP generated Dart files:"
+          find "$RDP_DART" -maxdepth 2 -type f -print
+
+          echo ""
+          echo "RDP binding:"
+          ls -lah "$RDP_BINDING"
 
       - name: Build Flutter macOS
         working-directory: ${{ env.APP_DIR }}
@@ -487,17 +618,126 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APP_PATH=$(find "${APP_DIR}/build/macos/Build/Products/Release" -maxdepth 1 -name "*.app" -type d | head -n 1)
-          test -n "$APP_PATH"
+
+          APP_PATH=$(find \
+            "${APP_DIR}/build/macos/Build/Products/Release" \
+            -maxdepth 1 \
+            -name "*.app" \
+            -type d |
+            head -n 1)
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: macOS .app not found"
+            exit 1
+          fi
+
           MACOS_DIR="$APP_PATH/Contents/MacOS"
 
-          cp portix_serv_lib/libportix_serv.dylib "$MACOS_DIR/"
-          cp portix_rdp_lib/libportix_rdp.dylib "$MACOS_DIR/"
+          if [ ! -d "$MACOS_DIR" ]; then
+            echo "ERROR: macOS executable directory not found: $MACOS_DIR"
+            exit 1
+          fi
 
-          codesign --force --sign - "$MACOS_DIR/libportix_serv.dylib"
-          codesign --force --sign - "$MACOS_DIR/libportix_rdp.dylib"
-          codesign --force --deep --sign - "$APP_PATH"
+          cp \
+            portix_serv_lib/libportix_serv.dylib \
+            "$MACOS_DIR/libportix_serv.dylib"
 
+          cp \
+            portix_rdp_lib/libportix_rdp.dylib \
+            "$MACOS_DIR/libportix_rdp.dylib"
+
+          test -f "$MACOS_DIR/libportix_serv.dylib"
+          test -f "$MACOS_DIR/libportix_rdp.dylib"
+
+          echo "=== macOS bundle ==="
+          ls -lah "$MACOS_DIR"
+
+          echo ""
+          echo "=== RDP library architecture ==="
+          file "$MACOS_DIR/libportix_rdp.dylib"
+
+          echo ""
+          echo "=== Server library architecture ==="
+          file "$MACOS_DIR/libportix_serv.dylib"
+
+          echo ""
+          echo "=== RDP dylib dependencies ==="
+          otool -L "$MACOS_DIR/libportix_rdp.dylib"
+
+          echo ""
+          echo "=== Server dylib dependencies ==="
+          otool -L "$MACOS_DIR/libportix_serv.dylib"
+
+          # Sign embedded native libraries first.
+          codesign \
+            --force \
+            --sign - \
+            "$MACOS_DIR/libportix_serv.dylib"
+
+          codesign \
+            --force \
+            --sign - \
+            "$MACOS_DIR/libportix_rdp.dylib"
+
+          # Re-sign the application after modifying its contents.
+          codesign \
+            --force \
+            --deep \
+            --sign - \
+            "$APP_PATH"
+
+          echo ""
+          echo "=== Verify application signature ==="
+
+          codesign \
+            --verify \
+            --deep \
+            --strict \
+            --verbose=2 \
+            "$APP_PATH"
+
+          echo ""
+          echo "=== Verify server library signature ==="
+
+          codesign \
+            --verify \
+            --verbose=2 \
+            "$MACOS_DIR/libportix_serv.dylib"
+
+          echo ""
+          echo "=== Verify RDP library signature ==="
+
+          codesign \
+            --verify \
+            --verbose=2 \
+            "$MACOS_DIR/libportix_rdp.dylib"
+
+      - name: Verify macOS bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PATH=$(find \
+            "${APP_DIR}/build/macos/Build/Products/Release" \
+            -maxdepth 1 \
+            -name "*.app" \
+            -type d |
+            head -n 1)
+
+          MACOS_DIR="$APP_PATH/Contents/MacOS"
+
+          for file in \
+            "$MACOS_DIR/portix" \
+            "$MACOS_DIR/libportix_serv.dylib" \
+            "$MACOS_DIR/libportix_rdp.dylib"
+          do
+            if [ ! -f "$file" ]; then
+              echo "ERROR: Required bundle file missing: $file"
+              exit 1
+            fi
+          done
+
+          echo "macOS release bundle is complete:"
           ls -lah "$MACOS_DIR"
 
       - name: Resolve application version
@@ -505,11 +745,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION=$(sed -nE 's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' "${APP_DIR}/pubspec.yaml" | head -n 1)
+
+          VERSION=$(sed -nE \
+            's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' \
+            "${APP_DIR}/pubspec.yaml" |
+            head -n 1)
+
           if [ -z "$VERSION" ]; then
             echo "ERROR: Could not determine version from pubspec.yaml"
             exit 1
           fi
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Application version: $VERSION"
 
@@ -517,10 +763,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APP_PATH=$(find "${APP_DIR}/build/macos/Build/Products/Release" -maxdepth 1 -name "*.app" -type d | head -n 1)
+
+          APP_PATH=$(find \
+            "${APP_DIR}/build/macos/Build/Products/Release" \
+            -maxdepth 1 \
+            -name "*.app" \
+            -type d |
+            head -n 1)
+
           VERSION="${{ steps.version.outputs.version }}"
           RELEASE_NAME="${{ github.ref_name }}-${VERSION}"
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "portix-macos-${RELEASE_NAME}.zip"
+
+          ditto \
+            -c \
+            -k \
+            --sequesterRsrc \
+            --keepParent \
+            "$APP_PATH" \
+            "portix-macos-${RELEASE_NAME}.zip"
+
           ls -lah "portix-macos-${RELEASE_NAME}.zip"
 
       - name: Upload macOS desktop
@@ -564,18 +825,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           SERV="portix_serv_lib/libportix_serv.so"
           RDP="portix_rdp_lib/libportix_rdp.so"
 
-          if [ ! -f "$SERV" ]; then
-            echo "ERROR: Linux server library not found: $SERV"
-            exit 1
-          fi
-
-          if [ ! -f "$RDP" ]; then
-            echo "ERROR: Linux RDP library not found: $RDP"
-            exit 1
-          fi
+          test -f "$SERV"
+          test -f "$RDP"
 
           ls -lah "$SERV"
           ls -lah "$RDP"
@@ -610,7 +865,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION=$(sed -nE 's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' "${APP_DIR}/pubspec.yaml" | head -n 1)
+          VERSION=$(sed -nE \
+            's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' \
+            "${APP_DIR}/pubspec.yaml" |
+            head -n 1)
 
           if [ -z "$VERSION" ]; then
             echo "ERROR: Could not determine version from ${APP_DIR}/pubspec.yaml"
@@ -619,7 +877,6 @@ jobs:
 
           if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,3}$ ]]; then
             echo "ERROR: Invalid application version: $VERSION"
-            echo "Expected something like 1.0.1"
             exit 1
           fi
 
@@ -636,6 +893,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           python3 <<'PY'
           import re
           import sys
@@ -692,6 +950,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           flutter build linux \
             --release \
             --dart-define=PORTIX_BACKEND=rust \
@@ -715,12 +974,12 @@ jobs:
           test -f "$SERV"
           test -f "$RDP"
 
-          # Keep both native libraries directly next to the Flutter executable.
           cp "$SERV" "$BUNDLE_DIR/libportix_serv.so"
           cp "$RDP" "$BUNDLE_DIR/libportix_rdp.so"
 
-          chmod +x "$BUNDLE_DIR/libportix_serv.so"
-          chmod +x "$BUNDLE_DIR/libportix_rdp.so"
+          chmod +x \
+            "$BUNDLE_DIR/libportix_serv.so" \
+            "$BUNDLE_DIR/libportix_rdp.so"
 
           echo "Rust libraries bundled:"
           ls -lah \
@@ -758,6 +1017,7 @@ jobs:
 
           BUNDLE_DIR="${APP_DIR}/build/linux/x64/release/bundle"
           BUNDLE_LIB="$BUNDLE_DIR/lib"
+
           mkdir -p "$BUNDLE_LIB"
 
           for lib in libsecret-1.so.0 libgcrypt.so.20; do
@@ -825,11 +1085,13 @@ jobs:
           DEB_FILE="${APP_DIR}/build/linux/deb/portix_${VERSION}_amd64.deb"
 
           dpkg-deb --info "$DEB_FILE"
+
           echo ""
           echo "Checking Rust libraries inside DEB..."
 
-          dpkg-deb --contents "$DEB_FILE" | grep -E \
-            'opt/portix/libportix_(serv|rdp)\.so$'
+          dpkg-deb --contents "$DEB_FILE" |
+            grep -E \
+              'opt/portix/libportix_(serv|rdp)\.so$'
 
       - name: Upload Linux desktop
         uses: actions/upload-artifact@v7
@@ -870,10 +1132,18 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+
           $serv = "portix_serv_lib/portix_serv.dll"
           $rdp = "portix_rdp_lib/portix_rdp.dll"
-          if (-not (Test-Path $serv)) { throw "Windows server library not found: $serv" }
-          if (-not (Test-Path $rdp)) { throw "Windows RDP library not found: $rdp" }
+
+          if (-not (Test-Path $serv)) {
+            throw "Windows server library not found: $serv"
+          }
+
+          if (-not (Test-Path $rdp)) {
+            throw "Windows RDP library not found: $rdp"
+          }
+
           Get-Item $serv | Format-List Name, Length
           Get-Item $rdp | Format-List Name, Length
 
@@ -891,6 +1161,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+
           @'
           import re
           import sys
@@ -947,6 +1218,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+
           $line = Get-Content "${{ env.APP_DIR }}/pubspec.yaml" |
             Where-Object { $_ -match '^version:\s*' } |
             Select-Object -First 1
@@ -975,6 +1247,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+
           flutter build windows `
             --release `
             --dart-define=PORTIX_BACKEND=rust `
@@ -984,6 +1257,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+
           $serv = "portix_serv_lib/portix_serv.dll"
           $rdp = "portix_rdp_lib/portix_rdp.dll"
           $dst = "portix_app/build/windows/x64/runner/Release"
@@ -1002,11 +1276,17 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+
           $source = "portix_app/build/windows/x64/runner/Release/*"
           $destination = "portix-windows-${{ steps.version.outputs.release_name }}.zip"
 
-          Compress-Archive -Path $source -DestinationPath $destination -Force
-          Get-Item $destination | Format-List Name, Length
+          Compress-Archive \
+            -Path $source \
+            -DestinationPath $destination \
+            -Force
+
+          Get-Item $destination |
+            Format-List Name, Length
 
       - name: Upload Windows desktop
         uses: actions/upload-artifact@v7
@@ -1018,6 +1298,7 @@ jobs:
   release-desktop:
     name: "Release Desktop to GitHub"
     runs-on: ubuntu-latest
+
     needs:
       - build-desktop-macos
       - build-desktop-linux
@@ -1038,6 +1319,7 @@ jobs:
         shell: bash
         run: |
           echo "Available desktop artifacts:"
+
           if [ -d artifacts ]; then
             find artifacts -type f -print
           else
@@ -1048,11 +1330,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           COUNT=0
+
           if [ -d artifacts ]; then
             COUNT=$(find artifacts -type f | wc -l)
           fi
+
           echo "Desktop artifact count: $COUNT"
+
           if [ "$COUNT" -eq 0 ]; then
             echo "ERROR: No desktop artifacts were produced"
             exit 1
@@ -1075,6 +1361,7 @@ jobs:
   release-libs:
     name: "Release Native Libraries"
     runs-on: ubuntu-latest
+
     needs:
       - build-rust-macos
       - build-rust-linux
@@ -1095,6 +1382,7 @@ jobs:
         shell: bash
         run: |
           echo "Available native libraries:"
+
           if [ -d libs ]; then
             find libs -type f -print
           else
@@ -1105,11 +1393,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           COUNT=0
+
           if [ -d libs ]; then
             COUNT=$(find libs -type f | wc -l)
           fi
+
           echo "Library artifact count: $COUNT"
+
           if [ "$COUNT" -eq 0 ]; then
             echo "ERROR: No native libraries were produced"
             exit 1
@@ -1129,7 +1421,9 @@ jobs:
   snap:
     name: "Build Snap"
     runs-on: ubuntu-latest
+
     needs: [build-desktop-linux]
+
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
@@ -1140,16 +1434,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
+
           SNAPCRAFT_FILE="snap/snapcraft.yaml"
 
           test -f "$SNAPCRAFT_FILE"
 
           if grep -qE '^version:' "$SNAPCRAFT_FILE"; then
-            sed -i "s/^version:.*/version: \"${VERSION}\"/" "$SNAPCRAFT_FILE"
+            sed -i \
+              "s/^version:.*/version: \"${VERSION}\"/" \
+              "$SNAPCRAFT_FILE"
           else
-            sed -i "/^name:/a version: \"${VERSION}\"" "$SNAPCRAFT_FILE"
+            sed -i \
+              "/^name:/a version: \"${VERSION}\"" \
+              "$SNAPCRAFT_FILE"
           fi
 
           grep '^version:' "$SNAPCRAFT_FILE"
@@ -1184,7 +1484,9 @@ jobs:
   flatpak:
     name: "Build Flatpak"
     runs-on: ubuntu-latest
+
     needs: [build-desktop-linux]
+
     if: startsWith(github.ref, 'refs/tags/')
 
     container:
@@ -1228,6 +1530,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           mkdir -p flatpak/assets
 
           cp assets/icons/portix_launcher.png flatpak/assets/
@@ -1256,7 +1559,9 @@ jobs:
           width, height = struct.unpack(">II", data[16:24])
 
           if width != height:
-              raise ValueError(f"Icon is {width}x{height}, must be square")
+              raise ValueError(
+                  f"Icon is {width}x{height}, must be square"
+              )
 
           print(f"Flatpak icon is valid: {width}x{height}")
           PY
@@ -1284,7 +1589,9 @@ jobs:
   publish-flathub:
     name: "Publish to Flathub"
     runs-on: ubuntu-latest
+
     needs: [flatpak]
+
     if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-beta')
 
     steps:
@@ -1307,7 +1614,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION=$(sed -nE 's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' portix_app/pubspec.yaml | head -n 1)
+          VERSION=$(sed -nE \
+            's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' \
+            portix_app/pubspec.yaml |
+            head -n 1)
 
           if [ -z "$VERSION" ]; then
             echo "ERROR: Could not determine version from pubspec.yaml"
@@ -1315,6 +1625,7 @@ jobs:
           fi
 
           ARCHIVE="portix-linux-${{ github.ref_name }}-${VERSION}.tar.gz"
+
           URL="https://github.com/Asepimam/portix/releases/download/${{ github.ref_name }}/${ARCHIVE}"
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -1411,5 +1722,8 @@ jobs:
           fi
 
           git add com.github.asepimam.Portix.yml
-          git commit -m "Update to ${{ github.ref_name }}"
+
+          git commit \
+            -m "Update to ${{ github.ref_name }}"
+
           git push origin HEAD
