@@ -68,6 +68,9 @@ env:
   # Assets are inside portix_app
   ASSETS_DIR: portix_app/assets
 
+  # Flutter Rust Bridge version
+  FRB_VERSION: "2.11.1"
+
 # ============================================================================
 # JOBS
 # ============================================================================
@@ -293,6 +296,33 @@ jobs:
           key: portix-serv-${{ matrix.platform }}
 
       # ----------------------------------------------------------------------
+      # Flutter Rust Bridge Codegen
+      # ----------------------------------------------------------------------
+
+      - name: Install Flutter Rust Bridge Codegen
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cargo install flutter_rust_bridge_codegen --version ${{ env.FRB_VERSION }}
+
+      - name: Generate Flutter Rust Bridge (portix_serv)
+        working-directory: portix_serv
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Generating FRB bindings for portix_serv..."
+          flutter_rust_bridge_codegen generate
+
+          if [ ! -f "src/frb_generated.rs" ]; then
+            echo "::error::FRB code generation failed - frb_generated.rs not created"
+            exit 1
+          fi
+
+          echo "FRB generation complete"
+
+      # ----------------------------------------------------------------------
       # Build
       # ----------------------------------------------------------------------
 
@@ -441,6 +471,33 @@ jobs:
         with:
           workspaces: portix_rdp
           key: portix-rdp-${{ matrix.platform }}
+
+      # ----------------------------------------------------------------------
+      # Flutter Rust Bridge Codegen
+      # ----------------------------------------------------------------------
+
+      - name: Install Flutter Rust Bridge Codegen
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cargo install flutter_rust_bridge_codegen --version ${{ env.FRB_VERSION }}
+
+      - name: Generate Flutter Rust Bridge (portix_rdp)
+        working-directory: portix_rdp
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Generating FRB bindings for portix_rdp..."
+          flutter_rust_bridge_codegen generate
+
+          if [ ! -f "src/frb_generated.rs" ]; then
+            echo "::error::FRB code generation failed - frb_generated.rs not created"
+            exit 1
+          fi
+
+          echo "FRB generation complete"
 
       # ----------------------------------------------------------------------
       # Build
