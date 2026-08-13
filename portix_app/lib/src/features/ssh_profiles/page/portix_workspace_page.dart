@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/di/injection.dart';
-import 'package:portix/src/features/sftp/bloc/index.dart';
+import 'package:portix/src/core/theme/app_theme.dart';
+import 'package:portix/src/features/rdp/widget/rdp_workspace_view.dart';
 import 'package:portix/src/features/settings/page/setting_page.dart';
+import 'package:portix/src/features/sftp/bloc/index.dart';
 import 'package:portix/src/features/sftp/page/index.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
 import 'package:portix/src/features/ssh_sessions/page/index.dart';
 
-import 'package:portix/src/core/theme/app_theme.dart';
 import '../bloc/index.dart';
 import '../widget/form/index.dart';
 import '../widget/gallery/index.dart';
@@ -103,6 +104,7 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
                   ),
                   _lazyView(WorkspaceView.sftp, const SftpWorkspacePage()),
                   _lazyView(WorkspaceView.settings, const SettingsView()),
+                  _lazyView(WorkspaceView.rdp, const RdpWorkspaceView()),
                 ],
               ),
             ),
