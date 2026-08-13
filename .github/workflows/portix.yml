@@ -1279,28 +1279,46 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
+          # Debian package versions must start with a digit.
+          #
+          # Release tag:
+          #   v1.2.3       -> 1.2.3
+          #   v1.2.3-beta1 -> 1.2.3-beta1
+          #
+          # Development branches:
+          #   develop      -> 0.0.0~develop
+          #   staging      -> 0.0.0~staging
+          #   release/foo  -> 0.0.0~release-foo
 
-          if [ -f "packaging/linux/build-deb.sh" ]; then
-            chmod +x \
-              packaging/linux/build-deb.sh
-
-            bash \
-              packaging/linux/build-deb.sh \
-              "$VERSION"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
           else
-            echo "WARNING: packaging/linux/build-deb.sh not found"
+            CHANNEL="${GITHUB_REF_NAME//\//-}"
+            VERSION="0.0.0~${CHANNEL}"
           fi
 
-      - name: Upload Linux desktop
-        uses: actions/upload-artifact@v7
-        with:
-          name: portix-Linux-${{ github.ref_name }}
-          path: |
-            portix-linux-${{ github.ref_name }}.tar.gz
-            *.deb
-          if-no-files-found: warn
+          echo "Debian version: ${VERSION}"
+
+          if [ ! -f "packaging/linux/build-deb.sh" ]; then
+            echo "ERROR: packaging/linux/build-deb.sh not found"
+            exit 1
+          fi
+
+          chmod +x \
+            packaging/linux/build-deb.sh
+
+          bash \
+            packaging/linux/build-deb.sh \
+            "$VERSION"
+
+            - name: Upload Linux desktop
+              uses: actions/upload-artifact@v7
+              with:
+                name: portix-Linux-${{ github.ref_name }}
+                path: |
+                  portix-linux-${{ github.ref_name }}.tar.gz
+                  *.deb
+                if-no-files-found: warn
 
   # ==========================================================================
   # PHASE 2C
