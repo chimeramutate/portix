@@ -372,102 +372,120 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          $file = Get-ChildItem \
-            -Path "${{ env.SERV_DIR }}/target" \
-            -Filter "portix_serv.dll" \
-            -File \
+          $file = Get-ChildItem `
+            -Path "${{ env.SERV_DIR }}/target" `
+            -Filter "portix_serv.dll" `
+            -File `
             -Recurse |
             Select-Object -First 1
 
           if ($null -eq $file) {
-            throw "Windows server library not found"
+            throw "Windows server library not found under ${{ env.SERV_DIR }}/target"
           }
 
-          Remove-Item \
-            -Path "dist-serv" \
-            -Recurse \
-            -Force \
+          Write-Host "Found server library: $($file.FullName)"
+          Write-Host "Size: $($file.Length) bytes"
+
+          Remove-Item `
+            -Path "dist-serv" `
+            -Recurse `
+            -Force `
             -ErrorAction SilentlyContinue
 
-          New-Item \
-            -ItemType Directory \
-            -Path "dist-serv" \
+          New-Item `
+            -ItemType Directory `
+            -Path "dist-serv" `
             -Force |
             Out-Null
 
-          Copy-Item \
-            $file.FullName \
-            "dist-serv/portix_serv.dll" \
+          Copy-Item `
+            -Path $file.FullName `
+            -Destination "dist-serv/portix_serv.dll" `
             -Force
 
-          Get-ChildItem dist-serv
-
-      - name: Prepare Windows RDP library
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          $file = Get-ChildItem \
-            -Path "${{ env.RDP_DIR }}/target" \
-            -Filter "portix_rdp.dll" \
-            -File \
-            -Recurse |
-            Select-Object -First 1
-
-          if ($null -eq $file) {
-            throw "Windows RDP library not found"
+          if (-not (Test-Path "dist-serv/portix_serv.dll")) {
+            throw "Failed to prepare dist-serv/portix_serv.dll"
           }
 
-          Remove-Item \
-            -Path "dist-rdp" \
-            -Recurse \
-            -Force \
-            -ErrorAction SilentlyContinue
+          Get-Item "dist-serv/portix_serv.dll" |
+            Format-List Name, Length, FullName
 
-          New-Item \
-            -ItemType Directory \
-            -Path "dist-rdp" \
-            -Force |
-            Out-Null
 
-          Copy-Item \
-            $file.FullName \
-            "dist-rdp/portix_rdp.dll" \
-            -Force
+          - name: Prepare Windows RDP library
+            shell: pwsh
+            run: |
+              $ErrorActionPreference = "Stop"
 
-          Get-ChildItem dist-rdp
+              $file = Get-ChildItem `
+                -Path "${{ env.RDP_DIR }}/target" `
+                -Filter "portix_rdp.dll" `
+                -File `
+                -Recurse |
+                Select-Object -First 1
 
-      - name: Trivy scan - Windows server library
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
-        with:
-          scan-type: fs
-          scan-ref: dist-serv/
-          format: table
-          severity: CRITICAL,HIGH
-          exit-code: "0"
+              if ($null -eq $file) {
+                throw "Windows RDP library not found under ${{ env.RDP_DIR }}/target"
+              }
 
-      - name: Trivy scan - Windows RDP library
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
-        with:
-          scan-type: fs
-          scan-ref: dist-rdp/
-          format: table
-          severity: CRITICAL,HIGH
-          exit-code: "0"
+              Write-Host "Found RDP library: $($file.FullName)"
+              Write-Host "Size: $($file.Length) bytes"
 
-      - name: Upload Windows server library
-        uses: actions/upload-artifact@v7
-        with:
-          name: windows-lib
-          path: dist-serv/portix_serv.dll
-          if-no-files-found: error
+              Remove-Item `
+                -Path "dist-rdp" `
+                -Recurse `
+                -Force `
+                -ErrorAction SilentlyContinue
 
-      - name: Upload Windows RDP library
-        uses: actions/upload-artifact@v7
-        with:
-          name: windows-rdp-lib
-          path: dist-rdp/portix_rdp.dll
-          if-no-files-found: error
+              New-Item `
+                -ItemType Directory `
+                -Path "dist-rdp" `
+                -Force |
+                Out-Null
+
+              Copy-Item `
+                -Path $file.FullName `
+                -Destination "dist-rdp/portix_rdp.dll" `
+                -Force
+
+              if (-not (Test-Path "dist-rdp/portix_rdp.dll")) {
+                throw "Failed to prepare dist-rdp/portix_rdp.dll"
+              }
+
+              Get-Item "dist-rdp/portix_rdp.dll" |
+                Format-List Name, Length, FullName
+
+
+          - name: Trivy scan - Windows server library
+            uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+            with:
+              scan-type: fs
+              scan-ref: dist-serv/
+              format: table
+              severity: CRITICAL,HIGH
+              exit-code: "0"
+
+          - name: Trivy scan - Windows RDP library
+            uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+            with:
+              scan-type: fs
+              scan-ref: dist-rdp/
+              format: table
+              severity: CRITICAL,HIGH
+              exit-code: "0"
+
+          - name: Upload Windows server library
+            uses: actions/upload-artifact@v7
+            with:
+              name: windows-lib
+              path: dist-serv/portix_serv.dll
+              if-no-files-found: error
+
+          - name: Upload Windows RDP library
+            uses: actions/upload-artifact@v7
+            with:
+              name: windows-rdp-lib
+              path: dist-rdp/portix_rdp.dll
+              if-no-files-found: error
 
   build-desktop-macos:
     name: "Desktop [macOS] @ ${{ github.ref_name }}"
