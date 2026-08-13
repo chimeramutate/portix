@@ -1,537 +1,346 @@
-name: Build Desktop Release
+name: Build & Release
 
 on:
   push:
+    branches:
+      - main
+      - develop
+      - staging
+      - "release/**"
     tags:
-      - "v*"
+      - "v*.*.*"
+      - "v*.*.*-beta*"
+
+  pull_request:
+    branches:
+      - main
+      - develop
+
   workflow_dispatch:
+    inputs:
+      channel:
+        description: "Release channel"
+        required: true
+        default: "beta"
+        type: choice
+        options:
+          - stable
+          - beta
+          - development
 
 permissions:
   contents: write
+  pull-requests: read
 
 env:
+  IS_BETA: ${{ contains(github.ref_name, '-beta') || (github.event_name == 'workflow_dispatch' && github.event.inputs.channel == 'beta') || (github.event_name == 'push' && github.ref_name != 'main' && !startsWith(github.ref, 'refs/tags/')) }}
+  IS_RELEASE: ${{ startsWith(github.ref, 'refs/tags/') }}
+  IS_MAIN_BRANCH: ${{ github.ref_name == 'main' }}
+  BRANCH_NAME: ${{ github.ref_name }}
+
   RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+
   SERV_DIR: portix_serv
   RDP_DIR: portix_rdp
   APP_DIR: portix_app
-  ASSETS_DIR: portix_app/assets
-  FRB_VERSION: 2.11.1
-  CARGO_INCREMENTAL: 0
-  CARGO_TERM_COLOR: always
-  CACHE_ON_FAILURE: false
+
+# ============================================================================
+# JOBS
+# ============================================================================
 
 jobs:
-  # ===========================================================================
-  # WINDOWS
-  # ===========================================================================
-  build-windows:
-    name: Build Windows
-    runs-on: windows-2022
+  # ==========================================================================
+  # PHASE 0
+  # PR VALIDATION
+  # ==========================================================================
 
-    steps:
-      # -----------------------------------------------------------------------
-      # Checkout
-      # -----------------------------------------------------------------------
-      - name: Checkout
-        uses: actions/checkout@v4
+  validate-rust:
+    name: "Validate Rust [PR]"
+    runs-on: ubuntu-latest
 
-      # -----------------------------------------------------------------------
-      # Flutter
-      # -----------------------------------------------------------------------
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
+    if: github.event_name == 'pull_request'
 
-      - name: Verify Flutter
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          flutter --version
-          dart --version
-
-      # -----------------------------------------------------------------------
-      # Rust
-      # -----------------------------------------------------------------------
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable-x86_64-pc-windows-msvc
-          targets: x86_64-pc-windows-msvc
-
-      - name: Verify Rust
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          rustc --version
-          cargo --version
-          rustup show
-
-      # -----------------------------------------------------------------------
-      # Flutter desktop
-      # -----------------------------------------------------------------------
-      - name: Enable Windows desktop
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          flutter config --enable-windows-desktop
-          flutter doctor -v
-
-      # -----------------------------------------------------------------------
-      # Install FRB codegen
-      #
-      # IMPORTANT:
-      # flutter_rust_bridge_codegen requires Flutter/Dart to be available.
-      # Therefore this happens AFTER Flutter setup.
-      # -----------------------------------------------------------------------
-      - name: Install flutter_rust_bridge_codegen
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cargo install \
-            flutter_rust_bridge_codegen \
-            --version "${FRB_VERSION}" \
-            --locked
-
-          flutter_rust_bridge_codegen --version
-
-      # -----------------------------------------------------------------------
-      # Verify repository structure
-      # -----------------------------------------------------------------------
-      - name: Verify project structure
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "Repository:"
-          pwd
-
-          echo
-          echo "Top-level:"
-          ls -la
-
-          echo
-          echo "portix_app:"
-          ls -la "${APP_DIR}"
-
-          echo
-          echo "portix_rdp:"
-          ls -la "${RDP_DIR}"
-
-          echo
-          echo "portix_serv:"
-          ls -la "${SERV_DIR}"
-
-          echo
-          echo "FRB config:"
-          if [ ! -f "${APP_DIR}/flutter_rust_bridge.yaml" ]; then
-            echo "::error::Missing ${APP_DIR}/flutter_rust_bridge.yaml"
-            exit 1
-          fi
-
-          cat "${APP_DIR}/flutter_rust_bridge.yaml"
-
-      # -----------------------------------------------------------------------
-      # Flutter dependencies
-      # -----------------------------------------------------------------------
-      - name: Flutter pub get
-        working-directory: ${{ env.APP_DIR }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          flutter pub get
-
-      # -----------------------------------------------------------------------
-      # Generate Flutter Rust Bridge
-      #
-      # IMPORTANT:
-      # The config exists ONLY in portix_app.
-      #
-      # DO NOT run:
-      #   cd portix_rdp
-      #   flutter_rust_bridge_codegen ...
-      #
-      # DO NOT run:
-      #   cd portix_serv
-      #   flutter_rust_bridge_codegen ...
-      #
-      # Run from portix_app using the config located there.
-      # -----------------------------------------------------------------------
-      - name: Generate Flutter Rust Bridge
-        working-directory: ${{ env.APP_DIR }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          CONFIG="flutter_rust_bridge.yaml"
-
-          if [ ! -f "$CONFIG" ]; then
-            echo "::error::FRB config not found: ${APP_DIR}/$CONFIG"
-            exit 1
-          fi
-
-          echo "Using FRB config:"
-          cat "$CONFIG"
-
-          echo
-          echo "Generating Flutter Rust Bridge..."
-
-          flutter_rust_bridge_codegen generate \
-            --config-file "$CONFIG"
-
-      # -----------------------------------------------------------------------
-      # Verify generated bindings
-      # -----------------------------------------------------------------------
-      - name: Verify generated bindings
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "Generated files under ${APP_DIR}/lib/src:"
-
-          if [ -d "${APP_DIR}/lib/src" ]; then
-            find "${APP_DIR}/lib/src" -maxdepth 4 -type f | sort
-          fi
-
-          if [ ! -d "${APP_DIR}/lib/src/rust" ]; then
-            echo "::warning::${APP_DIR}/lib/src/rust was not generated."
-          fi
-
-          if [ ! -d "${APP_DIR}/lib/src/rust_rdp" ]; then
-            echo "::warning::${APP_DIR}/lib/src/rust_rdp was not generated."
-          fi
-
-      # -----------------------------------------------------------------------
-      # Build RDP backend
-      # -----------------------------------------------------------------------
-      - name: Build RDP backend
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cargo build \
-            --release \
-            --manifest-path "${RDP_DIR}/Cargo.toml" \
-            --target x86_64-pc-windows-msvc
-
-      # -----------------------------------------------------------------------
-      # Build SSH/server backend
-      # -----------------------------------------------------------------------
-      - name: Build server backend
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cargo build \
-            --release \
-            --manifest-path "${SERV_DIR}/Cargo.toml" \
-            --target x86_64-pc-windows-msvc
-
-      # -----------------------------------------------------------------------
-      # Verify native libraries
-      # -----------------------------------------------------------------------
-      - name: Verify Windows native libraries
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "RDP release directory:"
-          ls -la "${RDP_DIR}/target/x86_64-pc-windows-msvc/release" || true
-
-          echo
-          echo "Server release directory:"
-          ls -la "${SERV_DIR}/target/x86_64-pc-windows-msvc/release" || true
-
-          RDP_DLL="${RDP_DIR}/target/x86_64-pc-windows-msvc/release/portix_rdp.dll"
-          SERV_DLL="${SERV_DIR}/target/x86_64-pc-windows-msvc/release/portix_serv.dll"
-
-          if [ ! -f "$RDP_DLL" ]; then
-            echo "::error::RDP DLL not found: $RDP_DLL"
-            exit 1
-          fi
-
-          if [ ! -f "$SERV_DLL" ]; then
-            echo "::error::Server DLL not found: $SERV_DLL"
-            exit 1
-          fi
-
-      # -----------------------------------------------------------------------
-      # Flutter clean
-      # -----------------------------------------------------------------------
-      - name: Flutter clean
-        working-directory: ${{ env.APP_DIR }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          flutter clean
-          flutter pub get
-
-      # -----------------------------------------------------------------------
-      # Copy native DLLs into Flutter application
-      #
-      # They are copied into the Windows runner output after Flutter build.
-      # -----------------------------------------------------------------------
-      - name: Build Flutter Windows
-        working-directory: ${{ env.APP_DIR }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          flutter build windows --release
-
-      # -----------------------------------------------------------------------
-      # Copy native backend libraries into Flutter bundle
-      # -----------------------------------------------------------------------
-      - name: Bundle Windows Rust libraries
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          RELEASE_DIR="${APP_DIR}/build/windows/x64/runner/Release"
-
-          if [ ! -d "$RELEASE_DIR" ]; then
-            echo "::error::Flutter Windows release directory not found: $RELEASE_DIR"
-            exit 1
-          fi
-
-          cp \
-            "${RDP_DIR}/target/x86_64-pc-windows-msvc/release/portix_rdp.dll" \
-            "$RELEASE_DIR/"
-
-          cp \
-            "${SERV_DIR}/target/x86_64-pc-windows-msvc/release/portix_serv.dll" \
-            "$RELEASE_DIR/"
-
-          echo "Windows release bundle:"
-          ls -la "$RELEASE_DIR"
-
-      # -----------------------------------------------------------------------
-      # Package
-      # -----------------------------------------------------------------------
-      - name: Package Windows
-        shell: pwsh
-        run: |
-          $version = "${{ github.ref_name }}"
-
-          if (-not $version -or $version -eq "main") {
-            $version = "dev"
-          }
-
-          $source = "${{ env.APP_DIR }}/build/windows/x64/runner/Release"
-          $output = "portix-windows-x64-$version.zip"
-
-          Compress-Archive `
-            -Path "$source/*" `
-            -DestinationPath "$output" `
-            -Force
-
-          Write-Host "Created $output"
-
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: portix-windows-x64
-          path: portix-windows-x64-*.zip
-          if-no-files-found: error
-
-  # ===========================================================================
-  # MACOS
-  # ===========================================================================
-  build-macos:
-    name: Build macOS
-    runs-on: macos-14
+    concurrency:
+      group: validate-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Verify Flutter
-        run: |
-          set -euo pipefail
-
-          flutter --version
-          dart --version
+        uses: actions/checkout@v6
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Enable macOS desktop
-        run: |
-          set -euo pipefail
-
-          flutter config --enable-macos-desktop
-          flutter doctor -v
-
-      - name: Install FRB codegen
-        run: |
-          set -euo pipefail
-
-          cargo install \
-            flutter_rust_bridge_codegen \
-            --version "${FRB_VERSION}" \
-            --locked
-
-          flutter_rust_bridge_codegen --version
-
-      - name: Verify FRB config
-        run: |
-          set -euo pipefail
-
-          CONFIG="${APP_DIR}/flutter_rust_bridge.yaml"
-
-          if [ ! -f "$CONFIG" ]; then
-            echo "::error::FRB config not found: $CONFIG"
-            exit 1
-          fi
-
-          echo "Using:"
-          cat "$CONFIG"
-
-      - name: Flutter pub get
-        working-directory: ${{ env.APP_DIR }}
-        run: |
-          set -euo pipefail
-
-          flutter pub get
-
-      - name: Generate Flutter Rust Bridge
-        working-directory: ${{ env.APP_DIR }}
-        run: |
-          set -euo pipefail
-
-          flutter_rust_bridge_codegen generate \
-            --config-file flutter_rust_bridge.yaml
-
-      - name: Verify generated bindings
-        run: |
-          set -euo pipefail
-
-          find "${APP_DIR}/lib/src" -maxdepth 4 -type f | sort || true
-
-      - name: Build RDP backend
-        run: |
-          set -euo pipefail
-
-          cargo build \
-            --release \
-            --manifest-path "${RDP_DIR}/Cargo.toml"
-
-      - name: Build server backend
-        run: |
-          set -euo pipefail
-
-          cargo build \
-            --release \
-            --manifest-path "${SERV_DIR}/Cargo.toml"
-
-      - name: Verify macOS libraries
-        run: |
-          set -euo pipefail
-
-          ls -la "${RDP_DIR}/target/release" || true
-          ls -la "${SERV_DIR}/target/release" || true
-
-      - name: Flutter clean
-        working-directory: ${{ env.APP_DIR }}
-        run: |
-          set -euo pipefail
-
-          flutter clean
-          flutter pub get
-
-      - name: Build Flutter macOS
-        working-directory: ${{ env.APP_DIR }}
-        run: |
-          set -euo pipefail
-
-          flutter build macos --release
-
-      - name: Bundle macOS Rust libraries
-        run: |
-          set -euo pipefail
-
-          APP_BUNDLE=$(find "${APP_DIR}/build/macos/Build/Products/Release" \
-            -maxdepth 1 \
-            -name "*.app" \
-            -print -quit)
-
-          if [ -z "$APP_BUNDLE" ]; then
-            echo "::error::macOS .app bundle not found"
-            exit 1
-          fi
-
-          MACOS_DIR="$APP_BUNDLE/Contents/MacOS"
-
-          cp \
-            "${RDP_DIR}/target/release/libportix_rdp.dylib" \
-            "$MACOS_DIR/" 2>/dev/null || true
-
-          cp \
-            "${SERV_DIR}/target/release/libportix_serv.dylib" \
-            "$MACOS_DIR/" 2>/dev/null || true
-
-          echo "macOS application:"
-          ls -la "$MACOS_DIR"
-
-      - name: Package macOS
-        run: |
-          set -euo pipefail
-
-          VERSION="${GITHUB_REF_NAME:-dev}"
-
-          APP_BUNDLE=$(find "${APP_DIR}/build/macos/Build/Products/Release" \
-            -maxdepth 1 \
-            -name "*.app" \
-            -print -quit)
-
-          if [ -z "$APP_BUNDLE" ]; then
-            echo "::error::macOS .app bundle not found"
-            exit 1
-          fi
-
-          ditto \
-            -c \
-            -k \
-            --sequesterRsrc \
-            --keepParent \
-            "$APP_BUNDLE" \
-            "portix-macos-$VERSION.zip"
-
-      - name: Upload macOS artifact
-        uses: actions/upload-artifact@v4
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          name: portix-macos
-          path: portix-macos-*.zip
-          if-no-files-found: error
+          workspaces: |
+            portix_serv
+            portix_rdp
+          key: pr-check
 
-  # ===========================================================================
-  # LINUX
-  # ===========================================================================
-  build-linux:
-    name: Build Linux
-    runs-on: ubuntu-24.04
+      # ----------------------------------------------------------------------
+      # Validate server
+      # ----------------------------------------------------------------------
+      - name: Check portix_serv
+        working-directory: portix_serv
+        run: cargo check --all-features
+
+      - name: Test portix_serv
+        working-directory: portix_serv
+        run: cargo test --lib --all-features
+
+      # ----------------------------------------------------------------------
+      # Validate RDP
+      # ----------------------------------------------------------------------
+      - name: Check portix_rdp
+        working-directory: portix_rdp
+        run: cargo check --all-features
+
+      - name: Test portix_rdp
+        working-directory: portix_rdp
+        run: cargo test --lib --all-features
+
+  # ==========================================================================
+  # PHASE 1A
+  # BUILD RUST - MACOS
+  #
+  # Builds:
+  #
+  #   portix_serv
+  #   portix_rdp
+  #
+  # independently.
+  # ==========================================================================
+
+  build-rust-macos:
+    name: "Rust Libraries [macOS] @ ${{ github.ref_name }}"
+    runs-on: macos-latest
+
+    if: github.event_name != 'pull_request'
+
+    concurrency:
+      group: build-rust-macos-${{ github.ref_name }}
+      cancel-in-progress: true
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            portix_serv
+            portix_rdp
+          key: macos
+
+      # ----------------------------------------------------------------------
+      # Build server
+      # ----------------------------------------------------------------------
+      - name: Build portix_serv
+        working-directory: ${{ env.SERV_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cargo build \
+            --profile release-hardened
+
+      # ----------------------------------------------------------------------
+      # Build RDP
+      # ----------------------------------------------------------------------
+      - name: Build portix_rdp
+        working-directory: ${{ env.RDP_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cargo build \
+            --profile release-hardened
+
+      # ----------------------------------------------------------------------
+      # Verify server library
+      # ----------------------------------------------------------------------
+      - name: Verify portix_serv macOS library
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILE=$(find "${SERV_DIR}/target" \
+            -type f \
+            -name "libportix_serv.dylib" |
+            head -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "ERROR: libportix_serv.dylib not found"
+            exit 1
+          fi
+
+          echo "Found: $FILE"
+
+          strip -x "$FILE" || true
+
+      # ----------------------------------------------------------------------
+      # Verify RDP library
+      # ----------------------------------------------------------------------
+      - name: Verify portix_rdp macOS library
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILE=$(find "${RDP_DIR}/target" \
+            -type f \
+            -name "libportix_rdp.dylib" |
+            head -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "ERROR: libportix_rdp.dylib not found"
+            exit 1
+          fi
+
+          echo "Found: $FILE"
+
+          strip -x "$FILE" || true
+
+      # ----------------------------------------------------------------------
+      # Prepare server artifact
+      # ----------------------------------------------------------------------
+      - name: Prepare macOS server artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf dist-serv
+          mkdir -p dist-serv
+
+          FILE=$(find "${SERV_DIR}/target" \
+            -type f \
+            -name "libportix_serv.dylib" |
+            head -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "ERROR: libportix_serv.dylib not found"
+            exit 1
+          fi
+
+          cp \
+            "$FILE" \
+            "dist-serv/libportix_serv.dylib"
+
+          ls -lah dist-serv/
+
+      # ----------------------------------------------------------------------
+      # Prepare RDP artifact
+      # ----------------------------------------------------------------------
+      - name: Prepare macOS RDP artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf dist-rdp
+          mkdir -p dist-rdp
+
+          FILE=$(find "${RDP_DIR}/target" \
+            -type f \
+            -name "libportix_rdp.dylib" |
+            head -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "ERROR: libportix_rdp.dylib not found"
+            exit 1
+          fi
+
+          cp \
+            "$FILE" \
+            "dist-rdp/libportix_rdp.dylib"
+
+          ls -lah dist-rdp/
+
+      # ----------------------------------------------------------------------
+      # Security scan server
+      # ----------------------------------------------------------------------
+      - name: Trivy scan - macOS server library
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: dist-serv/
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      # ----------------------------------------------------------------------
+      # Security scan RDP
+      # ----------------------------------------------------------------------
+      - name: Trivy scan - macOS RDP library
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: dist-rdp/
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      # ----------------------------------------------------------------------
+      # Upload server
+      # ----------------------------------------------------------------------
+      - name: Upload macOS server library
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-lib
+          path: dist-serv/libportix_serv.dylib
+          if-no-files-found: error
+
+      # ----------------------------------------------------------------------
+      # Upload RDP
+      # ----------------------------------------------------------------------
+      - name: Upload macOS RDP library
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-rdp-lib
+          path: dist-rdp/libportix_rdp.dylib
+          if-no-files-found: error
+
+  # ==========================================================================
+  # PHASE 1B
+  # BUILD RUST - LINUX
+  # ==========================================================================
+
+  build-rust-linux:
+    name: "Rust Libraries [Linux] @ ${{ github.ref_name }}"
+    runs-on: ubuntu-latest
+
+    if: github.event_name != 'pull_request'
+
+    concurrency:
+      group: build-rust-linux-${{ github.ref_name }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            portix_serv
+            portix_rdp
+          key: linux
+
+      # ----------------------------------------------------------------------
+      # Linux dependencies
+      # ----------------------------------------------------------------------
       - name: Install Linux dependencies
         run: |
-          set -euo pipefail
-
           sudo apt-get update
 
           sudo apt-get install -y \
@@ -541,213 +350,1724 @@ jobs:
             pkg-config \
             libgtk-3-dev \
             liblzma-dev \
-            libstdc++-12-dev \
+            libsecret-1-dev \
+            libgcrypt20-dev \
             libssl-dev
 
+      # ----------------------------------------------------------------------
+      # Build server
+      # ----------------------------------------------------------------------
+      - name: Build portix_serv
+        working-directory: ${{ env.SERV_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cargo build \
+            --profile release-hardened
+
+      # ----------------------------------------------------------------------
+      # Build RDP
+      # ----------------------------------------------------------------------
+      - name: Build portix_rdp
+        working-directory: ${{ env.RDP_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cargo build \
+            --profile release-hardened
+
+      # ----------------------------------------------------------------------
+      # Verify server
+      # ----------------------------------------------------------------------
+      - name: Verify portix_serv Linux library
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILE=$(find "${SERV_DIR}/target" \
+            -type f \
+            -name "libportix_serv.so" |
+            head -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "ERROR: libportix_serv.so not found"
+            exit 1
+          fi
+
+          echo "Found: $FILE"
+
+          strip --strip-all "$FILE" || true
+
+      # ----------------------------------------------------------------------
+      # Verify RDP
+      # ----------------------------------------------------------------------
+      - name: Verify portix_rdp Linux library
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILE=$(find "${RDP_DIR}/target" \
+            -type f \
+            -name "libportix_rdp.so" |
+            head -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "ERROR: libportix_rdp.so not found"
+            exit 1
+          fi
+
+          echo "Found: $FILE"
+
+          strip --strip-all "$FILE" || true
+
+      # ----------------------------------------------------------------------
+      # Prepare server
+      # ----------------------------------------------------------------------
+      - name: Prepare Linux server artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf dist-serv
+          mkdir -p dist-serv
+
+          FILE=$(find "${SERV_DIR}/target" \
+            -type f \
+            -name "libportix_serv.so" |
+            head -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "ERROR: libportix_serv.so not found"
+            exit 1
+          fi
+
+          cp \
+            "$FILE" \
+            "dist-serv/libportix_serv.so"
+
+          ls -lah dist-serv/
+
+      # ----------------------------------------------------------------------
+      # Prepare RDP
+      # ----------------------------------------------------------------------
+      - name: Prepare Linux RDP artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf dist-rdp
+          mkdir -p dist-rdp
+
+          FILE=$(find "${RDP_DIR}/target" \
+            -type f \
+            -name "libportix_rdp.so" |
+            head -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "ERROR: libportix_rdp.so not found"
+            exit 1
+          fi
+
+          cp \
+            "$FILE" \
+            "dist-rdp/libportix_rdp.so"
+
+          ls -lah dist-rdp/
+
+      # ----------------------------------------------------------------------
+      # Security scan
+      # ----------------------------------------------------------------------
+      - name: Trivy scan - Linux server library
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: dist-serv/
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      - name: Trivy scan - Linux RDP library
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: dist-rdp/
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      # ----------------------------------------------------------------------
+      # Upload
+      # ----------------------------------------------------------------------
+      - name: Upload Linux server library
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-lib
+          path: dist-serv/libportix_serv.so
+          if-no-files-found: error
+
+      - name: Upload Linux RDP library
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-rdp-lib
+          path: dist-rdp/libportix_rdp.so
+          if-no-files-found: error
+
+  # ==========================================================================
+  # PHASE 1C
+  # BUILD RUST - WINDOWS
+  # ==========================================================================
+
+  build-rust-windows:
+    name: "Rust Libraries [Windows] @ ${{ github.ref_name }}"
+    runs-on: windows-latest
+
+    if: github.event_name != 'pull_request'
+
+    concurrency:
+      group: build-rust-windows-${{ github.ref_name }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            portix_serv
+            portix_rdp
+          key: windows
+
+      # ----------------------------------------------------------------------
+      # Build server
+      # ----------------------------------------------------------------------
+      - name: Build portix_serv
+        working-directory: ${{ env.SERV_DIR }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          cargo build --profile release-hardened
+
+      # ----------------------------------------------------------------------
+      # Build RDP
+      # ----------------------------------------------------------------------
+      - name: Build portix_rdp
+        working-directory: ${{ env.RDP_DIR }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          cargo build --profile release-hardened
+
+      # ----------------------------------------------------------------------
+      # Prepare server
+      # ----------------------------------------------------------------------
+      - name: Prepare Windows server library
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $file = Get-ChildItem `
+            -Path "${{ env.SERV_DIR }}/target" `
+            -Filter "portix_serv.dll" `
+            -File `
+            -Recurse |
+            Select-Object -First 1
+
+          if ($null -eq $file) {
+            Write-Error "Windows server library not found"
+            exit 1
+          }
+
+          Write-Host "Found: $($file.FullName)"
+
+          Remove-Item `
+            -Path "dist-serv" `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+          New-Item `
+            -ItemType Directory `
+            -Path "dist-serv" `
+            -Force |
+            Out-Null
+
+          Copy-Item `
+            -Path $file.FullName `
+            -Destination "dist-serv/portix_serv.dll" `
+            -Force
+
+          Get-ChildItem dist-serv
+
+      # ----------------------------------------------------------------------
+      # Prepare RDP
+      # ----------------------------------------------------------------------
+      - name: Prepare Windows RDP library
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $file = Get-ChildItem `
+            -Path "${{ env.RDP_DIR }}/target" `
+            -Filter "portix_rdp.dll" `
+            -File `
+            -Recurse |
+            Select-Object -First 1
+
+          if ($null -eq $file) {
+            Write-Error "Windows RDP library not found"
+            exit 1
+          }
+
+          Write-Host "Found: $($file.FullName)"
+
+          Remove-Item `
+            -Path "dist-rdp" `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+          New-Item `
+            -ItemType Directory `
+            -Path "dist-rdp" `
+            -Force |
+            Out-Null
+
+          Copy-Item `
+            -Path $file.FullName `
+            -Destination "dist-rdp/portix_rdp.dll" `
+            -Force
+
+          Get-ChildItem dist-rdp
+
+      # ----------------------------------------------------------------------
+      # Security scan
+      # ----------------------------------------------------------------------
+      - name: Trivy scan - Windows server library
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: dist-serv/
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      - name: Trivy scan - Windows RDP library
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: dist-rdp/
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      # ----------------------------------------------------------------------
+      # Upload
+      # ----------------------------------------------------------------------
+      - name: Upload Windows server library
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-lib
+          path: dist-serv/portix_serv.dll
+          if-no-files-found: error
+
+      - name: Upload Windows RDP library
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-rdp-lib
+          path: dist-rdp/portix_rdp.dll
+          if-no-files-found: error
+
+  # ==========================================================================
+  # PHASE 2A
+  # BUILD DESKTOP - MACOS
+  # ==========================================================================
+
+  build-desktop-macos:
+    name: "Desktop [macOS] @ ${{ github.ref_name }}"
+    runs-on: macos-latest
+
+    needs:
+      - build-rust-macos
+
+    if: github.event_name != 'pull_request'
+
+    concurrency:
+      group: build-desktop-macos-${{ github.ref_name }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # ----------------------------------------------------------------------
+      # Download server
+      # ----------------------------------------------------------------------
+      - name: Download macOS server library
+        uses: actions/download-artifact@v7
+        with:
+          name: macos-lib
+          path: portix_serv_lib
+
+      # ----------------------------------------------------------------------
+      # Download RDP
+      # ----------------------------------------------------------------------
+      - name: Download macOS RDP library
+        uses: actions/download-artifact@v7
+        with:
+          name: macos-rdp-lib
+          path: portix_rdp_lib
+
+      - name: Verify native libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SERV="portix_serv_lib/libportix_serv.dylib"
+          RDP="portix_rdp_lib/libportix_rdp.dylib"
+
+          if [ ! -f "$SERV" ]; then
+            echo "ERROR: macOS server library not found"
+            exit 1
+          fi
+
+          if [ ! -f "$RDP" ]; then
+            echo "ERROR: macOS RDP library not found"
+            exit 1
+          fi
+
+          ls -lah "$SERV"
+          ls -lah "$RDP"
+
+      # ----------------------------------------------------------------------
+      # Flutter
+      # ----------------------------------------------------------------------
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Verify Flutter
+      - name: Flutter pub get
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get
+
+      # ----------------------------------------------------------------------
+      # IMPORTANT:
+      # Do NOT regenerate FRB here.
+      #
+      # The existing generated files are intentionally used because the
+      # current project already has a working Flutter/Rust bridge setup.
+      # ----------------------------------------------------------------------
+      - name: Verify Flutter Rust Bridge
+        shell: bash
         run: |
           set -euo pipefail
 
-          flutter --version
-          dart --version
+          python3 <<'PY'
+          import re
+          import sys
+          from pathlib import Path
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+          dart_file = Path(
+              "portix_app/lib/src/rust/frb_generated.dart"
+          )
 
-      - name: Enable Linux desktop
+          rust_file = Path(
+              "portix_serv/src/frb_generated.rs"
+          )
+
+          if not dart_file.exists():
+              print(
+                  f"ERROR: Dart generated file not found: {dart_file}"
+              )
+              sys.exit(1)
+
+          if not rust_file.exists():
+              print(
+                  f"ERROR: Rust generated file not found: {rust_file}"
+              )
+              sys.exit(1)
+
+          dart_text = dart_file.read_text(
+              encoding="utf-8"
+          )
+
+          rust_text = rust_file.read_text(
+              encoding="utf-8"
+          )
+
+          dart_patterns = [
+              r"rustContentHash\s*=>\s*(-?\d+)",
+              r"rustContentHash\s*=\s*(-?\d+)",
+          ]
+
+          rust_patterns = [
+              r"FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH\s*:\s*i32\s*=\s*(-?\d+)",
+              r"FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH\s*=\s*(-?\d+)",
+          ]
+
+          dart_hash = None
+          rust_hash = None
+
+          for pattern in dart_patterns:
+              match = re.search(pattern, dart_text)
+              if match:
+                  dart_hash = match.group(1)
+                  break
+
+          for pattern in rust_patterns:
+              match = re.search(pattern, rust_text)
+              if match:
+                  rust_hash = match.group(1)
+                  break
+
+          print(
+              f"Dart generated file: {dart_file}"
+          )
+
+          print(
+              f"Rust generated file: {rust_file}"
+          )
+
+          print(
+              f"Dart content hash: {dart_hash or ''}"
+          )
+
+          print(
+              f"Rust content hash: {rust_hash or ''}"
+          )
+
+          if dart_hash is None:
+              print(
+                  "ERROR: Could not find Dart Rust Bridge content hash"
+              )
+              sys.exit(1)
+
+          if rust_hash is None:
+              print(
+                  "ERROR: Could not find Rust Rust Bridge content hash"
+              )
+              sys.exit(1)
+
+          if dart_hash != rust_hash:
+              print(
+                  "ERROR: Dart/Rust Bridge content hash mismatch"
+              )
+
+              print(f"Dart: {dart_hash}")
+              print(f"Rust: {rust_hash}")
+
+              sys.exit(1)
+
+          print("Bridge hashes match")
+          PY
+
+      # ----------------------------------------------------------------------
+      # Build Flutter
+      # ----------------------------------------------------------------------
+      - name: Build Flutter macOS
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
         run: |
           set -euo pipefail
 
-          flutter config --enable-linux-desktop
-          flutter doctor -v
+          flutter build macos \
+            --release \
+            --dart-define=PORTIX_BACKEND=rust \
+            --dart-define=RUST_LIBRARY_MODE=production
 
-      - name: Install FRB codegen
+      # ----------------------------------------------------------------------
+      # Bundle both Rust libraries
+      # ----------------------------------------------------------------------
+      - name: Bundle Rust libraries
+        shell: bash
         run: |
           set -euo pipefail
 
-          cargo install \
-            flutter_rust_bridge_codegen \
-            --version "${FRB_VERSION}" \
-            --locked
+          APP_PATH=$(find \
+            "${APP_DIR}/build/macos/Build/Products/Release" \
+            -maxdepth 1 \
+            -name "*.app" \
+            -type d |
+            head -n 1)
 
-          flutter_rust_bridge_codegen --version
-
-      - name: Verify FRB config
-        run: |
-          set -euo pipefail
-
-          CONFIG="${APP_DIR}/flutter_rust_bridge.yaml"
-
-          if [ ! -f "$CONFIG" ]; then
-            echo "::error::FRB config not found: $CONFIG"
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: macOS app bundle not found"
             exit 1
           fi
 
-          echo "Using:"
-          cat "$CONFIG"
+          MACOS_DIR="$APP_PATH/Contents/MacOS"
+
+          cp \
+            "portix_serv_lib/libportix_serv.dylib" \
+            "$MACOS_DIR/"
+
+          cp \
+            "portix_rdp_lib/libportix_rdp.dylib" \
+            "$MACOS_DIR/"
+
+          echo "Bundled libraries:"
+          ls -lah "$MACOS_DIR"
+
+          # Ad-hoc sign both dynamic libraries.
+          codesign \
+            --force \
+            --sign - \
+            "$MACOS_DIR/libportix_serv.dylib"
+
+          codesign \
+            --force \
+            --sign - \
+            "$MACOS_DIR/libportix_rdp.dylib"
+
+          # Re-sign complete application.
+          codesign \
+            --force \
+            --deep \
+            --sign - \
+            "$APP_PATH"
+
+          echo "macOS application signed"
+
+      # ----------------------------------------------------------------------
+      # Package
+      # ----------------------------------------------------------------------
+      - name: Package macOS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PATH=$(find \
+            "${APP_DIR}/build/macos/Build/Products/Release" \
+            -maxdepth 1 \
+            -name "*.app" \
+            -type d |
+            head -n 1)
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: macOS app not found"
+            exit 1
+          fi
+
+          ditto \
+            -c \
+            -k \
+            --sequesterRsrc \
+            --keepParent \
+            "$APP_PATH" \
+            "portix-macos-${{ github.ref_name }}.zip"
+
+          ls -lah \
+            "portix-macos-${{ github.ref_name }}.zip"
+
+      - name: Upload macOS desktop
+        uses: actions/upload-artifact@v7
+        with:
+          name: portix-macos-${{ github.ref_name }}
+          path: portix-macos-${{ github.ref_name }}.zip
+          if-no-files-found: error
+
+  # ==========================================================================
+  # PHASE 2B
+  # BUILD DESKTOP - LINUX
+  # ==========================================================================
+
+  build-desktop-linux:
+    name: "Desktop [Linux] @ ${{ github.ref_name }}"
+    runs-on: ubuntu-latest
+
+    needs:
+      - build-rust-linux
+
+    if: github.event_name != 'pull_request'
+
+    concurrency:
+      group: build-desktop-linux-${{ github.ref_name }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # ----------------------------------------------------------------------
+      # Download server
+      # ----------------------------------------------------------------------
+      - name: Download Linux server library
+        uses: actions/download-artifact@v7
+        with:
+          name: linux-lib
+          path: portix_serv_lib
+
+      # ----------------------------------------------------------------------
+      # Download RDP
+      # ----------------------------------------------------------------------
+      - name: Download Linux RDP library
+        uses: actions/download-artifact@v7
+        with:
+          name: linux-rdp-lib
+          path: portix_rdp_lib
+
+      - name: Verify native libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SERV="portix_serv_lib/libportix_serv.so"
+          RDP="portix_rdp_lib/libportix_rdp.so"
+
+          if [ ! -f "$SERV" ]; then
+            echo "ERROR: Linux server library not found"
+            exit 1
+          fi
+
+          if [ ! -f "$RDP" ]; then
+            echo "ERROR: Linux RDP library not found"
+            exit 1
+          fi
+
+          ls -lah "$SERV"
+          ls -lah "$RDP"
+
+      # ----------------------------------------------------------------------
+      # Flutter
+      # ----------------------------------------------------------------------
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Linux Flutter dependencies
+        run: |
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            clang \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libgtk-3-dev \
+            liblzma-dev \
+            libsecret-1-dev \
+            libgcrypt20-dev \
+            libssl-dev
 
       - name: Flutter pub get
         working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get
+
+      # ----------------------------------------------------------------------
+      # Keep existing FRB validation.
+      # ----------------------------------------------------------------------
+      - name: Verify Flutter Rust Bridge
+        shell: bash
         run: |
           set -euo pipefail
 
-          flutter pub get
+          python3 <<'PY'
+          import re
+          import sys
+          from pathlib import Path
 
-      - name: Generate Flutter Rust Bridge
-        working-directory: ${{ env.APP_DIR }}
-        run: |
-          set -euo pipefail
+          dart_file = Path(
+              "portix_app/lib/src/rust/frb_generated.dart"
+          )
 
-          flutter_rust_bridge_codegen generate \
-            --config-file flutter_rust_bridge.yaml
+          rust_file = Path(
+              "portix_serv/src/frb_generated.rs"
+          )
 
-      - name: Verify generated bindings
-        run: |
-          set -euo pipefail
+          if not dart_file.exists():
+              print(
+                  f"ERROR: Dart generated file not found: {dart_file}"
+              )
+              sys.exit(1)
 
-          find "${APP_DIR}/lib/src" -maxdepth 4 -type f | sort || true
+          if not rust_file.exists():
+              print(
+                  f"ERROR: Rust generated file not found: {rust_file}"
+              )
+              sys.exit(1)
 
-      - name: Build RDP backend
-        run: |
-          set -euo pipefail
+          dart_text = dart_file.read_text(
+              encoding="utf-8"
+          )
 
-          cargo build \
-            --release \
-            --manifest-path "${RDP_DIR}/Cargo.toml"
+          rust_text = rust_file.read_text(
+              encoding="utf-8"
+          )
 
-      - name: Build server backend
-        run: |
-          set -euo pipefail
+          dart_patterns = [
+              r"rustContentHash\s*=>\s*(-?\d+)",
+              r"rustContentHash\s*=\s*(-?\d+)",
+          ]
 
-          cargo build \
-            --release \
-            --manifest-path "${SERV_DIR}/Cargo.toml"
+          rust_patterns = [
+              r"FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH\s*:\s*i32\s*=\s*(-?\d+)",
+              r"FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH\s*=\s*(-?\d+)",
+          ]
 
-      - name: Verify Linux libraries
-        run: |
-          set -euo pipefail
+          dart_hash = None
+          rust_hash = None
 
-          ls -la "${RDP_DIR}/target/release"
-          ls -la "${SERV_DIR}/target/release"
+          for pattern in dart_patterns:
+              match = re.search(pattern, dart_text)
+              if match:
+                  dart_hash = match.group(1)
+                  break
 
-          if [ ! -f "${RDP_DIR}/target/release/libportix_rdp.so" ]; then
-            echo "::error::libportix_rdp.so not found"
-            exit 1
-          fi
+          for pattern in rust_patterns:
+              match = re.search(pattern, rust_text)
+              if match:
+                  rust_hash = match.group(1)
+                  break
 
-          if [ ! -f "${SERV_DIR}/target/release/libportix_serv.so" ]; then
-            echo "::error::libportix_serv.so not found"
-            exit 1
-          fi
+          print(
+              f"Dart generated file: {dart_file}"
+          )
 
-      - name: Flutter clean
-        working-directory: ${{ env.APP_DIR }}
-        run: |
-          set -euo pipefail
+          print(
+              f"Rust generated file: {rust_file}"
+          )
 
-          flutter clean
-          flutter pub get
+          print(
+              f"Dart content hash: {dart_hash or ''}"
+          )
 
+          print(
+              f"Rust content hash: {rust_hash or ''}"
+          )
+
+          if dart_hash is None:
+              print(
+                  "ERROR: Could not find Dart Rust Bridge content hash"
+              )
+              sys.exit(1)
+
+          if rust_hash is None:
+              print(
+                  "ERROR: Could not find Rust Rust Bridge content hash"
+              )
+              sys.exit(1)
+
+          if dart_hash != rust_hash:
+              print(
+                  "ERROR: Dart/Rust Bridge content hash mismatch"
+              )
+
+              print(f"Dart: {dart_hash}")
+              print(f"Rust: {rust_hash}")
+
+              sys.exit(1)
+
+          print("Bridge hashes match")
+          PY
+
+      # ----------------------------------------------------------------------
+      # Build Flutter
+      # ----------------------------------------------------------------------
       - name: Build Flutter Linux
         working-directory: ${{ env.APP_DIR }}
+        shell: bash
         run: |
           set -euo pipefail
 
-          flutter build linux --release
+          flutter build linux \
+            --release \
+            --dart-define=PORTIX_BACKEND=rust \
+            --dart-define=RUST_LIBRARY_MODE=production
 
-      - name: Bundle Linux Rust libraries
+      # ----------------------------------------------------------------------
+      # Bundle both Rust libraries
+      # ----------------------------------------------------------------------
+      - name: Bundle Rust libraries
+        shell: bash
         run: |
           set -euo pipefail
 
-          RELEASE_DIR="${APP_DIR}/build/linux/x64/release/bundle"
+          BUNDLE_DIR="${APP_DIR}/build/linux/x64/release/bundle"
 
-          if [ ! -d "$RELEASE_DIR" ]; then
-            echo "::error::Linux Flutter bundle not found: $RELEASE_DIR"
+          if [ ! -d "$BUNDLE_DIR" ]; then
+            echo "ERROR: Linux bundle not found"
             exit 1
           fi
 
           cp \
-            "${RDP_DIR}/target/release/libportix_rdp.so" \
-            "$RELEASE_DIR/"
+            "portix_serv_lib/libportix_serv.so" \
+            "$BUNDLE_DIR/"
 
           cp \
-            "${SERV_DIR}/target/release/libportix_serv.so" \
-            "$RELEASE_DIR/"
+            "portix_rdp_lib/libportix_rdp.so" \
+            "$BUNDLE_DIR/"
 
-          echo "Linux bundle:"
-          ls -la "$RELEASE_DIR"
+          chmod +x \
+            "$BUNDLE_DIR/libportix_serv.so"
 
-      - name: Package Linux
+          chmod +x \
+            "$BUNDLE_DIR/libportix_rdp.so"
+
+          echo "Linux Rust libraries bundled"
+
+          ls -lah "$BUNDLE_DIR"
+
+      # ----------------------------------------------------------------------
+      # Bundle Linux runtime dependencies
+      # ----------------------------------------------------------------------
+      - name: Bundle Linux runtime libraries
+        shell: bash
         run: |
           set -euo pipefail
 
-          VERSION="${GITHUB_REF_NAME:-dev}"
+          BUNDLE_DIR="${APP_DIR}/build/linux/x64/release/bundle"
+          BUNDLE_LIB="$BUNDLE_DIR/lib"
+
+          mkdir -p "$BUNDLE_LIB"
+
+          for lib in \
+            libsecret-1.so.0 \
+            libgcrypt.so.20
+          do
+            LIB_PATH=$(
+              ldconfig -p 2>/dev/null |
+              grep "$lib" |
+              head -n 1 |
+              awk '{print $NF}'
+            )
+
+            if [ -n "$LIB_PATH" ] && [ -f "$LIB_PATH" ]; then
+              if [ ! -f "$BUNDLE_LIB/$lib" ]; then
+                cp \
+                  "$LIB_PATH" \
+                  "$BUNDLE_LIB/$lib"
+
+                echo "Bundled $lib"
+              fi
+            fi
+          done
+
+      # ----------------------------------------------------------------------
+      # Package TAR
+      # ----------------------------------------------------------------------
+      - name: Package Linux TAR
+        shell: bash
+        run: |
+          set -euo pipefail
 
           tar \
+            -czf \
+            "portix-linux-${{ github.ref_name }}.tar.gz" \
             -C "${APP_DIR}/build/linux/x64/release" \
-            -czf "portix-linux-x64-${VERSION}.tar.gz" \
             bundle
 
-      - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: portix-linux-x64
-          path: portix-linux-x64-*.tar.gz
-          if-no-files-found: error
+          ls -lah \
+            "portix-linux-${{ github.ref_name }}.tar.gz"
 
-  # ===========================================================================
-  # RELEASE
-  # ===========================================================================
-  release:
-    name: Publish Release
-    needs:
-      - build-windows
-      - build-macos
-      - build-linux
-
-    if: startsWith(github.ref, 'refs/tags/v')
-
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: portix-windows-x64
-          path: release/windows
-
-      - name: Download macOS artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: portix-macos
-          path: release/macos
-
-      - name: Download Linux artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: portix-linux-x64
-          path: release/linux
-
-      - name: Show release files
+      # ----------------------------------------------------------------------
+      # Package DEB
+      # ----------------------------------------------------------------------
+      - name: Package Linux DEB
+        shell: bash
         run: |
           set -euo pipefail
 
-          echo "Release artifacts:"
-          find release -type f -maxdepth 3 -print
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+          if [ -f "packaging/linux/build-deb.sh" ]; then
+            chmod +x \
+              packaging/linux/build-deb.sh
+
+            bash \
+              packaging/linux/build-deb.sh \
+              "$VERSION"
+          else
+            echo "WARNING: packaging/linux/build-deb.sh not found"
+          fi
+
+      - name: Upload Linux desktop
+        uses: actions/upload-artifact@v7
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Portix ${{ github.ref_name }}
-          generate_release_notes: true
+          name: portix-Linux-${{ github.ref_name }}
+          path: |
+            portix-linux-${{ github.ref_name }}.tar.gz
+            *.deb
+          if-no-files-found: warn
+
+  # ==========================================================================
+  # PHASE 2C
+  # BUILD DESKTOP - WINDOWS
+  # ==========================================================================
+
+  build-desktop-windows:
+    name: "Desktop [Windows] @ ${{ github.ref_name }}"
+    runs-on: windows-latest
+
+    needs:
+      - build-rust-windows
+
+    if: github.event_name != 'pull_request'
+
+    concurrency:
+      group: build-desktop-windows-${{ github.ref_name }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # ----------------------------------------------------------------------
+      # Download server
+      # ----------------------------------------------------------------------
+      - name: Download Windows server library
+        uses: actions/download-artifact@v7
+        with:
+          name: windows-lib
+          path: portix_serv_lib
+
+      # ----------------------------------------------------------------------
+      # Download RDP
+      # ----------------------------------------------------------------------
+      - name: Download Windows RDP library
+        uses: actions/download-artifact@v7
+        with:
+          name: windows-rdp-lib
+          path: portix_rdp_lib
+
+      - name: Verify native libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $serv = "portix_serv_lib/portix_serv.dll"
+          $rdp = "portix_rdp_lib/portix_rdp.dll"
+
+          if (-not (Test-Path $serv)) {
+            Write-Error "Windows server library not found: $serv"
+            exit 1
+          }
+
+          if (-not (Test-Path $rdp)) {
+            Write-Error "Windows RDP library not found: $rdp"
+            exit 1
+          }
+
+          Get-Item $serv |
+            Format-List Name, Length
+
+          Get-Item $rdp |
+            Format-List Name, Length
+
+      # ----------------------------------------------------------------------
+      # Flutter
+      # ----------------------------------------------------------------------
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get
+
+      # ----------------------------------------------------------------------
+      # Existing FRB validation.
+      # ----------------------------------------------------------------------
+      - name: Verify Flutter Rust Bridge
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          @'
+          import re
+          import sys
+          from pathlib import Path
+
+          dart_file = Path(
+              "portix_app/lib/src/rust/frb_generated.dart"
+          )
+
+          rust_file = Path(
+              "portix_serv/src/frb_generated.rs"
+          )
+
+          if not dart_file.exists():
+              print(
+                  f"ERROR: Dart generated file not found: {dart_file}"
+              )
+              sys.exit(1)
+
+          if not rust_file.exists():
+              print(
+                  f"ERROR: Rust generated file not found: {rust_file}"
+              )
+              sys.exit(1)
+
+          dart_text = dart_file.read_text(
+              encoding="utf-8"
+          )
+
+          rust_text = rust_file.read_text(
+              encoding="utf-8"
+          )
+
+          dart_patterns = [
+              r"rustContentHash\s*=>\s*(-?\d+)",
+              r"rustContentHash\s*=\s*(-?\d+)",
+          ]
+
+          rust_patterns = [
+              r"FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH\s*:\s*i32\s*=\s*(-?\d+)",
+              r"FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH\s*=\s*(-?\d+)",
+          ]
+
+          dart_hash = None
+          rust_hash = None
+
+          for pattern in dart_patterns:
+              match = re.search(pattern, dart_text)
+
+              if match:
+                  dart_hash = match.group(1)
+                  break
+
+          for pattern in rust_patterns:
+              match = re.search(pattern, rust_text)
+
+              if match:
+                  rust_hash = match.group(1)
+                  break
+
+          print(
+              f"Dart generated file: {dart_file}"
+          )
+
+          print(
+              f"Rust generated file: {rust_file}"
+          )
+
+          print(
+              f"Dart content hash: {dart_hash or ''}"
+          )
+
+          print(
+              f"Rust content hash: {rust_hash or ''}"
+          )
+
+          if dart_hash is None:
+              print(
+                  "ERROR: Could not find Dart Rust Bridge content hash"
+              )
+              sys.exit(1)
+
+          if rust_hash is None:
+              print(
+                  "ERROR: Could not find Rust Rust Bridge content hash"
+              )
+              sys.exit(1)
+
+          if dart_hash != rust_hash:
+              print(
+                  "ERROR: Dart/Rust Bridge content hash mismatch"
+              )
+
+              print(f"Dart: {dart_hash}")
+              print(f"Rust: {rust_hash}")
+
+              sys.exit(1)
+
+          print("Bridge hashes match")
+          '@ | python -
+
+      # ----------------------------------------------------------------------
+      # Build Flutter
+      # ----------------------------------------------------------------------
+      - name: Build Flutter Windows
+        working-directory: ${{ env.APP_DIR }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          flutter build windows `
+            --release `
+            --dart-define=PORTIX_BACKEND=rust `
+            --dart-define=RUST_LIBRARY_MODE=production
+
+      # ----------------------------------------------------------------------
+      # Bundle both Rust DLLs
+      # ----------------------------------------------------------------------
+      - name: Bundle Rust libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $serv = "portix_serv_lib/portix_serv.dll"
+          $rdp = "portix_rdp_lib/portix_rdp.dll"
+
+          $dst = "portix_app/build/windows/x64/runner/Release"
+
+          if (-not (Test-Path $dst)) {
+            Write-Error "Windows release directory not found: $dst"
+            exit 1
+          }
+
+          Copy-Item `
+            -Path $serv `
+            -Destination $dst `
+            -Force
+
+          Copy-Item `
+            -Path $rdp `
+            -Destination $dst `
+            -Force
+
+          Write-Host "Windows Rust libraries bundled"
+
+          Get-ChildItem $dst |
+            Format-Table Name, Length
+
+      # ----------------------------------------------------------------------
+      # Package
+      # ----------------------------------------------------------------------
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $source = `
+            "portix_app/build/windows/x64/runner/Release/*"
+
+          $destination = `
+            "portix-windows-${{ github.ref_name }}.zip"
+
+          Compress-Archive `
+            -Path $source `
+            -DestinationPath $destination `
+            -Force
+
+          Get-Item $destination |
+            Format-List Name, Length
+
+      - name: Upload Windows desktop
+        uses: actions/upload-artifact@v7
+        with:
+          name: portix-Windows-${{ github.ref_name }}
+          path: portix-windows-${{ github.ref_name }}.zip
+          if-no-files-found: error
+
+  # ==========================================================================
+  # PHASE 3
+  # RELEASE DESKTOP
+  # ==========================================================================
+
+  release-desktop:
+    name: "Release Desktop to GitHub"
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - build-desktop-macos
+      - build-desktop-linux
+      - build-desktop-windows
+
+    if: >
+      always()
+      &&
+      startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download available desktop artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: portix-*
+          path: artifacts/
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: List available desktop artifacts
+        shell: bash
+        run: |
+          echo "Available desktop artifacts:"
+
+          if [ -d artifacts ]; then
+            find artifacts \
+              -type f \
+              -print
+          else
+            echo "No desktop artifacts directory"
+          fi
+
+      - name: Check desktop artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          COUNT=0
+
+          if [ -d artifacts ]; then
+            COUNT=$(find artifacts -type f | wc -l)
+          fi
+
+          echo "Desktop artifact count: $COUNT"
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "ERROR: No desktop artifacts were produced"
+            exit 1
+          fi
+
+      - name: Upload Desktop Release
+        uses: softprops/action-gh-release@v3
+        with:
+          prerelease: ${{ env.IS_BETA == 'true' }}
+          make_latest: ${{ env.IS_BETA != 'true' }}
+
+          name: ${{ env.IS_BETA == 'true'
+            && format('Portix {0} (Beta)', github.ref_name)
+            || format('Portix {0}', github.ref_name) }}
+
           files: |
-            release/windows/*
-            release/macos/*
-            release/linux/*
+            artifacts/**/*.zip
+            artifacts/**/*.tar.gz
+            artifacts/**/*.deb
+
+          fail_on_unmatched_files: false
+
+  # ==========================================================================
+  # PHASE 4
+  # RELEASE NATIVE LIBRARIES
+  #
+  # Includes:
+  #
+  #   portix_serv
+  #   portix_rdp
+  #
+  # ==========================================================================
+
+  release-libs:
+    name: "Release Native Libraries"
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - build-rust-macos
+      - build-rust-linux
+      - build-rust-windows
+
+    if: >
+      always()
+      &&
+      startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download available libraries
+        uses: actions/download-artifact@v7
+        with:
+          pattern: "*-lib"
+          path: libs/
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: List available libraries
+        shell: bash
+        run: |
+          echo "Available native libraries:"
+
+          if [ -d libs ]; then
+            find libs \
+              -type f \
+              -print
+          else
+            echo "No libraries directory"
+          fi
+
+      - name: Check available libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          COUNT=0
+
+          if [ -d libs ]; then
+            COUNT=$(find libs -type f | wc -l)
+          fi
+
+          echo "Library artifact count: $COUNT"
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "ERROR: No native libraries were produced"
+            exit 1
+          fi
+
+      - name: Upload Native Libraries
+        uses: softprops/action-gh-release@v3
+        with:
+          prerelease: ${{ env.IS_BETA == 'true' }}
+          make_latest: ${{ env.IS_BETA != 'true' }}
+
+          files: |
+            libs/**/*.so
+            libs/**/*.dll
+            libs/**/*.dylib
+
+          fail_on_unmatched_files: false
+
+  # ==========================================================================
+  # PHASE 5
+  # SNAP
+  # ==========================================================================
+
+  snap:
+    name: "Build Snap"
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - build-desktop-linux
+
+    if: >
+      startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Sync snap version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+
+          SNAPCRAFT_FILE="snap/snapcraft.yaml"
+
+          if [ ! -f "$SNAPCRAFT_FILE" ]; then
+            echo "ERROR: $SNAPCRAFT_FILE not found"
+            exit 1
+          fi
+
+          if grep -qE '^version:' "$SNAPCRAFT_FILE"; then
+            sed -i \
+              "s/^version:.*/version: \"${VERSION}\"/" \
+              "$SNAPCRAFT_FILE"
+          else
+            sed -i \
+              "/^name:/a version: \"${VERSION}\"" \
+              "$SNAPCRAFT_FILE"
+          fi
+
+          grep '^version:' "$SNAPCRAFT_FILE"
+
+      - name: Build Snap
+        id: snap
+        uses: snapcore/action-build@v1
+
+      - name: Upload Snap artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: portix-snap-${{ github.ref_name }}
+          path: ${{ steps.snap.outputs.snap }}
+          if-no-files-found: error
+
+      - name: Publish Snap
+        if: env.IS_BETA != 'true'
+        continue-on-error: true
+        uses: snapcore/action-publish@v1
+        with:
+          snap: ${{ steps.snap.outputs.snap }}
+          release: stable
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_STORE_TOKEN }}
+
+      - name: Upload Snap to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          prerelease: ${{ env.IS_BETA == 'true' }}
+          files: ${{ steps.snap.outputs.snap }}
+
+  # ==========================================================================
+  # PHASE 6
+  # FLATPAK
+  # ==========================================================================
+
+  flatpak:
+    name: "Build Flatpak"
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - build-desktop-linux
+
+    if: >
+      startsWith(github.ref, 'refs/tags/')
+
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:gnome-46
+      options: --privileged
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download Linux bundle
+        uses: actions/download-artifact@v7
+        with:
+          name: portix-Linux-${{ github.ref_name }}
+          path: artifact/
+
+      - name: List Linux artifacts
+        shell: bash
+        run: |
+          find artifact \
+            -type f \
+            -print
+
+      - name: Extract Linux bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ARCHIVE="artifact/portix-linux-${{ github.ref_name }}.tar.gz"
+
+          if [ ! -f "$ARCHIVE" ]; then
+            echo "ERROR: Linux archive not found"
+            exit 1
+          fi
+
+          mkdir -p flatpak/bundle-src
+
+          tar \
+            -xzf "$ARCHIVE" \
+            -C flatpak/bundle-src \
+            --strip-components=1
+
+      - name: Copy Flatpak assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p flatpak/assets
+
+          cp \
+            assets/icons/portix_launcher.png \
+            flatpak/assets/
+
+          cp \
+            flatpak/com.github.asepimam.Portix.desktop \
+            flatpak/assets/
+
+          cp \
+            flatpak/com.github.asepimam.Portix.metainfo.xml \
+            flatpak/assets/
+
+      - name: Validate Flatpak icon
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import struct
+
+          icon = "flatpak/assets/portix_launcher.png"
+
+          with open(icon, "rb") as f:
+              data = f.read(24)
+
+          if len(data) < 24:
+              raise ValueError(
+                  "PNG file is invalid or too small"
+              )
+
+          if data[:8] != b"\x89PNG\r\n\x1a\n":
+              raise ValueError(
+                  "File is not a valid PNG"
+              )
+
+          width, height = struct.unpack(
+              ">II",
+              data[16:24]
+          )
+
+          if width != height:
+              raise ValueError(
+                  f"Icon is {width}x{height}, must be square"
+              )
+
+          print(
+              f"Flatpak icon is valid: {width}x{height}"
+          )
+          PY
+
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: portix-${{ github.ref_name }}.flatpak
+          manifest-path: flatpak/com.github.asepimam.Portix.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+
+      - name: Upload Flatpak artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: portix-flatpak-${{ github.ref_name }}
+          path: portix-${{ github.ref_name }}.flatpak
+          if-no-files-found: error
+
+      - name: Upload Flatpak to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          prerelease: ${{ env.IS_BETA == 'true' }}
+          files: portix-${{ github.ref_name }}.flatpak
+
+  # ==========================================================================
+  # PHASE 7
+  # FLATHUB
+  # ==========================================================================
+
+  publish-flathub:
+    name: "Publish to Flathub"
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - flatpak
+
+    if: >
+      startsWith(github.ref, 'refs/tags/')
+      &&
+      !contains(github.ref_name, '-beta')
+
+    steps:
+      - name: Checkout monorepo
+        uses: actions/checkout@v6
+        with:
+          path: portix
+
+      - name: Checkout Flathub repository
+        uses: actions/checkout@v6
+        with:
+          repository: flathub/com.github.asepimam.Portix
+          token: ${{ secrets.FLATHUB_PAT }}
+          path: flathub-repo
+
+      - name: Download Linux bundle
+        uses: actions/download-artifact@v7
+        with:
+          name: portix-Linux-${{ github.ref_name }}
+          path: artifact/
+
+      - name: Compute release hash and URL
+        id: vars
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+
+          ARCHIVE="artifact/portix-linux-${{ github.ref_name }}.tar.gz"
+
+          if [ ! -f "$ARCHIVE" ]; then
+            echo "ERROR: Linux archive not found"
+            exit 1
+          fi
+
+          SHA256=$(sha256sum "$ARCHIVE" | awk '{print $1}')
+
+          URL="https://github.com/Asepimam/portix/releases/download/${{ github.ref_name }}/portix-linux-${{ github.ref_name }}.tar.gz"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+          echo "Version: $VERSION"
+          echo "SHA256: $SHA256"
+          echo "URL: $URL"
+
+      - name: Update Flathub manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MANIFEST="flathub-repo/com.github.asepimam.Portix.yml"
+
+          if [ ! -f "$MANIFEST" ]; then
+            echo "ERROR: Flathub manifest not found"
+            exit 1
+          fi
+
+          python3 - \
+            "$MANIFEST" \
+            "${{ steps.vars.outputs.url }}" \
+            "${{ steps.vars.outputs.sha256 }}" <<'PY'
+          import re
+          import sys
+
+          manifest_path = sys.argv[1]
+          url = sys.argv[2]
+          sha256 = sys.argv[3]
+
+          with open(
+              manifest_path,
+              "r",
+              encoding="utf-8"
+          ) as f:
+              content = f.read()
+
+          content = re.sub(
+              r"url:\s*.*portix-linux.*\.tar\.gz",
+              f"url: {url}",
+              content
+          )
+
+          content = re.sub(
+              r"(sha256:\s*)[a-fA-F0-9]{64}",
+              rf"\g<1>{sha256}",
+              content
+          )
+
+          with open(
+              manifest_path,
+              "w",
+              encoding="utf-8"
+          ) as f:
+              f.write(content)
+
+          print("Flathub manifest updated")
+          PY
+
+      - name: Commit and push Flathub update
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd flathub-repo
+
+          git config \
+            user.name \
+            "portix-release-bot"
+
+          git config \
+            user.email \
+            "actions@users.noreply.github.com"
+
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          git add \
+            com.github.asepimam.Portix.yml
+
+          git commit \
+            -m "Update to ${{ github.ref_name }}"
+
+          git push origin HEAD
