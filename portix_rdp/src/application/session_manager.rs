@@ -31,17 +31,11 @@ pub struct RdpSessionManager {
 
     global_cancel: CancellationToken,
 
-    /// Counter global untuk frame.
-    ///
-    /// Setiap frame baru mendapatkan ID unik.
     next_frame_id: Arc<AtomicU64>,
 }
 
 impl RdpSessionManager {
     pub fn new() -> Self {
-        // Frame channel: buffer besar agar burst dirty rect di awal koneksi
-        // tidak ter-drop saat Dart subscriber belum ready.
-        // xRDP login screen bisa mengirim 20+ dirty rect sekaligus.
         let (frame_tx, _) = broadcast::channel(8192);
         let (status_tx, _) = broadcast::channel(256);
         let (error_tx, _) = broadcast::channel(128);
@@ -60,9 +54,6 @@ impl RdpSessionManager {
         }
     }
 
-    /// Mendapatkan ID frame baru.
-    ///
-    /// ID dimulai dari 1.
     pub fn next_frame_id(&self) -> u64 {
         self.next_frame_id.fetch_add(1, Ordering::SeqCst) + 1
     }
@@ -101,10 +92,6 @@ impl RdpSessionManager {
 
         let profile_id = profile.id.clone();
 
-        // ==========================================================
-        // CHECK EXISTING SESSION
-        // ==========================================================
-
         {
             let profile_index = self.profile_index.lock().await;
 
@@ -116,19 +103,25 @@ impl RdpSessionManager {
                 let sessions = self.sessions.lock().await;
 
                 if let Some(handle) = sessions.get(&existing_id) {
+                    if !handle.command_tx.is_closed() {
+                        println!(
+                            "[portix_rdp] profile {} already has active session {}, returning existing",
+                            profile_id, existing_id
+                        );
+                        return Ok(handle.info.clone());
+                    }
+
                     println!(
-                        "[portix_rdp] profile {} already has active session {}, returning existing",
+                        "[portix_rdp] profile {} has stale session {}, removing and reconnecting",
                         profile_id, existing_id
                     );
+                    drop(sessions);
 
-                    return Ok(handle.info.clone());
+                    self.sessions.lock().await.remove(&existing_id);
+                    self.profile_index.lock().await.remove(&profile_id);
                 }
             }
         }
-
-        // ==========================================================
-        // CREATE SESSION
-        // ==========================================================
 
         let session_id = Uuid::new_v4().to_string();
 
@@ -147,16 +140,6 @@ impl RdpSessionManager {
             session_id, profile_id
         );
 
-        // ==========================================================
-        // IMPORTANT
-        //
-        // Jangan memberikan "frame id" yang sama untuk seluruh
-        // lifetime runtime.
-        //
-        // Runtime harus meminta ID baru setiap kali menghasilkan
-        // frame.
-        // ==========================================================
-
         let runtime = RdpRuntime::new(
             profile,
             session_id.clone(),
@@ -165,10 +148,6 @@ impl RdpSessionManager {
             self.error_tx.clone(),
             Arc::clone(&self.next_frame_id),
         );
-
-        // ==========================================================
-        // CLONES FOR TASK
-        // ==========================================================
 
         let sessions = Arc::clone(&self.sessions);
 
@@ -190,10 +169,6 @@ impl RdpSessionManager {
             "[portix_rdp] spawning runtime for session {} profile={}",
             session_id, profile_id,
         );
-
-        // ==========================================================
-        // RUNTIME TASK
-        // ==========================================================
 
         tokio::spawn(async move {
             let result = tokio::select! {
@@ -220,10 +195,6 @@ impl RdpSessionManager {
                     Ok(())
                 }
             };
-
-            // ======================================================
-            // RUNTIME RESULT
-            // ======================================================
 
             match result {
                 Ok(()) => {
@@ -265,10 +236,6 @@ impl RdpSessionManager {
                 }
             }
 
-            // ======================================================
-            // CLEANUP
-            // ======================================================
-
             sessions.lock().await.remove(&session_id_task);
 
             profile_index.lock().await.remove(&profile_id_task);
@@ -278,10 +245,6 @@ impl RdpSessionManager {
                 session_id_task, profile_id_task
             );
         });
-
-        // ==========================================================
-        // REGISTER SESSION
-        // ==========================================================
 
         self.sessions.lock().await.insert(
             session_id.clone(),
@@ -299,10 +262,6 @@ impl RdpSessionManager {
 
         Ok(info)
     }
-
-    // ==============================================================
-    // DISCONNECT
-    // ==============================================================
 
     pub async fn disconnect(&self, session_id: String) -> Result<()> {
         let handle = {
@@ -335,10 +294,6 @@ impl RdpSessionManager {
         Ok(())
     }
 
-    // ==============================================================
-    // DISCONNECT ALL
-    // ==============================================================
-
     pub async fn disconnect_all(&self) {
         let handles: Vec<(String, SessionHandle)> = {
             let mut sessions = self.sessions.lock().await;
@@ -357,10 +312,6 @@ impl RdpSessionManager {
         self.profile_index.lock().await.clear();
     }
 
-    // ==============================================================
-    // MOUSE MOVE
-    // ==============================================================
-
     pub async fn send_mouse_move(&self, session_id: String, x: u16, y: u16) -> Result<()> {
         let sessions = self.sessions.lock().await;
 
@@ -374,10 +325,6 @@ impl RdpSessionManager {
 
         Ok(())
     }
-
-    // ==============================================================
-    // MOUSE BUTTON
-    // ==============================================================
 
     pub async fn send_mouse_button(
         &self,
@@ -399,10 +346,6 @@ impl RdpSessionManager {
 
         Ok(())
     }
-
-    // ==============================================================
-    // MOUSE WHEEL
-    // ==============================================================
 
     pub async fn send_mouse_wheel(
         &self,
@@ -430,10 +373,6 @@ impl RdpSessionManager {
         Ok(())
     }
 
-    // ==============================================================
-    // KEYBOARD
-    // ==============================================================
-
     pub async fn send_keyboard_input(
         &self,
         session_id: String,
@@ -453,33 +392,17 @@ impl RdpSessionManager {
         Ok(())
     }
 
-    // ==============================================================
-    // FRAME STREAM
-    // ==============================================================
-
     pub fn frame_stream(&self) -> broadcast::Receiver<RdpFrameEvent> {
         self.frame_tx.subscribe()
     }
-
-    // ==============================================================
-    // STATUS STREAM
-    // ==============================================================
 
     pub fn status_stream(&self) -> broadcast::Receiver<RdpStatusEvent> {
         self.status_tx.subscribe()
     }
 
-    // ==============================================================
-    // ERROR STREAM
-    // ==============================================================
-
     pub fn error_stream(&self) -> broadcast::Receiver<RdpErrorEvent> {
         self.error_tx.subscribe()
     }
-
-    // ==============================================================
-    // ERROR STREAM SENDER
-    // ==============================================================
 
     pub fn error_stream_sender(&self) -> broadcast::Sender<RdpErrorEvent> {
         self.error_tx.clone()

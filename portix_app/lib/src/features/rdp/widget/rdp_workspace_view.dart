@@ -68,10 +68,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
           );
         }
 
-        // ============================================================
-        // EDIT / FORM VIEW
-        // ============================================================
-
         if (state.activeView == RdpView.form && state.editingProfile != null) {
           return _RdpEditView(
             profile: state.editingProfile!,
@@ -87,10 +83,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
           );
         }
 
-        // ============================================================
-        // GALLERY VIEW
-        // ============================================================
-
         final profiles = state.filteredProfiles;
         final selectedProfile = state.selectedProfile;
 
@@ -99,9 +91,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ========================================================
-              // HEADER
-              // ========================================================
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -147,9 +136,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
 
               const SizedBox(height: 16),
 
-              // ========================================================
-              // PROFILE GRID
-              // ========================================================
               Expanded(
                 child: profiles.isEmpty
                     ? _EmptyProfiles()
@@ -171,9 +157,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
                                       SliverGridDelegateWithFixedCrossAxisCount(
                                         crossAxisCount: crossAxisCount,
 
-                                        // IMPORTANT:
-                                        // Jangan gunakan childAspectRatio tinggi.
-                                        // Profile card sekarang fixed-height.
                                         mainAxisExtent: 68,
 
                                         mainAxisSpacing: 6,
@@ -210,10 +193,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     );
   }
 
-  // ================================================================
-  // NEW PROFILE
-  // ================================================================
-
   Future<void> _openNewProfileDialog(BuildContext context) async {
     final profile = await RdpManualFormDialog.show(context);
 
@@ -233,10 +212,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     );
   }
 
-  // ================================================================
-  // IMPORT .RDP
-  // ================================================================
-
   Future<void> _openRdpImportDialog(BuildContext context) async {
     try {
       final profile = await RdpFileImportDialog.pickAndParse();
@@ -250,10 +225,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
       _showError('Failed to import .rdp: $e');
     }
   }
-
-  // ================================================================
-  // CONNECT
-  // ================================================================
 
   Future<void> _connectRdpSession(
     BuildContext context,
@@ -308,10 +279,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
       }
     }
   }
-
-  // ================================================================
-  // CONNECTION OPTIONS
-  // ================================================================
 
   Future<Map<String, Object?>?> _showRdpConnectionDialog(
     BuildContext context,
@@ -407,10 +374,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     return result;
   }
 
-  // ================================================================
-  // PASSWORD
-  // ================================================================
-
   Future<String> _promptPassword(BuildContext context, String username) async {
     final controller = TextEditingController();
 
@@ -454,10 +417,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
 
     return password ?? '';
   }
-
-  // ================================================================
-  // BACKEND CONNECT
-  // ================================================================
 
   Future<String> _connectToRdp({
     required RdpProfile profile,
@@ -540,14 +499,8 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     );
   }
 
-  void _scheduleSessionCleanup(String profileId) {
-    // Backend menangani lifecycle session.
-  }
+  void _scheduleSessionCleanup(String profileId) {}
 }
-
-// ====================================================================
-// EDIT PROFILE VIEW
-// ====================================================================
 
 class _RdpEditView extends StatefulWidget {
   const _RdpEditView({required this.profile, required this.onCancel});
@@ -570,6 +523,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
   late final TextEditingController _shellController;
   late final TextEditingController _passwordController;
   late final TextEditingController _localSharePathController;
+  late final TextEditingController _localShareNameController;
 
   late bool _fullScreen;
   late bool _redirectDrives;
@@ -608,6 +562,12 @@ class _RdpEditViewState extends State<_RdpEditView> {
           : RdpProfile.defaultLocalSharePath,
     );
 
+    _localShareNameController = TextEditingController(
+      text: p.localShareName.isNotEmpty
+          ? p.localShareName
+          : RdpProfile.defaultLocalShareName,
+    );
+
     _fullScreen = p.fullScreen;
     _redirectDrives = p.redirectDrives;
     _redirectClipboard = p.redirectClipboard;
@@ -626,6 +586,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
     _shellController.dispose();
     _passwordController.dispose();
     _localSharePathController.dispose();
+    _localShareNameController.dispose();
 
     super.dispose();
   }
@@ -637,9 +598,6 @@ class _RdpEditViewState extends State<_RdpEditView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ==========================================================
-          // HEADER
-          // ==========================================================
           Row(
             children: [
               IconButton(
@@ -678,9 +636,6 @@ class _RdpEditViewState extends State<_RdpEditView> {
 
           const SizedBox(height: 20),
 
-          // ==========================================================
-          // FORM
-          // ==========================================================
           Expanded(
             child: SingleChildScrollView(
               child: Center(
@@ -824,22 +779,31 @@ class _RdpEditViewState extends State<_RdpEditView> {
                             });
                           },
                           title: const Text('Drive / File Sharing'),
-                          subtitle: const Text(
-                            'Share a local folder as PORTIX in the remote session.',
+                          subtitle: Text(
+                            _redirectDrives
+                                ? 'Shared as \\\\tsclient\\${_localShareNameController.text.trim().isEmpty ? RdpProfile.defaultLocalShareName : _localShareNameController.text.trim()} in the remote session.'
+                                : 'Share a local folder in the remote session.',
                           ),
                           contentPadding: EdgeInsets.zero,
                         ),
 
                         if (_redirectDrives) ...[
                           const SizedBox(height: 8),
-                          _field(
-                            controller: _localSharePathController,
-                            label: 'Local Shared Folder',
-                            icon: Icons.folder_shared_outlined,
-                            suffixIcon: IconButton(
-                              tooltip: 'Choose folder',
-                              onPressed: _pickLocalShareFolder,
-                              icon: const Icon(Icons.folder_open_outlined),
+                          _twoColumns(
+                            _field(
+                              controller: _localSharePathController,
+                              label: 'Local Shared Folder',
+                              icon: Icons.folder_shared_outlined,
+                              suffixIcon: IconButton(
+                                tooltip: 'Choose folder',
+                                onPressed: _pickLocalShareFolder,
+                                icon: const Icon(Icons.folder_open_outlined),
+                              ),
+                            ),
+                            _field(
+                              controller: _localShareNameController,
+                              label: 'Share Name (e.g. PORTIX)',
+                              icon: Icons.drive_file_rename_outline,
                             ),
                           ),
                         ],
@@ -978,10 +942,6 @@ class _RdpEditViewState extends State<_RdpEditView> {
         int.tryParse(_heightController.text.trim()) ??
         widget.profile.desktopHeight;
 
-    // ================================================================
-    // VALIDATION
-    // ================================================================
-
     if (name.isEmpty) {
       _error('Profile name is required.');
       return;
@@ -1017,10 +977,6 @@ class _RdpEditViewState extends State<_RdpEditView> {
     });
 
     try {
-      // ==============================================================
-      // BUILD UPDATED PROFILE
-      // ==============================================================
-
       final updatedProfile = widget.profile.copyWith(
         name: name,
         host: host,
@@ -1041,26 +997,14 @@ class _RdpEditViewState extends State<_RdpEditView> {
             ? _localSharePathController.text.trim()
             : null,
         clearLocalSharePath: !_redirectDrives,
+        localShareName: _localShareNameController.text.trim().isEmpty
+            ? RdpProfile.defaultLocalShareName
+            : _localShareNameController.text.trim(),
         enableCredSsp: _enableCredSsp,
         alternateShell: _shellController.text.trim().isEmpty
             ? null
             : _shellController.text.trim(),
       );
-
-      // ==============================================================
-      // SAVE DIRECTLY TO REPOSITORY
-      // ==============================================================
-      //
-      // Kita sengaja save langsung di sini supaya:
-      //
-      // Edit -> UPDATE
-      //
-      // bukan:
-      //
-      // Edit -> create profile baru
-      //
-      // ID profile lama tetap dipertahankan.
-      // ==============================================================
 
       final result = await sl<RdpProfileRepository>().saveProfile(
         updatedProfile,
@@ -1077,7 +1021,6 @@ class _RdpEditViewState extends State<_RdpEditView> {
           _error(failure.message);
         },
         (_) {
-          // Refresh list dari database.
           context.read<RdpWorkspaceBloc>().add(const RdpProfilesRequested());
 
           setState(() {
@@ -1093,7 +1036,6 @@ class _RdpEditViewState extends State<_RdpEditView> {
         },
       );
 
-      // Setelah save berhasil, kembali ke gallery.
       if (result.isRight) {
         context.read<RdpWorkspaceBloc>().add(
           const RdpProfileSelectionCleared(),
@@ -1133,10 +1075,6 @@ class _RdpEditViewState extends State<_RdpEditView> {
   }
 }
 
-// ====================================================================
-// EMPTY PROFILES
-// ====================================================================
-
 class _EmptyProfiles extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -1173,10 +1111,6 @@ class _EmptyProfiles extends StatelessWidget {
   }
 }
 
-// ====================================================================
-// NO SELECTION
-// ====================================================================
-
 class _NoSelectionPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -1194,10 +1128,6 @@ class _NoSelectionPanel extends StatelessWidget {
     );
   }
 }
-
-// ====================================================================
-// DETAILS PANEL
-// ====================================================================
 
 class _RdpDetailsPanel extends StatelessWidget {
   const _RdpDetailsPanel({required this.profile});
@@ -1261,9 +1191,6 @@ class _RdpDetailsPanel extends StatelessWidget {
 
               const SizedBox(width: 8),
 
-              // ======================================================
-              // EDIT
-              // ======================================================
               OutlinedButton.icon(
                 onPressed: () {
                   context.read<RdpWorkspaceBloc>().add(
@@ -1276,9 +1203,6 @@ class _RdpDetailsPanel extends StatelessWidget {
 
               const SizedBox(width: 8),
 
-              // ======================================================
-              // DELETE
-              // ======================================================
               OutlinedButton.icon(
                 onPressed: () async {
                   final ok = await showDialog<bool>(
@@ -1326,10 +1250,6 @@ class _RdpDetailsPanel extends StatelessWidget {
     );
   }
 }
-
-// ====================================================================
-// DETAIL ROW
-// ====================================================================
 
 class _DetailRow extends StatelessWidget {
   const _DetailRow({required this.label, required this.value});

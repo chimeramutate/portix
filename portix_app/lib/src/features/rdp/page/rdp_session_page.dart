@@ -11,10 +11,13 @@ class RdpSessionPage extends StatefulWidget {
     super.key,
     required this.profile,
     required this.sessionId,
+    this.onClose,
   });
 
   final RdpProfile profile;
   final String sessionId;
+
+  final Future<void> Function()? onClose;
 
   @override
   State<RdpSessionPage> createState() => _RdpSessionPageState();
@@ -23,15 +26,23 @@ class RdpSessionPage extends StatefulWidget {
 class _RdpSessionPageState extends State<RdpSessionPage> {
   bool _isFullScreen = false;
 
-  /// Toolbar overlay visibility (fullscreen mode only)
   bool _showOverlayToolbar = false;
 
   @override
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    // Disconnect session saat halaman di-close
+
     sl<RdpBackendService>().disconnect(widget.sessionId);
     super.dispose();
+  }
+
+  Future<void> _closePage() async {
+    _exitFullScreen();
+    if (widget.onClose != null) {
+      await widget.onClose!();
+    } else if (context.mounted) {
+      Navigator.of(context).maybePop();
+    }
   }
 
   void _enterFullScreen() {
@@ -69,10 +80,7 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
     final text = data?.text;
     if (text == null || text.isEmpty) return;
 
-    await sl<RdpBackendService>().pasteTextAsKeystrokes(
-      widget.sessionId,
-      text,
-    );
+    await sl<RdpBackendService>().pasteTextAsKeystrokes(widget.sessionId, text);
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -94,15 +102,10 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
       sessionId: widget.sessionId,
       desktopWidth: _desktopWidth,
       desktopHeight: _desktopHeight,
-      // Single-tap di fullscreen → tampilkan/sembunyikan toolbar overlay
+
       onSingleTapUp: _isFullScreen ? _toggleOverlayToolbar : null,
       onDoubleTap: _isFullScreen ? _exitFullScreen : null,
-      onDisconnect: () {
-        _exitFullScreen();
-        if (context.mounted) {
-          Navigator.of(context).maybePop();
-        }
-      },
+      onDisconnect: _closePage,
     );
 
     if (_isFullScreen) {
@@ -112,7 +115,7 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
           fit: StackFit.expand,
           children: [
             viewer,
-            // Overlay toolbar — muncul saat user tap sekali
+
             AnimatedPositioned(
               duration: const Duration(milliseconds: 200),
               curve: Curves.easeInOut,
@@ -124,10 +127,7 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
                 resolution: '${_desktopWidth}×$_desktopHeight',
                 onPasteClipboard: _pasteLocalClipboard,
                 onExitFullscreen: _exitFullScreen,
-                onDisconnect: () {
-                  _exitFullScreen();
-                  if (context.mounted) Navigator.of(context).maybePop();
-                },
+                onDisconnect: _closePage,
               ),
             ),
           ],
@@ -146,7 +146,6 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
         foregroundColor: AppColors.text,
         elevation: 1,
         actions: [
-          // Resolusi info
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Center(
@@ -169,7 +168,7 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
           IconButton(
             icon: const Icon(Icons.close),
             tooltip: 'Disconnect',
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: _closePage,
           ),
         ],
       ),
@@ -177,10 +176,6 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
     );
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FULLSCREEN OVERLAY TOOLBAR
-// ─────────────────────────────────────────────────────────────────────────────
 
 class _FullscreenToolbar extends StatelessWidget {
   const _FullscreenToolbar({

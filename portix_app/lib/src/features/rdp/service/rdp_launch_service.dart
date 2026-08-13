@@ -1,14 +1,10 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/domain/entities/rdp/index.dart';
 import 'package:portix/src/domain/repositories/rdp/index.dart';
 
-/// Handles launching an RDP session using IronRDP (ironrdp-client CLI)
-/// or falling back to the OS-native RDP client.
-///
-/// IronRDP CLI: https://github.com/Devolutions/IronRDP
-/// Expected binary name: `ironrdp-client` (must be on PATH or configured path)
 class RdpLaunchService {
   const RdpLaunchService({
     RdpProfileRepository? repository,
@@ -19,17 +15,7 @@ class RdpLaunchService {
   final RdpProfileRepository? _repository;
   final String _ironRdpBinaryPath;
 
-  /// Launch an RDP session for the given profile.
-  ///
-  /// Strategy:
-  /// 1. Try IronRDP CLI if available on PATH.
-  /// 2. Fall back to system RDP client (mstsc on Windows, xfreerdp on Linux,
-  ///    Microsoft Remote Desktop on macOS via open command).
-  ///
-  /// For CyberArk PSM profiles, the original .rdp file is preferred so the
-  /// PSM gateway routing and alternate shell settings are preserved.
   Future<Either<Failure, RdpLaunchResult>> launch(RdpProfile profile) async {
-    // If source .rdp file exists, prefer launching it directly
     if (profile.sourceRdpFilePath != null) {
       final file = File(profile.sourceRdpFilePath!);
       if (await file.exists()) {
@@ -37,7 +23,6 @@ class RdpLaunchService {
       }
     }
 
-    // Export a temporary .rdp file and launch it
     if (_repository != null) {
       final exportResult = await _repository.exportToRdpFile(profile);
       if (exportResult.isRight) {
@@ -46,7 +31,6 @@ class RdpLaunchService {
       }
     }
 
-    // Try direct IronRDP launch via CLI
     return _launchIronRdp(profile);
   }
 
@@ -54,12 +38,11 @@ class RdpLaunchService {
     RdpProfile profile,
     String rdpFilePath,
   ) async {
-    // First try IronRDP with file
     final ironRdpAvailable = await _isIronRdpAvailable();
     if (ironRdpAvailable) {
       return _launchIronRdpWithFile(profile, rdpFilePath);
     }
-    // Fall back to native OS handler for .rdp files
+
     return _openRdpFileWithSystem(rdpFilePath);
   }
 
@@ -87,7 +70,6 @@ class RdpLaunchService {
         ),
       );
     } catch (error) {
-      // IronRDP failed — try native as last resort
       return _launchNativeClient(profile);
     }
   }
@@ -97,8 +79,6 @@ class RdpLaunchService {
     String rdpFilePath,
   ) async {
     try {
-      // ironrdp-client can accept an .rdp file as argument (planned CLI feature)
-      // For now, parse the file and pass params; IronRDP GUI mode opens with file.
       final process = await Process.start(_ironRdpBinaryPath, [
         rdpFilePath,
       ], mode: ProcessStartMode.detached);
@@ -121,12 +101,10 @@ class RdpLaunchService {
     try {
       ProcessResult result;
       if (Platform.isMacOS) {
-        // Opens with Microsoft Remote Desktop or the system default RDP handler
         result = await Process.run('open', [rdpFilePath]);
       } else if (Platform.isWindows) {
         result = await Process.run('mstsc', [rdpFilePath]);
       } else {
-        // Linux
         result = await Process.run('xdg-open', [rdpFilePath]);
       }
 
@@ -175,6 +153,10 @@ class RdpLaunchService {
       '/w:${profile.desktopWidth}',
       '/h:${profile.desktopHeight}',
       if (profile.fullScreen) '/f',
+      if (profile.redirectDrives)
+        '/drive:${profile.effectiveLocalShareName},${_expandLocalSharePath(profile.effectiveLocalSharePath)}',
+      if (profile.redirectClipboard) '/clipboard',
+      if (!profile.enableCredSsp) '/sec-tls',
     ];
     final process = await Process.start(
       'mstsc',
@@ -194,18 +176,28 @@ class RdpLaunchService {
   Future<Either<Failure, RdpLaunchResult>> _launchMacRdp(
     RdpProfile profile,
   ) async {
-    // Try opening Microsoft Remote Desktop app if installed
+    final xfreerdpAvailable = await _isXfreeRdpAvailable();
+    if (xfreerdpAvailable) {
+      return _launchXfreeRdp(profile);
+    }
+
     try {
-      await Process.start('open', [
+      final process = await Process.start('open', [
         '-a',
         'Microsoft Remote Desktop',
         '--args',
         '${profile.host}:${profile.port}',
       ], mode: ProcessStartMode.detached);
+      if (profile.redirectDrives) {
+        debugPrint(
+          '[RDP] WARNING: Microsoft Remote Desktop tidak mendukung '
+          'drive sharing via CLI. Install xfreerdp untuk fitur ini.',
+        );
+      }
       return Right(
         RdpLaunchResult(
           method: RdpLaunchMethod.systemDefault,
-          pid: -1,
+          pid: process.pid,
           host: profile.host,
           port: profile.port,
         ),
@@ -213,46 +205,95 @@ class RdpLaunchService {
     } catch (_) {
       return Left(
         const Failure(
-          'No RDP client found. Install Microsoft Remote Desktop from the App Store, '
-          'or install IronRDP (ironrdp-client) on your PATH.',
+          'Tidak ada RDP client yang mendukung drive sharing di macOS.\n'
+          'Install xfreerdp via Homebrew: brew install freerdp\n'
+          'atau install Microsoft Remote Desktop dari App Store.',
         ),
       );
+    }
+  }
+
+  Future<bool> _isXfreeRdpAvailable() async {
+    try {
+      final result = await Process.run('which', [
+        'xfreerdp',
+      ]).timeout(const Duration(seconds: 3));
+      if (result.exitCode == 0) return true;
+
+      final result3 = await Process.run('which', [
+        'xfreerdp3',
+      ]).timeout(const Duration(seconds: 3));
+      return result3.exitCode == 0;
+    } catch (_) {
+      return false;
     }
   }
 
   Future<Either<Failure, RdpLaunchResult>> _launchXfreeRdp(
     RdpProfile profile,
   ) async {
+    final binary = await _resolveXfreeRdpBinary();
+
     final userArg = profile.domain != null && profile.domain!.isNotEmpty
         ? '${profile.domain}\\${profile.username}'
         : profile.username;
 
+    final localPath = _expandLocalSharePath(profile.effectiveLocalSharePath);
+
+    if (profile.redirectDrives) {
+      try {
+        await Directory(localPath).create(recursive: true);
+      } catch (_) {}
+    }
+
     final args = [
       '/v:${profile.host}:${profile.port}',
       '/u:$userArg',
+      if (profile.password != null && profile.password!.isNotEmpty)
+        '/p:${profile.password}',
       '/w:${profile.desktopWidth}',
       '/h:${profile.desktopHeight}',
       if (profile.fullScreen) '/f',
       if (profile.redirectDrives)
-        '/drive:${profile.effectiveLocalShareName},${_expandLocalSharePath(profile.effectiveLocalSharePath)}',
+        '/drive:${profile.effectiveLocalShareName},$localPath',
       if (profile.redirectClipboard) '+clipboard',
       if (!profile.enableCredSsp) '-sec-nla',
-      '/from-stdin',
+      '/cert:ignore',
     ];
 
-    final process = await Process.start(
-      'xfreerdp',
-      args,
-      mode: ProcessStartMode.detached,
-    );
-    return Right(
-      RdpLaunchResult(
-        method: RdpLaunchMethod.xfreerdp,
-        pid: process.pid,
-        host: profile.host,
-        port: profile.port,
-      ),
-    );
+    try {
+      final process = await Process.start(
+        binary,
+        args,
+        mode: ProcessStartMode.detached,
+      );
+      return Right(
+        RdpLaunchResult(
+          method: RdpLaunchMethod.xfreerdp,
+          pid: process.pid,
+          host: profile.host,
+          port: profile.port,
+        ),
+      );
+    } catch (e) {
+      return Left(Failure('Gagal menjalankan $binary: $e'));
+    }
+  }
+
+  Future<String> _resolveXfreeRdpBinary() async {
+    for (final bin in ['xfreerdp3', 'xfreerdp']) {
+      try {
+        final result = await Process.run('which', [
+          bin,
+        ]).timeout(const Duration(seconds: 3));
+        if (result.exitCode == 0) {
+          return bin;
+        }
+      } catch (_) {
+        continue;
+      }
+    }
+    return 'xfreerdp';
   }
 
   String _expandLocalSharePath(String path) {
@@ -309,10 +350,8 @@ class RdpLaunchService {
   }
 }
 
-/// Describes how an RDP session was launched.
 enum RdpLaunchMethod { ironRdp, mstsc, xfreerdp, systemDefault }
 
-/// Result from a successful RDP launch.
 class RdpLaunchResult {
   const RdpLaunchResult({
     required this.method,

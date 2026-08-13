@@ -4,6 +4,9 @@ use ironrdp_input::{Database, MouseButton, MousePosition, Operation, Scancode, W
 use ironrdp_pdu::Encode;
 use ironrdp_pdu::cursor::WriteCursor;
 use ironrdp_pdu::input::fast_path::FastPathInput;
+use ironrdp_rdpdr::Rdpdr;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+use ironrdp_rdpdr_native::backend::NixRdpdrBackend;
 use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{ActiveStageBuilder, ActiveStageOutput};
 use ironrdp_tokio::reqwest::ReqwestNetworkClient;
@@ -19,6 +22,7 @@ use crate::domain::errors::{RdpError, Result};
 use crate::domain::events::{RdpErrorEvent, RdpFrameEvent, RdpStatusEvent};
 use crate::domain::profile::RdpProfile;
 use crate::domain::session::RdpConnectionStatus;
+use crate::infrastructure::rdpsnd::NoopRdpSnd;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -47,12 +51,8 @@ pub enum RdpCommand {
     Disconnect,
 }
 
-// Flutter sends USB HID usages. IronRDP's Database expects RDP/Set-1
-// scancodes, so convert at this boundary. This is the critical fix for
-// the old D->6 / Q->3 problem caused by interpreting HID values as Set-1.
 fn hid_usage_to_set1(hid: u16) -> Option<u16> {
     Some(match hid {
-        // Letters
         0x04 => 0x1E,
         0x05 => 0x30,
         0x06 => 0x2E,
@@ -80,7 +80,6 @@ fn hid_usage_to_set1(hid: u16) -> Option<u16> {
         0x1C => 0x15,
         0x1D => 0x2C,
 
-        // Number row
         0x1E => 0x02,
         0x1F => 0x03,
         0x20 => 0x04,
@@ -92,26 +91,24 @@ fn hid_usage_to_set1(hid: u16) -> Option<u16> {
         0x26 => 0x0A,
         0x27 => 0x0B,
 
-        // Main keyboard
-        0x28 => 0x1C, // Enter
-        0x29 => 0x01, // Escape
-        0x2A => 0x0E, // Backspace
-        0x2B => 0x0F, // Tab
-        0x2C => 0x39, // Space
-        0x2D => 0x0C, // -
-        0x2E => 0x0D, // =
-        0x2F => 0x1A, // [
-        0x30 => 0x1B, // ]
-        0x31 => 0x2B, // \
-        0x33 => 0x27, // ;
-        0x34 => 0x28, // '
-        0x35 => 0x29, // `
-        0x36 => 0x33, // ,
-        0x37 => 0x34, // .
-        0x38 => 0x35, // /
-        0x39 => 0x3A, // Caps Lock
+        0x28 => 0x1C,
+        0x29 => 0x01,
+        0x2A => 0x0E,
+        0x2B => 0x0F,
+        0x2C => 0x39,
+        0x2D => 0x0C,
+        0x2E => 0x0D,
+        0x2F => 0x1A,
+        0x30 => 0x1B,
+        0x31 => 0x2B,
+        0x33 => 0x27,
+        0x34 => 0x28,
+        0x35 => 0x29,
+        0x36 => 0x33,
+        0x37 => 0x34,
+        0x38 => 0x35,
+        0x39 => 0x3A,
 
-        // Function/navigation
         0x3A => 0x3B,
         0x3B => 0x3C,
         0x3C => 0x3D,
@@ -124,22 +121,21 @@ fn hid_usage_to_set1(hid: u16) -> Option<u16> {
         0x43 => 0x44,
         0x44 => 0x57,
         0x45 => 0x58,
-        0x46 => 0xE037, // Print Screen
-        0x47 => 0x46,   // Scroll Lock
-        0x48 => 0xE045, // Pause
-        0x49 => 0xE052, // Insert
-        0x4A => 0xE047, // Home
-        0x4B => 0xE049, // Page Up
-        0x4C => 0xE053, // Delete
-        0x4D => 0xE04F, // End
-        0x4E => 0xE051, // Page Down
-        0x4F => 0xE04D, // Right
-        0x50 => 0xE04B, // Left
-        0x51 => 0xE050, // Down
-        0x52 => 0xE048, // Up
-        0x53 => 0x45,   // Num Lock
+        0x46 => 0xE037,
+        0x47 => 0x46,
+        0x48 => 0xE045,
+        0x49 => 0xE052,
+        0x4A => 0xE047,
+        0x4B => 0xE049,
+        0x4C => 0xE053,
+        0x4D => 0xE04F,
+        0x4E => 0xE051,
+        0x4F => 0xE04D,
+        0x50 => 0xE04B,
+        0x51 => 0xE050,
+        0x52 => 0xE048,
+        0x53 => 0x45,
 
-        // Keypad
         0x54 => 0xE035,
         0x55 => 0x37,
         0x56 => 0x4A,
@@ -157,7 +153,6 @@ fn hid_usage_to_set1(hid: u16) -> Option<u16> {
         0x62 => 0x52,
         0x63 => 0x53,
 
-        // Modifiers
         0xE0 => 0x1D,
         0xE1 => 0x2A,
         0xE2 => 0x38,
@@ -293,9 +288,9 @@ impl RdpRuntime {
                                 tls_framed.write_all(&frame).await.map_err(RdpError::Io)?;
                             }
                             ActiveStageOutput::GraphicsUpdate(_region) => {
-                                // IronRDP has already applied the dirty rectangle to
-                                // `image`. Only mark the framebuffer dirty here.
-                                // A 33ms tick below publishes one stable snapshot.
+
+
+
                                 frame_dirty = true;
                             }
                             ActiveStageOutput::Terminate(_) => {
@@ -409,8 +404,8 @@ impl RdpRuntime {
         }
 
         println!(
-            "[portix_rdp] try_connect host={} credssp={}",
-            self.profile.host, enable_credssp
+            "[portix_rdp] try_connect host={} credssp={} redirect_drives={}",
+            self.profile.host, enable_credssp, self.profile.redirect_drives
         );
 
         let tcp = timeout(
@@ -440,7 +435,7 @@ impl RdpRuntime {
             credentials,
             domain: self.profile.domain.clone(),
             client_build: 7601,
-            client_name: "Portix-Universal".to_owned(),
+            client_name: "Portix".to_owned(),
             keyboard_type: ironrdp_pdu::gcc::KeyboardType::IbmEnhanced,
             keyboard_subtype: 0,
             keyboard_functional_keys_count: 12,
@@ -448,10 +443,10 @@ impl RdpRuntime {
             ime_file_name: String::new(),
             bitmap: None,
             dig_product_id: String::new(),
-            client_dir: String::new(),
+            client_dir: "C:\\Windows\\System32\\mstscax.dll".to_owned(),
             alternate_shell: self.profile.alternate_shell.clone().unwrap_or_default(),
             work_dir: String::new(),
-            platform: ironrdp_pdu::rdp::capability_sets::MajorPlatformType::UNSPECIFIED,
+            platform: ironrdp_pdu::rdp::capability_sets::MajorPlatformType::WINDOWS,
             hardware_id: None,
             request_data: None,
             autologon: false,
@@ -470,6 +465,46 @@ impl RdpRuntime {
         };
 
         let mut connector = ClientConnector::new(config, client_addr);
+
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        if self.profile.has_local_share() {
+            let share_path = self.profile.local_share_path().unwrap_or("").to_owned();
+            let share_name = self.profile.local_share_name().to_owned();
+
+            if let Err(e) = std::fs::create_dir_all(&share_path) {
+                println!(
+                    "[portix_rdp] WARNING: cannot create share dir '{}': {}",
+                    share_path, e
+                );
+            } else {
+                println!(
+                    "[portix_rdp] drive redirect: sharing '{}' as '{}' (\\\\tsclient\\{})",
+                    share_path, share_name, share_name
+                );
+            }
+
+            let backend = NixRdpdrBackend::new(share_path.clone());
+
+            let computer_name = hostname::get()
+                .ok()
+                .and_then(|h| h.into_string().ok())
+                .unwrap_or_else(|| "Portix".to_owned());
+
+            let rdpdr = Rdpdr::new(Box::new(backend), computer_name.clone())
+                .with_drives(Some(vec![(1u32, share_name.clone())]));
+
+            println!(
+                "[portix_rdp] attaching rdpdr channel (computer_name='{}', drive='{}')",
+                computer_name, share_name
+            );
+
+            connector.attach_static_channel(rdpdr);
+
+            connector.attach_static_channel(NoopRdpSnd::default());
+
+            println!("[portix_rdp] attaching rdpsnd companion channel");
+        }
+
         let mut framed = TokioFramed::new(tcp);
 
         let should_upgrade = timeout(CONNECT_TIMEOUT, connect_begin(&mut framed, &mut connector))
@@ -564,8 +599,6 @@ impl RdpRuntime {
             return;
         }
 
-        // The event is a complete framebuffer. Flutter no longer has to guess
-        // whether it has received enough dirty rectangles to paint the screen.
         let mut data = vec![0u8; row_bytes * height];
 
         for row in 0..height {
@@ -576,7 +609,6 @@ impl RdpRuntime {
             data[dst_start..dst_end].copy_from_slice(&source[src_start..src_end]);
         }
 
-        // DecodedImage is RGBA32. Force alpha opaque for Flutter.
         for pixel in data.chunks_exact_mut(4) {
             pixel[3] = 0xFF;
         }

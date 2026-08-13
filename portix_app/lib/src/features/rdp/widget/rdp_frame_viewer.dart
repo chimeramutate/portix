@@ -36,37 +36,24 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
   StreamSubscription<RdpStatusEvent>? _statusSub;
   StreamSubscription<RdpErrorEvent>? _errorSub;
 
-  // ── Framebuffer ──────────────────────────────────────────────────
   late Uint8List _framebuffer;
   int get _fbWidth => widget.desktopWidth;
   int get _fbHeight => widget.desktopHeight;
   int get _rowBytes => _fbWidth * 4;
 
-  // ── Display ──────────────────────────────────────────────────────
   ui.Image? _image;
 
-  // ── Decode pipeline ──────────────────────────────────────────────
-  // Debounce: tunda decode selama 50ms setelah blit terakhir.
-  // Ini memastikan burst frame awal (login screen ~44 frame) sudah
-  // selesai semua sebelum decode dimulai, sehingga hasil decode
-  // mencerminkan keseluruhan framebuffer yang sudah penuh.
-  static const _kInitialRenderDelay = Duration(milliseconds: 120);
   static const _kRenderInterval = Duration(milliseconds: 33);
   Timer? _decodeDebounce;
   bool _isDecoding = false;
   int _blitGeneration = 0;
 
-  // ── UI state ─────────────────────────────────────────────────────
   String? _statusMessage;
   bool _isDisconnected = false;
 
   final FocusNode _focusNode = FocusNode();
   int _currentMouseButton = 0;
   final Set<int> _pressedHidUsages = <int>{};
-
-  // ================================================================
-  // INIT
-  // ================================================================
 
   @override
   void initState() {
@@ -123,24 +110,25 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
     }
   }
 
-  // ================================================================
-  // DECODE — frame pertama langsung, update berikutnya di-debounce
-  // ================================================================
-
   void _requestDecode() {
     if (_isDisconnected || !mounted) return;
 
-    final delay = _image == null ? _kInitialRenderDelay : _kRenderInterval;
+    if (_image == null && !_isDecoding) {
+      _decodeDebounce?.cancel();
+      _runDecode();
+      return;
+    }
 
-    _decodeDebounce?.cancel();
-    _decodeDebounce = Timer(delay, _runDecode);
+    if (_decodeDebounce?.isActive ?? false) return;
+    _decodeDebounce = Timer(_kRenderInterval, _runDecode);
   }
 
   void _runDecode() {
     if (_isDecoding || _isDisconnected || !mounted) return;
     _isDecoding = true;
     final capturedGen = _blitGeneration;
-    final snapshot = _framebuffer;
+
+    final snapshot = Uint8List.fromList(_framebuffer);
     _decodeAndDisplay(snapshot, capturedGen);
   }
 
@@ -230,10 +218,6 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
     _blitGeneration++;
   }
 
-  // ================================================================
-  // FRAME EVENT
-  // ================================================================
-
   void _onCompleteFrame(RdpFrameEvent frame) {
     if (_isDisconnected) return;
 
@@ -257,8 +241,6 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
         height == _fbHeight;
 
     if (isCompleteFrame) {
-      // Runtime mengirim snapshot lengkap setiap tick. Ganti buffer langsung
-      // supaya tidak ada copy 4 MB tambahan di sisi Dart.
       _framebuffer = frame.data;
       _blitGeneration++;
     } else {
@@ -267,10 +249,6 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
 
     _requestDecode();
   }
-
-  // ================================================================
-  // STATUS / ERROR
-  // ================================================================
 
   void _onStatus(RdpStatusEvent event) {
     debugPrint(
@@ -306,10 +284,6 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
     _handleDisconnect();
   }
 
-  // ================================================================
-  // DISCONNECT
-  // ================================================================
-
   void _handleDisconnect() {
     if (_isDisconnected) return;
     _isDisconnected = true;
@@ -325,10 +299,6 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
       widget.onDisconnect?.call();
     });
   }
-
-  // ================================================================
-  // MOUSE / KEYBOARD
-  // ================================================================
 
   (int, int) _toDesktopCoords(Offset pos, Size size) {
     if (size.width <= 0 || size.height <= 0) return (0, 0);
@@ -449,6 +419,7 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
     }
   }
 
+  @override
   void dispose() {
     debugPrint('[RDP VIEWER] dispose session=${widget.sessionId}');
 
@@ -460,19 +431,12 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
     _errorSub?.cancel();
     _releasePressedKeys();
 
-    // JANGAN disconnect di sini — lifecycle session dikelola oleh
-    // RdpSessionPage/Bloc. dispose() hanya cleanup widget resources.
-
     _image?.dispose();
     _image = null;
     _focusNode.dispose();
 
     super.dispose();
   }
-
-  // ================================================================
-  // BUILD
-  // ================================================================
 
   @override
   Widget build(BuildContext context) {
