@@ -19,16 +19,6 @@ class RdpBackendService {
   final Map<String, String> _activeSessions = {};
   final Map<String, String> _sessionToProfile = {};
 
-  // ──────────────────────────────────────────────────────────────────────
-  // PERSISTENT BROADCAST STREAMS
-  //
-  // StreamController.broadcast() tidak pernah close dan tidak bergantung
-  // pada jumlah listener. Subscriber Rust dibuat sekali saat init dan
-  // me-forward semua event ke controller ini.
-  //
-  // Viewer dan internal listener cukup listen ke _frame/status/errorCtrl
-  // tanpa pernah menyentuh Rust API secara langsung.
-  // ──────────────────────────────────────────────────────────────────────
   final _frameCtrl = StreamController<RdpFrameEvent>.broadcast();
   final _statusCtrl = StreamController<RdpStatusEvent>.broadcast();
   final _errorCtrl = StreamController<RdpErrorEvent>.broadcast();
@@ -38,14 +28,12 @@ class RdpBackendService {
   StreamSubscription<RdpErrorEvent>? _errorSub;
 
   void _initPersistentStreams() {
-    // Subscribe ke Rust SEKALI — event di-forward ke controller broadcast
     _frameSub = rdp_api.rdpFrameStream().listen(
       _frameCtrl.add,
       onError: _frameCtrl.addError,
     );
 
     _statusSub = rdp_api.rdpStatusStream().listen((event) {
-      // Update session map
       switch (event.status) {
         case RdpConnectionStatus.connected:
           break;
@@ -73,7 +61,6 @@ class RdpBackendService {
     }, onError: _errorCtrl.addError);
   }
 
-  // Stream publik — viewer dan internal listener pakai ini
   Stream<RdpFrameEvent> frameStream() => _frameCtrl.stream;
   Stream<RdpStatusEvent> statusStream() => _statusCtrl.stream;
   Stream<RdpErrorEvent> errorStream() => _errorCtrl.stream;
@@ -169,7 +156,8 @@ class RdpBackendService {
       final existingSessionId = _activeSessions[profile.id];
       if (existingSessionId != null) {
         debugPrint(
-          '[RDP] Dart-side: profile ${profile.id} already has session $existingSessionId',
+          '[RDP] Dart-side: profile ${profile.id} already has session '
+          '$existingSessionId — returning existing',
         );
         return Right(
           RdpConnectionResult(
@@ -185,7 +173,38 @@ class RdpBackendService {
       if (rustProfile.redirectDrives && rustProfile.localSharePath != null) {
         await Directory(rustProfile.localSharePath!).create(recursive: true);
       }
-      final sessionInfo = await rdp_api.rdpConnect(profile: rustProfile);
+
+      RdpSessionInfo? sessionInfo;
+      String? lastError;
+
+      for (var attempt = 0; attempt < 3; attempt++) {
+        try {
+          sessionInfo = await rdp_api.rdpConnect(profile: rustProfile);
+          lastError = null;
+          break;
+        } catch (e) {
+          lastError = e.toString();
+          if (lastError.contains('already has active session')) {
+            debugPrint(
+              '[RDP] connect attempt ${attempt + 1}: session still alive in '
+              'Rust, waiting 600ms for cleanup…',
+            );
+            await Future<void>.delayed(const Duration(milliseconds: 600));
+          } else {
+            rethrow;
+          }
+        }
+      }
+
+      if (sessionInfo == null) {
+        return Left(
+          Failure(
+            lastError ??
+                'Failed to connect: session still active. '
+                    'Please wait a moment and try again.',
+          ),
+        );
+      }
 
       _activeSessions[profile.id] = sessionInfo.id;
       _sessionToProfile[sessionInfo.id] = profile.id;
@@ -199,12 +218,6 @@ class RdpBackendService {
         ),
       );
     } catch (e) {
-      final errorMsg = e.toString();
-      if (errorMsg.contains('already has active session')) {
-        debugPrint('[RDP] Recovering from duplicate session error');
-        return Left(Failure('Session already active. Please try again.'));
-      }
-
       return Left(Failure('Gagal connect ke RDP server: $e'));
     }
   }
@@ -411,7 +424,6 @@ extension on RdpProfile {
 
       enableCredSsp: enableCredSsp,
 
-      // RDP device redirection
       redirectDrives: redirectDrives,
       redirectClipboard: redirectClipboard,
 

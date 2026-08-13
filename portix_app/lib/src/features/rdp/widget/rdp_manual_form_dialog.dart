@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:portix/src/domain/entities/rdp/index.dart';
 import 'package:uuid/uuid.dart';
 
-/// Dialog untuk membuat RDP profile secara manual (tanpa file .rdp).
 class RdpManualFormDialog extends StatefulWidget {
   const RdpManualFormDialog({super.key, this.initialProfile});
 
@@ -13,7 +12,6 @@ class RdpManualFormDialog extends StatefulWidget {
   @override
   State<RdpManualFormDialog> createState() => _RdpManualFormDialogState();
 
-  /// Show dialog dan return [RdpProfile] jika user confirm.
   static Future<RdpProfile?> show(
     BuildContext context, {
     RdpProfile? initialProfile,
@@ -37,6 +35,9 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
   final _heightController = TextEditingController(text: '800');
   final _localSharePathController = TextEditingController(
     text: RdpProfile.defaultLocalSharePath,
+  );
+  final _localShareNameController = TextEditingController(
+    text: RdpProfile.defaultLocalShareName,
   );
 
   bool _fullScreen = false;
@@ -63,6 +64,7 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
     _widthController.dispose();
     _heightController.dispose();
     _localSharePathController.dispose();
+    _localShareNameController.dispose();
     super.dispose();
   }
 
@@ -78,6 +80,9 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
     _localSharePathController.text = profile.localSharePath?.isNotEmpty == true
         ? profile.localSharePath!
         : RdpProfile.defaultLocalSharePath;
+    _localShareNameController.text = profile.localShareName.isNotEmpty == true
+        ? profile.localShareName
+        : RdpProfile.defaultLocalShareName;
     _fullScreen = profile.fullScreen;
     _redirectDrives = profile.redirectDrives;
     _redirectClipboard = profile.redirectClipboard;
@@ -97,7 +102,6 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Nama
                 TextFormField(
                   controller: _nameController,
                   decoration: const InputDecoration(
@@ -115,7 +119,6 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
 
                 const SizedBox(height: 16),
 
-                // Host
                 TextFormField(
                   controller: _hostController,
                   decoration: const InputDecoration(
@@ -133,7 +136,6 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
 
                 const SizedBox(height: 16),
 
-                // Port
                 TextFormField(
                   controller: _portController,
                   decoration: const InputDecoration(
@@ -157,7 +159,6 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
 
                 const SizedBox(height: 16),
 
-                // Username
                 TextFormField(
                   controller: _usernameController,
                   decoration: const InputDecoration(
@@ -175,7 +176,6 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
 
                 const SizedBox(height: 16),
 
-                // Password
                 TextFormField(
                   controller: _passwordController,
                   decoration: const InputDecoration(
@@ -188,7 +188,6 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
 
                 const SizedBox(height: 16),
 
-                // Domain
                 TextFormField(
                   controller: _domainController,
                   decoration: const InputDecoration(
@@ -200,7 +199,6 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
 
                 const SizedBox(height: 16),
 
-                // Resolution
                 Row(
                   children: [
                     Expanded(
@@ -235,7 +233,6 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
 
                 const SizedBox(height: 16),
 
-                // Checkboxes
                 CheckboxListTile(
                   value: _fullScreen,
                   onChanged: (value) =>
@@ -280,6 +277,30 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
                       if (!_redirectDrives) return null;
                       if (value == null || value.trim().isEmpty) {
                         return 'Folder lokal harus diisi jika Redirect Drives aktif';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _localShareNameController,
+                    decoration: InputDecoration(
+                      labelText: 'Share name (tampil di Windows)',
+                      hintText: RdpProfile.defaultLocalShareName,
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.drive_file_rename_outline),
+                      helperText:
+                          'Akses dari Windows: \\\\tsclient\\${_localShareNameController.text.trim().isEmpty ? RdpProfile.defaultLocalShareName : _localShareNameController.text.trim()}',
+                    ),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'[A-Za-z0-9_\-]'),
+                      ),
+                    ],
+                    validator: (value) {
+                      if (!_redirectDrives) return null;
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Share name harus diisi';
                       }
                       return null;
                     },
@@ -352,6 +373,9 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
       localSharePath: _redirectDrives
           ? _localSharePathController.text.trim()
           : null,
+      localShareName: _localShareNameController.text.trim().isEmpty
+          ? RdpProfile.defaultLocalShareName
+          : _localShareNameController.text.trim(),
       alternateShell: '',
       enableCredSsp: _enableCredSsp,
     );

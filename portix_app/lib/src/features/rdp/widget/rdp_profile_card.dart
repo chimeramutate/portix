@@ -35,12 +35,10 @@ class RdpProfileCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // Icon
             _RdpIcon(color: accent, isCyberArk: profile.isCyberArkPsm),
 
             const SizedBox(width: 9),
 
-            // Name + address
             Expanded(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -65,7 +63,6 @@ class RdpProfileCard extends StatelessWidget {
 
             const SizedBox(width: 8),
 
-            // Metadata
             Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -96,7 +93,6 @@ class RdpProfileCard extends StatelessWidget {
 
             const SizedBox(width: 7),
 
-            // Status
             _StatusDot(status: profile.status),
           ],
         ),

@@ -1,3 +1,4 @@
+import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 
 import 'package:portix/src/core/di/injection.dart';
@@ -39,6 +40,24 @@ class _RdpSessionWindowState extends State<RdpSessionWindow> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e);
+
+      // Auto-close window after showing the error briefly.
+      await Future<void>.delayed(const Duration(seconds: 3));
+      await _closeThisWindow();
+    }
+  }
+
+  /// Closes this OS-level window via desktop_multi_window.
+  Future<void> _closeThisWindow() async {
+    try {
+      final controller = await WindowController.fromCurrentEngine();
+      await controller.invokeMethod('window_close');
+    } catch (_) {
+      // Fallback: hide the window if close is not available.
+      try {
+        final controller = await WindowController.fromCurrentEngine();
+        await controller.hide();
+      } catch (_) {}
     }
   }
 
@@ -67,6 +86,9 @@ class _RdpSessionWindowState extends State<RdpSessionWindow> {
     return RdpSessionPage(
       sessionId: widget.arguments.sessionId,
       profile: widget.arguments.profile,
+      // In a child window there is no Navigator route to pop.
+      // Close the OS window directly instead.
+      onClose: _closeThisWindow,
     );
   }
 }
