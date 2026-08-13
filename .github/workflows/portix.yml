@@ -1,0 +1,666 @@
+name: Build & Release
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - staging
+      - "release/**"
+    tags:
+      - "v*.*.*"
+      - "v*.*.*-beta*"
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Release channel"
+        required: true
+        default: "beta"
+        type: choice
+        options:
+          - stable
+          - beta
+          - development
+
+permissions:
+  contents: write
+  pull-requests: read
+
+env:
+  # Determine build type based on trigger
+  # - Tags: v*.*.* (stable) or v*.*.*-beta* (beta)
+  # - Branches: main (production), develop (development), staging (pre-release)
+  # - Manual: user-selected via workflow_dispatch
+  IS_BETA: ${{ contains(github.ref_name, '-beta') || (github.event_name == 'workflow_dispatch' && github.event.inputs.channel == 'beta') || (github.event_name == 'push' && github.ref_name != 'main' && !startsWith(github.ref, 'refs/tags/')) }}
+  IS_RELEASE: ${{ startsWith(github.ref, 'refs/tags/') }}
+  IS_MAIN_BRANCH: ${{ github.ref_name == 'main' }}
+  BRANCH_NAME: ${{ github.ref_name }}
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CI TRIGGER MATRIX
+  # ─────────────────────────────────────────────────────────────────────────
+  # On: push tags (refs/tags/v*.*.*)
+  #     └─ Phase 1-4: Full build + release to GitHub
+  #     └─ Phase 5-6: Snap + Flatpak (stable releases only)
+  #
+  # On: push main, develop, staging, release/* branches
+  #     └─ Phase 1-2: Full build (verify changes work)
+  #     └─ Phase 3+: SKIPPED (no release on branch push)
+  #
+  # On: pull_request to main or develop
+  #     └─ Phase 1: Rust compile only (fast verification)
+  #     └─ Phase 2+: SKIPPED (save CI time)
+  #
+  # On: workflow_dispatch (manual trigger)
+  #     └─ User selects channel: stable/beta/development
+  #     └─ Runs full pipeline (build + optional release)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 0: PR Validation (Rust only)
+  # Lightweight check for pull requests: verify code compiles
+  # ═══════════════════════════════════════════════════════════════════════════
+  validate-rust:
+    name: ✓ Validate Rust [PR]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    concurrency:
+      group: validate-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: portix_serv
+          key: pr-check
+
+      - name: Check compilation
+        working-directory: portix_serv
+        run: cargo check --all-features
+
+      - name: Run tests
+        working-directory: portix_serv
+        run: cargo test --lib --all-features
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 1: Compile Rust ONCE for all targets
+  # This is the foundation. Everything else depends on these built libraries.
+  # Runs on: tags (release), main/develop/staging (CI check), PR (verification)
+  # ═══════════════════════════════════════════════════════════════════════════
+  build-rust:
+    name: Rust [${{ matrix.target }}] @ ${{ github.ref_name }}
+    runs-on: ${{ matrix.os }}
+    concurrency:
+      group: build-rust-${{ github.ref_name }}-${{ matrix.target }}
+      cancel-in-progress: true
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ─ Desktop platforms ─────────────────────────────────────────────
+          - target: macos
+            os: macos-latest
+            rust_target: ""
+            lib_name: libportix_serv.dylib
+            output_name: libportix_serv_macos.dylib
+
+          - target: linux
+            os: ubuntu-latest
+            rust_target: ""
+            lib_name: libportix_serv.so
+            output_name: libportix_serv_linux.so
+
+          - target: windows
+            os: windows-latest
+            rust_target: ""
+            lib_name: portix_serv.dll
+            output_name: portix_serv_windows.dll
+
+          # ─ Android platforms ────────────────────────────────────────────
+          - target: android-arm64
+            os: ubuntu-latest
+            rust_target: aarch64-linux-android
+            lib_name: libportix_serv.so
+            output_name: libportix_serv_android_arm64-v8a.so
+            use_cargo_ndk: true
+            ndk_platform: 21
+
+          - target: android-armv7
+            os: ubuntu-latest
+            rust_target: armv7-linux-androideabi
+            lib_name: libportix_serv.so
+            output_name: libportix_serv_android_armeabi-v7a.so
+            use_cargo_ndk: true
+            ndk_platform: 21
+
+          - target: android-x86_64
+            os: ubuntu-latest
+            rust_target: x86_64-linux-android
+            lib_name: libportix_serv.so
+            output_name: libportix_serv_android_x86_64.so
+            use_cargo_ndk: true
+            ndk_platform: 21
+
+          - target: android-x86
+            os: ubuntu-latest
+            rust_target: i686-linux-android
+            lib_name: libportix_serv.so
+            output_name: libportix_serv_android_x86.so
+            use_cargo_ndk: true
+            ndk_platform: 21
+
+          # ─ iOS platforms ────────────────────────────────────────────────
+          - target: ios-device
+            os: macos-latest
+            rust_target: aarch64-apple-ios
+            lib_name: libportix_serv.a
+            output_name: libportix_serv_ios_device.a
+
+          - target: ios-sim-arm64
+            os: macos-latest
+            rust_target: aarch64-apple-ios-sim
+            lib_name: libportix_serv.a
+            output_name: libportix_serv_ios_sim_arm64.a
+
+          - target: ios-sim-x86_64
+            os: macos-latest
+            rust_target: x86_64-apple-ios
+            lib_name: libportix_serv.a
+            output_name: libportix_serv_ios_sim_x86_64.a
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target || 'default' }}
+
+      - name: Cache cargo registry and source
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: portix_serv
+          key: ${{ matrix.target }}
+
+      # ─ Platform-specific setup ───────────────────────────────────────────
+      - name: Install Linux dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libsecret-1-dev
+
+      - name: Setup NDK (Android)
+        if: startsWith(matrix.target, 'android')
+        uses: nsis/setup-ndk@v1
+        with:
+          ndk-version: r26b
+
+      - name: Install cargo-ndk (Android)
+        if: startsWith(matrix.target, 'android')
+        run: cargo install cargo-ndk --locked
+
+      # ─ Compile ───────────────────────────────────────────────────────────
+      - name: Build Rust library
+        working-directory: portix_serv
+        run: |
+          if [[ "${{ matrix.use_cargo_ndk }}" == "true" ]]; then
+            cargo ndk \
+              --target "${{ matrix.rust_target }}" \
+              --platform "${{ matrix.ndk_platform }}" \
+              build --profile release-hardened
+          else
+            cargo build --profile release-hardened \
+              ${{ matrix.rust_target && format('--target {0}', matrix.rust_target) || '' }}
+          fi
+
+      # ─ Post-build: strip & prepare artifact ──────────────────────────────
+      - name: Strip binary (macOS)
+        if: matrix.target == 'macos' || startsWith(matrix.target, 'ios')
+        run: strip -x portix_serv/target/**/release-hardened/${{ matrix.lib_name }} || true
+
+      - name: Strip binary (Linux)
+        if: matrix.target == 'linux' || startsWith(matrix.target, 'android')
+        run: strip --strip-all portix_serv/target/**/release-hardened/${{ matrix.lib_name }} || true
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          find portix_serv/target -name "${{ matrix.lib_name }}" -type f -print0 | \
+            xargs -0 cp -t dist/ --remove-destination 2>/dev/null || \
+            echo "Warning: Could not find ${{ matrix.lib_name }}"
+          ls -lh dist/
+
+      - name: Trivy scan – built artifact
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: dist/
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}-lib
+          path: dist/${{ matrix.lib_name }}
+          if-no-files-found: warn
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 2: Desktop app (macOS, Linux, Windows)
+  # Consumes pre-built Rust libraries from PHASE 1
+  # Runs on: tags (release), main/develop/staging (CI), PR (skip)
+  # ═══════════════════════════════════════════════════════════════════════════
+  build-desktop:
+    name: Desktop [${{ matrix.platform }}] @ ${{ github.ref_name }}
+    runs-on: ${{ matrix.os }}
+    needs: [build-rust]
+    if: github.event_name != 'pull_request' # Skip desktop build for PRs (save CI time)
+    concurrency:
+      group: build-desktop-${{ github.ref_name }}-${{ matrix.platform }}
+      cancel-in-progress: true
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macOS
+            os: macos-latest
+            flutter_target: macos
+            rust_lib_artifact: macos-lib
+            lib_name: libportix_serv.dylib
+            artifact_path: portix_app/build/macos/Build/Products/Release/*.app
+
+          - platform: Linux
+            os: ubuntu-latest
+            flutter_target: linux
+            rust_lib_artifact: linux-lib
+            lib_name: libportix_serv.so
+            artifact_path: portix_app/build/linux/x64/release/bundle
+
+          - platform: Windows
+            os: windows-latest
+            flutter_target: windows
+            rust_lib_artifact: windows-lib
+            lib_name: portix_serv.dll
+            artifact_path: portix_app/build/windows/x64/runner/Release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download Rust library artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ matrix.rust_lib_artifact }}
+          path: portix_serv_lib/
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get Flutter dependencies
+        working-directory: portix_app
+        run: flutter pub get
+
+      # ─ Safety: verify Dart-Rust bridge hash sync ────────────────────────
+      - name: Verify bridge codegen hash
+        shell: bash
+        run: |
+          set -euo pipefail
+          DART_HASH=$(sed -n 's/.*int get rustContentHash => \(-\?[0-9]*\);/\1/p' \
+            portix_app/lib/src/rust/frb_generated.dart)
+          RUST_HASH=$(sed -n 's/.*FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = \(-\?[0-9]*\);/\1/p' \
+            portix_serv/src/frb_generated.rs)
+
+          echo "Dart content hash:  $DART_HASH"
+          echo "Rust content hash:  $RUST_HASH"
+
+          if [ "$DART_HASH" != "$RUST_HASH" ]; then
+            echo "::error::Content hash mismatch! Dart ($DART_HASH) != Rust ($RUST_HASH)"
+            echo "Run flutter_rust_bridge_codegen in portix_app/ to sync."
+            exit 1
+          fi
+          echo "✓ Bridge hashes match"
+
+      - name: Build Flutter app
+        working-directory: portix_app
+        run: |
+          flutter build ${{ matrix.flutter_target }} --release \
+            --dart-define=PORTIX_BACKEND=rust \
+            --dart-define=RUST_LIBRARY_MODE=production
+
+      # ─ Bundle pre-built Rust library into app ────────────────────────────
+      - name: Bundle library – macOS
+        if: matrix.platform == 'macOS'
+        run: |
+          APP_PATH=$(find portix_app/build/macos/Build/Products/Release \
+            -maxdepth 1 -name "*.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::Could not find .app bundle"
+            exit 1
+          fi
+
+          # Copy library
+          cp "portix_serv_lib/${{ matrix.lib_name }}" "$APP_PATH/Contents/MacOS/"
+
+          # Code sign
+          codesign --force --sign - "$APP_PATH/Contents/MacOS/${{ matrix.lib_name }}"
+          codesign --force --deep --sign - "$APP_PATH"
+          echo "✓ Bundled and codesigned"
+
+      - name: Bundle library – Linux
+        if: matrix.platform == 'Linux'
+        run: |
+          BUNDLE_DIR="portix_app/build/linux/x64/release/bundle"
+          cp "portix_serv_lib/${{ matrix.lib_name }}" "$BUNDLE_DIR/"
+          chmod +x "$BUNDLE_DIR/${{ matrix.lib_name }}"
+
+          # Also bundle system libs if needed
+          BUNDLE_LIB="$BUNDLE_DIR/lib"
+          mkdir -p "$BUNDLE_LIB"
+          for lib in libsecret-1.so.0 libgcrypt.so.20; do
+            LIB_PATH=$(ldconfig -p | grep "$lib" | head -1 | awk '{print $NF}')
+            if [ -n "$LIB_PATH" ] && [ ! -f "$BUNDLE_LIB/$lib" ]; then
+              cp "$LIB_PATH" "$BUNDLE_LIB/$lib"
+              echo "Bundled $lib"
+            fi
+          done
+
+      - name: Bundle library – Windows
+        if: matrix.platform == 'Windows'
+        shell: pwsh
+        run: |
+          $src = "portix_serv_lib/${{ matrix.lib_name }}"
+          $dst = "portix_app/build/windows/x64/runner/Release/"
+          Copy-Item -Path $src -Destination $dst -Force
+          Write-Host "✓ Bundled ${{ matrix.lib_name }}"
+
+      # ─ Package for distribution ──────────────────────────────────────────
+      - name: Package app – macOS
+        if: matrix.platform == 'macOS'
+        run: |
+          APP_PATH=$(find portix_app/build/macos/Build/Products/Release \
+            -maxdepth 1 -name "*.app" -type d | head -n 1)
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" \
+            "portix-macos-${{ github.ref_name }}.zip"
+
+      - name: Package app – Linux (tar)
+        if: matrix.platform == 'Linux'
+        run: |
+          tar -czf "portix-linux-${{ github.ref_name }}.tar.gz" \
+            -C portix_app/build/linux/x64/release bundle
+
+      - name: Package app – Linux (deb)
+        if: matrix.platform == 'Linux'
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          bash packaging/linux/build-deb.sh "$VERSION"
+
+      - name: Package app – Windows
+        if: matrix.platform == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path "portix_app/build/windows/x64/runner/Release/*" `
+            -DestinationPath "portix-windows-${{ github.ref_name }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: portix-${{ matrix.platform }}-${{ github.ref_name }}
+          path: |
+            portix-*-${{ github.ref_name }}.*
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 3: Release to GitHub (desktop apps)
+  # Only runs when pushing tags (v*.*.* or v*.*.*-beta*)
+  # ═══════════════════════════════════════════════════════════════════════════
+  release-desktop:
+    name: 📦 Release Desktop to GitHub
+    runs-on: ubuntu-latest
+    needs: [build-desktop]
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download all desktop artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts/
+          pattern: portix-*-${{ github.ref_name }}
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          prerelease: ${{ env.IS_BETA == 'true' }}
+          make_latest: ${{ env.IS_BETA != 'true' }}
+          name: ${{ env.IS_BETA == 'true' && format('Portix {0} (Beta)', github.ref_name) || format('Portix {0}', github.ref_name) }}
+          files: artifacts/**/*.*
+          fail_on_unmatched_files: false
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 4: Release native libraries (standalone)
+  # For apps that want to link against libportix_serv directly
+  # Only runs when pushing tags
+  # ═══════════════════════════════════════════════════════════════════════════
+  release-libs:
+    name: 📚 Release Libraries to GitHub
+    runs-on: ubuntu-latest
+    needs: [build-rust]
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download all library artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: libs/
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          prerelease: ${{ env.IS_BETA == 'true' }}
+          make_latest: ${{ env.IS_BETA != 'true' }}
+          files: |
+            libs/**/*.{so,dll,dylib,a}
+          fail_on_unmatched_files: false
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 5: Package managers
+  # Snap, Flatpak, and Flathub submission (only for stable, not beta)
+  # ═══════════════════════════════════════════════════════════════════════════
+  snap:
+    name: 📦 Build Snap
+    runs-on: ubuntu-latest
+    needs: [build-desktop]
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Sync snapcraft.yaml version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          SNAPCRAFT_FILE="snap/snapcraft.yaml"
+
+          if ! grep -qE '^version:' "$SNAPCRAFT_FILE"; then
+            sed -i "/^name:/a version: \"${VERSION}\"" "$SNAPCRAFT_FILE"
+          else
+            sed -i "s/^version:.*/version: \"${VERSION}\"/" "$SNAPCRAFT_FILE"
+          fi
+
+      - name: Build snap
+        uses: snapcore/action-build@v1
+        id: snap
+
+      - name: Upload snap artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: portix-snap-${{ github.ref_name }}
+          path: ${{ steps.snap.outputs.snap }}
+
+      - name: Publish to Snap Store
+        if: ${{ env.IS_BETA != 'true' }}
+        continue-on-error: true
+        uses: snapcore/action-publish@v1
+        with:
+          snap: ${{ steps.snap.outputs.snap }}
+          release: stable
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_STORE_TOKEN }}
+
+      - name: Upload snap to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          prerelease: ${{ env.IS_BETA == 'true' }}
+          files: ${{ steps.snap.outputs.snap }}
+
+  flatpak:
+    name: 📦 Build Flatpak
+    runs-on: ubuntu-latest
+    needs: [build-desktop]
+    if: startsWith(github.ref, 'refs/tags/')
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:gnome-46
+      options: --privileged
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download Linux bundle
+        uses: actions/download-artifact@v7
+        with:
+          name: portix-Linux-${{ github.ref_name }}
+          path: artifact/
+
+      - name: Extract bundle
+        run: |
+          mkdir -p flatpak/bundle-src
+          tar -xzf artifact/portix-linux-${{ github.ref_name }}.tar.gz \
+            -C flatpak/bundle-src --strip-components=1
+
+      - name: Copy desktop assets
+        run: |
+          mkdir -p flatpak/assets
+          cp assets/icons/portix_launcher.png flatpak/assets/
+          cp flatpak/com.github.asepimam.Portix.desktop flatpak/assets/
+          cp flatpak/com.github.asepimam.Portix.metainfo.xml flatpak/assets/
+
+      - name: Validate icon (must be square)
+        run: |
+          python3 -c "
+          import struct
+          icon = 'flatpak/assets/portix_launcher.png'
+          with open(icon, 'rb') as f:
+              data = f.read(33)
+              w, h = struct.unpack('>II', data[16:24])
+              if w != h:
+                  raise ValueError(f'Icon is {w}x{h}, must be square')
+              print(f'✓ Icon {w}x{h} is square')
+          "
+
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: portix-${{ github.ref_name }}.flatpak
+          manifest-path: flatpak/com.github.asepimam.Portix.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+
+      - name: Upload flatpak artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: portix-flatpak-${{ github.ref_name }}
+          path: portix-${{ github.ref_name }}.flatpak
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          prerelease: ${{ env.IS_BETA == 'true' }}
+          files: portix-${{ github.ref_name }}.flatpak
+
+  publish-flathub:
+    name: 🚀 Publish to Flathub (stable only)
+    runs-on: ubuntu-latest
+    needs: [flatpak]
+    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-beta')
+
+    steps:
+      - name: Checkout monorepo
+        uses: actions/checkout@v6
+        with:
+          path: portix
+
+      - name: Checkout Flathub repo
+        uses: actions/checkout@v6
+        with:
+          repository: flathub/com.github.asepimam.Portix
+          token: ${{ secrets.FLATHUB_PAT }}
+          path: flathub-repo
+
+      - name: Download Linux bundle
+        uses: actions/download-artifact@v7
+        with:
+          name: portix-Linux-${{ github.ref_name }}
+          path: artifact/
+
+      - name: Compute release hash & URL
+        id: vars
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          ARCHIVE="artifact/portix-linux-${{ github.ref_name }}.tar.gz"
+          SHA256=$(sha256sum "$ARCHIVE" | awk '{print $1}')
+          URL="https://github.com/Asepimam/portix/releases/download/${{ github.ref_name }}/portix-linux-${{ github.ref_name }}.tar.gz"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Update Flathub manifest
+        run: |
+          MANIFEST="flathub-repo/com.github.asepimam.Portix.yml"
+          python3 - "$MANIFEST" "${{ steps.vars.outputs.url }}" "${{ steps.vars.outputs.sha256 }}" <<'PYEOF'
+          import sys, re
+          manifest_path, url, sha256 = sys.argv[1], sys.argv[2], sys.argv[3]
+          with open(manifest_path) as f:
+              content = f.read()
+          content = re.sub(r'url:\s*.*portix-linux.*\.tar\.gz', f'url: {url}', content)
+          content = re.sub(r'(sha256:\s*)[a-f0-9]{64}', rf'\g<1>{sha256}', content)
+          with open(manifest_path, 'w') as f:
+              f.write(content)
+          PYEOF
+
+      - name: Commit & push to Flathub
+        run: |
+          cd flathub-repo
+          git config user.name "portix-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git add com.github.asepimam.Portix.yml
+          git commit -m "Update to ${{ github.ref_name }}"
+          git push origin HEAD
