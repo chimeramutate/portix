@@ -26,3 +26,20 @@ updates:
     labels:
       - dependencies
       - ci
+
+  # Rust / Cargo dependencies
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - Asepimam
+    labels:
+      - dependencies
+      - security
+    ignore:
+      # flutter_rust_bridge must be bumped manually to stay in sync with the UI side
+      - dependency-name: flutter_rust_bridge
