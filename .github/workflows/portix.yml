@@ -372,120 +372,60 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          $file = Get-ChildItem `
-            -Path "${{ env.SERV_DIR }}/target" `
-            -Filter "portix_serv.dll" `
-            -File `
-            -Recurse |
-            Select-Object -First 1
+          $searchPath = "${{ env.SERV_DIR }}/target"
+          $file = Get-ChildItem -Path $searchPath -Filter "portix_serv.dll" -File -Recurse | Select-Object -First 1
 
           if ($null -eq $file) {
-            throw "Windows server library not found under ${{ env.SERV_DIR }}/target"
+            throw "Windows server library not found under $searchPath"
           }
 
-          Write-Host "Found server library: $($file.FullName)"
+          Write-Host "Found: $($file.FullName)"
           Write-Host "Size: $($file.Length) bytes"
 
-          Remove-Item `
-            -Path "dist-serv" `
-            -Recurse `
-            -Force `
-            -ErrorAction SilentlyContinue
-
-          New-Item `
-            -ItemType Directory `
-            -Path "dist-serv" `
-            -Force |
-            Out-Null
-
-          Copy-Item `
-            -Path $file.FullName `
-            -Destination "dist-serv/portix_serv.dll" `
-            -Force
-
-          if (-not (Test-Path "dist-serv/portix_serv.dll")) {
-            throw "Failed to prepare dist-serv/portix_serv.dll"
+          if (Test-Path "dist-serv") {
+            Remove-Item "dist-serv" -Recurse -Force
           }
 
-          Get-Item "dist-serv/portix_serv.dll" |
-            Format-List Name, Length, FullName
+          New-Item -ItemType Directory -Path "dist-serv" -Force | Out-Null
 
+          Copy-Item -Path $file.FullName -Destination "dist-serv/portix_serv.dll" -Force
 
-          - name: Prepare Windows RDP library
-            shell: pwsh
-            run: |
-              $ErrorActionPreference = "Stop"
+          if (-not (Test-Path "dist-serv/portix_serv.dll")) {
+            throw "Failed to create dist-serv/portix_serv.dll"
+          }
 
-              $file = Get-ChildItem `
-                -Path "${{ env.RDP_DIR }}/target" `
-                -Filter "portix_rdp.dll" `
-                -File `
-                -Recurse |
-                Select-Object -First 1
+          Write-Host "Prepared Windows server library:"
+          Get-Item "dist-serv/portix_serv.dll" | Format-List Name,Length,FullName
 
-              if ($null -eq $file) {
-                throw "Windows RDP library not found under ${{ env.RDP_DIR }}/target"
-              }
+      - name: Prepare Windows RDP library
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
 
-              Write-Host "Found RDP library: $($file.FullName)"
-              Write-Host "Size: $($file.Length) bytes"
+          $searchPath = "${{ env.RDP_DIR }}/target"
+          $file = Get-ChildItem -Path $searchPath -Filter "portix_rdp.dll" -File -Recurse | Select-Object -First 1
 
-              Remove-Item `
-                -Path "dist-rdp" `
-                -Recurse `
-                -Force `
-                -ErrorAction SilentlyContinue
+          if ($null -eq $file) {
+            throw "Windows RDP library not found under $searchPath"
+          }
 
-              New-Item `
-                -ItemType Directory `
-                -Path "dist-rdp" `
-                -Force |
-                Out-Null
+          Write-Host "Found: $($file.FullName)"
+          Write-Host "Size: $($file.Length) bytes"
 
-              Copy-Item `
-                -Path $file.FullName `
-                -Destination "dist-rdp/portix_rdp.dll" `
-                -Force
+          if (Test-Path "dist-rdp") {
+            Remove-Item "dist-rdp" -Recurse -Force
+          }
 
-              if (-not (Test-Path "dist-rdp/portix_rdp.dll")) {
-                throw "Failed to prepare dist-rdp/portix_rdp.dll"
-              }
+          New-Item -ItemType Directory -Path "dist-rdp" -Force | Out-Null
 
-              Get-Item "dist-rdp/portix_rdp.dll" |
-                Format-List Name, Length, FullName
+          Copy-Item -Path $file.FullName -Destination "dist-rdp/portix_rdp.dll" -Force
 
+          if (-not (Test-Path "dist-rdp/portix_rdp.dll")) {
+            throw "Failed to create dist-rdp/portix_rdp.dll"
+          }
 
-          - name: Trivy scan - Windows server library
-            uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
-            with:
-              scan-type: fs
-              scan-ref: dist-serv/
-              format: table
-              severity: CRITICAL,HIGH
-              exit-code: "0"
-
-          - name: Trivy scan - Windows RDP library
-            uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
-            with:
-              scan-type: fs
-              scan-ref: dist-rdp/
-              format: table
-              severity: CRITICAL,HIGH
-              exit-code: "0"
-
-          - name: Upload Windows server library
-            uses: actions/upload-artifact@v7
-            with:
-              name: windows-lib
-              path: dist-serv/portix_serv.dll
-              if-no-files-found: error
-
-          - name: Upload Windows RDP library
-            uses: actions/upload-artifact@v7
-            with:
-              name: windows-rdp-lib
-              path: dist-rdp/portix_rdp.dll
-              if-no-files-found: error
+          Write-Host "Prepared Windows RDP library:"
+          Get-Item "dist-rdp/portix_rdp.dll" | Format-List Name,Length,FullName
 
   build-desktop-macos:
     name: "Desktop [macOS] @ ${{ github.ref_name }}"
