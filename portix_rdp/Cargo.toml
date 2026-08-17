@@ -7,9 +7,6 @@ edition = "2024"
 name = "portix_rdp"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
-[[bin]]
-name = "portix-rdp"
-path = "src/main.rs"
 
 
 

@@ -22,7 +22,6 @@ use crate::domain::errors::{RdpError, Result};
 use crate::domain::events::{RdpErrorEvent, RdpFrameEvent, RdpStatusEvent};
 use crate::domain::profile::RdpProfile;
 use crate::domain::session::RdpConnectionStatus;
-use crate::infrastructure::rdpsnd::NoopRdpSnd;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -223,6 +222,27 @@ impl RdpRuntime {
                     Some("NLA failed, retrying with TLS-only"),
                 );
                 self.try_connect(false, &cancel_token).await?
+            }
+            Err(RdpError::NegotiationFailed(ref msg))
+                if self.profile.redirect_drives
+                    && (msg.contains("LicenseExchangeState")
+                        || msg.contains("UpgradeLicense")
+                        || msg.contains("SERVER_NEW_LICENSE")) =>
+            {
+                // try_connect already attaches only RDPDR (no rdpsnd).
+                // If the server still rejects the drive redirection channel,
+                // fall back to a connection without any static channels.
+                println!(
+                    "[portix_rdp] license exchange failed during connection ({}), \
+                     retrying without drive redirection",
+                    msg
+                );
+                self.emit_status(
+                    RdpConnectionStatus::Connecting,
+                    Some("Drive redirection rejected by server, retrying without it"),
+                );
+                self.try_connect_without_redirect(self.profile.enable_cred_ssp, &cancel_token)
+                    .await?
             }
             Err(e) => return Err(e),
         };
@@ -500,10 +520,142 @@ impl RdpRuntime {
 
             connector.attach_static_channel(rdpdr);
 
-            connector.attach_static_channel(NoopRdpSnd::default());
-
-            println!("[portix_rdp] attaching rdpsnd companion channel");
+            // NOTE: we deliberately do NOT attach an rdpsnd (audio) channel.
+            //
+            // The RDP profile may have `enable_audio_playback: false`, and the
+            // user never requested audio. Sending an rdpsnd channel request to
+            // servers that reject it (e.g. CyberArk PSM) causes the connection
+            // to fail during license exchange ("SERVER_NEW_LICENSE decode error").
+            //
+            // rdpdr (drive redirection) and rdpsnd (audio) are independent
+            // static channels — RDPDR does NOT require rdpsnd as a companion.
+            // Keeping only rdpdr preserves WinSCP file transfer via
+            // \\tsclient\PORTIX without sending an unwanted audio channel.
         }
+
+        let mut framed = TokioFramed::new(tcp);
+
+        let should_upgrade = timeout(CONNECT_TIMEOUT, connect_begin(&mut framed, &mut connector))
+            .await
+            .map_err(|_| RdpError::ConnectionTimeout)?
+            .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+
+        let (raw_stream, leftover) = framed.into_inner();
+
+        let (upgraded_stream, server_cert_der) = timeout(
+            CONNECT_TIMEOUT,
+            ironrdp_tls::upgrade(raw_stream, self.profile.host.as_str()),
+        )
+        .await
+        .map_err(|_| RdpError::ConnectionTimeout)?
+        .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+
+        let server_public_key =
+            ironrdp_tls::extract_tls_server_public_key(&server_cert_der).unwrap_or_default();
+
+        let mut tls_framed = TokioFramed::new_with_leftover(upgraded_stream, leftover);
+        let upgraded = mark_as_upgraded(should_upgrade, &mut connector);
+
+        let mut network_client = ReqwestNetworkClient::new();
+
+        let connection_result = timeout(
+            CONNECT_TIMEOUT,
+            connect_finalize(
+                upgraded,
+                connector,
+                &mut tls_framed,
+                &mut network_client,
+                ServerName::new(self.profile.host.clone()),
+                server_public_key.to_vec(),
+                None,
+            ),
+        )
+        .await
+        .map_err(|_| RdpError::ConnectionTimeout)?
+        .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+
+        Ok((tls_framed, connection_result))
+    }
+
+    /// Connect without RDPDR/rdpsnd static channels.
+    ///
+    /// Used as a fallback when the server (e.g. CyberArk PSM) rejects
+    /// drive redirection during the license exchange phase.
+    async fn try_connect_without_redirect(
+        &self,
+        enable_credssp: bool,
+        cancel_token: &CancellationToken,
+    ) -> Result<(
+        ironrdp_tokio::TokioFramed<ironrdp_tls::TlsStream<TcpStream>>,
+        ironrdp_connector::ConnectionResult,
+    )> {
+        if cancel_token.is_cancelled() {
+            return Err(RdpError::Cancelled);
+        }
+
+        println!(
+            "[portix_rdp] try_connect_without_redirect host={} credssp={} (no RDPDR/rdpsnd)",
+            self.profile.host, enable_credssp
+        );
+
+        let tcp = timeout(
+            CONNECT_TIMEOUT,
+            TcpStream::connect(self.profile.socket_addr()),
+        )
+        .await
+        .map_err(|_| RdpError::ConnectionTimeout)?
+        .map_err(RdpError::Io)?;
+        tcp.set_nodelay(true)?;
+
+        let client_addr = tcp.peer_addr().map_err(RdpError::Io)?;
+
+        let credentials = Credentials::UsernamePassword {
+            username: self.profile.username.clone(),
+            password: self.profile.password.clone().unwrap_or_default(),
+        };
+
+        let config = Config {
+            desktop_size: DesktopSize {
+                width: self.profile.desktop_width,
+                height: self.profile.desktop_height,
+            },
+            desktop_scale_factor: 0,
+            enable_tls: true,
+            enable_credssp,
+            credentials,
+            domain: self.profile.domain.clone(),
+            client_build: 7601,
+            client_name: "Portix".to_owned(),
+            keyboard_type: ironrdp_pdu::gcc::KeyboardType::IbmEnhanced,
+            keyboard_subtype: 0,
+            keyboard_functional_keys_count: 12,
+            keyboard_layout: 0x0409,
+            ime_file_name: String::new(),
+            bitmap: None,
+            dig_product_id: String::new(),
+            client_dir: "C:\\Windows\\System32\\mstscax.dll".to_owned(),
+            alternate_shell: self.profile.alternate_shell.clone().unwrap_or_default(),
+            work_dir: String::new(),
+            platform: ironrdp_pdu::rdp::capability_sets::MajorPlatformType::WINDOWS,
+            hardware_id: None,
+            request_data: None,
+            autologon: false,
+            enable_audio_playback: false,
+
+            performance_flags: ironrdp_pdu::rdp::client_info::PerformanceFlags::empty(),
+
+            license_cache: None,
+            timezone_info: ironrdp_pdu::rdp::client_info::TimezoneInfo::default(),
+
+            compression_type: None,
+
+            enable_server_pointer: true,
+            pointer_software_rendering: true,
+            multitransport_flags: None,
+        };
+
+        // NOTE: deliberately NOT attaching RDPDR or rdpsnd channels.
+        let mut connector = ClientConnector::new(config, client_addr);
 
         let mut framed = TokioFramed::new(tcp);
 

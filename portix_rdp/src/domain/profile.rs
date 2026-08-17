@@ -49,10 +49,14 @@ impl RdpProfile {
     }
 
     pub fn is_cyberark_psm(&self) -> bool {
+        // PSM is detected either through the alternate shell (e.g. "PSM\@abc123")
+        // or through the username format (e.g. "localhost\PSM\@user").
         self.alternate_shell
             .as_ref()
             .map(|s| s.to_lowercase().contains("psm"))
             .unwrap_or(false)
+            || self.username.to_lowercase().contains("\\psm")
+            || self.username.to_lowercase().contains("\\psm\\")
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -379,6 +383,9 @@ EnableCredSspSupport:i:1"#;
     #[test]
     fn local_share_is_valid() {
         let profile = RdpProfile {
+            id: "uuid-1".into(),
+            host: "10.0.0.1".into(),
+            username: "admin".into(),
             redirect_drives: true,
             local_share_path: Some("/tmp/PortixShare".into()),
             local_share_name: "Portix".into(),
