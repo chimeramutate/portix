@@ -29,7 +29,11 @@ class RdpProfile extends Equatable {
   });
 
   static const String defaultLocalShareName = 'PORTIX';
-  static const String defaultLocalSharePath = '~/PortixShare';
+
+  /// Default local folder exposed to the remote session.
+  /// An empty `/`-style tilde resolves to the user's home directory
+  /// (see RdpBackendService._expandLocalSharePath).
+  static const String defaultLocalSharePath = '~';
 
   final String id;
   final String name;

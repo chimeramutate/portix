@@ -212,7 +212,9 @@ impl RdpRuntime {
             .await
         {
             Ok(result) => result,
-            Err(RdpError::NegotiationFailed(ref msg)) if self.profile.enable_cred_ssp => {
+            Err(RdpError::NegotiationFailed(ref msg))
+                if self.profile.enable_cred_ssp && !self.profile.is_cyberark_psm() =>
+            {
                 println!(
                     "[portix_rdp] NLA negotiation failed ({}), retrying without CredSSP …",
                     msg
@@ -224,7 +226,8 @@ impl RdpRuntime {
                 self.try_connect(false, &cancel_token).await?
             }
             Err(RdpError::NegotiationFailed(ref msg))
-                if self.profile.redirect_drives
+                if !self.profile.is_cyberark_psm()
+                    && self.profile.redirect_drives
                     && (msg.contains("LicenseExchangeState")
                         || msg.contains("UpgradeLicense")
                         || msg.contains("SERVER_NEW_LICENSE")) =>
