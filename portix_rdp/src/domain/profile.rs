@@ -32,8 +32,10 @@ pub struct RdpProfile {
 
     /// Local directory exposed to the remote Windows session.
     ///
+    /// The Flutter layer expands `~` to the user's home directory before
+    /// this struct is built, so this is always an absolute path.
     /// Example:
-    /// /Users/user/Documents/PortixShare
+    /// /home/user
     pub local_share_path: Option<String>,
 
     /// Name exposed through RDPDR.
