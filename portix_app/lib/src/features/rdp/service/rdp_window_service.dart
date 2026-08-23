@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:portix/src/domain/entities/rdp/index.dart';
 
@@ -30,7 +31,22 @@ class RdpWindowService {
       WindowConfiguration(hiddenAtLaunch: true, arguments: arguments),
     );
 
-    await controller.show();
+    try {
+      await controller.show();
+    } on MissingPluginException {
+      // Channel 'mixin.one/desktop_multi_window' is not registered yet
+      // (e.g. the plugin's engine extension was not attached before the
+      // first frame). The caller falls back to an in-window RDP page.
+      debugPrint(
+        '[RDP WINDOW] desktop_multi_window channel not available; '
+        'falling back to in-window RDP.',
+      );
+      rethrow;
+    } catch (error) {
+      debugPrint('[RDP WINDOW] failed to show RDP window: $error');
+      rethrow;
+    }
+
     _openControllers.add(controller);
     return controller;
   }

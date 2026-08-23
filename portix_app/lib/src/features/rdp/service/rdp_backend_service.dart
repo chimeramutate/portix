@@ -152,6 +152,10 @@ class RdpBackendService {
   Future<Either<Failure, RdpConnectionResult>> connect(
     RdpProfile profile,
   ) async {
+    if (profile.host.trim().isEmpty) {
+      return Left(Failure('Host is required to connect.'));
+    }
+
     try {
       final existingSessionId = _activeSessions[profile.id];
       if (existingSessionId != null) {
