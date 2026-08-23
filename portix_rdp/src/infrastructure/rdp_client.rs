@@ -203,20 +203,45 @@ impl RdpRuntime {
         mut command_rx: mpsc::Receiver<RdpCommand>,
         cancel_token: CancellationToken,
     ) -> Result<()> {
+        println!(
+            "[portix_rdp][DEBUG] run() entered: session={} profile={} host={} port={} credssp={} redirect_drives={}",
+            self.session_id,
+            self.profile.id,
+            self.profile.host,
+            self.profile.port,
+            self.profile.enable_cred_ssp,
+            self.profile.redirect_drives,
+        );
+
         if cancel_token.is_cancelled() {
+            println!(
+                "[portix_rdp][DEBUG] run() cancelled before connect: session={}",
+                self.session_id
+            );
             return Err(RdpError::Cancelled);
         }
+
+        println!(
+            "[portix_rdp][DEBUG] attempting try_connect with credssp={}",
+            self.profile.enable_cred_ssp
+        );
 
         let connection_result = match self
             .try_connect(self.profile.enable_cred_ssp, &cancel_token)
             .await
         {
-            Ok(result) => result,
+            Ok(result) => {
+                println!(
+                    "[portix_rdp][DEBUG] try_connect succeeded: session={}",
+                    self.session_id
+                );
+                result
+            }
             Err(RdpError::NegotiationFailed(ref msg))
                 if self.profile.enable_cred_ssp && !self.profile.is_cyberark_psm() =>
             {
                 println!(
-                    "[portix_rdp] NLA negotiation failed ({}), retrying without CredSSP …",
+                    "[portix_rdp][DEBUG] NLA negotiation failed ({}), retrying without CredSSP …",
                     msg
                 );
                 self.emit_status(
@@ -236,7 +261,7 @@ impl RdpRuntime {
                 // If the server still rejects the drive redirection channel,
                 // fall back to a connection without any static channels.
                 println!(
-                    "[portix_rdp] license exchange failed during connection ({}), \
+                    "[portix_rdp][DEBUG] license exchange failed during connection ({}), \
                      retrying without drive redirection",
                     msg
                 );
@@ -247,19 +272,39 @@ impl RdpRuntime {
                 self.try_connect_without_redirect(self.profile.enable_cred_ssp, &cancel_token)
                     .await?
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                println!(
+                    "[portix_rdp][DEBUG] try_connect failed: session={} error={:?}",
+                    self.session_id, e
+                );
+                return Err(e);
+            }
         };
 
         let (mut tls_framed, connection_result) = connection_result;
 
+        println!(
+            "[portix_rdp][DEBUG] connection established, emitting Connected status: session={}",
+            self.session_id
+        );
         self.emit_status(RdpConnectionStatus::Connected, Some("connected"));
 
         let desktop_width = connection_result.desktop_size.width;
         let desktop_height = connection_result.desktop_size.height;
 
         println!(
-            "[portix_rdp] negotiated desktop size: {}x{} (credssp={})",
+            "[portix_rdp][DEBUG] negotiated desktop size: {}x{} (credssp={})",
             desktop_width, desktop_height, self.profile.enable_cred_ssp
+        );
+
+        println!(
+            "[portix_rdp][DEBUG] static_channels={} user_channel_id={} io_channel_id={} message_channel_id={:?} share_id={} compression_type={:?}",
+            connection_result.static_channels.iter().count(),
+            connection_result.user_channel_id,
+            connection_result.io_channel_id,
+            connection_result.message_channel_id,
+            connection_result.share_id,
+            connection_result.compression_type,
         );
 
         let mut image = DecodedImage::new(PixelFormat::RgbA32, desktop_width, desktop_height);
@@ -276,6 +321,11 @@ impl RdpRuntime {
         }
         .build();
 
+        println!(
+            "[portix_rdp][DEBUG] ActiveStage built, entering main loop: session={}",
+            self.session_id
+        );
+
         let mut input_db = Database::new();
         let mut frame_dirty = false;
         let mut frame_tick = interval(Duration::from_millis(33));
@@ -285,42 +335,126 @@ impl RdpRuntime {
             tokio::select! {
                 _ = frame_tick.tick() => {
                     if frame_dirty {
+                        println!(
+                            "[portix_rdp][DEBUG] emitting full frame: session={} size={}x{}",
+                            self.session_id, desktop_width, desktop_height
+                        );
                         self.emit_full_frame(&image);
                         frame_dirty = false;
                     }
                 }
 
                 _ = cancel_token.cancelled() => {
-                    println!("[portix_rdp] session {} cancelled, initiating graceful shutdown", self.session_id);
+                    println!("[portix_rdp][DEBUG] session {} cancelled, initiating graceful shutdown", self.session_id);
                     let _ = active_stage.graceful_shutdown();
                     return Err(RdpError::Cancelled);
                 }
 
                 pdu_result = tls_framed.read_pdu() => {
-                    let (action, pdu_bytes) = pdu_result
-                        .map_err(|e| RdpError::Protocol(e.to_string()))?;
+                    let (action, pdu_bytes) = match pdu_result {
+                        Ok(v) => v,
+                        Err(e) => {
+                            println!(
+                                "[portix_rdp][DEBUG] read_pdu error: session={} error={:?}",
+                                self.session_id, e
+                            );
+                            return Err(RdpError::Protocol(e.to_string()));
+                        }
+                    };
 
-                    let outputs = active_stage
+                    println!(
+                        "[portix_rdp][DEBUG] read_pdu: session={} action={:?} pdu_len={}",
+                        self.session_id, action, pdu_bytes.len()
+                    );
+
+                    let outputs = match active_stage
                         .process(&mut image, action, &pdu_bytes)
-                        .map_err(|e| RdpError::Protocol(e.to_string()))?;
+                    {
+                        Ok(v) => v,
+                        Err(e) => {
+                            println!(
+                                "[portix_rdp][DEBUG] active_stage.process error: session={} error={:?}",
+                                self.session_id, e
+                            );
+                            return Err(RdpError::Protocol(e.to_string()));
+                        }
+                    };
+
+                    println!(
+                        "[portix_rdp][DEBUG] active_stage.process returned {} outputs",
+                        outputs.len()
+                    );
 
                     for output in outputs {
                         match output {
                             ActiveStageOutput::ResponseFrame(frame) => {
-
+                                println!(
+                                    "[portix_rdp][DEBUG] ActiveStageOutput::ResponseFrame: session={} len={}",
+                                    self.session_id,
+                                    frame.len()
+                                );
                                 tls_framed.write_all(&frame).await.map_err(RdpError::Io)?;
                             }
-                            ActiveStageOutput::GraphicsUpdate(_region) => {
-
-
-
+                            ActiveStageOutput::GraphicsUpdate(region) => {
+                                println!(
+                                    "[portix_rdp][DEBUG] ActiveStageOutput::GraphicsUpdate: session={} region={:?}",
+                                    self.session_id, region
+                                );
                                 frame_dirty = true;
                             }
-                            ActiveStageOutput::Terminate(_) => {
-                                println!("[portix_rdp] session {} terminated by server", self.session_id);
+                            ActiveStageOutput::Terminate(reason) => {
+                                println!(
+                                    "[portix_rdp][DEBUG] ActiveStageOutput::Terminate: session={} reason={:?} description={}",
+                                    self.session_id, reason, reason.description()
+                                );
+                                println!(
+                                    "[portix_rdp] session {} terminated by server: {}",
+                                    self.session_id, reason.description()
+                                );
                                 return Ok(());
                             }
-                            _ => {}
+                            ActiveStageOutput::PointerDefault => {
+                                println!(
+                                    "[portix_rdp][DEBUG] ActiveStageOutput::PointerDefault: session={}",
+                                    self.session_id
+                                );
+                            }
+                            ActiveStageOutput::PointerHidden => {
+                                println!(
+                                    "[portix_rdp][DEBUG] ActiveStageOutput::PointerHidden: session={}",
+                                    self.session_id
+                                );
+                            }
+                            ActiveStageOutput::PointerPosition { x, y } => {
+                                println!(
+                                    "[portix_rdp][DEBUG] ActiveStageOutput::PointerPosition: session={} x={} y={}",
+                                    self.session_id, x, y
+                                );
+                            }
+                            ActiveStageOutput::PointerBitmap(_) => {
+                                println!(
+                                    "[portix_rdp][DEBUG] ActiveStageOutput::PointerBitmap: session={}",
+                                    self.session_id
+                                );
+                            }
+                            ActiveStageOutput::DeactivateAll => {
+                                println!(
+                                    "[portix_rdp][DEBUG] ActiveStageOutput::DeactivateAll: session={}",
+                                    self.session_id
+                                );
+                            }
+                            ActiveStageOutput::MultitransportRequest(_) => {
+                                println!(
+                                    "[portix_rdp][DEBUG] ActiveStageOutput::MultitransportRequest: session={}",
+                                    self.session_id
+                                );
+                            }
+                            ActiveStageOutput::AutoDetect(_) => {
+                                println!(
+                                    "[portix_rdp][DEBUG] ActiveStageOutput::AutoDetect: session={}",
+                                    self.session_id
+                                );
+                            }
                         }
                     }
                 }
@@ -328,14 +462,18 @@ impl RdpRuntime {
                 cmd = command_rx.recv() => {
                     match cmd {
                         Some(RdpCommand::Disconnect) | None => {
-                            println!("[portix_rdp] session {} disconnect requested", self.session_id);
+                            println!("[portix_rdp][DEBUG] session {} disconnect requested", self.session_id);
 
                             let shutdown_outputs = active_stage
                                 .graceful_shutdown()
                                 .map_err(|e| RdpError::Protocol(e.to_string()))?;
                             for output in shutdown_outputs {
                                 if let ActiveStageOutput::ResponseFrame(frame) = output {
-
+                                    println!(
+                                        "[portix_rdp][DEBUG] sending graceful shutdown frame: session={} len={}",
+                                        self.session_id,
+                                        frame.len()
+                                    );
                                     tls_framed.write_all(&frame).await.map_err(RdpError::Io)?;
                                 }
                             }
@@ -343,6 +481,10 @@ impl RdpRuntime {
                         }
 
                         Some(RdpCommand::MouseMove { x, y }) => {
+                            println!(
+                                "[portix_rdp][DEBUG] MouseMove: session={} x={} y={}",
+                                self.session_id, x, y
+                            );
                             let events = input_db.apply([Operation::MouseMove(MousePosition { x, y })]);
                             if events.is_empty() {
                                 continue;
@@ -352,6 +494,10 @@ impl RdpRuntime {
                         }
 
                         Some(RdpCommand::MouseButton { x, y, button, down }) => {
+                            println!(
+                                "[portix_rdp][DEBUG] MouseButton: session={} x={} y={} button={} down={}",
+                                self.session_id, x, y, button, down
+                            );
                             let mouse_button = match button {
                                 0 => MouseButton::Left,
                                 1 => MouseButton::Middle,
@@ -376,6 +522,10 @@ impl RdpRuntime {
                         }
 
                         Some(RdpCommand::MouseWheel { x, y, delta, is_vertical }) => {
+                            println!(
+                                "[portix_rdp][DEBUG] MouseWheel: session={} x={} y={} delta={} is_vertical={}",
+                                self.session_id, x, y, delta, is_vertical
+                            );
                             let mut events = input_db.apply([Operation::MouseMove(MousePosition { x, y })]);
                             events.extend(input_db.apply([Operation::WheelRotations(WheelRotations {
                                 is_vertical,
@@ -390,7 +540,15 @@ impl RdpRuntime {
                         }
 
                         Some(RdpCommand::KeyboardInput { hid_usage, down }) => {
+                            println!(
+                                "[portix_rdp][DEBUG] KeyboardInput: session={} hid_usage=0x{:04X} down={}",
+                                self.session_id, hid_usage, down
+                            );
                             let Some(scancode) = hid_usage_to_set1(hid_usage) else {
+                                println!(
+                                    "[portix_rdp][DEBUG] KeyboardInput: unknown hid_usage=0x{:04X}, ignoring",
+                                    hid_usage
+                                );
                                 continue;
                             };
                             let code = Scancode::from_u16(scancode);
@@ -423,14 +581,26 @@ impl RdpRuntime {
         ironrdp_connector::ConnectionResult,
     )> {
         if cancel_token.is_cancelled() {
+            println!(
+                "[portix_rdp][DEBUG] try_connect cancelled: session={}",
+                self.session_id
+            );
             return Err(RdpError::Cancelled);
         }
 
         println!(
-            "[portix_rdp] try_connect host={} credssp={} redirect_drives={}",
-            self.profile.host, enable_credssp, self.profile.redirect_drives
+            "[portix_rdp][DEBUG] try_connect: session={} host={} port={} credssp={} redirect_drives={}",
+            self.session_id,
+            self.profile.host,
+            self.profile.port,
+            enable_credssp,
+            self.profile.redirect_drives
         );
 
+        println!(
+            "[portix_rdp][DEBUG] connecting TCP: {}:{}",
+            self.profile.host, self.profile.port
+        );
         let tcp = timeout(
             CONNECT_TIMEOUT,
             TcpStream::connect(self.profile.socket_addr()),
@@ -440,7 +610,12 @@ impl RdpRuntime {
         .map_err(RdpError::Io)?;
         tcp.set_nodelay(true)?;
 
+        let local_addr = tcp.local_addr().map_err(RdpError::Io)?;
         let client_addr = tcp.peer_addr().map_err(RdpError::Io)?;
+        println!(
+            "[portix_rdp][DEBUG] TCP connected: local={} remote={}",
+            local_addr, client_addr
+        );
 
         let credentials = Credentials::UsernamePassword {
             username: self.profile.username.clone(),
@@ -494,6 +669,11 @@ impl RdpRuntime {
             let share_path = self.profile.local_share_path().unwrap_or("").to_owned();
             let share_name = self.profile.local_share_name().to_owned();
 
+            println!(
+                "[portix_rdp][DEBUG] setting up drive redirect: path={} name={}",
+                share_path, share_name
+            );
+
             if let Err(e) = std::fs::create_dir_all(&share_path) {
                 println!(
                     "[portix_rdp] WARNING: cannot create share dir '{}': {}",
@@ -517,7 +697,7 @@ impl RdpRuntime {
                 .with_drives(Some(vec![(1u32, share_name.clone())]));
 
             println!(
-                "[portix_rdp] attaching rdpdr channel (computer_name='{}', drive='{}')",
+                "[portix_rdp][DEBUG] attaching rdpdr channel (computer_name='{}', drive='{}')",
                 computer_name, share_name
             );
 
@@ -534,17 +714,32 @@ impl RdpRuntime {
             // static channels — RDPDR does NOT require rdpsnd as a companion.
             // Keeping only rdpdr preserves WinSCP file transfer via
             // \\tsclient\PORTIX without sending an unwanted audio channel.
+        } else {
+            println!(
+                "[portix_rdp][DEBUG] no drive redirect configured (redirect_drives={} has_local_share={})",
+                self.profile.redirect_drives,
+                self.profile.has_local_share()
+            );
         }
 
         let mut framed = TokioFramed::new(tcp);
 
+        println!("[portix_rdp][DEBUG] calling connect_begin (X.224 negotiation)...");
         let should_upgrade = timeout(CONNECT_TIMEOUT, connect_begin(&mut framed, &mut connector))
             .await
             .map_err(|_| RdpError::ConnectionTimeout)?
             .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+        println!(
+            "[portix_rdp][DEBUG] connect_begin succeeded: should_upgrade=true (TLS upgrade required)"
+        );
 
         let (raw_stream, leftover) = framed.into_inner();
 
+        println!(
+            "[portix_rdp][DEBUG] upgrading to TLS: host={} leftover_len={}",
+            self.profile.host,
+            leftover.len()
+        );
         let (upgraded_stream, server_cert_der) = timeout(
             CONNECT_TIMEOUT,
             ironrdp_tls::upgrade(raw_stream, self.profile.host.as_str()),
@@ -552,15 +747,21 @@ impl RdpRuntime {
         .await
         .map_err(|_| RdpError::ConnectionTimeout)?
         .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
-
         let server_public_key =
             ironrdp_tls::extract_tls_server_public_key(&server_cert_der).unwrap_or_default();
+        println!(
+            "[portix_rdp][DEBUG] TLS upgrade succeeded: server_public_key_len={}",
+            server_public_key.len()
+        );
 
         let mut tls_framed = TokioFramed::new_with_leftover(upgraded_stream, leftover);
         let upgraded = mark_as_upgraded(should_upgrade, &mut connector);
 
         let mut network_client = ReqwestNetworkClient::new();
 
+        println!(
+            "[portix_rdp][DEBUG] calling connect_finalize (capability exchange, license, etc.)..."
+        );
         let connection_result = timeout(
             CONNECT_TIMEOUT,
             connect_finalize(
@@ -576,6 +777,12 @@ impl RdpRuntime {
         .await
         .map_err(|_| RdpError::ConnectionTimeout)?
         .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+        println!(
+            "[portix_rdp][DEBUG] connect_finalize succeeded: desktop={}x{} static_channels={}",
+            connection_result.desktop_size.width,
+            connection_result.desktop_size.height,
+            connection_result.static_channels.iter().count()
+        );
 
         Ok((tls_framed, connection_result))
     }
@@ -593,14 +800,22 @@ impl RdpRuntime {
         ironrdp_connector::ConnectionResult,
     )> {
         if cancel_token.is_cancelled() {
+            println!(
+                "[portix_rdp][DEBUG] try_connect_without_redirect cancelled: session={}",
+                self.session_id
+            );
             return Err(RdpError::Cancelled);
         }
 
         println!(
-            "[portix_rdp] try_connect_without_redirect host={} credssp={} (no RDPDR/rdpsnd)",
-            self.profile.host, enable_credssp
+            "[portix_rdp][DEBUG] try_connect_without_redirect: session={} host={} port={} credssp={} (no RDPDR/rdpsnd)",
+            self.session_id, self.profile.host, self.profile.port, enable_credssp
         );
 
+        println!(
+            "[portix_rdp][DEBUG] connecting TCP (no redirect): {}:{}",
+            self.profile.host, self.profile.port
+        );
         let tcp = timeout(
             CONNECT_TIMEOUT,
             TcpStream::connect(self.profile.socket_addr()),
@@ -610,7 +825,12 @@ impl RdpRuntime {
         .map_err(RdpError::Io)?;
         tcp.set_nodelay(true)?;
 
+        let local_addr = tcp.local_addr().map_err(RdpError::Io)?;
         let client_addr = tcp.peer_addr().map_err(RdpError::Io)?;
+        println!(
+            "[portix_rdp][DEBUG] TCP connected (no redirect): local={} remote={}",
+            local_addr, client_addr
+        );
 
         let credentials = Credentials::UsernamePassword {
             username: self.profile.username.clone(),
@@ -662,13 +882,22 @@ impl RdpRuntime {
 
         let mut framed = TokioFramed::new(tcp);
 
+        println!("[portix_rdp][DEBUG] calling connect_begin (no redirect)...");
         let should_upgrade = timeout(CONNECT_TIMEOUT, connect_begin(&mut framed, &mut connector))
             .await
             .map_err(|_| RdpError::ConnectionTimeout)?
             .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+        println!(
+            "[portix_rdp][DEBUG] connect_begin succeeded (no redirect): should_upgrade=true (TLS upgrade required)"
+        );
 
         let (raw_stream, leftover) = framed.into_inner();
 
+        println!(
+            "[portix_rdp][DEBUG] upgrading to TLS (no redirect): host={} leftover_len={}",
+            self.profile.host,
+            leftover.len()
+        );
         let (upgraded_stream, server_cert_der) = timeout(
             CONNECT_TIMEOUT,
             ironrdp_tls::upgrade(raw_stream, self.profile.host.as_str()),
@@ -676,15 +905,19 @@ impl RdpRuntime {
         .await
         .map_err(|_| RdpError::ConnectionTimeout)?
         .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
-
         let server_public_key =
             ironrdp_tls::extract_tls_server_public_key(&server_cert_der).unwrap_or_default();
+        println!(
+            "[portix_rdp][DEBUG] TLS upgrade succeeded (no redirect): server_public_key_len={}",
+            server_public_key.len()
+        );
 
         let mut tls_framed = TokioFramed::new_with_leftover(upgraded_stream, leftover);
         let upgraded = mark_as_upgraded(should_upgrade, &mut connector);
 
         let mut network_client = ReqwestNetworkClient::new();
 
+        println!("[portix_rdp][DEBUG] calling connect_finalize (no redirect)...");
         let connection_result = timeout(
             CONNECT_TIMEOUT,
             connect_finalize(
@@ -700,6 +933,12 @@ impl RdpRuntime {
         .await
         .map_err(|_| RdpError::ConnectionTimeout)?
         .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+        println!(
+            "[portix_rdp][DEBUG] connect_finalize succeeded (no redirect): desktop={}x{} static_channels={}",
+            connection_result.desktop_size.width,
+            connection_result.desktop_size.height,
+            connection_result.static_channels.iter().count()
+        );
 
         Ok((tls_framed, connection_result))
     }
@@ -718,11 +957,20 @@ impl RdpRuntime {
             .encode(&mut cursor)
             .map_err(|e| RdpError::Protocol(e.to_string()))?;
 
+        println!(
+            "[portix_rdp][DEBUG] sending fast_path input: session={} len={}",
+            self.session_id,
+            buf.len()
+        );
         framed.write_all(&buf).await.map_err(RdpError::Io)?;
         Ok(())
     }
 
     fn emit_status(&self, status: RdpConnectionStatus, message: Option<&str>) {
+        println!(
+            "[portix_rdp][DEBUG] emit_status: session={} status={:?} message={:?}",
+            self.session_id, status, message
+        );
         let _ = self.status_tx.send(RdpStatusEvent {
             session_id: self.session_id.clone(),
             status,
@@ -735,6 +983,10 @@ impl RdpRuntime {
         let bpp = image.bytes_per_pixel();
 
         if width == 0 || height == 0 || bpp != 4 {
+            println!(
+                "[portix_rdp][DEBUG] emit_full_frame: invalid dimensions: width={} height={} bpp={}",
+                width, height, bpp
+            );
             return;
         }
 
@@ -779,6 +1031,14 @@ impl RdpRuntime {
             frame_id,
         };
 
+        println!(
+            "[portix_rdp][DEBUG] emitting frame: session={} frame_id={} size={}x{} data_len={}",
+            self.session_id,
+            frame_id,
+            width,
+            height,
+            event.data.len()
+        );
         let _ = self.frame_tx.send(event);
     }
 }

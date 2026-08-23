@@ -55,6 +55,12 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
   int _currentMouseButton = 0;
   final Set<int> _pressedHidUsages = <int>{};
 
+  /// Tracks physical keys reported as pressed by the OS to filter
+  /// duplicate KeyDownEvents that trigger the Flutter framework
+  /// assertion in HardwareKeyboard._assertEventIsRegular.
+  final Set<PhysicalKeyboardKey> _osPressedKeys = <PhysicalKeyboardKey>{};
+  HardwareKeyboard? _hardwareKeyboard;
+
   @override
   void initState() {
     super.initState();
@@ -64,6 +70,14 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
 
     _framebuffer = Uint8List(_rowBytes * _fbHeight);
     _fillBlack(_framebuffer);
+
+    // Intercept duplicate KeyDownEvents at the HardwareKeyboard level.
+    // On macOS (and some Linux setups) the OS can deliver a KeyDownEvent
+    // for a physical key that is already tracked as pressed, which trips
+    // the framework assertion in HardwareKeyboard._assertEventIsRegular.
+    // We consume those duplicates before the framework sees them.
+    _hardwareKeyboard = HardwareKeyboard.instance;
+    _hardwareKeyboard?.addHandler(_filterDuplicateKeyEvents);
 
     final svc = sl<RdpBackendService>();
 
@@ -383,6 +397,31 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
     );
   }
 
+  /// Filters duplicate KeyDownEvents before they reach the Flutter
+  /// framework's HardwareKeyboard assertion.
+  ///
+  /// Returns true to consume the event (preventing the framework from
+  /// processing it), or false to let it propagate normally.
+  bool _filterDuplicateKeyEvents(KeyEvent event) {
+    if (_isDisconnected) return false;
+
+    if (event is KeyDownEvent) {
+      // If the OS reports this physical key as already pressed, it is a
+      // duplicate KeyDownEvent. Consume it to avoid the framework assertion.
+      if (!_osPressedKeys.add(event.physicalKey)) {
+        debugPrint(
+          '[RDP VIEWER] consumed duplicate KeyDownEvent for '
+          '${event.physicalKey.debugName}',
+        );
+        return true;
+      }
+    } else if (event is KeyUpEvent) {
+      _osPressedKeys.remove(event.physicalKey);
+    }
+
+    return false;
+  }
+
   int _hidUsage(PhysicalKeyboardKey key) => key.usbHidUsage & 0xFFFF;
 
   void _handleKey(KeyEvent event) {
@@ -425,6 +464,10 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
 
     _isDisconnected = true;
     _decodeDebounce?.cancel();
+
+    _hardwareKeyboard?.removeHandler(_filterDuplicateKeyEvents);
+    _hardwareKeyboard = null;
+    _osPressedKeys.clear();
 
     _frameSub?.cancel();
     _statusSub?.cancel();

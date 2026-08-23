@@ -17,7 +17,11 @@ impl SvcProcessor for NoopRdpSnd {
         CompressionCondition::Never
     }
 
-    fn process(&mut self, _payload: &[u8]) -> PduResult<Vec<SvcMessage>> {
+    fn process(&mut self, payload: &[u8]) -> PduResult<Vec<SvcMessage>> {
+        println!(
+            "[portix_rdp][DEBUG] NoopRdpSnd::process called: payload_len={}",
+            payload.len()
+        );
         Ok(Vec::new())
     }
 }

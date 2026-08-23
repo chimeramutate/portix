@@ -34,7 +34,7 @@ class RdpFileParser {
         (int.tryParse(settings['redirectdrives'] ?? '0') ?? 0) == 1 ||
         driveStoreRedirect.trim().isNotEmpty;
     final enableCredSsp =
-        (int.tryParse(settings['EnableCredSspSupport'] ?? '0') ?? 0) == 1;
+        (int.tryParse(settings['enablecredsspsupport'] ?? '0') ?? 0) == 1;
     final screenModeId = int.tryParse(settings['screen mode id'] ?? '1') ?? 1;
 
     // Parse host and port from full address (may include :port)
@@ -132,7 +132,9 @@ class RdpFileParser {
       final colonIdx = trimmed.indexOf(':');
       if (colonIdx == -1) continue;
 
-      final key = trimmed.substring(0, colonIdx).trim();
+      // Keys are case-insensitive in .rdp files — normalize to lowercase
+      // to match the Rust parser (parse_rdp_lines in portix_rdp).
+      final key = trimmed.substring(0, colonIdx).trim().toLowerCase();
       final rest = trimmed.substring(colonIdx + 1);
 
       // rest is "type:value" — find second colon

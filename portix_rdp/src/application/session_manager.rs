@@ -88,6 +88,16 @@ impl RdpSessionManager {
     }
 
     pub async fn connect(&self, profile: RdpProfile) -> Result<RdpSessionInfo> {
+        println!(
+            "[portix_rdp][DEBUG] connect() called: profile_id={} host={} port={} username={} credssp={} redirect_drives={}",
+            profile.id,
+            profile.host,
+            profile.port,
+            profile.username,
+            profile.enable_cred_ssp,
+            profile.redirect_drives
+        );
+
         profile.validate()?;
 
         let profile_id = profile.id.clone();
@@ -124,6 +134,11 @@ impl RdpSessionManager {
         }
 
         let session_id = Uuid::new_v4().to_string();
+
+        println!(
+            "[portix_rdp][DEBUG] creating new session: session_id={} profile_id={}",
+            session_id, profile_id
+        );
 
         let (command_tx, command_rx) = mpsc::channel::<RdpCommand>(32);
 
@@ -171,11 +186,22 @@ impl RdpSessionManager {
         );
 
         tokio::spawn(async move {
+            println!(
+                "[portix_rdp][DEBUG] runtime task started: session={}",
+                session_id_task
+            );
+
             let result = tokio::select! {
                 result = runtime.run(
                     command_rx,
                     child_cancel.clone(),
-                ) => result,
+                ) => {
+                    println!(
+                        "[portix_rdp][DEBUG] runtime.run returned: session={} result={:?}",
+                        session_id_task, result
+                    );
+                    result
+                }
 
                 _ = child_cancel.cancelled() => {
                     println!(
@@ -260,10 +286,20 @@ impl RdpSessionManager {
             .await
             .insert(profile_id, session_id.clone());
 
+        println!(
+            "[portix_rdp][DEBUG] session registered: session_id={}",
+            session_id
+        );
+
         Ok(info)
     }
 
     pub async fn disconnect(&self, session_id: String) -> Result<()> {
+        println!(
+            "[portix_rdp][DEBUG] disconnect() called: session_id={}",
+            session_id
+        );
+
         let handle = {
             let mut sessions = self.sessions.lock().await;
 
@@ -271,6 +307,10 @@ impl RdpSessionManager {
         };
 
         if let Some(handle) = handle {
+            println!(
+                "[portix_rdp][DEBUG] disconnect: found handle for session {}, cancelling token and sending Disconnect command",
+                session_id
+            );
             handle.cancel_token.cancel();
 
             let _ = handle.command_tx.send(RdpCommand::Disconnect).await;
@@ -295,6 +335,11 @@ impl RdpSessionManager {
     }
 
     pub async fn disconnect_all(&self) {
+        println!(
+            "[portix_rdp][DEBUG] disconnect_all() called: session_count={}",
+            self.sessions.lock().await.len()
+        );
+
         let handles: Vec<(String, SessionHandle)> = {
             let mut sessions = self.sessions.lock().await;
 
