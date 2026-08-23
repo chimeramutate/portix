@@ -31,7 +31,10 @@ class ConnectionManager extends ChangeNotifier {
     _statusSub = _backend.connectionStatusStream.listen(_handleStatus);
     _outputSub = _backend.terminalOutputStream.listen(_handleTerminalOutput);
     _errorSub = _backend.errorEventStream.listen(_handleError);
-    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) => _runHeartbeat());
+    _heartbeatTimer = Timer.periodic(
+      _heartbeatInterval,
+      (_) => _runHeartbeat(),
+    );
   }
 
   final ConnectionBackend _backend;
@@ -192,6 +195,13 @@ class ConnectionManager extends ChangeNotifier {
   /// Save a password to secure storage so future connections can use it.
   Future<void> saveProfilePassword(String profileId, String password) async {
     await _secretStore.savePassword(profileId, password);
+  }
+
+  /// Returns true when a usable password for the given profile is already
+  /// stored in the local secure keychain / secret store.
+  Future<bool> hasSavedPassword(String profileId) async {
+    final password = await _secretStore.readPassword(profileId);
+    return (password ?? '').trim().isNotEmpty;
   }
 
   Future<Result<void>> closeSession(String sessionId) async {
@@ -511,9 +521,9 @@ class ConnectionManager extends ChangeNotifier {
   /// waiting for the Rust keepalive cycle (~17 s).
   Future<void> _runHeartbeat() async {
     // Collect all currently-connected sessions with a known profile.
-    final candidates = _sessions.where(
-      (s) => s.status == ConnectionStatus.connected,
-    ).toList(growable: false);
+    final candidates = _sessions
+        .where((s) => s.status == ConnectionStatus.connected)
+        .toList(growable: false);
 
     for (final session in candidates) {
       if (_heartbeatInFlight.contains(session.id)) continue;
@@ -529,18 +539,16 @@ class ConnectionManager extends ChangeNotifier {
 
       _heartbeatInFlight.add(session.id);
       unawaited(
-        _probeSession(session.id, host, port).whenComplete(
-          () => _heartbeatInFlight.remove(session.id),
-        ),
+        _probeSession(
+          session.id,
+          host,
+          port,
+        ).whenComplete(() => _heartbeatInFlight.remove(session.id)),
       );
     }
   }
 
-  Future<void> _probeSession(
-    String uiSessionId,
-    String host,
-    int port,
-  ) async {
+  Future<void> _probeSession(String uiSessionId, String host, int port) async {
     try {
       final socket = await Socket.connect(
         host,
@@ -573,11 +581,7 @@ class ConnectionManager extends ChangeNotifier {
 
     // Tell Rust to clean up the session too (best-effort).
     final backendId = _backendSessionIdForUiSession(uiSessionId) ?? uiSessionId;
-    unawaited(
-      _backend
-          .disconnect(backendId)
-          .catchError((_) {}),
-    );
+    unawaited(_backend.disconnect(backendId).catchError((_) {}));
   }
 
   void _handleStatus(ConnectionStatusEvent event) {

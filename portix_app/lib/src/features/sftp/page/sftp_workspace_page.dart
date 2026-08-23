@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/core/di/injection.dart';
@@ -323,13 +323,112 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     });
   }
 
-  void _selectProfileForActiveTab(BuildContext context, SshProfile profile) {
+  Future<void> _selectProfileForActiveTab(
+    BuildContext context,
+    SshProfile profile,
+  ) async {
+    // If the profile is password-based but no usable password is stored yet,
+    // ask the user for it before connecting (same as the SSH terminal flow).
+    if (profile.authMethod == AuthMethod.password &&
+        (profile.credentialLabel.trim().isEmpty ||
+            profile.credentialLabel == 'Saved password')) {
+      final connectionManager = sl<ConnectionManager>();
+      final hasSaved = await connectionManager.hasSavedPassword(profile.id);
+      if (!hasSaved) {
+        final password = await _promptSftpPassword(profile);
+        if (password == null || !mounted) return;
+        await connectionManager.saveProfilePassword(profile.id, password);
+        // Update in-memory profile so the controller can pass the password
+        // directly instead of failing with PasswordUnavailableException.
+        profile = profile.copyWith(credentialLabel: password);
+      }
+    }
+    if (!mounted) return;
     setState(() {
       _activeTab.selectedProfile = profile;
       _remoteSyncKey = null;
     });
     // Also update bloc for backward compatibility
     context.read<SftpWorkspaceBloc>().add(SftpProfileSelected(profile));
+  }
+
+  Future<String?> _promptSftpPassword(SshProfile profile) {
+    final passwordController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        insetPadding: const EdgeInsets.all(16),
+        title: const Text('Enter SFTP Password'),
+        content: SizedBox(
+          width: 400,
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Password untuk ${profile.username}@${profile.host}:${profile.port} '
+                  'belum tersimpan di perangkat ini. Masukkan password untuk membuka remote SFTP.',
+                  style: portixMuted(12),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: passwordController,
+                  obscureText: true,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    hintText: 'Enter SFTP password',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    filled: true,
+                    fillColor: AppColors.bg,
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Password is required';
+                    }
+                    return null;
+                  },
+                  onFieldSubmitted: (_) {
+                    if (formKey.currentState!.validate()) {
+                      Navigator.of(
+                        dialogContext,
+                      ).pop(passwordController.text.trim());
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'The password will be saved to local secure storage.',
+                  style: portixMuted(10),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.of(dialogContext).pop(passwordController.text.trim());
+              }
+            },
+            icon: const Icon(Icons.login_rounded, size: 16),
+            label: const Text('Connect'),
+          ),
+        ],
+      ),
+    ).whenComplete(passwordController.dispose);
   }
 
   void _handleIncomingSftpProfile(
@@ -358,10 +457,10 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       } else {
         // Select profile in current tab if it's empty, otherwise create new tab.
         if (_activeTab.selectedProfile == null) {
-          _selectProfileForActiveTab(context, profile);
+          unawaited(_selectProfileForActiveTab(context, profile));
         } else {
           _addSftpTab();
-          _selectProfileForActiveTab(context, profile);
+          unawaited(_selectProfileForActiveTab(context, profile));
         }
       }
     });
@@ -1124,6 +1223,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                       error: _controller.remoteError,
                       isRemote: true,
                       showActions: selectedProfile != null,
+                      showPathBar: selectedProfile != null,
                       statusTitle: _controller.remoteStatusTitle,
                       statusMessage: _controller.remoteStatusMessage,
                       findQuery: _controller.remoteSearchQuery,
@@ -1173,8 +1273,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                       contentOverride: selectedProfile == null
                           ? _SftpProfileGate(
                               profiles: profiles,
-                              onSelected: (profile) =>
-                                  _selectProfileForActiveTab(context, profile),
+                              onSelected: (profile) => unawaited(
+                                _selectProfileForActiveTab(context, profile),
+                              ),
                             )
                           : _controller.isRemoteDisconnected
                           ? _SftpDisconnectedOverlay(
@@ -1292,6 +1393,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                     error: _controller.remoteError,
                     isRemote: true,
                     showActions: selectedProfile != null,
+                    showPathBar: selectedProfile != null,
                     statusTitle: _controller.remoteStatusTitle,
                     statusMessage: _controller.remoteStatusMessage,
                     findQuery: _controller.remoteSearchQuery,
@@ -1340,8 +1442,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                     contentOverride: selectedProfile == null
                         ? _SftpProfileGate(
                             profiles: profiles,
-                            onSelected: (profile) =>
-                                _selectProfileForActiveTab(context, profile),
+                            onSelected: (profile) => unawaited(
+                              _selectProfileForActiveTab(context, profile),
+                            ),
                           )
                         : _controller.isRemoteDisconnected
                         ? _SftpDisconnectedOverlay(
