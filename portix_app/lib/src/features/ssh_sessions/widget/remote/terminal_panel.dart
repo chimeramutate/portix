@@ -575,6 +575,15 @@ class _TerminalPanelState extends State<TerminalPanel> {
     });
   }
 
+  void _scrollTerminalToBottom(String sessionId) {
+    final scrollController = _scrollControllerForSession(sessionId);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!scrollController.hasClients) return;
+      scrollController.jumpTo(scrollController.position.maxScrollExtent);
+    });
+  }
+
   void _handleTerminalInput(String data, String? sessionId) {
     if (data == '\x02') {
       _toggleBroadcastTyping();
@@ -583,6 +592,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final targetSessionId = sessionId ?? _sessionId;
     if (targetSessionId == null) return;
     if (!_isSessionConnected(targetSessionId)) return;
+
+    // When Enter is pressed, auto-scroll the terminal to the bottom so the
+    // input view / prompt is always visible.
+    if (data == '\r') {
+      _scrollTerminalToBottom(targetSessionId);
+    }
 
     // Enter should only accept full command history suggestions. Remote/path
     // completions can match ordinary names, so accepting them on Enter makes
