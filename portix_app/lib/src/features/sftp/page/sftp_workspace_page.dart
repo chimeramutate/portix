@@ -267,9 +267,16 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     final forceSync = _controller.needsRevalidation;
     if (!forceSync && _remoteSyncKey == key) return;
     _remoteSyncKey = key;
+    // When a session is already active, re-attach to the directory the user
+    // is currently viewing rather than the profile's initial path. This keeps
+    // a drop-triggered refresh (or any revalidation) from jumping back to the
+    // profile's root/initial path.
+    final targetPath = _controller.hasRemoteSession
+        ? _controller.remotePath
+        : remotePath;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      unawaited(_controller.attachRemoteProfile(profile, remotePath));
+      unawaited(_controller.attachRemoteProfile(profile, targetPath));
     });
   }
 
@@ -353,82 +360,11 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   }
 
   Future<String?> _promptSftpPassword(SshProfile profile) {
-    final passwordController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
     return showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        insetPadding: const EdgeInsets.all(16),
-        title: const Text('Enter SFTP Password'),
-        content: SizedBox(
-          width: 400,
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Password untuk ${profile.username}@${profile.host}:${profile.port} '
-                  'belum tersimpan di perangkat ini. Masukkan password untuk membuka remote SFTP.',
-                  style: portixMuted(12),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: passwordController,
-                  obscureText: true,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                    hintText: 'Enter SFTP password',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    filled: true,
-                    fillColor: AppColors.bg,
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Password is required';
-                    }
-                    return null;
-                  },
-                  onFieldSubmitted: (_) {
-                    if (formKey.currentState!.validate()) {
-                      Navigator.of(
-                        dialogContext,
-                      ).pop(passwordController.text.trim());
-                    }
-                  },
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'The password will be saved to local secure storage.',
-                  style: portixMuted(10),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.icon(
-            onPressed: () {
-              if (formKey.currentState!.validate()) {
-                Navigator.of(dialogContext).pop(passwordController.text.trim());
-              }
-            },
-            icon: const Icon(Icons.login_rounded, size: 16),
-            label: const Text('Connect'),
-          ),
-        ],
-      ),
-    ).whenComplete(passwordController.dispose);
+      builder: (dialogContext) => _SftpPasswordDialog(profile: profile),
+    );
   }
 
   void _handleIncomingSftpProfile(
@@ -1621,7 +1557,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         await _runSftpAction(
           context,
           () => _controller.uploadLocalPath(localPath, overwrite: exists),
-          showErrorSnack: false,
         );
       }
       return;
@@ -1649,7 +1584,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           localPath,
           overwrite: exists,
         ),
-        showErrorSnack: false,
       );
     }
   }
