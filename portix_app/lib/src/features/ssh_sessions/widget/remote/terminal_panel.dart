@@ -54,6 +54,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
   late final TerminalController _idleController;
   late final FocusNode _idleFocusNode;
   late final TerminalSessionUiController _terminalUi;
+  /// Tracks, per session, whether the terminal is currently "following"
+  /// output (i.e. the viewport is at or near the bottom).  This is updated
+  /// by a persistent scroll-listener so that the check remains accurate
+  /// even across layout cycles where `maxScrollExtent` has not yet been
+  /// refreshed after new text blocks are written.
+  final Map<String, bool> _isFollowingOutput = {};
+  /// Guards one-time registration of scroll listeners per session.
+  final Set<String> _scrollListenersRegistered = {};
   late final ConnectionManager _connectionManager;
   late final SettingsRepository _settingsRepository;
   final TerminalSuggestionController _suggestions =
@@ -294,7 +302,27 @@ class _TerminalPanelState extends State<TerminalPanel> {
   void _listenToConnectionManager() {
     _outputSubscription ??= _connectionManager.terminalOutputStream.listen(
       (event) {
-        _terminalForSession(event.sessionId).write(event.data);
+        final sessionId = event.sessionId;
+        // Capture whether the terminal was "following" output *before*
+        // writing new text.  `terminal.write` triggers `markNeedsLayout`
+        // (asynchronous), so the ScrollController still reflects the state
+        // from the last committed frame.  Checking after `write` would test
+        // a stale position that hasn't been updated for the new content,
+        // causing the auto-scroll to be skipped at the upper/lower scroll
+        // boundaries ("batas atas/bawah") when a full text block has just
+        // been added.
+        final wasFollowing = _isFollowingOutput[sessionId] ?? _isScrollAtBottom(sessionId);
+        _ensureScrollListenerRegistered(sessionId);
+        _terminalForSession(sessionId).write(event.data);
+        // Auto-scroll to follow the text block (terminal output) when the
+        // user is viewing the bottom.  This mirrors the xterm
+        // `RenderTerminal._stickToBottom` behaviour but is invoked explicitly
+        // so that scroll reliably follows every incoming block of text —
+        // including command-output that arrives after the initial Enter
+        // auto-scroll (which the built-in layout pass does not always catch).
+        if (wasFollowing) {
+          _scrollTerminalToBottom(sessionId);
+        }
       },
       onError: (Object error) => _activeTerminal.write(
         '\r\n\x1b[31mterminal stream: $error\x1b[0m\r\n',
@@ -303,6 +331,24 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _errorSubscription ??= _connectionManager.errorEventStream.listen(
       _handleBackendError,
     );
+  }
+
+  /// Registers a scroll-listener on the session's [ScrollController] that
+  /// continuously tracks whether the viewport is at (or near) the bottom.
+  /// This state is used by [_listenToConnectionManager] to decide whether
+  /// new output blocks should trigger auto-scroll, replacing the fragile
+  /// point-in-time `_isScrollAtBottom` check that could go stale between
+  /// layout cycles at the scroll boundaries.
+  void _ensureScrollListenerRegistered(String sessionId) {
+    if (!_scrollListenersRegistered.add(sessionId)) return;
+    _isFollowingOutput.putIfAbsent(sessionId, () => true);
+    final scrollController = _scrollControllerForSession(sessionId);
+    scrollController.addListener(() {
+      if (!scrollController.hasClients) return;
+      final position = scrollController.position;
+      _isFollowingOutput[sessionId] =
+          position.pixels >= position.maxScrollExtent - 10;
+    });
   }
 
   void _handleBackendError(session_models.ConnectionErrorEvent error) {
@@ -560,6 +606,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
   final Set<String> _pendingDisposedSessionIds = <String>{};
 
   void _disposeSessionUi(String sessionId) {
+    _isFollowingOutput.remove(sessionId);
+    _scrollListenersRegistered.remove(sessionId);
     _suggestionHelpTimers.remove(sessionId)?.cancel();
     _suggestionHelpRequests.remove(sessionId);
     _suggestions.clearSession(sessionId);
@@ -577,11 +625,44 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
   void _scrollTerminalToBottom(String sessionId) {
     final scrollController = _scrollControllerForSession(sessionId);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+
+    void performScroll() {
       if (!mounted) return;
       if (!scrollController.hasClients) return;
-      scrollController.jumpTo(scrollController.position.maxScrollExtent);
+      final position = scrollController.position;
+      // Only jump if we're not already at the bottom (avoids redundant
+      // notifyListeners that could fight the RenderTerminal's own
+      // `_stickToBottom` correctBy during the same frame).
+      if (position.pixels < position.maxScrollExtent - 1.0) {
+        scrollController.jumpTo(position.maxScrollExtent);
+      }
+    }
+
+    // Attempt an immediate jump first — this catches the case where the
+    // RenderTerminal has already laid out with the new content (maxScrollExtent
+    // is already updated) in the current frame.
+    performScroll();
+
+    // Then schedule a post-frame jump — this catches the case where
+    // `terminal.write` triggered `markNeedsLayout` and the new maxScrollExtent
+    // is only available after the next frame's layout pass.  This is the
+    // critical timing for "block text + scroll" at the upper/lower boundaries:
+    // the scroll must wait for layout to complete before jumping to the
+    // updated maxScrollExtent, otherwise `jumpTo` uses a stale value and the
+    // terminal appears "stuck".
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      performScroll();
     });
+  }
+
+  /// Returns `true` when the terminal for [sessionId] is scrolled to (or
+  /// within 10px of) the bottom, meaning it is safe to auto-follow new output
+  /// without stealing focus from a user who has scrolled up to read history.
+  bool _isScrollAtBottom(String sessionId) {
+    final scrollController = _scrollControllerForSession(sessionId);
+    if (!scrollController.hasClients) return false;
+    final position = scrollController.position;
+    return position.pixels >= position.maxScrollExtent - 10;
   }
 
   void _handleTerminalInput(String data, String? sessionId) {
