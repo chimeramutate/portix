@@ -220,9 +220,19 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
 
     _updateViewportSize();
 
+    // Capture _stickToBottom *before* _updateScrollOffset.  When terminal
+    // output grows the buffer, `_updateScrollOffset` calls
+    // `applyContentDimensions`, which may fire `applyNewDimensions` →
+    // `didUpdateScrollMetrics` (a scheduled microtask) → `notifyListeners`,
+    // and in some Flutter versions also triggers `correctPixels` synchronously.
+    // That listener (`_onScroll`) recomputes `_stickToBottom` using the
+    // current (not-yet-corrected) pixels vs the new `_maxScrollExtent`,
+    // resetting it to `false` and preventing `correctBy` below — so the
+    // viewport never catches up with new text at the top/bottom boundaries.
+    final stickToBottom = _stickToBottom;
     _updateScrollOffset();
 
-    if (_stickToBottom) {
+    if (stickToBottom) {
       _offset.correctBy(_maxScrollExtent - _scrollOffset);
     }
   }
@@ -497,6 +507,8 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
     }
 
     for (var i = firstLine; i <= lastLine; i++) {
+      final line = lines.tryGet(i);
+      if (line == null) continue;
       // Calculate the Y offset based on whether we're in alt buffer or not
       double yOffset;
       if (_terminal.isUsingAltBuffer) {
@@ -509,7 +521,7 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
       _painter.paintLine(
         canvas,
         offset.translate(0, yOffset.truncateToDouble()),
-        lines[i],
+        line,
       );
     }
 

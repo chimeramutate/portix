@@ -83,6 +83,14 @@ class IndexAwareCircularBuffer<T extends IndexedItem> {
 
     _startIndex = 0;
     _array = newArray;
+
+    // When shrinking, _length must be clamped to the new array size.
+    // Otherwise indices >= value would wrap around ([_getCyclicIndex]) and
+    // either return stale data or — if the wrapped slot was nulled by a prior
+    // trim — throw a null-check error at paint/read time.
+    if (_length > value) {
+      _length = value;
+    }
   }
 
   /// Number of elements in the list.
@@ -103,6 +111,16 @@ class IndexAwareCircularBuffer<T extends IndexedItem> {
   T operator [](int index) {
     RangeError.checkValueInInterval(index, 0, length - 1, 'index');
     return _getChild(index)!;
+  }
+
+  /// Safely gets the element at the specified [index] in the list, or `null`
+  /// if the slot is empty.  This can happen transiently when the buffer
+  /// was resized (via [maxLength]) and `_length` was not yet clamped, or
+  /// during buffer reallocation where null slots may temporarily exist
+  /// in the backing array.  Unlike [operator []], this never throws.
+  T? tryGet(int index) {
+    if (index < 0 || index >= _length) return null;
+    return _getChild(index);
   }
 
   /// Sets the element at the specified [index] in the list. Throws if the

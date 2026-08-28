@@ -265,7 +265,16 @@ class ConnectionManager extends ChangeNotifier {
       final wrappedCommand =
           ' { $command; }; __portix_status=\$?; printf "\\n$marker%s__\\n" "\$__portix_status"\n';
       await _backend.sendTerminalInput(backendSessionId, wrappedCommand);
-      return await capture.completer.future;
+      final result = await capture.completer.future;
+
+      // Forward a concise command-result line to the terminal so that the
+      // remote-command history ("sftp history") is visible in the terminal
+      // ("masuk ke terminal server") — previously this output was swallowed
+      // by the capture and never surfaced.  Only SSH terminal sessions have
+      // a terminal panel to display this; SFTP sessions do not.
+      _forwardRemoteCommandResult(sessionId, action, result);
+
+      return result;
     } catch (error) {
       _remoteCommandCaptures.remove(backendSessionId);
       return Left(AppFailure('Failed to run $action', cause: error));
@@ -273,6 +282,36 @@ class ConnectionManager extends ChangeNotifier {
       timer?.cancel();
       _remoteCommandCaptures.remove(backendSessionId);
     }
+  }
+
+  /// Forwards a concise command-result line to the terminal output stream so
+  /// that remote-command history is visible in the SSH terminal panel.
+  ///
+  /// While [executeRemoteCommand] runs, `_handleTerminalOutput` swallows all
+  /// terminal output for the session (to detect the exit-status marker).
+  /// After the capture completes we inject a clean summary line instead, so
+  /// the user can see what remote command ran and whether it succeeded —
+  /// the "sftp history" that previously did not enter ("masuk") the terminal.
+  void _forwardRemoteCommandResult(
+    String uiSessionId,
+    String action,
+    Result<void> result,
+  ) {
+    // Only SSH terminal sessions have a terminal panel to display the result.
+    final index = _sessions.indexWhere((s) => s.id == uiSessionId);
+    if (index == -1 || _sessions[index].kind != SessionKind.ssh) {
+      return;
+    }
+
+    final status = result.isRight
+        ? '\x1b[32m✓\x1b[0m'
+        : '\x1b[31m✗\x1b[0m';
+    _terminalOutput.add(
+      TerminalOutputEvent(
+        sessionId: uiSessionId,
+        data: '\r\n\x1b[36m[portix] $action\x1b[0m $status\r\n',
+      ),
+    );
   }
 
   Future<Result<void>> resizeTerminal(
