@@ -674,11 +674,18 @@ class _TerminalPanelState extends State<TerminalPanel> {
     if (targetSessionId == null) return;
     if (!_isSessionConnected(targetSessionId)) return;
 
-    // When Enter is pressed, auto-scroll the terminal to the bottom so the
-    // input view / prompt is always visible.
-    if (data == '\r') {
-      _scrollTerminalToBottom(targetSessionId);
-    }
+    // Auto-scroll to the bottom on every keystroke so the cursor / prompt and
+    // the just-typed input stay visible while typing.  Previously this only
+    // ran for Enter ('\r'), so ordinary characters did not bring the viewport
+    // back to the bottom and the cursor drifted off-screen until Enter was
+    // pressed.
+    //
+    // `_scrollTerminalToBottom` is a no-op when the viewport is already at the
+    // bottom, so in the common (following) case this adds no extra scrolling.
+    // It only moves the viewport back to the prompt when the user had scrolled
+    // up to read history and starts typing again — which is the standard
+    // terminal behaviour (the prompt lives at the bottom).
+    _scrollTerminalToBottom(targetSessionId);
 
     // Enter should only accept full command history suggestions. Remote/path
     // completions can match ordinary names, so accepting them on Enter makes
