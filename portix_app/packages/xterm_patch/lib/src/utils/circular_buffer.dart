@@ -267,12 +267,24 @@ class IndexAwareCircularBuffer<T extends IndexedItem> {
     }
 
     final copyLength = replacement.length - copyStart;
+
+    // Reset the cyclic start index (and length) BEFORE adopting the new
+    // children.  [_adoptChild] maps a logical index i to the cyclic index
+    // (_startIndex + i) % maxLength, so the replacement children must be
+    // written while _startIndex is already 0 so they land at cyclic position
+    // i — the same slot that [operator []] (also using _startIndex == 0) will
+    // later read.  Resetting _startIndex only after the loop, as a previous
+    // version did, left the children at the previous cyclic positions when the
+    // buffer had wrapped (_startIndex != 0, e.g. after scrollback overflow) and
+    // left the leading slots of the backing array null.  A subsequent read of
+    // those slots (e.g. reflow's `lines[i]` during the next resize) then
+    // crashed with "Null check operator used on a null value".
+    _startIndex = 0;
+    _length = copyLength;
+
     for (var i = 0; i < copyLength; i++) {
       _adoptChild(i, replacement[copyStart + i]);
     }
-
-    _startIndex = 0;
-    _length = copyLength;
   }
 
   /// Replaces the element at [index] with [value] and returns the replaced
