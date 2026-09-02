@@ -1328,6 +1328,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
       }
       final terminal = _terminalForSession(session.id);
       terminal.write('\x1b[2J\x1b[H');
+      if (!mounted) return;
       setState(() {
         _sessionId = session.id;
         _connectedProfileId = session.profileId;
@@ -1346,6 +1347,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         profile.id,
         existingSessionIds,
       );
+      if (!mounted) return;
       setState(() {
         _sessionId = failedSession?.id;
         _connectedProfileId = failedSession?.profileId;
@@ -1640,6 +1642,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
       }
       final terminal = _terminalForSession(session.id);
       terminal.write('\x1b[2J\x1b[H');
+      if (!mounted) return;
       setState(() {
         _sessionId = session.id;
         _connectedProfileId = session.profileId;
@@ -1658,6 +1661,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         profile.id,
         existingSessionIds,
       );
+      if (!mounted) return;
       setState(() {
         _sessionId = failedSession?.id;
         _connectedProfileId = failedSession?.profileId;
@@ -1703,6 +1707,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final wasActive = sessionId == _sessionId;
 
     await _connectionManager.closeSession(sessionId);
+    // `closeSession` notifies listeners synchronously (the session status
+    // drops and `onLastSessionClosed` fires from that listener), which can
+    // dispose this widget before we resume. Skip the post-close UI update to
+    // avoid `setState() called after dispose()` when disconnecting the last
+    // session.
+    if (!mounted) return;
     _sessionOrder.remove(sessionId);
     _splitRoot = _splitController.removeSession(_splitRoot, sessionId);
     _removeSessionFromWorkspaces(sessionId);
@@ -1886,6 +1896,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
       _sessionOrder.remove(sessionId);
       _scheduleSessionUiDisposal(sessionId);
     }
+    // Each `closeSession` can synchronously notify listeners and dispose this
+    // widget (via `onLastSessionClosed`) before we resume. Skip the post-close
+    // UI update to avoid `setState() called after dispose()` when disconnecting.
+    if (!mounted) return;
     final remaining = _sshSessions
         .where((session) => !sessionIds.contains(session.id))
         .toList(growable: false);
