@@ -364,9 +364,24 @@ class _TerminalPanelState extends State<TerminalPanel> {
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(
-            error.message,
-            style: TextStyle(color: AppColors.danger),
+          content: Row(
+            children: [
+              Icon(
+                Icons.cloud_off_rounded,
+                color: AppColors.danger,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  error.message,
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ),
           backgroundColor: AppColors.surfaceCard,
           behavior: SnackBarBehavior.floating,
