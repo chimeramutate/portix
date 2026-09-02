@@ -217,28 +217,74 @@ async fn run_exec(session: &client::Handle<Client>, command: String) -> Result<S
 
 async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest>) {
     let mut session = connect_and_authenticate_profile(&profile).await.ok();
-    while let Some((command, response_tx)) = rx.recv().await {
-        // Try to establish session if not connected (with one retry).
-        if session.is_none() {
-            session = connect_and_authenticate_profile(&profile).await.ok();
-            if session.is_none() {
-                // Retry once after a brief delay.
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                session = connect_and_authenticate_profile(&profile).await.ok();
+
+    // This dedicated exec connection is used only for SFTP/remote-file
+    // commands, so — unlike the interactive terminal session — it carries no
+    // traffic between operations. Without keepalives the SSH server (or russh's
+    // own `inactivity_timeout`, currently 30s) reaps it while the SFTP panel
+    // sits idle, which is why the first file transfer / directory load after
+    // idle failed and only the second attempt (which reconnects) succeeded.
+    //
+    // Mirror the terminal session: send a keepalive each interval so the
+    // channel stays warm, and — as a safety net for any death that still
+    // slips through between pings — transparently reconnect and retry the
+    // command once instead of surfacing the transient failure.
+    let mut keepalive = interval(KEEPALIVE_INTERVAL);
+    keepalive.tick().await; // consume the immediate first tick
+
+    loop {
+        tokio::select! {
+            msg = rx.recv() => {
+                let Some((command, response_tx)) = msg else {
+                    // Channel closed: no more exec requests will arrive.
+                    break;
+                };
+
+                // Establish the connection if we don't have one yet (with one
+                // retry), preserving the original behaviour.
+                if session.is_none() {
+                    session = connect_and_authenticate_profile(&profile).await.ok();
+                    if session.is_none() {
+                        // Retry once after a brief delay.
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        session = connect_and_authenticate_profile(&profile).await.ok();
+                    }
+                }
+
+                let result = if let Some(handle) = session.as_ref() {
+                    let result = run_exec(handle, command.clone()).await;
+                    if result.is_err() {
+                        // Connection dropped between keepalive pings (or the
+                        // connect above just failed). Reconnect once and retry
+                        // the command so the caller never observes the
+                        // transient failure — this is what makes the first
+                        // transfer succeed instead of needing a second attempt.
+                        session = None;
+                        match connect_and_authenticate_profile(&profile).await {
+                            Ok(new_handle) => {
+                                session = Some(new_handle);
+                                run_exec(session.as_ref().unwrap(), command).await
+                            }
+                            Err(_) => result,
+                        }
+                    } else {
+                        result
+                    }
+                } else {
+                    Err(PortixError::ConnectionTimeout)
+                };
+                let _ = response_tx.send(result);
+            }
+            _ = keepalive.tick() => {
+                if let Some(handle) = session.as_ref() {
+                    if handle.send_keepalive(false).await.is_err() {
+                        // Connection is dead — drop it so the next exec request
+                        // reconnects (and the retry path retries the command).
+                        session = None;
+                    }
+                }
             }
         }
-
-        let result = if let Some(handle) = session.as_ref() {
-            let result = run_exec(handle, command.clone()).await;
-            if result.is_err() {
-                // Connection might be broken — try a fresh one for the next request.
-                session = None;
-            }
-            result
-        } else {
-            Err(PortixError::ConnectionTimeout)
-        };
-        let _ = response_tx.send(result);
     }
 
     if let Some(handle) = session {
@@ -364,12 +410,18 @@ mod tests {
 
     #[test]
     fn normalize_terminal_size_passes_max_boundary() {
-        assert_eq!(normalize_terminal_size(MAX_COLS, MAX_ROWS), (MAX_COLS, MAX_ROWS));
+        assert_eq!(
+            normalize_terminal_size(MAX_COLS, MAX_ROWS),
+            (MAX_COLS, MAX_ROWS)
+        );
     }
 
     #[test]
     fn normalize_terminal_size_passes_min_boundary() {
-        assert_eq!(normalize_terminal_size(MIN_COLS, MIN_ROWS), (MIN_COLS, MIN_ROWS));
+        assert_eq!(
+            normalize_terminal_size(MIN_COLS, MIN_ROWS),
+            (MIN_COLS, MIN_ROWS)
+        );
     }
 
     #[test]
@@ -397,12 +449,18 @@ mod tests {
     fn expand_user_path_tilde_slash_expands_to_home() {
         let orig = env::var("HOME").ok();
         // SAFETY: single-threaded test, no other threads read HOME concurrently.
-        unsafe { env::set_var("HOME", "/test/home"); }
+        unsafe {
+            env::set_var("HOME", "/test/home");
+        }
         let expanded = expand_user_path("~/projects");
         assert_eq!(expanded.to_str().unwrap(), "/test/home/projects");
         match orig {
-            Some(h) => unsafe { env::set_var("HOME", h); },
-            None => unsafe { env::remove_var("HOME"); },
+            Some(h) => unsafe {
+                env::set_var("HOME", h);
+            },
+            None => unsafe {
+                env::remove_var("HOME");
+            },
         }
     }
 
@@ -410,12 +468,18 @@ mod tests {
     fn expand_user_path_tilde_alone_expands_to_home() {
         let orig = env::var("HOME").ok();
         // SAFETY: single-threaded test.
-        unsafe { env::set_var("HOME", "/test/home"); }
+        unsafe {
+            env::set_var("HOME", "/test/home");
+        }
         let expanded = expand_user_path("~");
         assert_eq!(expanded.to_str().unwrap(), "/test/home");
         match orig {
-            Some(h) => unsafe { env::set_var("HOME", h); },
-            None => unsafe { env::remove_var("HOME"); },
+            Some(h) => unsafe {
+                env::set_var("HOME", h);
+            },
+            None => unsafe {
+                env::remove_var("HOME");
+            },
         }
     }
 
@@ -435,15 +499,18 @@ mod tests {
     fn expand_user_path_nested_tilde() {
         let orig = env::var("HOME").ok();
         // SAFETY: single-threaded test.
-        unsafe { env::set_var("HOME", "/home/deploy"); }
+        unsafe {
+            env::set_var("HOME", "/home/deploy");
+        }
         let expanded = expand_user_path("~/.ssh/id_ed25519");
-        assert_eq!(
-            expanded.to_str().unwrap(),
-            "/home/deploy/.ssh/id_ed25519"
-        );
+        assert_eq!(expanded.to_str().unwrap(), "/home/deploy/.ssh/id_ed25519");
         match orig {
-            Some(h) => unsafe { env::set_var("HOME", h); },
-            None => unsafe { env::remove_var("HOME"); },
+            Some(h) => unsafe {
+                env::set_var("HOME", h);
+            },
+            None => unsafe {
+                env::remove_var("HOME");
+            },
         }
     }
 }
