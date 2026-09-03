@@ -134,6 +134,24 @@ Future<void> chmodRemotePath({
   mode: mode,
 );
 
+/// Run an arbitrary remote command on the session's *dedicated exec channel*.
+///
+/// This is intentionally separate from `send_terminal_input` (the interactive
+/// shell channel). File-management operations performed by the SFTP/file
+/// manager (rename, move, delete, duplicate) used to be sent through the
+/// interactive shell, which caused them to be recorded in the remote user's
+/// shell history (`HISTFILE`) and to echo marker/printf noise into the visible
+/// terminal. Running them through here opens a fresh SSH `exec` channel, so the
+/// command never touches the user's interactive shell, its history, or the
+/// terminal UI — the captured output (and exit status) is returned directly.
+Future<String> execRemoteCommand({
+  required String sessionId,
+  required String command,
+}) => RustLib.instance.api.crateApiExecRemoteCommand(
+  sessionId: sessionId,
+  command: command,
+);
+
 Stream<String> terminalOutputStream() =>
     RustLib.instance.api.crateApiTerminalOutputStream();
 
