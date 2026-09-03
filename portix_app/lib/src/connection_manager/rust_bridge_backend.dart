@@ -200,6 +200,14 @@ class RustBridgeBackend implements ConnectionBackend {
     );
   }
 
+  @override
+  Future<String> execRemoteCommand(String sessionId, String command) {
+    return rust_api.execRemoteCommand(
+      sessionId: sessionId,
+      command: command,
+    );
+  }
+
   void dispose() {
     RustLib.dispose();
   }

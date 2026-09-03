@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1485661566;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -392094812;
 
 // Section: executor
 
@@ -344,6 +344,44 @@ fn wire__crate__api__error_event_stream_impl(
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::error_event_stream(api_sink).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__exec_remote_command_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "exec_remote_command",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_session_id = <String>::sse_decode(&mut deserializer);
+            let api_command = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::exec_remote_command(api_session_id, api_command).await?;
                         Ok(output_ok)
                     })()
                     .await,
@@ -1051,18 +1089,19 @@ fn pde_ffi_dispatcher_primary_impl(
         6 => wire__crate__api__create_remote_file_impl(port, ptr, rust_vec_len, data_len),
         7 => wire__crate__api__disconnect_impl(port, ptr, rust_vec_len, data_len),
         8 => wire__crate__api__error_event_stream_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__init_app_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__list_remote_directory_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__read_remote_file_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__read_remote_file_bytes_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__remote_system_snapshot_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__resize_terminal_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__resolve_remote_directory_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__send_terminal_input_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__terminal_complete_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__terminal_output_stream_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__upload_remote_file_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__write_remote_file_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__exec_remote_command_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__init_app_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__list_remote_directory_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__read_remote_file_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__read_remote_file_bytes_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__remote_system_snapshot_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__resize_terminal_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__resolve_remote_directory_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__send_terminal_input_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__terminal_complete_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__terminal_output_stream_impl(port, ptr, rust_vec_len, data_len),
+        20 => wire__crate__api__upload_remote_file_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__write_remote_file_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }

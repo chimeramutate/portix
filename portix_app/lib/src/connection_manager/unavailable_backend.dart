@@ -107,4 +107,10 @@ class UnavailableConnectionBackend implements ConnectionBackend {
     String path,
     String mode,
   ) async => _unavailable();
+
+  @override
+  Future<String> execRemoteCommand(
+    String sessionId,
+    String command,
+  ) async => _unavailable();
 }
