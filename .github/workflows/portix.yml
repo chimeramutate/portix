@@ -100,7 +100,10 @@ jobs:
     name: "Rust Libraries [macOS] @ ${{ github.ref_name }}"
     runs-on: macos-latest
 
-    if: github.event_name != 'pull_request'
+    # ✅ FIX: Only run on tag push or manual workflow_dispatch
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/')
 
     concurrency:
       group: build-rust-macos-${{ github.ref_name }}
@@ -223,7 +226,10 @@ jobs:
     name: "Rust Libraries [Linux] @ ${{ github.ref_name }}"
     runs-on: ubuntu-latest
 
-    if: github.event_name != 'pull_request'
+    # ✅ FIX: Only run on tag push or manual workflow_dispatch
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/')
 
     concurrency:
       group: build-rust-linux-${{ github.ref_name }}
@@ -360,7 +366,10 @@ jobs:
     name: "Rust Libraries [Windows] @ ${{ github.ref_name }}"
     runs-on: windows-latest
 
-    if: github.event_name != 'pull_request'
+    # ✅ FIX: Only run on tag push or manual workflow_dispatch
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/')
 
     concurrency:
       group: build-rust-windows-${{ github.ref_name }}
@@ -526,7 +535,10 @@ jobs:
     needs:
       - build-rust-macos
 
-    if: github.event_name != 'pull_request'
+    # ✅ FIX: Only run on tag push or manual workflow_dispatch
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/')
 
     concurrency:
       group: build-desktop-macos-${{ github.ref_name }}
@@ -759,7 +771,10 @@ jobs:
     needs:
       - build-rust-linux
 
-    if: github.event_name != 'pull_request'
+    # ✅ FIX: Only run on tag push or manual workflow_dispatch
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/')
 
     outputs:
       app_version: ${{ steps.version.outputs.version }}
@@ -1078,7 +1093,10 @@ jobs:
     needs:
       - build-rust-windows
 
-    if: github.event_name != 'pull_request'
+    # ✅ FIX: Only run on tag push or manual workflow_dispatch
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/')
 
     concurrency:
       group: build-desktop-windows-${{ github.ref_name }}
