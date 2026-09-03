@@ -19,6 +19,7 @@ class _FilePane extends StatelessWidget {
     this.error,
     this.isRemote = false,
     this.showActions = true,
+    this.showPathBar = true,
     this.contentOverride,
     this.onCreateFileRequested,
     this.onCreateFolderRequested,
@@ -54,6 +55,7 @@ class _FilePane extends StatelessWidget {
   final String? error;
   final bool isRemote;
   final bool showActions;
+  final bool showPathBar;
   final Widget? contentOverride;
   final VoidCallback? onCreateFileRequested;
   final VoidCallback? onCreateFolderRequested;
@@ -126,7 +128,8 @@ class _FilePane extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 12),
-              _PathBar(path: path, onSubmitted: onPathSubmitted),
+              if (showPathBar)
+                _PathBar(path: path, onSubmitted: onPathSubmitted),
               if (showActions) ...[
                 const SizedBox(height: 12),
                 _PaneActions(

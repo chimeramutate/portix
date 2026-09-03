@@ -399,6 +399,13 @@ class _FakeConnectionBackend implements ConnectionBackend {
   @override
   Future<void> sendTerminalInput(String sessionId, String data) async {}
 
+  @override
+  Future<String> execRemoteCommand(String sessionId, String command) async {
+    // Default: no-op success with empty output. Tests that need to observe or
+    // fail specific commands can override this.
+    return '';
+  }
+
   void dispose() {
     _output.close();
     _status.close();

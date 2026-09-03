@@ -59,6 +59,11 @@ class SftpWorkspaceController extends ChangeNotifier {
 
   // Track disconnected state for one-time notifications
   bool _wasDisconnected = false;
+  // Guards against re-notifying while already in a disconnected state so the
+  // "connection lost" SnackBar is only shown once per disconnect event instead
+  // of being re-shown on every ConnectionManager notification (heartbeat,
+  // status events, closeSession, etc.).
+  bool _remoteDisconnectNotified = false;
 
   List<SftpTransferJob> get transferJobs => List.unmodifiable(_transferJobs);
   String get localPath => _localPath;
@@ -259,6 +264,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     _loadingRemote = false;
     _remoteStatus = 'idle';
     _wasDisconnected = false;
+    _remoteDisconnectNotified = false;
     _remoteConsecutiveFailures = 0;
     _remoteLoadToken += 1;
     _remoteSearchToken += 1;
@@ -384,7 +390,9 @@ class SftpWorkspaceController extends ChangeNotifier {
     bool overwrite = false,
   }) async {
     final sessionId = _remoteSessionId;
-    if (sessionId == null) return;
+    if (sessionId == null) {
+      throw StateError('Remote SFTP session is not connected yet.');
+    }
     final normalized = localPath.trim();
     final entityType = FileSystemEntity.typeSync(normalized);
     if (entityType == FileSystemEntityType.notFound) {
@@ -503,7 +511,10 @@ class SftpWorkspaceController extends ChangeNotifier {
     final sessionId = _remoteSessionId;
     final remotePath = file.path;
     final trimmed = newName.trim();
-    if (sessionId == null || remotePath == null || trimmed.isEmpty) return;
+    if (sessionId == null) {
+      throw StateError('Remote SFTP session is not connected yet.');
+    }
+    if (remotePath == null || trimmed.isEmpty) return;
     if (trimmed.contains('/') || trimmed.contains('\\')) {
       throw StateError('Rename only supports a name, not a path.');
     }
@@ -576,7 +587,10 @@ class SftpWorkspaceController extends ChangeNotifier {
   Future<void> renameLocalPath(SftpFileEntry file, String newName) async {
     final localPath = file.path;
     final trimmed = newName.trim();
-    if (localPath == null || trimmed.isEmpty) return;
+    if (localPath == null) {
+      throw StateError('Local file path is missing.');
+    }
+    if (trimmed.isEmpty) return;
     if (trimmed.contains('/') || trimmed.contains('\\')) {
       throw StateError('Rename only supports a name, not a path.');
     }
@@ -869,18 +883,31 @@ class SftpWorkspaceController extends ChangeNotifier {
         .firstOrNull;
     if (session == null) {
       // Session was removed entirely — mark as disconnected.
-      _remoteError = 'SFTP session lost. Connection was closed.';
-      _remoteStatus = 'disconnected';
-      _wasDisconnected = true;
-      notifyListeners();
+      if (!_remoteDisconnectNotified) {
+        _remoteError = 'SFTP session lost. Connection was closed.';
+        _remoteStatus = 'disconnected';
+        _wasDisconnected = true;
+        _remoteDisconnectNotified = true;
+        notifyListeners();
+      }
       return;
     }
-    if (session.status == ConnectionStatus.disconnected ||
-        session.status == ConnectionStatus.error) {
-      _remoteError ??= 'Remote connection lost.';
-      _remoteStatus = 'disconnected';
-      _wasDisconnected = true;
-      notifyListeners();
+    final isDisconnected =
+        session.status == ConnectionStatus.disconnected ||
+        session.status == ConnectionStatus.error;
+    if (isDisconnected) {
+      // Only notify once per disconnect event so the SnackBar is not re-shown
+      // on every ConnectionManager notification while still disconnected.
+      if (!_remoteDisconnectNotified) {
+        _remoteError ??= 'Remote connection lost.';
+        _remoteStatus = 'disconnected';
+        _wasDisconnected = true;
+        _remoteDisconnectNotified = true;
+        notifyListeners();
+      }
+    } else {
+      // Session is connected again — allow a future disconnect to notify.
+      _remoteDisconnectNotified = false;
     }
   }
 
@@ -909,6 +936,7 @@ class SftpWorkspaceController extends ChangeNotifier {
       _remoteConsecutiveFailures = 0;
       _remoteStatus = 'disconnected';
       _wasDisconnected = true;
+      _remoteDisconnectNotified = true;
       _remoteError ??= 'Remote connection lost.';
       notifyListeners();
       // Force-close so ConnectionManager removes the session and

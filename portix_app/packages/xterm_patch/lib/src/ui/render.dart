@@ -220,9 +220,19 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
 
     _updateViewportSize();
 
+    // Capture _stickToBottom *before* _updateScrollOffset.  When terminal
+    // output grows the buffer, `_updateScrollOffset` calls
+    // `applyContentDimensions`, which may fire `applyNewDimensions` →
+    // `didUpdateScrollMetrics` (a scheduled microtask) → `notifyListeners`,
+    // and in some Flutter versions also triggers `correctPixels` synchronously.
+    // That listener (`_onScroll`) recomputes `_stickToBottom` using the
+    // current (not-yet-corrected) pixels vs the new `_maxScrollExtent`,
+    // resetting it to `false` and preventing `correctBy` below — so the
+    // viewport never catches up with new text at the top/bottom boundaries.
+    final stickToBottom = _stickToBottom;
     _updateScrollOffset();
 
-    if (_stickToBottom) {
+    if (stickToBottom) {
       _offset.correctBy(_maxScrollExtent - _scrollOffset);
     }
   }
@@ -345,7 +355,51 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
     );
   }
 
-  /// Send a mouse event at [offset] with [button] being currently in [buttonState].
+  /// Computes the vertical scroll delta (in pixels; positive = scroll down)
+  /// that a selection drag should apply so the user can keep extending their
+  /// selection past the top or bottom edge of the visible viewport.
+  ///
+  /// Returns `0` when the pointer is inside the viewport content area, when the
+  /// terminal is already scrolled as far as possible in the needed direction,
+  /// or when the terminal has nothing scrollable.  The magnitude grows with how
+  /// far the pointer sits outside the viewport, so the further past the edge the
+  /// pointer is, the faster the viewport scrolls.
+  double getSelectionDragScrollDelta(Offset localPosition) {
+    final cellHeight = _painter.cellSize.height;
+    if (cellHeight <= 0.0) return 0.0;
+
+    final contentTop = _padding.top;
+    final contentBottom = size.height - _padding.bottom;
+    final maxScrollExtent = _maxScrollExtent;
+    if (maxScrollExtent <= 0.0) return 0.0;
+
+    double delta;
+    if (localPosition.dy < contentTop) {
+      // Pointer dragged past the top edge: scroll up.
+      final overshoot = contentTop - localPosition.dy;
+      delta = -(1.0 + 4.0 * (overshoot / (cellHeight * 4)).clamp(0.0, 1.0));
+    } else if (localPosition.dy > contentBottom) {
+      // Pointer dragged past the bottom edge: scroll down.
+      final overshoot = localPosition.dy - contentBottom;
+      delta = (1.0 + 4.0 * (overshoot / (cellHeight * 4)).clamp(0.0, 1.0));
+    } else {
+      return 0.0;
+    }
+
+    delta *= cellHeight;
+
+    // Clamp to the remaining scrollable range so we never try to scroll past
+    // the ends of the buffer.
+    if (_scrollOffset + delta < 0.0) delta = -_scrollOffset;
+    if (_scrollOffset + delta > maxScrollExtent) {
+      delta = maxScrollExtent - _scrollOffset;
+    }
+
+    if (delta.isNaN || delta == 0.0) return 0.0;
+    return delta;
+  }
+
+
   bool mouseEvent(
     TerminalMouseButton button,
     TerminalMouseButtonState buttonState,
@@ -497,6 +551,8 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
     }
 
     for (var i = firstLine; i <= lastLine; i++) {
+      final line = lines.tryGet(i);
+      if (line == null) continue;
       // Calculate the Y offset based on whether we're in alt buffer or not
       double yOffset;
       if (_terminal.isUsingAltBuffer) {
@@ -509,7 +565,7 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
       _painter.paintLine(
         canvas,
         offset.translate(0, yOffset.truncateToDouble()),
-        lines[i],
+        line,
       );
     }
 

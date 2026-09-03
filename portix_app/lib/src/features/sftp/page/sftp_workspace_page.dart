@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/core/di/injection.dart';
@@ -267,9 +267,16 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     final forceSync = _controller.needsRevalidation;
     if (!forceSync && _remoteSyncKey == key) return;
     _remoteSyncKey = key;
+    // When a session is already active, re-attach to the directory the user
+    // is currently viewing rather than the profile's initial path. This keeps
+    // a drop-triggered refresh (or any revalidation) from jumping back to the
+    // profile's root/initial path.
+    final targetPath = _controller.hasRemoteSession
+        ? _controller.remotePath
+        : remotePath;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      unawaited(_controller.attachRemoteProfile(profile, remotePath));
+      unawaited(_controller.attachRemoteProfile(profile, targetPath));
     });
   }
 
@@ -323,13 +330,41 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     });
   }
 
-  void _selectProfileForActiveTab(BuildContext context, SshProfile profile) {
+  Future<void> _selectProfileForActiveTab(
+    BuildContext context,
+    SshProfile profile,
+  ) async {
+    // If the profile is password-based but no usable password is stored yet,
+    // ask the user for it before connecting (same as the SSH terminal flow).
+    if (profile.authMethod == AuthMethod.password &&
+        (profile.credentialLabel.trim().isEmpty ||
+            profile.credentialLabel == 'Saved password')) {
+      final connectionManager = sl<ConnectionManager>();
+      final hasSaved = await connectionManager.hasSavedPassword(profile.id);
+      if (!hasSaved) {
+        final password = await _promptSftpPassword(profile);
+        if (password == null || !mounted) return;
+        await connectionManager.saveProfilePassword(profile.id, password);
+        // Update in-memory profile so the controller can pass the password
+        // directly instead of failing with PasswordUnavailableException.
+        profile = profile.copyWith(credentialLabel: password);
+      }
+    }
+    if (!mounted) return;
     setState(() {
       _activeTab.selectedProfile = profile;
       _remoteSyncKey = null;
     });
     // Also update bloc for backward compatibility
     context.read<SftpWorkspaceBloc>().add(SftpProfileSelected(profile));
+  }
+
+  Future<String?> _promptSftpPassword(SshProfile profile) {
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => _SftpPasswordDialog(profile: profile),
+    );
   }
 
   void _handleIncomingSftpProfile(
@@ -358,10 +393,10 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       } else {
         // Select profile in current tab if it's empty, otherwise create new tab.
         if (_activeTab.selectedProfile == null) {
-          _selectProfileForActiveTab(context, profile);
+          unawaited(_selectProfileForActiveTab(context, profile));
         } else {
           _addSftpTab();
-          _selectProfileForActiveTab(context, profile);
+          unawaited(_selectProfileForActiveTab(context, profile));
         }
       }
     });
@@ -381,83 +416,98 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     SftpFileEntry file,
     bool isRemote,
   ) async {
-    switch (action) {
-      case _FileAction.open:
-        if (file.folder) {
-          if (isRemote) {
-            await _runSftpAction(
-              context,
-              () => _controller.loadRemoteDirectory(file.path ?? file.name),
-              success: 'Opened ${file.name}',
-            );
+    try {
+      switch (action) {
+        case _FileAction.open:
+          if (file.folder) {
+            if (isRemote) {
+              await _runSftpAction(
+                context,
+                () => _controller.loadRemoteDirectory(file.path ?? file.name),
+                success: 'Opened ${file.name}',
+              );
+            } else {
+              await _controller.loadLocalDirectory(file.path ?? file.name);
+            }
           } else {
-            await _controller.loadLocalDirectory(file.path ?? file.name);
+            await _openFileWithEditor(
+              context,
+              file,
+              isRemote,
+              preferredDefault: true,
+            );
           }
-        } else {
+        case _FileAction.edit:
           await _openFileWithEditor(
             context,
             file,
             isRemote,
             preferredDefault: true,
           );
-        }
-      case _FileAction.edit:
-        await _openFileWithEditor(
-          context,
-          file,
-          isRemote,
-          preferredDefault: true,
-        );
-      case _FileAction.openWith:
-        await _openFileWithEditor(
-          context,
-          file,
-          isRemote,
-          preferredDefault: false,
-        );
-      case _FileAction.download:
-        if (!isRemote) {
-          _showSnack(context, 'Download hanya tersedia untuk remote file.');
-          return;
-        }
-        final selectedDir = await FilePicker.getDirectoryPath(
-          dialogTitle: 'Download ${file.name} to...',
-          initialDirectory: _controller.defaultDownloadsPath,
-        );
-        if (selectedDir == null || !mounted) return;
-        final localPath = '$selectedDir${Platform.pathSeparator}${file.name}';
-        final exists = _controller.localTargetExists(localPath);
-        if (exists) {
-          final replace = await _confirmReplace(
+        case _FileAction.openWith:
+          await _openFileWithEditor(
             context,
-            title: file.folder
-                ? 'Replace local folder?'
-                : 'Replace local file?',
-            name: file.name,
-            targetPath: localPath,
-            message: file.folder
-                ? 'Folder dengan nama yang sama sudah ada di local. Download akan merge folder dan rewrite file yang namanya sama.'
-                : 'File dengan nama yang sama sudah ada di local. Replace akan rewrite file local.',
-          );
-          if (replace != true) return;
-        }
-        await _runSftpAction(
-          context,
-          () => _controller.downloadRemoteEntry(
             file,
-            localPath,
-            overwrite: exists,
-          ),
-          showErrorSnack: false,
-        );
-      case _FileAction.newFile:
-        _startInlineCreate(_SftpInlineCreateKind.file, remote: isRemote);
-      case _FileAction.newFolder:
-        _startInlineCreate(_SftpInlineCreateKind.folder, remote: isRemote);
-      case _FileAction.rename:
-        _startInlineRename(file, remote: isRemote);
-      case _FileAction.duplicate:
-        if (!isRemote) {
+            isRemote,
+            preferredDefault: false,
+          );
+        case _FileAction.download:
+          if (!isRemote) {
+            _showSnack(context, 'Download hanya tersedia untuk remote file.');
+            return;
+          }
+          final selectedDir = await FilePicker.getDirectoryPath(
+            dialogTitle: 'Download ${file.name} to...',
+            initialDirectory: _controller.defaultDownloadsPath,
+          );
+          if (selectedDir == null || !mounted) return;
+          final localPath = '$selectedDir${Platform.pathSeparator}${file.name}';
+          final exists = _controller.localTargetExists(localPath);
+          if (exists) {
+            final replace = await _confirmReplace(
+              context,
+              title: file.folder
+                  ? 'Replace local folder?'
+                  : 'Replace local file?',
+              name: file.name,
+              targetPath: localPath,
+              message: file.folder
+                  ? 'Folder dengan nama yang sama sudah ada di local. Download akan merge folder dan rewrite file yang namanya sama.'
+                  : 'File dengan nama yang sama sudah ada di local. Replace akan rewrite file local.',
+            );
+            if (replace != true) return;
+          }
+          await _runSftpAction(
+            context,
+            () => _controller.downloadRemoteEntry(
+              file,
+              localPath,
+              overwrite: exists,
+            ),
+            showErrorSnack: false,
+          );
+        case _FileAction.newFile:
+          _startInlineCreate(_SftpInlineCreateKind.file, remote: isRemote);
+        case _FileAction.newFolder:
+          _startInlineCreate(_SftpInlineCreateKind.folder, remote: isRemote);
+        case _FileAction.rename:
+          _startInlineRename(file, remote: isRemote);
+        case _FileAction.duplicate:
+          if (!isRemote) {
+            final newName = await _promptText(
+              context,
+              title: 'Duplicate ${file.name}',
+              label: 'Copy name',
+              initialValue: _duplicateName(file.name),
+            );
+            if (newName == null) return;
+            await _runSftpAction(
+              context,
+              () => _controller.duplicateLocalPath(file, newName),
+              success: 'Duplicated ${file.name}',
+            );
+            return;
+          }
           final newName = await _promptText(
             context,
             title: 'Duplicate ${file.name}',
@@ -467,75 +517,72 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           if (newName == null) return;
           await _runSftpAction(
             context,
-            () => _controller.duplicateLocalPath(file, newName),
+            () => _controller.duplicateRemotePath(file, newName),
             success: 'Duplicated ${file.name}',
           );
-          return;
-        }
-        final newName = await _promptText(
-          context,
-          title: 'Duplicate ${file.name}',
-          label: 'Copy name',
-          initialValue: _duplicateName(file.name),
-        );
-        if (newName == null) return;
-        await _runSftpAction(
-          context,
-          () => _controller.duplicateRemotePath(file, newName),
-          success: 'Duplicated ${file.name}',
-        );
-      case _FileAction.move:
-        if (!isRemote) {
-          final selectedDir = await FilePicker.getDirectoryPath(
-            dialogTitle: 'Move ${file.name} to...',
-            initialDirectory: _controller.localPath,
+        case _FileAction.move:
+          if (!isRemote) {
+            final selectedDir = await FilePicker.getDirectoryPath(
+              dialogTitle: 'Move ${file.name} to...',
+              initialDirectory: _controller.localPath,
+            );
+            if (selectedDir == null || !mounted) return;
+            final targetPath =
+                '$selectedDir${Platform.pathSeparator}${file.name}';
+            await _runSftpAction(
+              context,
+              () => _controller.moveLocalPath(file, targetPath),
+              success: 'Moved ${file.name} to $selectedDir',
+            );
+            return;
+          }
+          final moveTarget = await _showRemoteFolderPicker(
+            context,
+            title: 'Move ${file.name}',
+            currentPath: _controller.remotePath,
           );
-          if (selectedDir == null || !mounted) return;
-          final targetPath =
-              '$selectedDir${Platform.pathSeparator}${file.name}';
+          if (moveTarget == null || !mounted) return;
+          final remoteDest = moveTarget.endsWith('/')
+              ? '$moveTarget${file.name}'
+              : '$moveTarget/${file.name}';
           await _runSftpAction(
             context,
-            () => _controller.moveLocalPath(file, targetPath),
-            success: 'Moved ${file.name} to $selectedDir',
+            () => _controller.moveRemotePath(file, remoteDest),
+            success: 'Moved ${file.name} to $moveTarget',
           );
-          return;
-        }
-        final moveTarget = await _showRemoteFolderPicker(
-          context,
-          title: 'Move ${file.name}',
-          currentPath: _controller.remotePath,
-        );
-        if (moveTarget == null || !mounted) return;
-        final remoteDest = moveTarget.endsWith('/')
-            ? '$moveTarget${file.name}'
-            : '$moveTarget/${file.name}';
-        await _runSftpAction(
-          context,
-          () => _controller.moveRemotePath(file, remoteDest),
-          success: 'Moved ${file.name} to $moveTarget',
-        );
-      case _FileAction.chmod:
-        final mode = await _showChmodDialog(context, file);
-        if (mode == null) return;
-        if (!isRemote) {
-          _showSnack(context, 'Local chmod belum tersedia dari workspace ini.');
-          return;
-        }
-        await _runSftpAction(
-          context,
-          () => _controller.chmodRemotePath(file, mode),
-          success: 'Updated permissions for ${file.name}',
-        );
-      case _FileAction.delete:
-        final confirmed = await _confirmDelete(context, file, isRemote);
-        if (confirmed != true) return;
-        await _runSftpAction(
-          context,
-          () => isRemote
-              ? _controller.deleteRemotePath(file)
-              : _controller.deleteLocalPath(file),
-          success: 'Deleted ${file.name}',
-        );
+        case _FileAction.chmod:
+          final mode = await _showChmodDialog(context, file);
+          if (mode == null) return;
+          if (!isRemote) {
+            _showSnack(
+              context,
+              'Local chmod belum tersedia dari workspace ini.',
+            );
+            return;
+          }
+          await _runSftpAction(
+            context,
+            () => _controller.chmodRemotePath(file, mode),
+            success: 'Updated permissions for ${file.name}',
+          );
+        case _FileAction.delete:
+          final confirmed = await _confirmDelete(context, file, isRemote);
+          if (confirmed != true) return;
+          await _runSftpAction(
+            context,
+            () => isRemote
+                ? _controller.deleteRemotePath(file)
+                : _controller.deleteLocalPath(file),
+            success: 'Deleted ${file.name}',
+          );
+      }
+    } catch (error) {
+      // Opening/editing files may throw while the SFTP session is down
+      // (e.g. `editablePathFor` raises StateError('Remote SFTP session is
+      // not connected.')) or when showing the editor picker on a stale
+      // context. Surface as a snack instead of tearing down the isolate.
+      if (!mounted) return;
+      _showSnack(context, 'Failed: $error');
     }
   }
 
@@ -722,17 +769,25 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     String localPath,
     String? originalText,
   ) async {
-    if (!mounted) return;
-    final currentText = await _readFileTextIfPossible(localPath);
-    if (!mounted) return;
-    final diff = _buildTextDiff(originalText, currentText);
-    final shouldRewrite = await showDialog<bool>(
-      context: context,
-      builder: (context) =>
-          _SftpRewriteRemoteDialog(fileName: file.name, diff: diff),
-    );
-    if (shouldRewrite == true) {
-      await _rewriteEditedRemoteFile(file, localPath);
+    try {
+      if (!mounted) return;
+      final currentText = await _readFileTextIfPossible(localPath);
+      if (!mounted) return;
+      final diff = _buildTextDiff(originalText, currentText);
+      final shouldRewrite = await showDialog<bool>(
+        context: context,
+        builder: (context) =>
+            _SftpRewriteRemoteDialog(fileName: file.name, diff: diff),
+      );
+      if (shouldRewrite == true) {
+        await _rewriteEditedRemoteFile(file, localPath);
+      }
+    } catch (error) {
+      // A dialog/context glitch here must not propagate into the file-watch
+      // timer's catch (which cancels the timer), otherwise subsequent saves
+      // silently stop showing the diff/rewrite prompt.
+      if (!mounted) return;
+      _showSnack(context, 'Could not show rewrite preview: $error');
     }
   }
 
@@ -1124,6 +1179,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                       error: _controller.remoteError,
                       isRemote: true,
                       showActions: selectedProfile != null,
+                      showPathBar: selectedProfile != null,
                       statusTitle: _controller.remoteStatusTitle,
                       statusMessage: _controller.remoteStatusMessage,
                       findQuery: _controller.remoteSearchQuery,
@@ -1173,8 +1229,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                       contentOverride: selectedProfile == null
                           ? _SftpProfileGate(
                               profiles: profiles,
-                              onSelected: (profile) =>
-                                  _selectProfileForActiveTab(context, profile),
+                              onSelected: (profile) => unawaited(
+                                _selectProfileForActiveTab(context, profile),
+                              ),
                             )
                           : _controller.isRemoteDisconnected
                           ? _SftpDisconnectedOverlay(
@@ -1292,6 +1349,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                     error: _controller.remoteError,
                     isRemote: true,
                     showActions: selectedProfile != null,
+                    showPathBar: selectedProfile != null,
                     statusTitle: _controller.remoteStatusTitle,
                     statusMessage: _controller.remoteStatusMessage,
                     findQuery: _controller.remoteSearchQuery,
@@ -1340,8 +1398,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                     contentOverride: selectedProfile == null
                         ? _SftpProfileGate(
                             profiles: profiles,
-                            onSelected: (profile) =>
-                                _selectProfileForActiveTab(context, profile),
+                            onSelected: (profile) => unawaited(
+                              _selectProfileForActiveTab(context, profile),
+                            ),
                           )
                         : _controller.isRemoteDisconnected
                         ? _SftpDisconnectedOverlay(
@@ -1518,7 +1577,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         await _runSftpAction(
           context,
           () => _controller.uploadLocalPath(localPath, overwrite: exists),
-          showErrorSnack: false,
         );
       }
       return;
@@ -1546,7 +1604,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           localPath,
           overwrite: exists,
         ),
-        showErrorSnack: false,
       );
     }
   }
