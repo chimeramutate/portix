@@ -31,7 +31,10 @@ class ConnectionManager extends ChangeNotifier {
     _statusSub = _backend.connectionStatusStream.listen(_handleStatus);
     _outputSub = _backend.terminalOutputStream.listen(_handleTerminalOutput);
     _errorSub = _backend.errorEventStream.listen(_handleError);
-    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) => _runHeartbeat());
+    _heartbeatTimer = Timer.periodic(
+      _heartbeatInterval,
+      (_) => _runHeartbeat(),
+    );
   }
 
   final ConnectionBackend _backend;
@@ -46,7 +49,6 @@ class ConnectionManager extends ChangeNotifier {
   final Map<String, String> _backendToUiSessionIds = {};
   final Map<String, Future<void>> _pendingSecretWrites = {};
   final Map<String, Object> _secretWriteErrors = {};
-  final Map<String, _RemoteCommandCapture> _remoteCommandCaptures = {};
   final _terminalOutput = StreamController<TerminalOutputEvent>.broadcast();
   final _errors = StreamController<ConnectionErrorEvent>.broadcast();
 
@@ -194,6 +196,13 @@ class ConnectionManager extends ChangeNotifier {
     await _secretStore.savePassword(profileId, password);
   }
 
+  /// Returns true when a usable password for the given profile is already
+  /// stored in the local secure keychain / secret store.
+  Future<bool> hasSavedPassword(String profileId) async {
+    final password = await _secretStore.readPassword(profileId);
+    return (password ?? '').trim().isNotEmpty;
+  }
+
   Future<Result<void>> closeSession(String sessionId) async {
     final index = _sessions.indexWhere((session) => session.id == sessionId);
     if (index == -1) {
@@ -235,34 +244,72 @@ class ConnectionManager extends ChangeNotifier {
   }) async {
     final backendSessionId =
         _backendSessionIdForUiSession(sessionId) ?? sessionId;
-    final token = _uuid.v4().replaceAll('-', '');
-    final marker = '__PORTIX_CMD_${token}_EXIT:';
-    final capture = _RemoteCommandCapture(marker);
-    _remoteCommandCaptures[backendSessionId] = capture;
-    Timer? timer;
 
+    Result<void> result;
     try {
-      timer = Timer(timeout, () {
-        if (!capture.completer.isCompleted) {
-          capture.completer.complete(
-            Left(AppFailure('Timed out while running $action')),
+      // Run the command on the session's DEDICATED exec channel (a separate SSH
+      // channel, not the interactive shell). This used to send the command
+      // through `sendTerminalInput` (the interactive shell), which:
+      //   - recorded SFTP file-management commands (rename/move/delete/duplicate)
+      //     in the remote shell's shared history file (HISTFILE), so they showed
+      //     up when pressing ⬆ in the SSH terminal ("masuk ke history"), and
+      //   - echoed the command plus a `__PORTIX_CMD_..._EXIT` marker line into
+      //     the visible terminal output.
+      // The exec channel opens a fresh SSH `exec` session that never touches the
+      // user's interactive shell, so neither the command nor any marker reaches
+      // the shell history or the terminal. A non-zero exit status is surfaced
+      // directly as an exception by the Rust backend (see `run_exec`).
+      await _backend
+          .execRemoteCommand(backendSessionId, command)
+          .timeout(
+            timeout,
+            onTimeout: () => throw TimeoutException(
+              'Timed out while running $action',
+              timeout,
+            ),
           );
-        }
-        _remoteCommandCaptures.remove(backendSessionId);
-      });
-
-      // Prefix with space to avoid shell history (HISTCONTROL=ignorespace).
-      final wrappedCommand =
-          ' { $command; }; __portix_status=\$?; printf "\\n$marker%s__\\n" "\$__portix_status"\n';
-      await _backend.sendTerminalInput(backendSessionId, wrappedCommand);
-      return await capture.completer.future;
+      result = const Right(null);
+    } on TimeoutException catch (_) {
+      result = Left(AppFailure('Timed out while running $action'));
     } catch (error) {
-      _remoteCommandCaptures.remove(backendSessionId);
-      return Left(AppFailure('Failed to run $action', cause: error));
-    } finally {
-      timer?.cancel();
-      _remoteCommandCaptures.remove(backendSessionId);
+      result = Left(AppFailure('Failed to run $action', cause: error));
     }
+
+    // Forward a concise command-result line (green ✓ / red ✗) to the SSH
+    // terminal panel so the user gets feedback that the SFTP/file-manager
+    // operation ran — WITHOUT echoing the underlying command or any marker
+    // into the remote shell history. SFTP sessions have no terminal panel, so
+    // the summary is intentionally only shown for SSH terminal sessions.
+    _forwardRemoteCommandResult(sessionId, action, result);
+    return result;
+  }
+
+  /// Forwards a concise command-result line to the terminal output stream so
+  /// the user can see in the SSH terminal whether a remote file-management
+  /// command (rename/move/delete/duplicate) succeeded or failed.
+  ///
+  /// Only SSH terminal sessions have a terminal panel to display this; SFTP
+  /// sessions do not, so the summary is skipped for them.
+  void _forwardRemoteCommandResult(
+    String uiSessionId,
+    String action,
+    Result<void> result,
+  ) {
+    // Only SSH terminal sessions have a terminal panel to display the result.
+    final index = _sessions.indexWhere((s) => s.id == uiSessionId);
+    if (index == -1 || _sessions[index].kind != SessionKind.ssh) {
+      return;
+    }
+
+    final status = result.isRight
+        ? '\x1b[32m✓\x1b[0m'
+        : '\x1b[31m✗\x1b[0m';
+    _terminalOutput.add(
+      TerminalOutputEvent(
+        sessionId: uiSessionId,
+        data: '\r\n\x1b[36m[portix] $action\x1b[0m $status\r\n',
+      ),
+    );
   }
 
   Future<Result<void>> resizeTerminal(
@@ -511,9 +558,9 @@ class ConnectionManager extends ChangeNotifier {
   /// waiting for the Rust keepalive cycle (~17 s).
   Future<void> _runHeartbeat() async {
     // Collect all currently-connected sessions with a known profile.
-    final candidates = _sessions.where(
-      (s) => s.status == ConnectionStatus.connected,
-    ).toList(growable: false);
+    final candidates = _sessions
+        .where((s) => s.status == ConnectionStatus.connected)
+        .toList(growable: false);
 
     for (final session in candidates) {
       if (_heartbeatInFlight.contains(session.id)) continue;
@@ -529,18 +576,16 @@ class ConnectionManager extends ChangeNotifier {
 
       _heartbeatInFlight.add(session.id);
       unawaited(
-        _probeSession(session.id, host, port).whenComplete(
-          () => _heartbeatInFlight.remove(session.id),
-        ),
+        _probeSession(
+          session.id,
+          host,
+          port,
+        ).whenComplete(() => _heartbeatInFlight.remove(session.id)),
       );
     }
   }
 
-  Future<void> _probeSession(
-    String uiSessionId,
-    String host,
-    int port,
-  ) async {
+  Future<void> _probeSession(String uiSessionId, String host, int port) async {
     try {
       final socket = await Socket.connect(
         host,
@@ -573,11 +618,7 @@ class ConnectionManager extends ChangeNotifier {
 
     // Tell Rust to clean up the session too (best-effort).
     final backendId = _backendSessionIdForUiSession(uiSessionId) ?? uiSessionId;
-    unawaited(
-      _backend
-          .disconnect(backendId)
-          .catchError((_) {}),
-    );
+    unawaited(_backend.disconnect(backendId).catchError((_) {}));
   }
 
   void _handleStatus(ConnectionStatusEvent event) {
@@ -607,17 +648,11 @@ class ConnectionManager extends ChangeNotifier {
   }
 
   void _handleTerminalOutput(TerminalOutputEvent event) {
-    final capture = _remoteCommandCaptures[event.sessionId];
-    if (capture != null) {
-      capture.append(event.data);
-      if (capture.isComplete) {
-        if (!capture.completer.isCompleted) {
-          capture.completer.complete(capture.result);
-        }
-        _remoteCommandCaptures.remove(event.sessionId);
-      }
-      return;
-    }
+    // Remote file-management commands now run on a dedicated exec channel
+    // (see `executeRemoteCommand`), so this listener never needs to intercept
+    // terminal output to detect a command marker. All SSH terminal output is
+    // forwarded straight to the UI, with backend session IDs remapped to the
+    // UI session IDs the terminal panel subscribes to.
     _terminalOutput.add(
       TerminalOutputEvent(
         sessionId: _backendToUiSessionIds[event.sessionId] ?? event.sessionId,
@@ -864,44 +899,6 @@ class _RemoteSearchDirectory {
 
   final String path;
   final int depth;
-}
-
-class _RemoteCommandCapture {
-  _RemoteCommandCapture(this.marker);
-
-  final String marker;
-  final Completer<Result<void>> completer = Completer<Result<void>>();
-  final StringBuffer _buffer = StringBuffer();
-  bool _complete = false;
-  Result<void> _result = const Right(null);
-
-  bool get isComplete => _complete;
-  Result<void> get result => _result;
-
-  void append(String data) {
-    if (_complete) return;
-    _buffer.write(data);
-    final output = _buffer.toString();
-    // Strip ANSI escape sequences before matching the marker.
-    final clean = output.replaceAll(RegExp(r'\x1B\[[0-?]*[ -/]*[@-~]'), '');
-    final match = RegExp('${RegExp.escape(marker)}(\\d+)__').firstMatch(clean);
-    if (match == null) return;
-    final status = int.tryParse(match.group(1)!);
-    _complete = true;
-    if (status == 0) {
-      _result = const Right(null);
-      return;
-    }
-    final markerIndex = match.start;
-    final details = clean.substring(0, markerIndex).trim();
-    _result = Left(
-      AppFailure(
-        details.isEmpty
-            ? 'Remote command failed with exit code ${status ?? 'unknown'}'
-            : details,
-      ),
-    );
-  }
 }
 
 class PasswordUnavailableException implements Exception {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as dev;
 
 import 'package:flutter/gestures.dart';
@@ -70,6 +71,16 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
   LongPressStartDetails? _lastLongPressStartDetails;
 
   bool _dragSelectionActive = false;
+
+  /// Tracks a periodic timer that auto-scrolls the viewport while a selection
+  /// is being dragged past the top/bottom edge of the visible area, so block
+  /// selections can extend past what currently fits on screen.
+  Timer? _selectionAutoScrollTimer;
+
+  /// The last pointer position reported during a selection drag.  Kept so the
+  /// auto-scroll timer can keep extending the selection while the pointer sits
+  /// stationary against an edge.
+  Offset? _lastPointerLocal;
 
   @override
   Widget build(BuildContext context) {
@@ -201,6 +212,8 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
       _dragSelectionActive = true;
       widget.terminalController.setSuspendPointerInput(true);
       renderTerminal.selectCharacters(details.localPosition);
+      _lastPointerLocal = details.localPosition;
+      _startSelectionAutoScroll();
       _terminalDebugLog(
         'dragStart mouse selection=${widget.terminalController.selection} '
         'suspended=${widget.terminalController.suspendedPointerInputs}',
@@ -215,6 +228,7 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
   }
 
   void onDragUpdate(DragUpdateDetails details) {
+    _lastPointerLocal = details.localPosition;
     renderTerminal.selectCharacters(
       _lastDragStartDetails!.localPosition,
       details.localPosition,
@@ -235,6 +249,7 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
       _dragSelectionActive = false;
       widget.terminalController.setSuspendPointerInput(false);
     }
+    _stopSelectionAutoScroll();
     _terminalDebugLog(
       'dragEnd suspended=${widget.terminalController.suspendedPointerInputs}',
     );
@@ -248,9 +263,47 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
       _dragSelectionActive = false;
       widget.terminalController.setSuspendPointerInput(false);
     }
+    _stopSelectionAutoScroll();
     _terminalDebugLog(
       'dragCancel suspended=${widget.terminalController.suspendedPointerInputs}',
     );
     _lastDragStartDetails = null;
+  }
+
+  void _startSelectionAutoScroll() {
+    if (_selectionAutoScrollTimer?.isActive == true) return;
+    _selectionAutoScrollTimer = Timer.periodic(
+      const Duration(milliseconds: 16),
+      _onSelectionAutoScrollTick,
+    );
+  }
+
+  void _stopSelectionAutoScroll() {
+    _selectionAutoScrollTimer?.cancel();
+    _selectionAutoScrollTimer = null;
+    _lastPointerLocal = null;
+  }
+
+  void _onSelectionAutoScrollTick(Timer timer) {
+    if (!_dragSelectionActive || _lastPointerLocal == null) return;
+    if (!terminalView.mounted) {
+      _stopSelectionAutoScroll();
+      return;
+    }
+    // In the alt buffer there is no scrollback, so there is nothing to scroll
+    // into view; auto-scroll only applies to selections in the main buffer.
+    if (terminalView.widget.terminal.isUsingAltBuffer) return;
+
+    final delta = renderTerminal.getSelectionDragScrollDelta(_lastPointerLocal!);
+    if (delta == 0.0) return;
+
+    // Move the viewport, then re-extend the selection.  Because the viewport
+    // moved, the same pointer position now maps to further buffer content, so
+    // selectCharacters picks up the newly revealed lines automatically.
+    terminalView.scrollBy(delta);
+    renderTerminal.selectCharacters(
+      _lastDragStartDetails!.localPosition,
+      _lastPointerLocal!,
+    );
   }
 }

@@ -79,20 +79,6 @@ class _TerminalPaneState extends State<TerminalPane>
     super.dispose();
   }
 
-  bool get _isAltBuffer => widget.terminal.isUsingAltBuffer;
-
-  void _onPointerSignal(PointerSignalEvent event) {
-    if (!_isAltBuffer) return;
-    if (event is! PointerScrollEvent) return;
-    final dy = event.scrollDelta.dy;
-    if (dy == 0) return;
-    final key = dy > 0 ? TerminalKey.arrowDown : TerminalKey.arrowUp;
-    final steps = (dy.abs() / 20).ceil().clamp(1, 10);
-    for (var i = 0; i < steps; i++) {
-      widget.terminal.keyInput(key);
-    }
-  }
-
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
@@ -135,54 +121,45 @@ class _TerminalPaneState extends State<TerminalPane>
           clipBehavior: Clip.antiAlias,
           child: Stack(
             children: [
-              Listener(
-                behavior: HitTestBehavior.translucent,
-                onPointerSignal: _onPointerSignal,
-                child: ScrollConfiguration(
-                  behavior: ScrollConfiguration.of(
-                    context,
-                  ).copyWith(scrollbars: false),
+              ScrollConfiguration(
+                behavior: ScrollConfiguration.of(
+                  context,
+                ).copyWith(scrollbars: false),
 
-                  child: TerminalView(
-                    widget.terminal,
-                    key: widget.terminalViewKey,
-                    controller: widget.controller,
-                    scrollController: widget.scrollController,
-                    focusNode: widget.focusNode,
-                    autofocus: widget.keyboardEnabled && widget.active,
-                    readOnly: !widget.keyboardEnabled,
-                    hardwareKeyboardOnly: false,
-                    simulateScroll: false,
-                    mouseCursor: SystemMouseCursors.text,
-                    padding: EdgeInsets.fromLTRB(
-                      16,
-                      draggable ? 34 : 16,
-                      16,
-                      16,
-                    ),
-                    shortcuts: widget.keyboardEnabled && connected
-                        ? (defaultTargetPlatform == TargetPlatform.linux
-                              ? terminalShortcutsFor(
-                                  copyShortcut: widget.copyShortcut,
-                                  pasteShortcut: widget.pasteShortcut,
-                                  controller: widget.controller,
-                                  terminal: widget.terminal,
-                                )
-                              : null)
-                        : null,
-                    textStyle: TerminalStyle(
-                      fontSize: widget.fontSize,
-                      height: 1.28,
-                      fontFamily: widget.fontFamily,
-                    ),
-                    theme: terminalThemeForProfile(
-                      widget.profile,
-                      foreground: widget.textColor,
-                      background: widget.backgroundColor,
-                    ),
-                    cursorType: TerminalCursorType.block,
-                    alwaysShowCursor: widget.active && connected,
+                child: TerminalView(
+                  widget.terminal,
+                  key: widget.terminalViewKey,
+                  controller: widget.controller,
+                  scrollController: widget.scrollController,
+                  focusNode: widget.focusNode,
+                  autofocus: widget.keyboardEnabled && widget.active,
+                  readOnly: !widget.keyboardEnabled,
+                  hardwareKeyboardOnly: false,
+                  simulateScroll: true,
+                  mouseCursor: SystemMouseCursors.text,
+                  padding: EdgeInsets.fromLTRB(16, draggable ? 34 : 16, 16, 16),
+                  shortcuts: widget.keyboardEnabled && connected
+                      ? (defaultTargetPlatform == TargetPlatform.linux
+                            ? terminalShortcutsFor(
+                                copyShortcut: widget.copyShortcut,
+                                pasteShortcut: widget.pasteShortcut,
+                                controller: widget.controller,
+                                terminal: widget.terminal,
+                              )
+                            : null)
+                      : null,
+                  textStyle: TerminalStyle(
+                    fontSize: widget.fontSize,
+                    height: 1.28,
+                    fontFamily: widget.fontFamily,
                   ),
+                  theme: terminalThemeForProfile(
+                    widget.profile,
+                    foreground: widget.textColor,
+                    background: widget.backgroundColor,
+                  ),
+                  cursorType: TerminalCursorType.block,
+                  alwaysShowCursor: widget.active && connected,
                 ),
               ),
               if (!connected)

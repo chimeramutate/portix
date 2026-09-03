@@ -371,10 +371,7 @@ impl SessionManager {
         let escaped_temp = temp_path.replace('\'', "''");
 
         // Clear temp file
-        let clear_script = format!(
-            "Set-Content -Path '{}' -Value '' -NoNewline",
-            escaped_temp
-        );
+        let clear_script = format!("Set-Content -Path '{}' -Value '' -NoNewline", escaped_temp);
         self.exec(session_id.clone(), encode_powershell_command(&clear_script))
             .await?;
 
@@ -387,8 +384,11 @@ impl SessionManager {
                 "Add-Content -Path '{}' -Value '{}' -NoNewline",
                 escaped_temp, chunk_str
             );
-            self.exec(session_id.clone(), encode_powershell_command(&append_script))
-                .await?;
+            self.exec(
+                session_id.clone(),
+                encode_powershell_command(&append_script),
+            )
+            .await?;
         }
 
         // Decode and write final file
@@ -482,6 +482,17 @@ if ((Get-Item '{escaped_path}').Length -eq {expected}) {{
         Ok(())
     }
 
+    /// Run an arbitrary remote command on the session's dedicated exec channel
+    /// (a separate SSH channel from the interactive terminal). This must be
+    /// used for file-management operations coming from the SFTP/file-manager
+    /// UI so they never reach the interactive shell and therefore never get
+    /// recorded in the remote shell history or echo marker noise into the
+    /// terminal. The raw command output is returned; a non-zero exit status is
+    /// surfaced as an `Err` by `run_exec`.
+    pub async fn exec_remote_command(&self, session_id: String, command: String) -> Result<String> {
+        self.exec(session_id, command).await
+    }
+
     async fn exec(&self, session_id: String, command: String) -> Result<String> {
         let session = self.session(&session_id).await?;
         let (response_tx, response_rx) = oneshot::channel();
@@ -550,15 +561,9 @@ if ((Get-Item '{escaped_path}').Length -eq {expected}) {{
             Ok(output) => {
                 let lines: Vec<&str> = output.lines().map(str::trim).collect();
                 // Check if %OS% was expanded (cmd.exe) or $env:OS returned value (PowerShell)
-                let has_windows_nt = lines
-                    .iter()
-                    .any(|line| line.contains("Windows_NT"));
-                let has_unexpanded_percent = lines
-                    .iter()
-                    .any(|line| *line == "%OS%");
-                let _has_unexpanded_env = lines
-                    .iter()
-                    .any(|line| *line == "$env:OS");
+                let has_windows_nt = lines.iter().any(|line| line.contains("Windows_NT"));
+                let has_unexpanded_percent = lines.iter().any(|line| *line == "%OS%");
+                let _has_unexpanded_env = lines.iter().any(|line| *line == "$env:OS");
 
                 if has_windows_nt && !has_unexpanded_percent {
                     // %OS% expanded to Windows_NT → cmd.exe shell
@@ -581,7 +586,6 @@ if ((Get-Item '{escaped_path}').Length -eq {expected}) {{
 
         platform
     }
-
 }
 
 fn remote_system_command() -> String {
@@ -1653,7 +1657,10 @@ mod tests {
     #[test]
     fn shell_quote_path_with_single_quote_escapes() {
         let result = shell_quote("/home/o'malley");
-        assert!(result.contains("'\"'\"'"), "single quote not escaped: {result}");
+        assert!(
+            result.contains("'\"'\"'"),
+            "single quote not escaped: {result}"
+        );
     }
 
     // ── contains_shell_control ────────────────────────────────────────────────
@@ -1711,7 +1718,9 @@ mod tests {
 
     #[test]
     fn allowed_help_blocks_dangerous_commands() {
-        for cmd in &["bash", "sh", "python", "python3", "sudo", "su", "nc", "netcat"] {
+        for cmd in &[
+            "bash", "sh", "python", "python3", "sudo", "su", "nc", "netcat",
+        ] {
             assert!(!is_allowed_help_command(cmd), "{cmd} should be blocked");
         }
     }
