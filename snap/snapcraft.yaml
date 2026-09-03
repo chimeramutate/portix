@@ -7,7 +7,7 @@ description: |
   manager, remote file browsing, command autocomplete, and cross-platform
   support for Linux, macOS, and Windows.
 
-icon: assets/icons/portix_launcher.png
+icon: portix_app/assets/icons/portix_launcher.png
 
 base: core22
 grade: stable
