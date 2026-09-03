@@ -24,7 +24,18 @@ final sl = GetIt.instance;
 
 Future<void> configureDependencies() async {
   final backend = await _createConnectionBackend();
-  await RdpBackendService.initDev();
+
+  const rustLibraryMode = String.fromEnvironment(
+    'RUST_LIBRARY_MODE',
+    defaultValue: 'dev',
+  );
+
+  if (rustLibraryMode == 'production') {
+    await RdpBackendService.initProduction();
+  } else {
+    await RdpBackendService.initDev();
+  }
+
   sl
     ..registerLazySingleton<SecurityPolicy>(SecurityPolicy.new)
     ..registerLazySingleton<ProfileSecretStore>(
@@ -55,7 +66,11 @@ Future<ConnectionBackend> _createConnectionBackend() async {
     'PORTIX_BACKEND',
     defaultValue: 'rust',
   );
-  if (backendMode == 'mock') return MockConnectionBackend();
+
+  if (backendMode == 'mock') {
+    return MockConnectionBackend();
+  }
+
   if (Platform.isAndroid || Platform.isIOS) {
     return UnavailableConnectionBackend(
       'Mobile SSH backend is disabled for now. Use the desktop app while the mobile Rust library bundling is being prepared.',
@@ -68,6 +83,3 @@ Future<ConnectionBackend> _createConnectionBackend() async {
     return UnavailableConnectionBackend(error);
   }
 }
-
-// RDP backend init: simplified for desktop-only targets. We call the
-// development init directly during DI setup.
