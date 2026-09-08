@@ -246,7 +246,12 @@ class _FilePane extends StatelessWidget {
                                     (isRemote
                                         ? 'Connecting to server'
                                         : 'Loading local folder'),
-                                message: statusMessage,
+                                message:
+                                    statusMessage ??
+                                    _defaultStatusMessage(
+                                      isRemote,
+                                      remoteStatus,
+                                    ),
                                 inputForm: inputForm,
                               ),
                           ],
@@ -387,6 +392,20 @@ int _remoteLoadStep(String? status, {bool showPasswordStep = true}) {
   }
 }
 
+/// Returns a human-readable status message for the given [remoteStatus].
+/// Used as the default (sub-title) text inside [_PaneStatus] when the
+/// parent does not supply its own [statusMessage].
+String? _defaultStatusMessage(bool isRemote, String? remoteStatus) {
+  if (!isRemote) return null; // local folders have no step-specific messages
+  return switch (remoteStatus) {
+    'authenticating' => 'Enter your password to continue',
+    'connecting' => 'Establishing SFTP connection...',
+    'listing' => 'Listing remote directory...',
+    'connected' => 'Connected',
+    _ => null,
+  };
+}
+
 class _PaneStatus extends StatelessWidget {
   const _PaneStatus({
     required this.icon,
@@ -448,9 +467,11 @@ class _PaneStatus extends StatelessWidget {
                 style: portixMuted(11),
               ),
             ],
-            // Inline input form (e.g. password field) shown during the
-            // 'authenticating' loading step.
-            if (loading && inputForm != null) ...[
+            // Inline input form (e.g. password field) shown only during
+            // the 'authenticating' loading step (step 1 of the 4-step
+            // remote flow). After the password is submitted and the
+            // status advances to 'connecting' (step 2), the form is hidden.
+            if (loading && inputForm != null && currentStep == 1) ...[
               const SizedBox(height: 12),
               inputForm!,
             ],
