@@ -156,7 +156,6 @@ class _FileRow extends StatelessWidget {
     final compact = MediaQuery.sizeOf(context).width < 720;
     final row = GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: onSelected,
       onDoubleTap: () {
         if (data.folder || data.name == '..') {
           onOpenFolder(data);
@@ -164,22 +163,32 @@ class _FileRow extends StatelessWidget {
           onAction(_FileAction.open, data);
         }
       },
-      child: Container(
-        height: compact
-            ? data.location == null
-                  ? 52
-                  : 58
-            : data.location == null
-            ? 34
-            : 44,
-        padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
-        decoration: BoxDecoration(
-          color: selected ? const Color(0xFF123B63) : Colors.transparent,
-          border: Border(
-            bottom: BorderSide(color: AppColors.border.withValues(alpha: .65)),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onSelected,
+          highlightColor: AppColors.surfaceDark.withValues(alpha: .35),
+          splashColor: AppColors.primaryBlue.withValues(alpha: .08),
+          child: Container(
+            height: compact
+                ? data.location == null
+                      ? 52
+                      : 58
+                : data.location == null
+                ? 34
+                : 44,
+            padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
+            decoration: BoxDecoration(
+              color: selected ? const Color(0xFF123B63) : Colors.transparent,
+              border: Border(
+                bottom: BorderSide(
+                  color: AppColors.border.withValues(alpha: .65),
+                ),
+              ),
+            ),
+            child: compact ? _compactRow() : _desktopRow(),
           ),
         ),
-        child: compact ? _compactRow() : _desktopRow(),
       ),
     );
 
