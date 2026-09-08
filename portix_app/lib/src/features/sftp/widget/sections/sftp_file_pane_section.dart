@@ -1039,18 +1039,18 @@ class _TableHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Expanded(flex: 5, child: Text('Name', style: portixLabel(11))),
+          Expanded(flex: 5, child: Text('Name', style: portixLabel(12))),
           Expanded(
             flex: 2,
-            child: Text(isRemote ? 'Type' : 'Size', style: portixLabel(11)),
+            child: Text(isRemote ? 'Type' : 'Size', style: portixLabel(12)),
           ),
           Expanded(
             flex: 2,
-            child: Text(isRemote ? 'Size' : 'Modified', style: portixLabel(11)),
+            child: Text(isRemote ? 'Size' : 'Modified', style: portixLabel(12)),
           ),
           Expanded(
             flex: 2,
-            child: Text(isRemote ? 'Updated' : '', style: portixLabel(11)),
+            child: Text(isRemote ? 'Updated' : '', style: portixLabel(12)),
           ),
         ],
       ),
@@ -1126,7 +1126,7 @@ class _SkeletonFileRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 34,
+      height: 36,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         border: Border(
@@ -1135,18 +1135,18 @@ class _SkeletonFileRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Bone.icon(size: 16),
+          Bone.icon(size: 18),
           const SizedBox(width: 9),
           // Name column (flex 5)
-          Expanded(flex: 5, child: Bone(height: 12)),
+          Expanded(flex: 5, child: Bone(height: 14)),
           const SizedBox(width: 8),
           // Type / Size column (flex 2)
           if (isRemote) ...[
-            Expanded(flex: 2, child: Bone(height: 12)),
+            Expanded(flex: 2, child: Bone(height: 14)),
             const SizedBox(width: 8),
           ],
           // Size / Modified column (flex 2)
-          Expanded(flex: 2, child: Bone(height: 12)),
+          Expanded(flex: 2, child: Bone(height: 14)),
           const SizedBox(width: 8),
           // Updated / empty column (flex 2)
           Expanded(
@@ -1154,9 +1154,9 @@ class _SkeletonFileRow extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                if (isRemote) Bone(width: 50, height: 12),
+                if (isRemote) Bone(width: 50, height: 14),
                 const SizedBox(width: 4),
-                Bone.icon(size: 18),
+                Bone.icon(size: 20),
               ],
             ),
           ),
