@@ -154,54 +154,30 @@ class _SftpDisconnectedOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Just the icon + a one-line title + reconnect button.
+    // No container, no border, no description text — keeps it simple.
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: AppColors.danger.withValues(alpha: .12),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.cloud_off_rounded,
-                color: AppColors.danger,
-                size: 28,
-              ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.cloud_off_rounded,
+            color: AppColors.danger,
+            size: 32,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Connection lost',
+            style: portixTitle(16).copyWith(color: AppColors.danger),
+          ),
+          const SizedBox(height: 20),
+          if (onReconnect != null)
+            FilledButton.icon(
+              onPressed: onReconnect,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Reconnect'),
             ),
-            const SizedBox(height: 16),
-            Text(
-              'Connection lost',
-              style: portixTitle(16).copyWith(color: AppColors.danger),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              errorMessage ??
-                  'SFTP session disconnected. Reconnect to continue browsing remote files.',
-              textAlign: TextAlign.center,
-              style: portixMuted(12),
-            ),
-            const SizedBox(height: 20),
-            if (onReconnect != null)
-              FilledButton.icon(
-                onPressed: onReconnect,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('Reconnect'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.primaryBlue,
-                  foregroundColor: AppColors.text,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
-                ),
-              ),
-          ],
-        ),
+        ],
       ),
     );
   }
