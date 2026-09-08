@@ -7,6 +7,7 @@ import 'package:portix/src/connection_manager/connection_backend.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/connection_manager/ssh_profile.dart';
+import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/data/services/sftp/local_editor_service.dart';
 import 'package:portix/src/data/services/sftp/local_file_browser.dart';
 import 'package:portix/src/domain/entities/sftp/sftp_file_entry.dart';
@@ -222,6 +223,170 @@ void main() {
         );
       },
     );
+
+    test(
+      'shouldNotifyDisconnection is false when SFTP session is connected',
+      () async {
+        await _attachRemoteProfile(controller);
+        expect(controller.shouldNotifyDisconnection, isFalse);
+        expect(controller.isRemoteConnected, isTrue);
+      },
+    );
+
+    test(
+      'shouldNotifyDisconnection is false after clearRemoteSession',
+      () async {
+        await _attachRemoteProfile(controller);
+        expect(controller.shouldNotifyDisconnection, isFalse);
+
+        await controller.clearRemoteSession();
+        expect(controller.shouldNotifyDisconnection, isFalse);
+        expect(controller.hasRemoteSession, isFalse);
+      },
+    );
+
+    test(
+      'shouldNotifyDisconnection becomes true when backend drops the session',
+      () async {
+        await _attachRemoteProfile(controller);
+        expect(controller.shouldNotifyDisconnection, isFalse);
+
+        // Simulate the Rust backend losing the SSH/SFTP channel (keepalive
+        // timeout or remote-side disconnect).
+        backend.emitStatus(
+          controller.remoteSessionId,
+          ConnectionStatus.disconnected,
+        );
+        await Future.delayed(Duration.zero);
+        await Future.delayed(Duration.zero);
+
+        expect(controller.shouldNotifyDisconnection, isTrue);
+      },
+    );
+
+    test(
+      'clearDisconnectionNotification resets the flag so reconnect is clean',
+      () async {
+        await _attachRemoteProfile(controller);
+        backend.emitStatus(
+          controller.remoteSessionId,
+          ConnectionStatus.disconnected,
+        );
+        await Future.delayed(Duration.zero);
+        await Future.delayed(Duration.zero);
+        expect(controller.shouldNotifyDisconnection, isTrue);
+
+        controller.clearDisconnectionNotification();
+        expect(controller.shouldNotifyDisconnection, isFalse);
+      },
+    );
+
+    test(
+      'clearRemoteSession removes the SFTP session from the connection manager',
+      () async {
+        await _attachRemoteProfile(controller);
+        final sessionId = controller.remoteSessionId;
+        expect(sessionId, isNotNull);
+        expect(connectionManager.sessions, isNotEmpty);
+
+        await controller.clearRemoteSession();
+        await Future.delayed(Duration.zero);
+        await Future.delayed(Duration.zero);
+
+        expect(
+          connectionManager.sessions.any((s) => s.id == sessionId),
+          isFalse,
+        );
+        expect(controller.hasRemoteSession, isFalse);
+        expect(controller.shouldNotifyDisconnection, isFalse);
+      },
+    );
+
+    test('SFTP sessions are excluded from the heartbeat TCP probe', () async {
+      // Use a profile with an unreachable host (127.0.0.1:1 is a closed port
+      // that refuses TCP immediately) and UPSERT it so the heartbeat can find
+      // the profile. An SSH session to this host should be marked as dead by
+      // the heartbeat, but an SFTP session must remain connected because SFTP
+      // sessions are excluded from the TCP probe (they ride on the Rust-managed
+      // keepalive).
+      final unreachableProfile = SshProfile(
+        id: 'p-unreachable',
+        name: 'unreachable',
+        host: '127.0.0.1',
+        port: 1,
+        username: 'deploy',
+      );
+
+      // SSH session — should be probed and killed by heartbeat.
+      final sshResult = await connectionManager.connect(unreachableProfile);
+      expect(sshResult, isA<Right>());
+      connectionManager.upsertProfile(unreachableProfile);
+
+      // Give the deferred status event time to propagate.
+      await Future.delayed(Duration.zero);
+      await Future.delayed(Duration.zero);
+
+      final sshSession = connectionManager.sessions
+          .where((s) => s.kind == SessionKind.ssh)
+          .first;
+      expect(sshSession.status, equals(ConnectionStatus.connected));
+
+      // SFTP session — should NOT be probed by heartbeat.
+      final sftpResult = await connectionManager.connectSftp(
+        unreachableProfile,
+      );
+      expect(sftpResult, isA<Right>());
+
+      await Future.delayed(Duration.zero);
+      await Future.delayed(Duration.zero);
+
+      final sftpSession = connectionManager.sessions
+          .where((s) => s.kind == SessionKind.sftp)
+          .first;
+      expect(sftpSession.status, equals(ConnectionStatus.connected));
+
+      // Wait for the heartbeat timer to fire (5 s interval) and the TCP
+      // probe to complete. With 127.0.0.1:1 the connection-refused error is
+      // immediate, so 7 s is plenty.
+      await Future.delayed(const Duration(seconds: 7));
+
+      // SSH session: the heartbeat TCP probe to the unreachable host should
+      // have killed it — _markSessionDead first sets it to "error" and then
+      // calls _backend.disconnect(), which the fake backend turns into a
+      // "disconnected" status event. The net final status is therefore
+      // "disconnected" (no longer connected).
+      final updatedSshSession = connectionManager.sessions.firstWhere(
+        (s) => s.id == sshSession.id,
+      );
+      expect(
+        updatedSshSession.status,
+        isNot(equals(ConnectionStatus.connected)),
+        reason: 'SSH session should have been killed by the heartbeat probe',
+      );
+
+      // SFTP session: must remain connected because SFTP sessions are
+      // excluded from the heartbeat candidate list.
+      final updatedSftpSession = connectionManager.sessions.firstWhere(
+        (s) => s.id == sftpSession.id,
+      );
+      expect(updatedSftpSession.status, equals(ConnectionStatus.connected));
+    });
+
+    test('per-tab tabId is unique and defaults to a non-empty UUID', () async {
+      final firstController = SftpWorkspaceController(
+        connectionManager: connectionManager,
+      );
+      final secondController = SftpWorkspaceController(
+        connectionManager: connectionManager,
+      );
+
+      expect(firstController.tabId, isNotEmpty);
+      expect(secondController.tabId, isNotEmpty);
+      expect(firstController.tabId, isNot(equals(secondController.tabId)));
+
+      firstController.dispose();
+      secondController.dispose();
+    });
   });
 }
 
@@ -241,6 +406,10 @@ Future<String> _attachRemoteProfile(SftpWorkspaceController controller) async {
     color: domain.ProfileColor.blue,
   );
   await controller.attachRemoteProfile(profile, '/');
+  // Flush the event/microtask queue so the backend's deferred status event
+  // is processed by ConnectionManager and the session reaches "connected".
+  await Future.delayed(Duration.zero);
+  await Future.delayed(Duration.zero);
   expect(controller.hasRemoteSession, isTrue);
   expect(controller.remotePath, '/');
   return controller.remotePath;
@@ -282,12 +451,18 @@ class _FakeConnectionBackend implements ConnectionBackend {
   Future<String> connect(SshProfile profile) async {
     _sessionCounter += 1;
     final sessionId = 'fake-sftp-$_sessionCounter';
-    _status.add(
-      ConnectionStatusEvent(
-        sessionId: sessionId,
-        status: ConnectionStatus.connected,
-      ),
-    );
+    // Defer status delivery so the ConnectionManager has already registered
+    // the backend-to-UI session ID mapping before _handleStatus runs.
+    // Without this, _handleStatus can't resolve the backend session ID to a
+    // UI session ID and the "connected" status is silently dropped.
+    Future.delayed(Duration.zero, () {
+      _status.add(
+        ConnectionStatusEvent(
+          sessionId: sessionId,
+          status: ConnectionStatus.connected,
+        ),
+      );
+    });
     return sessionId;
   }
 
@@ -410,5 +585,12 @@ class _FakeConnectionBackend implements ConnectionBackend {
     _output.close();
     _status.close();
     _errors.close();
+  }
+
+  /// Simulates the backend emitting a connection-status update for the given
+  /// backend session ID (as returned by [connect]).
+  void emitStatus(String? sessionId, ConnectionStatus status) {
+    if (sessionId == null) return;
+    _status.add(ConnectionStatusEvent(sessionId: sessionId, status: status));
   }
 }
