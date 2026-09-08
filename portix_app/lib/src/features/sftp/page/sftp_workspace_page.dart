@@ -60,6 +60,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   final List<_SftpTab> _tabs = [];
   int _activeTabIndex = 0;
   String? _lastHandledSftpProfileId;
+  bool _passwordDialogShowing = false;
 
   _SftpTab get _activeTab => _tabs[_activeTabIndex];
 
@@ -138,6 +139,23 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   void _handleControllerChanged() {
     if (!mounted) return;
     _syncSelectionsWithRows();
+    // When the controller enters the 'authenticating' state (password
+    // required and not yet saved), show the secure password dialog
+    // during step 1 of the 4-step connection flow — NOT before the
+    // flow starts. The dialog is gated on showConnectionSteps so it
+    // only appears during the initial connection / reconnect.
+    if (_controller.remoteStatus == 'authenticating' &&
+        _controller.showConnectionSteps &&
+        !_passwordDialogShowing) {
+      _passwordDialogShowing = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          _passwordDialogShowing = false;
+          return;
+        }
+        _showPasswordDialogForController();
+      });
+    }
     setState(() {});
   }
 
@@ -387,37 +405,40 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     BuildContext context,
     SshProfile profile,
   ) async {
-    // If the profile is password-based but no usable password is stored yet,
-    // ask the user for it before connecting (same as the SSH terminal flow).
-    if (profile.authMethod == AuthMethod.password &&
-        (profile.credentialLabel.trim().isEmpty ||
-            profile.credentialLabel == 'Saved password')) {
-      final connectionManager = sl<ConnectionManager>();
-      final hasSaved = await connectionManager.hasSavedPassword(profile.id);
-      if (!hasSaved) {
-        final password = await _promptSftpPassword(profile);
-        if (password == null || !mounted) return;
-        await connectionManager.saveProfilePassword(profile.id, password);
-        // Update in-memory profile so the controller can pass the password
-        // directly instead of failing with PasswordUnavailableException.
-        profile = profile.copyWith(credentialLabel: password);
-      }
-    }
+    // The password (if needed) is now collected during the 4-step
+    // connection flow — specifically at step 1 ('authenticating')
+    // — rather than prompting before the connection starts. This
+    // keeps the step indicator visible so the user can follow:
+    //   0 Pick profile → 1 Loading (password) → 2 Connecting → 3 Connected
     if (!mounted) return;
     setState(() {
       _activeTab.selectedProfile = profile;
       _remoteSyncKey = null;
     });
-    // Also update bloc for backward compatibility
     context.read<SftpWorkspaceBloc>().add(SftpProfileSelected(profile));
   }
 
-  Future<String?> _promptSftpPassword(SshProfile profile) {
-    return showDialog<String>(
+  /// Shows the secure password dialog for the currently active controller's
+  /// pending profile (i.e. when `remoteStatus == 'authenticating'`).
+  /// On success, submits the password via [SftpWorkspaceController.submitPassword].
+  /// On cancel, resets the authenticating state via [cancelPasswordRequest].
+  Future<void> _showPasswordDialogForController() async {
+    final profile = _controller.pendingProfile;
+    if (profile == null || !mounted) {
+      _passwordDialogShowing = false;
+      return;
+    }
+    final password = await showDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => _SftpPasswordDialog(profile: profile),
     );
+    _passwordDialogShowing = false;
+    if (password == null || !mounted) {
+      _controller.cancelPasswordRequest();
+      return;
+    }
+    _controller.submitPassword(password);
   }
 
   void _handleIncomingSftpProfile(

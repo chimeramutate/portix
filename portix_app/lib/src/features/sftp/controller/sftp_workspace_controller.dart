@@ -65,6 +65,10 @@ class SftpWorkspaceController extends ChangeNotifier {
   /// the connection once the inline form collects a password.
   domain.SshProfile? _pendingProfile;
 
+  /// Exposed for the UI to read the profile currently awaiting password
+  /// input, so it can show a contextual dialog.
+  domain.SshProfile? get pendingProfile => _pendingProfile;
+
   /// True once the 'authenticating' step has been visited. Keeps the step
   /// indicator at 4 steps even after transitioning to 'connecting'/'listing'
   /// so the completed ✓ marks for "Pick profile" and "Loading" remain visible.
