@@ -149,50 +149,55 @@ class _FilePane extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
               // Show skeleton placeholders while loading instead of
               // hiding the path bar, actions, and find bar entirely.
               // This keeps the layout structure visible so the user
               // sees the frame of the UI rather than a bare step
               // indicator with empty space around it.
-              if (showPathBar)
-                Skeletonizer(
-                  enabled: loading,
-                  child: _PathBar(path: path, onSubmitted: onPathSubmitted),
-                ),
-              if (showActions) ...[
+              if (showSteps) ...[
                 const SizedBox(height: 12),
-                Skeletonizer(
-                  enabled: loading,
-                  child: _PaneActions(
-                    isRemote: isRemote,
-                    onCreateFileRequested: onCreateFileRequested,
-                    onCreateFolderRequested: onCreateFolderRequested,
-                    onRefreshRequested: onRefreshRequested,
+              ] else ...[
+                if (showPathBar)
+                  Skeletonizer(
+                    enabled: loading,
+                    child: _PathBar(path: path, onSubmitted: onPathSubmitted),
                   ),
-                ),
-              ],
-              if (onFindSubmitted != null) ...[
-                const SizedBox(height: 10),
-                Skeletonizer(
-                  enabled: loading,
-                  child: _RemoteFindBar(
-                    query: findQuery,
-                    base: findBase,
-                    active: findActive,
-                    searching: findSearching,
-                    error: findError,
-                    remote: isRemote,
-                    onSubmitted: onFindSubmitted!,
-                    onCleared: onFindCleared,
+                if (showActions) ...[
+                  const SizedBox(height: 12),
+                  Skeletonizer(
+                    enabled: loading,
+                    child: _PaneActions(
+                      isRemote: isRemote,
+                      onCreateFileRequested: onCreateFileRequested,
+                      onCreateFolderRequested: onCreateFolderRequested,
+                      onRefreshRequested: onRefreshRequested,
+                    ),
                   ),
-                ),
+                ],
+                if (onFindSubmitted != null) ...[
+                  const SizedBox(height: 10),
+                  Skeletonizer(
+                    enabled: loading,
+                    child: _RemoteFindBar(
+                      query: findQuery,
+                      base: findBase,
+                      active: findActive,
+                      searching: findSearching,
+                      error: findError,
+                      remote: isRemote,
+                      onSubmitted: onFindSubmitted!,
+                      onCleared: onFindCleared,
+                    ),
+                  ),
+                ],
               ],
               const SizedBox(height: 10),
               Expanded(
                 child: Container(
                   decoration: BoxDecoration(
-                    color: AppColors.surfaceDark.withValues(alpha: .45),
+                    color: showSteps
+                        ? AppColors.surfaceDark
+                        : AppColors.surfaceDark.withValues(alpha: .45),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
                       color: isDropTarget ? AppColors.cyan : AppColors.border,
@@ -201,39 +206,29 @@ class _FilePane extends StatelessWidget {
                   child: contentOverride != null
                       ? contentOverride
                       : loading
-                      ? Stack(
-                          children: [
-                            // Skeleton table (header + rows + footer)
-                            // rendered beneath the step indicator so the
-                            // user sees the full UI frame while loading.
-                            Skeletonizer(
-                              child: _SkeletonFileTable(isRemote: isRemote),
-                            ),
-                            // Step indicator overlay, centered.
-                            // Shown only during initial connection /
-                            // reconnect (showSteps = showConnectionSteps).
-                            // During reloads the flag is false — only the
-                            // skeleton table is visible — as the user
-                            // is already connected.
-                            if (showSteps)
-                              _PaneStatus(
+                      ? showSteps
+                            ? _PaneStatus(
                                 icon: isRemote
                                     ? Icons.dns_outlined
                                     : Icons.folder_open_rounded,
                                 loading: true,
                                 loadingSteps: isRemote
-                                    ? showPasswordStep
-                                          ? [
-                                              profileName ?? 'Pick profile',
-                                              'Loading',
-                                              'Connecting...',
-                                              'Connected',
-                                            ]
-                                          : [
-                                              profileName ?? 'Pick profile',
-                                              'Connecting...',
-                                              'Connected',
-                                            ]
+                                    ? _buildConnectionSteps(
+                                        titles: showPasswordStep
+                                            ? [
+                                                profileName ?? '',
+                                                'Loading',
+                                                'Connecting...',
+                                                'Connected',
+                                              ]
+                                            : [
+                                                profileName ?? '',
+                                                'Connecting...',
+                                                'Connected',
+                                              ],
+                                        showPasswordStep: showPasswordStep,
+                                        osIconAsset: remoteOsIconAsset,
+                                      )
                                     : null,
                                 currentStep: isRemote
                                     ? _remoteLoadStep(
@@ -253,9 +248,10 @@ class _FilePane extends StatelessWidget {
                                       remoteStatus,
                                     ),
                                 inputForm: inputForm,
-                              ),
-                          ],
-                        )
+                              )
+                            : Skeletonizer(
+                                child: _SkeletonFileTable(isRemote: isRemote),
+                              )
                       : error != null
                       ? _PaneStatus(
                           icon: Icons.error_outline_rounded,
@@ -402,8 +398,85 @@ String? _defaultStatusMessage(bool isRemote, String? remoteStatus) {
     'connecting' => 'Establishing SFTP connection...',
     'listing' => 'Listing remote directory...',
     'connected' => 'Connected',
+    'failed' => 'Connection failed',
     _ => null,
   };
+}
+
+/// Builds the list of [EasyStep] objects for the remote connection flow.
+///
+/// Each step gets a custom icon:
+///   - Step 0: OS icon from the profile's [osIconAsset] (SVG image).
+///   - Step 1 (4-step): lock icon (secure password input).
+///   - Step 1 (3-step): cable icon (connecting).
+///   - Step 2 (4-step): wifi icon (connecting).
+///   - Step 2/3 (3-step/4-step): wifi tower icon (connected).
+///
+/// All steps receive a check-mark [finishIcon] so EasyStepper renders ✓
+/// for completed steps. When [showLoadingAnimation] is enabled by the
+/// parent, the active step automatically shows a Lottie loading animation.
+List<EasyStep> _buildConnectionSteps({
+  required List<String> titles,
+  required bool showPasswordStep,
+  required String? osIconAsset,
+}) {
+  final asset = (osIconAsset ?? '').trim();
+  final osIconWidget = asset.isNotEmpty
+      ? SizedBox(
+          width: 28,
+          height: 28,
+          child: SvgPicture.asset(asset, fit: BoxFit.contain),
+        )
+      : Icon(Icons.dns_outlined, size: 28);
+
+  final finishIcon = Icon(Icons.check_circle_rounded, size: 18);
+
+  return titles.asMap().entries.map((entry) {
+    final idx = entry.key;
+    final title = entry.value;
+
+    if (idx == 0) {
+      // Step 0: OS icon from asset (uses customStep because SvgPicture
+      // is a Widget, not an IconData).
+      return EasyStep(
+        title: title,
+        customStep: osIconWidget,
+        finishIcon: finishIcon,
+      );
+    }
+
+    // Steps 1+: Icon-based icons
+    final IconData iconData;
+    if (showPasswordStep) {
+      // 4-step flow: 0 Profile → 1 Password → 2 Connecting → 3 Connected
+      switch (idx) {
+        case 1:
+          iconData = Icons.lock_rounded; // secure password
+        case 2:
+          iconData = Icons.wifi_rounded; // connecting
+        case 3:
+          iconData = Icons.wifi_rounded; // connected
+        default:
+          iconData = Icons.circle_outlined;
+      }
+    } else {
+      // 3-step flow: 0 Profile → 1 Connecting → 2 Connected
+      switch (idx) {
+        case 1:
+          iconData = Icons.cable_rounded; // connecting
+        case 2:
+          iconData = Icons.wifi_rounded; // connected
+        default:
+          iconData = Icons.circle_outlined;
+      }
+    }
+
+    return EasyStep(
+      title: title,
+      icon: Icon(iconData, size: 16),
+      finishIcon: finishIcon,
+    );
+  }).toList();
 }
 
 class _PaneStatus extends StatelessWidget {
@@ -425,7 +498,7 @@ class _PaneStatus extends StatelessWidget {
   /// When non-null, shows a step-based loading indicator with the loading
   /// animation integrated into the step line (at the active step position)
   /// rather than above the steps.
-  final List<String>? loadingSteps;
+  final List<EasyStep>? loadingSteps;
   final int? currentStep;
 
   /// Optional inline input widget (e.g. a password form) shown below the
@@ -434,116 +507,98 @@ class _PaneStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final stepCount = loadingSteps?.length ?? 0;
+    final stepValue = currentStep ?? 0;
+    final isLastStep = stepCount > 0 && stepValue >= stepCount - 1;
+    final effectiveActiveStep = isLastStep ? stepCount : stepValue;
+    final reachedSteps = isLastStep && stepCount > 0
+        ? Set<int>.from(List.generate(stepCount, (i) => i))
+        : null;
+
     return Center(
-      child: AppPanel(
-        padding: const EdgeInsets.all(14),
-        margin: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Loading: step indicator with integrated loading dots,
-            // or plain loading dots for non-remote loading.
-            if (loading)
-              loadingSteps != null
-                  ? _StepIndicator(
-                      steps: loadingSteps!,
-                      currentStep: currentStep ?? 0,
-                      loading: true,
-                    )
-                  : LoadingAnimationWidget.fourRotatingDots(
-                      color: AppColors.cyan,
-                      size: 28,
-                    )
-            else
-              Icon(icon, color: AppColors.muted, size: 24),
-            // Title + message (message only if non-empty)
-            if (loading || loadingSteps == null)
-              Text(title, textAlign: TextAlign.center, style: portixTitle(13)),
-            if (message?.isNotEmpty == true) ...[
-              const SizedBox(height: 5),
-              Text(
-                message!,
-                textAlign: TextAlign.center,
-                style: portixMuted(11),
-              ),
-            ],
-            // Inline input form (e.g. password field) shown only during
-            // the 'authenticating' loading step (step 1 of the 4-step
-            // remote flow). After the password is submitted and the
-            // status advances to 'connecting' (step 2), the form is hidden.
-            if (loading && inputForm != null && currentStep == 1) ...[
-              const SizedBox(height: 12),
-              inputForm!,
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Horizontal step indicator showing [steps] as labeled items connected by
-/// arrows. Each step shows:
-///   - ✓ for completed steps (before [currentStep])
-///   - LoadingAnimationWidget.fourRotatingDots when [loading] and at the active step
-///   - ○ for pending steps (after the active step)
-///
-/// This keeps the loading animation on the step line (not above it), so the
-/// visual reads:  ✓ [Pick profile] → ⏳ [dots] [Loading] → ○ [Connecting...] → ○ [Connected]
-class _StepIndicator extends StatelessWidget {
-  const _StepIndicator({
-    required this.steps,
-    required this.currentStep,
-    this.loading = false,
-  });
-
-  final List<String> steps;
-  final int currentStep;
-  final bool loading;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      alignment: WrapAlignment.center,
-      runSpacing: 4,
-      children: [
-        for (var i = 0; i < steps.length; i++) ...[
-          Row(
+      child: SizedBox(
+        width: 640,
+        child: AppPanel(
+          padding: const EdgeInsets.all(20),
+          margin: const EdgeInsets.all(16),
+          color: AppColors.surfaceDark,
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (i == currentStep && loading)
-                LoadingAnimationWidget.fourRotatingDots(
-                  color: AppColors.cyan,
-                  size: 16,
-                )
+              // Loading: EasyStepper step indicator with integrated loading
+              // animation in the active step, or plain loading dots for
+              // non-remote loading.
+              if (loading)
+                loadingSteps != null
+                    ? EasyStepper(
+                        activeStep: effectiveActiveStep,
+                        reachedSteps: reachedSteps,
+                        steps: loadingSteps!,
+                        direction: Axis.horizontal,
+                        enableStepTapping: false,
+                        disableScroll: true,
+                        showTitle: true,
+                        showLoadingAnimation: !isLastStep,
+                        stepRadius: 32,
+                        internalPadding: 12,
+                        borderThickness: 0,
+                        showStepBorder: false,
+                        activeStepBackgroundColor: AppColors.surfaceDark,
+                        finishedStepBackgroundColor: Colors.transparent,
+                        unreachedStepBackgroundColor: Colors.transparent,
+                        unreachedStepBorderColor: AppColors.border,
+                        activeStepBorderColor: AppColors.cyan,
+                        finishedStepBorderColor: AppColors.cyan,
+                        finishedStepIconColor: AppColors.cyan,
+                        unreachedStepIconColor: AppColors.muted,
+                        activeStepIconColor: AppColors.cyan,
+                        unreachedStepTextColor: AppColors.muted,
+                        activeStepTextColor: AppColors.cyan,
+                        finishedStepTextColor: AppColors.cyan,
+                        lineStyle: LineStyle(
+                          lineLength: 40,
+                          lineThickness: 1,
+                          defaultLineColor: AppColors.border,
+                          activeLineColor: AppColors.cyan,
+                          finishedLineColor: AppColors.cyan,
+                          unreachedLineColor: AppColors.border,
+                          lineType: LineType.normal,
+                        ),
+                        maxTitleLines: 1,
+                      )
+                    : LoadingAnimationWidget.fourRotatingDots(
+                        color: AppColors.cyan,
+                        size: 28,
+                      )
               else
-                Icon(
-                  i < currentStep
-                      ? Icons.check_circle_rounded
-                      : Icons.circle_outlined,
-                  color: i <= currentStep ? AppColors.cyan : AppColors.muted,
-                  size: 16,
+                Icon(icon, color: AppColors.muted, size: 28),
+              // Title + message (message only if non-empty)
+              if (loading || loadingSteps == null)
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: portixTitle(14),
                 ),
-              const SizedBox(width: 6),
-              Text(
-                steps[i],
-                style: portixMuted(11).copyWith(
-                  color: i <= currentStep ? AppColors.cyan : AppColors.muted,
+              if (message?.isNotEmpty == true) ...[
+                const SizedBox(height: 8),
+                Text(
+                  message!,
+                  textAlign: TextAlign.center,
+                  style: portixMuted(12),
                 ),
-              ),
+              ],
+              // Inline input form (e.g. password field) shown only during
+              // the 'authenticating' loading step (step 1 of the 4-step
+              // remote flow). After the password is submitted and the
+              // status advances to 'connecting' (step 2), the form is hidden.
+              if (loading && inputForm != null && currentStep == 1) ...[
+                const SizedBox(height: 12),
+                SizedBox(width: double.infinity, child: inputForm!),
+              ],
             ],
           ),
-          if (i < steps.length - 1)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 2),
-              child: Icon(
-                Icons.arrow_right_rounded,
-                size: 20,
-                color: AppColors.muted,
-              ),
-            ),
-        ],
-      ],
+        ),
+      ),
     );
   }
 }
@@ -554,13 +609,13 @@ class _StepIndicator extends StatelessWidget {
 class _SftpSecurePasswordInput extends StatefulWidget {
   const _SftpSecurePasswordInput({
     required this.onSubmit,
-    required this.onCancel,
     this.errorText,
+    this.profile,
   });
 
   final ValueChanged<String> onSubmit;
-  final VoidCallback onCancel;
   final String? errorText;
+  final SshProfile? profile;
 
   @override
   State<_SftpSecurePasswordInput> createState() =>
@@ -584,57 +639,67 @@ class _SftpSecurePasswordInputState extends State<_SftpSecurePasswordInput> {
 
   @override
   Widget build(BuildContext context) {
+    final profile = widget.profile;
     return Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'Secure password not found on this device.',
-          style: portixTitle(13),
+          profile != null
+              ? 'No secure password for "${profile.name}". '
+                    'Enter password to connect.'
+              : 'Secure password not found on this device.',
+          style: portixTitle(14),
+          textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Text(
-          'Enter the password for your SFTP profile. It will be saved to '
-          'local secure storage.',
+          'The password will be saved to local secure storage.',
           style: portixMuted(11),
+          textAlign: TextAlign.center,
         ),
         const SizedBox(height: 10),
-        TextFormField(
-          controller: _controller,
-          obscureText: true,
-          autofocus: true,
-          decoration: InputDecoration(
-            labelText: 'Password',
-            hintText: 'Enter SFTP password',
-            errorText: _fieldError,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            filled: true,
-            fillColor: AppColors.bg,
-          ),
-          onFieldSubmitted: (_) => _submit(),
-        ),
-        const SizedBox(height: 10),
-        if (widget.errorText?.isNotEmpty == true) ...[
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Text(
-              widget.errorText!,
-              style: portixMuted(11).copyWith(color: AppColors.danger),
-              textAlign: TextAlign.center,
+        SizedBox(
+          width: double.infinity,
+          height: 44,
+          child: TextFormField(
+            controller: _controller,
+            obscureText: true,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: 'Password',
+              hintText: 'Enter SFTP password',
+              errorText: _fieldError,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              filled: true,
+              fillColor: AppColors.bg,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 8,
+              ),
             ),
+            onFieldSubmitted: (_) => _submit(),
+          ),
+        ),
+        if (widget.errorText?.isNotEmpty == true) ...[
+          const SizedBox(height: 6),
+          Text(
+            widget.errorText!,
+            style: portixMuted(11).copyWith(color: AppColors.danger),
+            textAlign: TextAlign.center,
           ),
         ],
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            TextButton(onPressed: widget.onCancel, child: const Text('Cancel')),
-            const SizedBox(width: 8),
-            FilledButton.icon(
-              onPressed: _submit,
-              icon: const Icon(Icons.login_rounded, size: 16),
-              label: const Text('Connect'),
-            ),
-          ],
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          height: 42,
+          child: FilledButton.icon(
+            onPressed: _submit,
+            icon: const Icon(Icons.login_rounded, size: 18),
+            label: Text('Connect', style: portixTitle(13)),
+          ),
         ),
       ],
     );

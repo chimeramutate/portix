@@ -96,8 +96,8 @@ class _SftpPasswordDialogState extends State<_SftpPasswordDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Password untuk ${profile.username}@${profile.host}:${profile.port} '
-                'belum tersimpan di perangkat ini. Masukkan password untuk membuka remote SFTP.',
+                '"${profile.name}" belum memiliki secure password. '
+                'Masukkan password untuk menyambung.',
                 style: portixMuted(12),
               ),
               const SizedBox(height: 16),
