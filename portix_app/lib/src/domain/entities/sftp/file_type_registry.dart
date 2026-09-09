@@ -41,6 +41,14 @@ class FileTypeRegistry {
     return cat == FileCategory.code || cat == FileCategory.document;
   }
 
+  /// Returns the SVG asset path for the file's extension, or `null` if no
+  /// matching icon asset exists.
+  static String? assetForExtension(String fileName) {
+    final ext = _extension(fileName).toLowerCase();
+    if (ext.isEmpty) return null;
+    return _extensionIconMap[ext];
+  }
+
   static String _extension(String fileName) {
     final index = fileName.lastIndexOf('.');
     if (index < 0 || index == fileName.length - 1) return '';
@@ -228,6 +236,127 @@ class FileTypeRegistry {
       'dwg',
       'dxf',
     },
+  };
+
+  static const Map<String, String> _extensionIconMap = {
+    // ── Code / programming ──────────────────────────
+    'py': 'assets/icons/extension/python.svg',
+    'pyw': 'assets/icons/extension/python.svg',
+    'js': 'assets/icons/extension/js.svg',
+    'jsx': 'assets/icons/extension/js.svg',
+    'ts': 'assets/icons/extension/js.svg',
+    'tsx': 'assets/icons/extension/js.svg',
+    'mjs': 'assets/icons/extension/js.svg',
+    'cjs': 'assets/icons/extension/js.svg',
+    'javascript': 'assets/icons/extension/javascript.svg',
+    'html': 'assets/icons/extension/html.svg',
+    'htm': 'assets/icons/extension/html.svg',
+    'xhtml': 'assets/icons/extension/html.svg',
+    'css': 'assets/icons/extension/css.svg',
+    'scss': 'assets/icons/extension/css.svg',
+    'sass': 'assets/icons/extension/css.svg',
+    'less': 'assets/icons/extension/css.svg',
+    'json': 'assets/icons/extension/json.svg',
+    'xml': 'assets/icons/extension/xml.svg',
+    'svg': 'assets/icons/extension/image.svg',
+    'xsd': 'assets/icons/extension/xml.svg',
+    'xsl': 'assets/icons/extension/xml.svg',
+    'xslt': 'assets/icons/extension/xml.svg',
+    'go': 'assets/icons/extension/go.svg',
+    'rs': 'assets/icons/extension/rust.svg',
+    'java': 'assets/icons/extension/java.svg',
+    'class': 'assets/icons/extension/class.svg',
+    'jar': 'assets/icons/extension/class.svg',
+    'cs': 'assets/icons/extension/class.svg',
+    'dart': 'assets/icons/extension/dart.svg',
+    'pl': 'assets/icons/extension/perl.svg',
+    'pm': 'assets/icons/extension/perl.svg',
+    'pod': 'assets/icons/extension/perl.svg',
+    'sql': 'assets/icons/extension/sql.svg',
+    'swift': 'assets/icons/extension/swift.svg',
+    'cpp': 'assets/icons/extension/C++.svg',
+    'cc': 'assets/icons/extension/C++.svg',
+    'cxx': 'assets/icons/extension/C++.svg',
+    'c++': 'assets/icons/extension/C++.svg',
+    'c': 'assets/icons/extension/C++.svg',
+    'h': 'assets/icons/extension/C++.svg',
+    'hpp': 'assets/icons/extension/C++.svg',
+    'hxx': 'assets/icons/extension/C++.svg',
+    'hh': 'assets/icons/extension/C++.svg',
+    'sh': 'assets/icons/extension/terminal.svg',
+    'bash': 'assets/icons/extension/terminal.svg',
+    'zsh': 'assets/icons/extension/terminal.svg',
+    'fish': 'assets/icons/extension/terminal.svg',
+    'ps1': 'assets/icons/extension/terminal.svg',
+    'bat': 'assets/icons/extension/terminal.svg',
+    'cmd': 'assets/icons/extension/terminal.svg',
+    // ── Config / environment ────────────────────────
+    'env': 'assets/icons/extension/env.svg',
+    'yaml': 'assets/icons/extension/yaml.svg',
+    'yml': 'assets/icons/extension/yaml.svg',
+    'ini': 'assets/icons/extension/document-config.svg',
+    'toml': 'assets/icons/extension/document-config.svg',
+    'conf': 'assets/icons/extension/document-config.svg',
+    'cfg': 'assets/icons/extension/document-config.svg',
+    'properties': 'assets/icons/extension/document-config.svg',
+    'gradle': 'assets/icons/extension/document-config.svg',
+    'dockerfile': 'assets/icons/extension/docker.svg',
+    'makefile': 'assets/icons/extension/env.svg',
+    // ── Markdown / GitHub ───────────────────────────
+    'md': 'assets/icons/extension/markdown.svg',
+    'markdown': 'assets/icons/extension/markdown.svg',
+    'gitignore': 'assets/icons/extension/github.svg',
+    'gitattributes': 'assets/icons/extension/github.svg',
+    'gitmodules': 'assets/icons/extension/github.svg',
+    // ── Documents ───────────────────────────────────
+    'doc': 'assets/icons/extension/word.svg',
+    'docx': 'assets/icons/extension/word.svg',
+    'rtf': 'assets/icons/extension/word.svg',
+    'odt': 'assets/icons/extension/word.svg',
+    'pages': 'assets/icons/extension/word.svg',
+    'xls': 'assets/icons/extension/excel.svg',
+    'xlsx': 'assets/icons/extension/excel.svg',
+    'csv': 'assets/icons/extension/excel.svg',
+    'ods': 'assets/icons/extension/excel.svg',
+    'numbers': 'assets/icons/extension/excel.svg',
+    'ppt': 'assets/icons/extension/ppt.svg',
+    'pptx': 'assets/icons/extension/ppt.svg',
+    'odp': 'assets/icons/extension/ppt.svg',
+    'pdf': 'assets/icons/extension/pdf.svg',
+    // ── Images ──────────────────────────────────────
+    'jpg': 'assets/icons/extension/photo.svg',
+    'jpeg': 'assets/icons/extension/photo.svg',
+    'png': 'assets/icons/extension/photo.svg',
+    'gif': 'assets/icons/extension/photo.svg',
+    'bmp': 'assets/icons/extension/photo.svg',
+    'webp': 'assets/icons/extension/photo.svg',
+    'ico': 'assets/icons/extension/photo.svg',
+    'heic': 'assets/icons/extension/photo.svg',
+    'heif': 'assets/icons/extension/photo.svg',
+    'tiff': 'assets/icons/extension/photo.svg',
+    'tif': 'assets/icons/extension/photo.svg',
+    'psd': 'assets/icons/extension/photo.svg',
+    'raw': 'assets/icons/extension/photo.svg',
+    'cr2': 'assets/icons/extension/photo.svg',
+    'nef': 'assets/icons/extension/photo.svg',
+    // ── Audio ───────────────────────────────────────
+    'mp3': 'assets/icons/extension/music.svg',
+    'wav': 'assets/icons/extension/music.svg',
+    'flac': 'assets/icons/extension/music.svg',
+    'aac': 'assets/icons/extension/music.svg',
+    'ogg': 'assets/icons/extension/music.svg',
+    'wma': 'assets/icons/extension/music.svg',
+    'm4a': 'assets/icons/extension/music.svg',
+    'opus': 'assets/icons/extension/music.svg',
+    'aiff': 'assets/icons/extension/music.svg',
+    // ── Archives ────────────────────────────────────
+    'zip': 'assets/icons/extension/zip.svg',
+    'zipx': 'assets/icons/extension/zip.svg',
+    'rar': 'assets/icons/extension/rar.svg',
+    'rpm': 'assets/icons/extension/rpm.svg',
+    // ── Executables ─────────────────────────────────
+    'exe': 'assets/icons/extension/exe.svg',
+    'msi': 'assets/icons/extension/exe.svg',
   };
 }
 

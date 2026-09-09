@@ -48,9 +48,12 @@ const MAX_ROWS: u32 = 256;
 /// How often to send an SSH keepalive request to the server.
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
 
-/// How long to wait for a keepalive reply before treating the connection as dead.
+/// How long to wait for a keepalive reply before giving up (non-fatal).
 /// Must be shorter than KEEPALIVE_INTERVAL to avoid stacking.
-const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(7);
+/// Set to 1 s so the select! loop is never stalled by keepalive I/O —
+/// a truly dead connection is detected via channel closure or the next
+/// operation, not via a blocking keepalive timeout.
+const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(1);
 
 impl client::Handler for Client {
     type Error = russh::Error;
@@ -137,18 +140,38 @@ impl SshRuntime {
                     }
                 }
                 _ = keepalive_tick.tick() => {
-                    // Send SSH keepalive. If the server doesn't respond within
-                    // KEEPALIVE_TIMEOUT the underlying russh session is dead and
-                    // the next channel operation will return an error, breaking
-                    // the loop and triggering a Disconnected status event.
-                    let alive = timeout(
+                    // Send keepalive without blocking the select! loop or
+                    // exiting the runtime on failure.
+                    //
+                    // Previously, a keepalive timeout (7 s) would:
+                    //  1. block the select! loop for up to 7 s, delaying all
+                    //     SFTP command processing (the "glitchy view"), and
+                    //  2. immediately kill the runtime via
+                    //     `return Err(PortixError::ConnectionTimeout)`, marking
+                    //     the session as error/disconnected — even though SFTP
+                    //     file commands run on a *separate* exec channel
+                    //     (`run_exec_worker`) with its own auto-reconnect, so
+                    //     the keepalive timeout was a false positive. This
+                    //     caused false disconnect notifications that kept
+                    //     re-appearing every ~17 s.
+                    //
+                    // With a 1 s non-fatal timeout:
+                    //  - The select! loop is stalled for at most 1 s per tick.
+                    //  - SFTP operations are not blocked for the full 7 s.
+                    //  - The runtime does NOT exit on keepalive failure.
+                    //  - For terminal sessions, a truly dead SSH connection is
+                    //    still detected: the terminal channel closes
+                    //    (channel.wait() → None/Eof/Close → break) or the next
+                    //    channel operation (data/resize) returns an error (?).
+                    //  - For SFTP sessions, file commands work via the exec
+                    //    worker (separate SSH connection with auto-reconnect).
+                    //  - The Rust `inactivity_timeout` (30 s) remains as a
+                    //    backstop for genuinely dead connections.
+                    let _ = timeout(
                         KEEPALIVE_TIMEOUT,
                         session.send_keepalive(false),
-                    ).await;
-                    if alive.is_err() || alive.is_ok_and(|r| r.is_err()) {
-                        // Connection is dead — break so the caller emits Disconnected.
-                        return Err(PortixError::ConnectionTimeout);
-                    }
+                    )
+                    .await;
                 }
             }
         }
@@ -277,11 +300,29 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
             }
             _ = keepalive.tick() => {
                 if let Some(handle) = session.as_ref() {
-                    if handle.send_keepalive(false).await.is_err() {
-                        // Connection is dead — drop it so the next exec request
-                        // reconnects (and the retry path retries the command).
-                        session = None;
-                    }
+                    // Non-blocking keepalive with a short timeout.
+                    //
+                    // IMPORTANT: do NOT set `session = None` on timeout.
+                    // The keepalive timeout (1 s) can fire on slow-but-alive
+                    // SSH servers (the server is just slow to ACK the
+                    // SSH_MSG_IGNORE packet). Dropping the session here
+                    // would force a full re-connect on the *next* exec
+                    // request, which is wasteful and — if that re-connect
+                    // also hits a slow response — causes cascading failures
+                    // that trigger the Dart-side force-close threshold
+                    // (_recordRemoteFailure after 2 failures), producing a
+                    // false disconnect even though the server is still
+                    // reachable.
+                    //
+                    // Instead, we silently discard the keepalive result.
+                    // If the connection is *truly* dead, the next exec
+                    // request's `run_exec` will fail and the existing retry
+                    // path (connect → retry command) will reconnect cleanly.
+                    let _ = timeout(
+                        KEEPALIVE_TIMEOUT,
+                        handle.send_keepalive(false),
+                    )
+                    .await;
                 }
             }
         }
