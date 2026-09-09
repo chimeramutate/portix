@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
+import 'package:easy_stepper/easy_stepper.dart';
 import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/core/di/injection.dart';
@@ -60,7 +61,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   final List<_SftpTab> _tabs = [];
   int _activeTabIndex = 0;
   String? _lastHandledSftpProfileId;
-  bool _passwordDialogShowing = false;
 
   _SftpTab get _activeTab => _tabs[_activeTabIndex];
 
@@ -139,23 +139,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   void _handleControllerChanged() {
     if (!mounted) return;
     _syncSelectionsWithRows();
-    // When the controller enters the 'authenticating' state (password
-    // required and not yet saved), show the secure password dialog
-    // during step 1 of the 4-step connection flow — NOT before the
-    // flow starts. The dialog is gated on showConnectionSteps so it
-    // only appears during the initial connection / reconnect.
-    if (_controller.remoteStatus == 'authenticating' &&
-        _controller.showConnectionSteps &&
-        !_passwordDialogShowing) {
-      _passwordDialogShowing = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) {
-          _passwordDialogShowing = false;
-          return;
-        }
-        _showPasswordDialogForController();
-      });
-    }
     setState(() {});
   }
 
@@ -416,29 +399,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       _remoteSyncKey = null;
     });
     context.read<SftpWorkspaceBloc>().add(SftpProfileSelected(profile));
-  }
-
-  /// Shows the secure password dialog for the currently active controller's
-  /// pending profile (i.e. when `remoteStatus == 'authenticating'`).
-  /// On success, submits the password via [SftpWorkspaceController.submitPassword].
-  /// On cancel, resets the authenticating state via [cancelPasswordRequest].
-  Future<void> _showPasswordDialogForController() async {
-    final profile = _controller.pendingProfile;
-    if (profile == null || !mounted) {
-      _passwordDialogShowing = false;
-      return;
-    }
-    final password = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => _SftpPasswordDialog(profile: profile),
-    );
-    _passwordDialogShowing = false;
-    if (password == null || !mounted) {
-      _controller.cancelPasswordRequest();
-      return;
-    }
-    _controller.submitPassword(password);
   }
 
   void _handleIncomingSftpProfile(
@@ -1239,9 +1199,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                   SizedBox(
                     height: 520,
                     child: _FilePane(
-                      title: selectedProfile == null
-                          ? 'Remote'
-                          : 'Remote / ${selectedProfile.name}',
+                      title: selectedProfile?.name ?? 'Remote',
                       path: _controller.remotePath,
                       items: selectedProfile == null
                           ? const []
@@ -1274,7 +1232,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                       statusMessage: _controller.remoteStatusMessage,
                       remoteStatus: _controller.remoteStatus,
                       showSteps: _controller.showConnectionSteps,
+                      showPasswordStep: _controller.showPasswordStep,
                       remoteOsIconAsset: selectedProfile?.osIconAsset,
+                      profileName: selectedProfile?.name,
                       findQuery: _controller.remoteSearchQuery,
                       findBase: _controller.remoteSearchBase,
                       findActive: _controller.remoteSearchActive,
@@ -1291,6 +1251,16 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                               _controller.isRemoteDisconnected
                           ? null
                           : _controller.clearRemoteSearch,
+                      inputForm:
+                          _controller.showConnectionSteps &&
+                              _controller.showPasswordStep
+                          ? _SftpSecurePasswordInput(
+                              profile: selectedProfile,
+                              onSubmit: (password) =>
+                                  _controller.submitPassword(password),
+                              errorText: _controller.remoteError,
+                            )
+                          : null,
                       onCreateFileRequested: selectedProfile == null
                           ? null
                           : () => _startInlineCreate(
@@ -1420,9 +1390,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                 const SizedBox(width: 14),
                 Expanded(
                   child: _FilePane(
-                    title: selectedProfile == null
-                        ? 'Remote'
-                        : 'Remote / ${selectedProfile.name}',
+                    title: selectedProfile?.name ?? 'Remote',
                     path: _controller.remotePath,
                     items: selectedProfile == null
                         ? const []
@@ -1455,7 +1423,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                     statusMessage: _controller.remoteStatusMessage,
                     remoteStatus: _controller.remoteStatus,
                     showSteps: _controller.showConnectionSteps,
+                    showPasswordStep: _controller.showPasswordStep,
                     remoteOsIconAsset: selectedProfile?.osIconAsset,
+                    profileName: selectedProfile?.name,
                     findQuery: _controller.remoteSearchQuery,
                     findBase: _controller.remoteSearchBase,
                     findActive: _controller.remoteSearchActive,
@@ -1471,6 +1441,16 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                             _controller.isRemoteDisconnected
                         ? null
                         : _controller.clearRemoteSearch,
+                    inputForm:
+                        _controller.showConnectionSteps &&
+                            _controller.showPasswordStep
+                        ? _SftpSecurePasswordInput(
+                            profile: selectedProfile,
+                            onSubmit: (password) =>
+                                _controller.submitPassword(password),
+                            errorText: _controller.remoteError,
+                          )
+                        : null,
                     onCreateFileRequested: selectedProfile == null
                         ? null
                         : () => _startInlineCreate(

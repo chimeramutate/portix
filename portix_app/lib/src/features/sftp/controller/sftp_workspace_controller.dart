@@ -330,6 +330,14 @@ class SftpWorkspaceController extends ChangeNotifier {
       }
     }
 
+    // Prevent duplicate connection attempts while already connecting or
+    // listing. The password path ('authenticating') is allowed through so
+    // [submitPassword] can resume with the saved credential.
+    if (_loadingRemote &&
+        (_remoteStatus == 'connecting' || _remoteStatus == 'listing')) {
+      return;
+    }
+
     _remotePath = normalizedPath;
     _loadingRemote = true;
     _remoteStatus = 'connecting';
@@ -351,7 +359,17 @@ class SftpWorkspaceController extends ChangeNotifier {
         _pendingProfile = profile;
         _remoteStatus = 'authenticating';
         _loadingRemote = true;
-        _remoteError = 'Wrong username or password. Please try again.';
+        _remoteError = 'Authentication failed';
+        notifyListeners();
+        return;
+      }
+
+      // Timeout — surface a specific message so the user knows the
+      // server didn't respond in time. Retry is possible via reconnect.
+      if (failureStr != null && _isTimeoutError(failureStr)) {
+        _loadingRemote = false;
+        _remoteStatus = 'failed';
+        _remoteError = 'Connection timeout';
         notifyListeners();
         return;
       }
@@ -418,6 +436,15 @@ class SftpWorkspaceController extends ChangeNotifier {
         lower.contains('credential') ||
         lower.contains('permission denied') ||
         lower.contains('access denied');
+  }
+
+  /// Returns true when [error] indicates a connection timeout rather than
+  /// an authentication or generic failure.
+  static bool _isTimeoutError(String error) {
+    final lower = error.toLowerCase();
+    return lower.contains('timeout') ||
+        lower.contains('timed out') ||
+        lower.contains('timedout');
   }
 
   Future<void> loadRemoteDirectory(String path) async {
