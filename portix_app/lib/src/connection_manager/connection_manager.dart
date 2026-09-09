@@ -301,9 +301,7 @@ class ConnectionManager extends ChangeNotifier {
       return;
     }
 
-    final status = result.isRight
-        ? '\x1b[32m✓\x1b[0m'
-        : '\x1b[31m✗\x1b[0m';
+    final status = result.isRight ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m';
     _terminalOutput.add(
       TerminalOutputEvent(
         sessionId: uiSessionId,
@@ -551,15 +549,30 @@ class ConnectionManager extends ChangeNotifier {
     }
   }
 
-  /// Flutter-side heartbeat: probe every connected session by attempting a
-  /// lightweight TCP socket connect to the SSH port. This runs independently
-  /// of the Rust keepalive so UI reflects a lost connection within
-  /// [_heartbeatInterval] + [_heartbeatTimeout] (~9 s worst-case) instead of
-  /// waiting for the Rust keepalive cycle (~17 s).
+  /// Flutter-side heartbeat: probe every connected *SSH terminal* session by
+  /// attempting a lightweight TCP socket connect to the SSH port. This runs
+  /// independently of the Rust keepalive so UI reflects a lost connection
+  /// within [_heartbeatInterval] + [_heartbeatTimeout] (~9 s worst-case)
+  /// instead of waiting for the Rust keepalive cycle (~17 s).
+  ///
+  /// SFTP sessions are intentionally EXCLUDED from this TCP probe. SFTP
+  /// sessions ride on the same Rust-managed SSH connection whose keepalive is
+  /// already driven server-side (see `ssh_client.rs`). Spinning up a *new*
+  /// TCP socket to host:port gives false "connection lost" positives whenever
+  /// the remote blocks new TCP connections, enforces per-host connection
+  /// limits, or briefly rejects new sockets — even though the existing SSH/SFTP
+  /// channel is perfectly alive. SFTP disconnects are detected instead through
+  /// the Rust keepalive and by consecutive SFTP-operation failures
+  /// (see `SftpWorkspaceController._recordRemoteFailure`).
   Future<void> _runHeartbeat() async {
-    // Collect all currently-connected sessions with a known profile.
+    // Collect all currently-connected SSH terminal sessions with a known profile.
+    // SFTP sessions are skipped — see the doc above.
     final candidates = _sessions
-        .where((s) => s.status == ConnectionStatus.connected)
+        .where(
+          (s) =>
+              s.status == ConnectionStatus.connected &&
+              s.kind == SessionKind.ssh,
+        )
         .toList(growable: false);
 
     for (final session in candidates) {

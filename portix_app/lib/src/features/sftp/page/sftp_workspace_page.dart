@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
+import 'package:easy_stepper/easy_stepper.dart';
+import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
@@ -14,7 +16,9 @@ import 'package:portix/src/domain/entities/sftp/index.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart';
 import 'package:portix/src/features/sftp/bloc/index.dart';
 import 'package:portix/src/features/sftp/controller/index.dart';
+import 'package:portix/src/features/sftp/window/index.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+import 'package:skeletonizer/skeletonizer.dart';
 
 part '../widget/sections/sftp_dialogs_section.dart';
 part '../widget/sections/sftp_file_actions_section.dart';
@@ -23,7 +27,14 @@ part '../widget/sections/sftp_profile_gate_section.dart';
 part '../widget/sections/sftp_transfer_queue_section.dart';
 
 class SftpWorkspacePage extends StatefulWidget {
-  const SftpWorkspacePage({super.key});
+  const SftpWorkspacePage({
+    super.key,
+    this.initialProfile,
+    this.initialRemotePath,
+  });
+
+  final SshProfile? initialProfile;
+  final String? initialRemotePath;
 
   @override
   State<SftpWorkspacePage> createState() => _SftpWorkspacePageState();
@@ -128,42 +139,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   void _handleControllerChanged() {
     if (!mounted) return;
     _syncSelectionsWithRows();
-    // Check if connection was lost and show notification
-    if (_controller.shouldNotifyDisconnection) {
-      _controller.clearDisconnectionNotification();
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(
-                  Icons.cloud_off_rounded,
-                  color: AppColors.danger,
-                  size: 18,
-                ),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'SFTP connection lost. Click Reconnect to restore.',
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: AppColors.surfaceCard,
-            behavior: SnackBarBehavior.floating,
-            action: SnackBarAction(
-              label: 'Reconnect',
-              onPressed: () {
-                final profile = _activeTab.selectedProfile;
-                if (profile != null) {
-                  unawaited(_controller.reconnect(profile));
-                }
-              },
-            ),
-          ),
-        );
-    }
     setState(() {});
   }
 
@@ -299,12 +274,21 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   }
 
   void _closeSftpTab(int index) {
-    if (_tabs.length <= 1) return;
+    if (index < 0 || index >= _tabs.length) return;
+    final wasLastTab = _tabs.length <= 1;
     setState(() {
       final tab = _tabs.removeAt(index);
       tab.controller
         ..removeListener(_handleControllerChanged)
         ..dispose();
+      if (_tabs.isEmpty) {
+        // When the last tab is closed, create a fresh blank tab so the
+        // user always has at least one tab to work with.
+        final newController = SftpWorkspaceController(
+          connectionManager: sl<ConnectionManager>(),
+        )..addListener(_handleControllerChanged);
+        _tabs.add(_SftpTab(controller: newController, label: 'SFTP 1'));
+      }
       if (_activeTabIndex >= _tabs.length) {
         _activeTabIndex = _tabs.length - 1;
       }
@@ -315,6 +299,24 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       _localSelectionAnchor = null;
       _remoteSelectionAnchor = null;
     });
+    if (wasLastTab) {
+      // Reset the active tab's profile after rebuilding.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _activeTab.selectedProfile = null;
+      });
+      context.read<SftpWorkspaceBloc>().add(const SftpProfileCleared());
+    } else {
+      // Sync the workspace-level profile state with the new active tab.
+      final activeProfile = _activeTab.selectedProfile;
+      if (activeProfile != null) {
+        context.read<SftpWorkspaceBloc>().add(
+          SftpProfileSelected(activeProfile),
+        );
+      } else {
+        context.read<SftpWorkspaceBloc>().add(const SftpProfileCleared());
+      }
+    }
   }
 
   void _switchSftpTab(int index) {
@@ -330,41 +332,73 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     });
   }
 
+  /// Duplicates the tab at [index], creating a new tab with a fresh
+  /// [SftpWorkspaceController] that points to the same profile and remote
+  /// path as the source tab.
+  void _duplicateSftpTab(int index) {
+    if (index < 0 || index >= _tabs.length) return;
+    final sourceTab = _tabs[index];
+    final newController = SftpWorkspaceController(
+      connectionManager: sl<ConnectionManager>(),
+    )..addListener(_handleControllerChanged);
+    setState(() {
+      _tabs.insert(
+        index + 1,
+        _SftpTab(
+          controller: newController,
+          label: 'SFTP ${_tabs.length + 1}',
+          selectedProfile: sourceTab.selectedProfile,
+        ),
+      );
+      _activeTabIndex = index + 1;
+      _controller = newController;
+      _remoteSyncKey = null;
+      _selectedLocalPaths.clear();
+      _selectedRemotePaths.clear();
+      _localSelectionAnchor = null;
+      _remoteSelectionAnchor = null;
+    });
+    final profile = sourceTab.selectedProfile;
+    if (profile != null) {
+      final remotePath = sourceTab.controller.hasRemoteSession
+          ? sourceTab.controller.remotePath
+          : _remotePathForProfile(profile);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_controller.attachRemoteProfile(profile, remotePath));
+      });
+    }
+  }
+
+  /// Opens the tab at [index] in a new detached SFTP window via
+  /// [SftpWindowService.openSession].
+  Future<void> _openInNewWindow(int index) async {
+    if (index < 0 || index >= _tabs.length) return;
+    final tab = _tabs[index];
+    final profile = tab.selectedProfile;
+    if (profile == null) return;
+    final remotePath = tab.controller.remotePath;
+    await SftpWindowService.openSession(
+      profile: profile,
+      remotePath: remotePath,
+    );
+  }
+
   Future<void> _selectProfileForActiveTab(
     BuildContext context,
     SshProfile profile,
   ) async {
-    // If the profile is password-based but no usable password is stored yet,
-    // ask the user for it before connecting (same as the SSH terminal flow).
-    if (profile.authMethod == AuthMethod.password &&
-        (profile.credentialLabel.trim().isEmpty ||
-            profile.credentialLabel == 'Saved password')) {
-      final connectionManager = sl<ConnectionManager>();
-      final hasSaved = await connectionManager.hasSavedPassword(profile.id);
-      if (!hasSaved) {
-        final password = await _promptSftpPassword(profile);
-        if (password == null || !mounted) return;
-        await connectionManager.saveProfilePassword(profile.id, password);
-        // Update in-memory profile so the controller can pass the password
-        // directly instead of failing with PasswordUnavailableException.
-        profile = profile.copyWith(credentialLabel: password);
-      }
-    }
+    // The password (if needed) is now collected during the 4-step
+    // connection flow — specifically at step 1 ('authenticating')
+    // — rather than prompting before the connection starts. This
+    // keeps the step indicator visible so the user can follow:
+    //   0 Pick profile → 1 Loading (password) → 2 Connecting → 3 Connected
     if (!mounted) return;
     setState(() {
       _activeTab.selectedProfile = profile;
       _remoteSyncKey = null;
     });
-    // Also update bloc for backward compatibility
     context.read<SftpWorkspaceBloc>().add(SftpProfileSelected(profile));
-  }
-
-  Future<String?> _promptSftpPassword(SshProfile profile) {
-    return showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => _SftpPasswordDialog(profile: profile),
-    );
   }
 
   void _handleIncomingSftpProfile(
@@ -984,93 +1018,105 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   @override
   Widget build(BuildContext context) {
-    return MultiBlocListener(
-      listeners: [
-        BlocListener<SshSessionBloc, SshSessionState>(
-          listenWhen: (previous, current) =>
-              current.pendingTarget == SshSessionTarget.sftp &&
-              previous.targetProfileId != current.targetProfileId &&
-              current.targetProfileId != null,
-          listener: (context, state) {
-            final profiles = context
-                .read<SftpWorkspaceBloc>()
-                .state
-                .connectableProfiles;
-            _handleIncomingSftpProfile(state, profiles);
-          },
-        ),
-      ],
-      child: BlocBuilder<SftpWorkspaceBloc, SftpWorkspaceState>(
-        builder: (context, state) {
-          final profiles = state.connectableProfiles;
-          final activeTab = _activeTab;
-          final selectedProfile = activeTab.selectedProfile;
-          final remotePath = selectedProfile != null
-              ? _remotePathForProfile(selectedProfile)
-              : '~';
-          _scheduleRemoteSync(selectedProfile, remotePath);
+    final sshSessionBloc = context.read<SshSessionBloc>();
+    return BlocProvider.value(
+      value: sshSessionBloc,
+      child: MultiBlocListener(
+        listeners: [
+          BlocListener<SshSessionBloc, SshSessionState>(
+            bloc: sshSessionBloc,
+            listenWhen: (previous, current) =>
+                current.pendingTarget == SshSessionTarget.sftp &&
+                previous.targetProfileId != current.targetProfileId &&
+                current.targetProfileId != null,
+            listener: (context, state) {
+              final profiles = context
+                  .read<SftpWorkspaceBloc>()
+                  .state
+                  .connectableProfiles;
+              _handleIncomingSftpProfile(state, profiles);
+            },
+          ),
+        ],
+        child: BlocBuilder<SftpWorkspaceBloc, SftpWorkspaceState>(
+          builder: (context, state) {
+            final profiles = state.connectableProfiles;
+            final activeTab = _activeTab;
+            final selectedProfile = activeTab.selectedProfile;
+            final remotePath = selectedProfile != null
+                ? _remotePathForProfile(selectedProfile)
+                : '~';
+            _scheduleRemoteSync(selectedProfile, remotePath);
 
-          return Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              children: [
-                // Tab bar
-                SizedBox(
-                  height: 40,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: _tabs.length,
-                          separatorBuilder: (_, _) => const SizedBox(width: 8),
-                          itemBuilder: (context, index) {
-                            final tab = _tabs[index];
-                            final active = index == _activeTabIndex;
-                            final profileName = tab.selectedProfile?.name;
-                            final label = profileName != null
-                                ? profileName
-                                : tab.label;
-                            return _SftpTabChip(
-                              label: label,
-                              active: active,
-                              closable: _tabs.length > 1,
-                              onTap: () => _switchSftpTab(index),
-                              onClose: () => _closeSftpTab(index),
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        tooltip: 'New SFTP tab',
-                        onPressed: _addSftpTab,
-                        icon: const Icon(Icons.add_rounded, size: 18),
-                        style: IconButton.styleFrom(
-                          backgroundColor: AppColors.surface,
-                          side: const BorderSide(color: AppColors.border),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+            return Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                children: [
+                  // Tab bar
+                  SizedBox(
+                    height: 40,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: _tabs.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(width: 8),
+                            itemBuilder: (context, index) {
+                              final tab = _tabs[index];
+                              final active = index == _activeTabIndex;
+                              final profileName = tab.selectedProfile?.name;
+                              final label = profileName != null
+                                  ? profileName
+                                  : tab.label;
+                              return _SftpTabChip(
+                                label: label,
+                                active: active,
+                                closable: true,
+                                onTap: () => _switchSftpTab(index),
+                                onClose: () => _closeSftpTab(index),
+                                onDuplicate: tab.selectedProfile != null
+                                    ? () => _duplicateSftpTab(index)
+                                    : null,
+                                onDuplicateWindow: tab.selectedProfile != null
+                                    ? () => _openInNewWindow(index)
+                                    : null,
+                              );
+                            },
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 8),
+                        IconButton(
+                          tooltip: 'New SFTP tab',
+                          onPressed: _addSftpTab,
+                          icon: const Icon(Icons.add_rounded, size: 18),
+                          style: IconButton.styleFrom(
+                            backgroundColor: AppColors.surface,
+                            side: const BorderSide(color: AppColors.border),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                // Content
-                Expanded(
-                  child: _buildSftpContent(
-                    context,
-                    profiles: profiles,
-                    selectedProfile: selectedProfile,
-                    remotePath: remotePath,
+                  const SizedBox(height: 12),
+                  // Content
+                  Expanded(
+                    child: _buildSftpContent(
+                      context,
+                      profiles: profiles,
+                      selectedProfile: selectedProfile,
+                      remotePath: remotePath,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -1153,9 +1199,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                   SizedBox(
                     height: 520,
                     child: _FilePane(
-                      title: selectedProfile == null
-                          ? 'Remote'
-                          : 'Remote / ${selectedProfile.name}',
+                      title: selectedProfile?.name ?? 'Remote',
                       path: _controller.remotePath,
                       items: selectedProfile == null
                           ? const []
@@ -1178,22 +1222,45 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                       loading: _controller.loadingRemote,
                       error: _controller.remoteError,
                       isRemote: true,
-                      showActions: selectedProfile != null,
-                      showPathBar: selectedProfile != null,
+                      showActions:
+                          selectedProfile != null &&
+                          !_controller.isRemoteDisconnected,
+                      showPathBar:
+                          selectedProfile != null &&
+                          !_controller.isRemoteDisconnected,
                       statusTitle: _controller.remoteStatusTitle,
                       statusMessage: _controller.remoteStatusMessage,
+                      remoteStatus: _controller.remoteStatus,
+                      showSteps: _controller.showConnectionSteps,
+                      showPasswordStep: _controller.showPasswordStep,
+                      remoteOsIconAsset: selectedProfile?.osIconAsset,
+                      profileName: selectedProfile?.name,
                       findQuery: _controller.remoteSearchQuery,
                       findBase: _controller.remoteSearchBase,
                       findActive: _controller.remoteSearchActive,
                       findError: _controller.remoteSearchError,
                       findSearching: _controller.searchingRemote,
-                      onFindSubmitted: selectedProfile == null
+                      onFindSubmitted:
+                          selectedProfile == null ||
+                              _controller.isRemoteDisconnected
                           ? null
                           : (query) =>
                                 unawaited(_controller.searchRemote(query)),
-                      onFindCleared: selectedProfile == null
+                      onFindCleared:
+                          selectedProfile == null ||
+                              _controller.isRemoteDisconnected
                           ? null
                           : _controller.clearRemoteSearch,
+                      inputForm:
+                          _controller.showConnectionSteps &&
+                              _controller.showPasswordStep
+                          ? _SftpSecurePasswordInput(
+                              profile: selectedProfile,
+                              onSubmit: (password) =>
+                                  _controller.submitPassword(password),
+                              errorText: _controller.remoteError,
+                            )
+                          : null,
                       onCreateFileRequested: selectedProfile == null
                           ? null
                           : () => _startInlineCreate(
@@ -1323,9 +1390,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                 const SizedBox(width: 14),
                 Expanded(
                   child: _FilePane(
-                    title: selectedProfile == null
-                        ? 'Remote'
-                        : 'Remote / ${selectedProfile.name}',
+                    title: selectedProfile?.name ?? 'Remote',
                     path: _controller.remotePath,
                     items: selectedProfile == null
                         ? const []
@@ -1348,21 +1413,44 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                     loading: _controller.loadingRemote,
                     error: _controller.remoteError,
                     isRemote: true,
-                    showActions: selectedProfile != null,
-                    showPathBar: selectedProfile != null,
+                    showActions:
+                        selectedProfile != null &&
+                        !_controller.isRemoteDisconnected,
+                    showPathBar:
+                        selectedProfile != null &&
+                        !_controller.isRemoteDisconnected,
                     statusTitle: _controller.remoteStatusTitle,
                     statusMessage: _controller.remoteStatusMessage,
+                    remoteStatus: _controller.remoteStatus,
+                    showSteps: _controller.showConnectionSteps,
+                    showPasswordStep: _controller.showPasswordStep,
+                    remoteOsIconAsset: selectedProfile?.osIconAsset,
+                    profileName: selectedProfile?.name,
                     findQuery: _controller.remoteSearchQuery,
                     findBase: _controller.remoteSearchBase,
                     findActive: _controller.remoteSearchActive,
                     findError: _controller.remoteSearchError,
                     findSearching: _controller.searchingRemote,
-                    onFindSubmitted: selectedProfile == null
+                    onFindSubmitted:
+                        selectedProfile == null ||
+                            _controller.isRemoteDisconnected
                         ? null
                         : (query) => unawaited(_controller.searchRemote(query)),
-                    onFindCleared: selectedProfile == null
+                    onFindCleared:
+                        selectedProfile == null ||
+                            _controller.isRemoteDisconnected
                         ? null
                         : _controller.clearRemoteSearch,
+                    inputForm:
+                        _controller.showConnectionSteps &&
+                            _controller.showPasswordStep
+                        ? _SftpSecurePasswordInput(
+                            profile: selectedProfile,
+                            onSubmit: (password) =>
+                                _controller.submitPassword(password),
+                            errorText: _controller.remoteError,
+                          )
+                        : null,
                     onCreateFileRequested: selectedProfile == null
                         ? null
                         : () => _startInlineCreate(
@@ -1905,7 +1993,11 @@ class _SftpDiffBadge extends StatelessWidget {
 enum _SftpInlineCreateKind { folder, file }
 
 class _SftpTab {
-  _SftpTab({required this.controller, required this.label});
+  _SftpTab({
+    required this.controller,
+    required this.label,
+    this.selectedProfile,
+  });
 
   final SftpWorkspaceController controller;
   final String label;
@@ -1919,6 +2011,8 @@ class _SftpTabChip extends StatelessWidget {
     required this.closable,
     required this.onTap,
     required this.onClose,
+    this.onDuplicate,
+    this.onDuplicateWindow,
   });
 
   final String label;
@@ -1926,11 +2020,14 @@ class _SftpTabChip extends StatelessWidget {
   final bool closable;
   final VoidCallback onTap;
   final VoidCallback onClose;
+  final VoidCallback? onDuplicate;
+  final VoidCallback? onDuplicateWindow;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
+      onSecondaryTapDown: (details) => _showContextMenu(context, details),
       child: Container(
         height: 36,
         padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1973,6 +2070,55 @@ class _SftpTabChip extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  void _showContextMenu(BuildContext context, TapDownDetails details) {
+    final renderBox = context.findRenderObject() as RenderBox?;
+    final offset = renderBox != null
+        ? renderBox.localToGlobal(details.localPosition)
+        : details.localPosition;
+    showMenu(
+      context: context,
+      position: RelativeRect.fromRect(
+        Rect.fromPoints(offset, offset),
+        Offset.zero & renderBox!.size,
+      ),
+      items: [
+        if (onDuplicate != null)
+          PopupMenuItem(
+            onTap: onDuplicate,
+            child: const Row(
+              children: [
+                Icon(Icons.content_copy_rounded, size: 16),
+                SizedBox(width: 8),
+                Text('Duplicate tab'),
+              ],
+            ),
+          ),
+        if (onDuplicateWindow != null)
+          PopupMenuItem(
+            onTap: onDuplicateWindow,
+            child: const Row(
+              children: [
+                Icon(Icons.open_in_new_rounded, size: 16),
+                SizedBox(width: 8),
+                Text('Duplicate as new window'),
+              ],
+            ),
+          ),
+        if (closable)
+          PopupMenuItem(
+            onTap: onClose,
+            child: const Row(
+              children: [
+                Icon(Icons.close_rounded, size: 16),
+                SizedBox(width: 8),
+                Text('Close tab'),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }

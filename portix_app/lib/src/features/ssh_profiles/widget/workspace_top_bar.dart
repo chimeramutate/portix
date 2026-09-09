@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_svg/svg.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/features/sftp/bloc/index.dart';
-import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
 
 import '../bloc/index.dart';
 
@@ -40,7 +40,7 @@ class WorkspaceTopBar extends StatelessWidget {
           ),
           child: switch (state.activeView) {
             WorkspaceView.form => const _FormTopBar(),
-            WorkspaceView.sftp => _SftpTopBar(state: state),
+            WorkspaceView.sftp => const _SftpTopBar(),
             WorkspaceView.remoteFolder => const _RemoteTopBar(),
             WorkspaceView.settings => const _SimpleTopBar(title: 'Settings'),
             WorkspaceView.rdp => const _SimpleTopBar(title: 'Remote Desktop'),
@@ -350,31 +350,21 @@ class _FormBreadcrumb extends StatelessWidget {
 }
 
 class _SftpTopBar extends StatelessWidget {
-  const _SftpTopBar({required this.state});
-  final SshWorkspaceState state;
+  const _SftpTopBar();
 
   @override
   Widget build(BuildContext context) {
-    final session = context.watch<SshSessionBloc>().state;
     final sftpState = context.watch<SftpWorkspaceBloc>().state;
-    final profile =
-        sftpState.selectedProfile ?? session.profileFrom(state.profiles);
-    final hasSession =
-        sftpState.selectedProfile != null ||
-        (session.hasActiveSession && profile != null);
+    final profile = sftpState.selectedProfile;
+    final hasSession = profile != null;
     final address = profile?.address;
     final remotePath = sftpState.selectedProfile == null
-        ? session.defaultPathFor(state.profiles)
+        ? '~'
         : sftpState.selectedRemotePath;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final mobile = constraints.maxWidth < 720;
-        final clearProfile = sftpState.selectedProfile != null
-            ? () => context.read<SftpWorkspaceBloc>().add(
-                const SftpProfileCleared(),
-              )
-            : null;
         if (mobile) {
           return _MobilePageTopBar(
             icon: Icons.folder_open_rounded,
@@ -382,12 +372,7 @@ class _SftpTopBar extends StatelessWidget {
             subtitle: hasSession
                 ? '$address · $remotePath'
                 : 'Select or activate a terminal session',
-            trailing: clearProfile == null
-                ? null
-                : AppIconButton(
-                    icon: Icons.swap_horiz_rounded,
-                    onPressed: clearProfile,
-                  ),
+            trailing: null,
           );
         }
 
@@ -399,12 +384,9 @@ class _SftpTopBar extends StatelessWidget {
               child: Align(
                 alignment: Alignment.center,
                 child: _ConnectionBadge(
-                  icon: Icons.folder_open_rounded,
+                  osIconAsset: profile?.osIconAsset,
                   iconColor: hasSession ? AppColors.green : AppColors.muted,
                   title: profile?.name ?? 'SFTP Workspace',
-                  subtitle: hasSession
-                      ? '$address · $remotePath'
-                      : 'Select or activate a terminal session',
                   trailing: AppPill(
                     label: hasSession ? 'Ready' : 'No session',
                     color: hasSession ? AppColors.green : AppColors.muted,
@@ -415,21 +397,6 @@ class _SftpTopBar extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 18),
-            if (clearProfile != null)
-              AppButton(
-                icon: Icons.swap_horiz_rounded,
-                label: 'Change profile',
-                onPressed: clearProfile,
-              )
-            else
-              AppButton(
-                icon: Icons.list_alt_rounded,
-                label: 'SSH profiles',
-                onPressed: () => context.read<SshWorkspaceBloc>().add(
-                  const NavigationChanged(WorkspaceView.gallery),
-                ),
-              ),
           ],
         );
       },
@@ -475,21 +442,23 @@ class _SimpleTopBar extends StatelessWidget {
 
 class _ConnectionBadge extends StatelessWidget {
   const _ConnectionBadge({
-    required this.icon,
+    this.osIconAsset,
     required this.title,
-    required this.subtitle,
     this.trailing,
     this.iconColor = AppColors.green,
   });
 
-  final IconData icon;
+  /// Path to an OS-specific SVG icon asset (e.g. 'assets/icons/os/ubuntu-linux.svg').
+  /// When non-empty, the badge renders this SVG with its own colors.
+  /// Falls back to [Icons.dns_outlined] when empty.
+  final String? osIconAsset;
   final String title;
-  final String subtitle;
   final Widget? trailing;
   final Color iconColor;
 
   @override
   Widget build(BuildContext context) {
+    final asset = (osIconAsset ?? '').trim();
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 620, minHeight: 38),
       child: Container(
@@ -503,7 +472,14 @@ class _ConnectionBadge extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: iconColor, size: 16),
+            if (asset.isNotEmpty)
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: SvgPicture.asset(asset, fit: BoxFit.contain),
+              )
+            else
+              Icon(Icons.dns_outlined, color: iconColor, size: 16),
             const SizedBox(width: 8),
             Flexible(
               flex: 2,
@@ -511,15 +487,6 @@ class _ConnectionBadge extends StatelessWidget {
                 title,
                 overflow: TextOverflow.ellipsis,
                 style: portixTitle(12),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              flex: 3,
-              child: Text(
-                subtitle,
-                overflow: TextOverflow.ellipsis,
-                style: portixMuted(11),
               ),
             ),
             if (trailing != null) ...[const SizedBox(width: 10), trailing!],
