@@ -117,7 +117,12 @@ class KeytabInputHandler implements TerminalInputHandler {
       alt: event.alt,
       shift: event.shift,
       newLineMode: event.state.lineFeedMode,
-      appCursorKeys: event.state.appKeypadMode,
+      // Application Cursor Keys mode (DEC private mode 1, `\E[?1h`) is a
+      // distinct flag from the Application Keypad mode (`\E=`): vi/vim/nano
+      // enable cursor keys without necessarily enabling the keypad. Reading
+      // `appKeypadMode` here sent the wrong arrow-key form (CSI `\E[A` instead
+      // of SS3 `\EOA`) to apps that requested application cursor keys.
+      appCursorKeys: event.state.cursorKeysMode,
       appKeyPad: event.state.appKeypadMode,
       appScreen: event.altBuffer,
       macos: event.platform == TerminalTargetPlatform.macos,
