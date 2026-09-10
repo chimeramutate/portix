@@ -387,6 +387,111 @@ void main() {
       firstController.dispose();
       secondController.dispose();
     });
+
+    test(
+      'two controllers on one ConnectionManager are session-isolated',
+      () async {
+        // Proves the foundation for an independent left-pane SSH session:
+        // two controllers sharing the singleton ConnectionManager must each
+        // own a distinct SFTP session that the other cannot clear or corrupt.
+        // The controller's connection-change listener (`_handleConnectionManager
+        // Changed`) early-returns when its own `_remoteSessionId` is null and
+        // otherwise only inspects the session matching that id, so a status
+        // event on A's session never bleeds into B (and vice-versa).
+        final controllerA = SftpWorkspaceController(
+          connectionManager: connectionManager,
+          localFileBrowser: _FakeLocalFileBrowser(),
+          localEditorService: _FakeLocalEditorService(),
+        );
+        final controllerB = SftpWorkspaceController(
+          connectionManager: connectionManager,
+          localFileBrowser: _FakeLocalFileBrowser(),
+          localEditorService: _FakeLocalEditorService(),
+        );
+
+        final profileA = domain.SshProfile(
+          id: 'profile-a',
+          name: 'Host A',
+          host: 'a.example.com',
+          port: 22,
+          username: 'deploy',
+          group: 'Production',
+          tags: [],
+          authMethod: domain.AuthMethod.sshKey,
+          credentialLabel: '~/.ssh/id_ed25519',
+          defaultPath: '/srv/app',
+          status: domain.ConnectionStatus.online,
+          color: domain.ProfileColor.blue,
+        );
+        final profileB = domain.SshProfile(
+          id: 'profile-b',
+          name: 'Host B',
+          host: 'b.example.com',
+          port: 22,
+          username: 'deploy',
+          group: 'Production',
+          tags: [],
+          authMethod: domain.AuthMethod.sshKey,
+          credentialLabel: '~/.ssh/id_ed25519',
+          defaultPath: '/opt/data',
+          status: domain.ConnectionStatus.online,
+          color: domain.ProfileColor.green,
+        );
+
+        await controllerA.attachRemoteProfile(profileA, '/srv/app');
+        await controllerB.attachRemoteProfile(profileB, '/opt/data');
+        await Future.delayed(Duration.zero);
+        await Future.delayed(Duration.zero);
+
+        // Both sessions are live and distinct.
+        expect(controllerA.hasRemoteSession, isTrue);
+        expect(controllerB.hasRemoteSession, isTrue);
+        expect(controllerA.remoteSessionId, isNotNull);
+        expect(controllerB.remoteSessionId, isNotNull);
+        expect(
+          controllerA.remoteSessionId,
+          isNot(equals(controllerB.remoteSessionId)),
+        );
+        expect(controllerA.remotePath, '/srv/app');
+        expect(controllerB.remotePath, '/opt/data');
+        expect(controllerA.isRemoteConnected, isTrue);
+        expect(controllerB.isRemoteConnected, isTrue);
+
+        // Clearing A leaves B fully intact (true session isolation).
+        await controllerA.clearRemoteSession();
+        await Future.delayed(Duration.zero);
+        await Future.delayed(Duration.zero);
+
+        expect(controllerA.hasRemoteSession, isFalse);
+        expect(controllerA.remoteSessionId, isNull);
+        expect(controllerA.shouldNotifyDisconnection, isFalse);
+        expect(controllerB.hasRemoteSession, isTrue);
+        expect(controllerB.isRemoteConnected, isTrue);
+        expect(controllerB.remoteSessionId, isNotNull);
+        expect(controllerB.remotePath, '/opt/data');
+
+        controllerA.dispose();
+        controllerB.dispose();
+      },
+    );
+  });
+
+  test('notifyListeners after dispose is a no-op (tab/page close safety)', () {
+    final backend = _FakeConnectionBackend();
+    final connectionManager = ConnectionManager(backend: backend);
+    final controller = SftpWorkspaceController(
+      connectionManager: connectionManager,
+      localFileBrowser: _FakeLocalFileBrowser(),
+      localEditorService: _FakeLocalEditorService(),
+    );
+    // The constructor starts an in-flight loadLocalDirectory; disposing while
+    // it is pending (i.e. closing/popping the SFTP tab) must let any resumed
+    // notifyListeners fire safely instead of tripping the
+    // "used after being disposed" ChangeNotifier assert.
+    controller.dispose();
+    expect(() => controller.notifyListeners(), returnsNormally);
+    connectionManager.dispose();
+    backend.dispose();
   });
 }
 

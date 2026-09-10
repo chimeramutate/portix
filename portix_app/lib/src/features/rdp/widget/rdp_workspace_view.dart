@@ -114,14 +114,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
                     icon: const Icon(Icons.upload_file),
                     label: const Text('Import .rdp'),
                   ),
-                  const SizedBox(width: 10),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).pushNamed('/rdp-frame-test');
-                    },
-                    icon: const Icon(Icons.bug_report, size: 16),
-                    label: const Text('Frame Test'),
-                  ),
                 ],
               ),
 

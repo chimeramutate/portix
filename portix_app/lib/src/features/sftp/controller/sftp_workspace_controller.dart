@@ -40,6 +40,15 @@ class SftpWorkspaceController extends ChangeNotifier {
   final LocalFileBrowser _localFileBrowser;
   final LocalEditorService _localEditorService;
 
+  /// True once [dispose] has run. The controller starts an in-flight
+  /// `loadLocalDirectory` in its constructor and `attachRemoteProfile` awaits
+  /// `ConnectionManager.connectSftp`, so those async ops can resume *after*
+  /// the owning tab/page is closed and the controller is disposed. Guarding
+  /// [notifyListeners] with this flag lets such resumes no-op instead of
+  /// tripping Flutter's "A SftpWorkspaceController was used after being
+  /// disposed" ChangeNotifier assert. This touches no SSH/auth logic.
+  bool _isDisposed = false;
+
   final List<SftpTransferJob> _transferJobs = [];
   int _transferSerial = 0;
   Timer? _clearTransferTimer;
@@ -1042,7 +1051,18 @@ class SftpWorkspaceController extends ChangeNotifier {
   }
 
   @override
+  void notifyListeners() {
+    // No-op once disposed: in-flight async ops (the constructor's
+    // loadLocalDirectory, attachRemoteProfile's connect await, etc.) may
+    // resume on a closed tab and call notifyListeners — which would assert.
+    // State they mutate is discarded along with the dead controller.
+    if (_isDisposed) return;
+    super.notifyListeners();
+  }
+
+  @override
   void dispose() {
+    _isDisposed = true;
     _connectionManager.removeListener(_handleConnectionManagerChanged);
     _clearTransferTimer?.cancel();
     _remoteSearchDebounce?.cancel();

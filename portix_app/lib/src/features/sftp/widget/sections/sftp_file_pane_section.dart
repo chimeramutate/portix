@@ -49,6 +49,7 @@ class _FilePane extends StatelessWidget {
     this.inputForm,
     this.showPasswordStep = false,
     this.showSteps = true,
+    this.onTitleTap,
   });
 
   final String title;
@@ -91,6 +92,7 @@ class _FilePane extends StatelessWidget {
   final Widget? inputForm;
   final bool showPasswordStep;
   final bool showSteps;
+  final VoidCallback? onTitleTap;
   final ValueChanged<SftpFileTransfer> onTransferDropped;
   final void Function(_FileAction action, SftpFileEntry file) onFileAction;
   final ValueChanged<String> onPathSubmitted;
@@ -117,37 +119,49 @@ class _FilePane extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  if (isRemote && (remoteOsIconAsset ?? '').trim().isNotEmpty)
-                    SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: SvgPicture.asset(
-                        remoteOsIconAsset!,
-                        fit: BoxFit.contain,
+              MouseRegion(
+                cursor: onTitleTap == null
+                    ? SystemMouseCursors.basic
+                    : SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: onTitleTap,
+                  behavior: HitTestBehavior.translucent,
+                  child: Row(
+                    children: [
+                      if (isRemote &&
+                          (remoteOsIconAsset ?? '').trim().isNotEmpty)
+                        SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: SvgPicture.asset(
+                            remoteOsIconAsset!,
+                            fit: BoxFit.contain,
+                          ),
+                        )
+                      else
+                        Icon(
+                          isRemote
+                              ? Icons.dns_outlined
+                              : Icons.computer_rounded,
+                          color: isRemote ? AppColors.green : AppColors.cyan,
+                          size: 18,
+                        ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: portixTitle(16),
+                        ),
                       ),
-                    )
-                  else
-                    Icon(
-                      isRemote ? Icons.dns_outlined : Icons.computer_rounded,
-                      color: isRemote ? AppColors.green : AppColors.cyan,
-                      size: 18,
-                    ),
-                  const SizedBox(width: 9),
-                  Expanded(
-                    child: Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: portixTitle(16),
-                    ),
+                      AppPill(
+                        label: countLabel,
+                        color: isRemote ? AppColors.green : AppColors.cyan,
+                      ),
+                    ],
                   ),
-                  AppPill(
-                    label: countLabel,
-                    color: isRemote ? AppColors.green : AppColors.cyan,
-                  ),
-                ],
+                ),
               ),
               // Show skeleton placeholders while loading instead of
               // hiding the path bar, actions, and find bar entirely.
