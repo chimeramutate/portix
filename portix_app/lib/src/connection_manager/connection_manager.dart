@@ -203,6 +203,13 @@ class ConnectionManager extends ChangeNotifier {
     return (password ?? '').trim().isNotEmpty;
   }
 
+  /// Reads the saved password for the given profile from secure storage.
+  /// Used when duplicating a connected session to a new window so the
+  /// child window can reconnect without re-prompting for a password.
+  Future<String?> readProfilePassword(String profileId) async {
+    return _secretStore.readPassword(profileId);
+  }
+
   Future<Result<void>> closeSession(String sessionId) async {
     final index = _sessions.indexWhere((session) => session.id == sessionId);
     if (index == -1) {
