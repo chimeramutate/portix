@@ -1,10 +1,24 @@
 part of '../../page/sftp_workspace_page.dart';
 
 class _SftpProfileGate extends StatefulWidget {
-  const _SftpProfileGate({required this.profiles, required this.onSelected});
+  const _SftpProfileGate({
+    required this.profiles,
+    required this.onSelected,
+    this.includeLocal = false,
+    this.onLocalSelected,
+    this.localSelected = false,
+  });
 
   final List<SshProfile> profiles;
   final ValueChanged<SshProfile> onSelected;
+
+  /// When true, a **Local** entry is rendered as the first (topmost) pick in
+  /// the list, so the picker always offers "local" as the primary choice —
+  /// matching the requirement that the top-most pick is Local even once a
+  /// remote profile has been attached.
+  final bool includeLocal;
+  final VoidCallback? onLocalSelected;
+  final bool localSelected;
 
   @override
   State<_SftpProfileGate> createState() => _SftpProfileGateState();
@@ -13,19 +27,26 @@ class _SftpProfileGate extends StatefulWidget {
 class _SftpProfileGateState extends State<_SftpProfileGate> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  bool _sortAscending = true; // A → Z by default
 
   List<SshProfile> get _filteredProfiles {
-    if (_searchQuery.isEmpty) return widget.profiles;
     final query = _searchQuery.toLowerCase();
-    return widget.profiles
-        .where(
-          (p) =>
-              p.name.toLowerCase().contains(query) ||
-              p.address.toLowerCase().contains(query) ||
-              (p.username.isNotEmpty &&
-                  p.username.toLowerCase().contains(query)),
-        )
-        .toList(growable: false);
+    final matches = query.isEmpty
+        ? widget.profiles
+        : widget.profiles.where(
+            (p) =>
+                p.name.toLowerCase().contains(query) ||
+                p.address.toLowerCase().contains(query) ||
+                (p.username.isNotEmpty &&
+                    p.username.toLowerCase().contains(query)),
+          );
+    final sorted = matches.toList(growable: false)
+      ..sort(
+        (a, b) => _sortAscending
+            ? a.name.compareTo(b.name)
+            : b.name.compareTo(a.name),
+      );
+    return sorted;
   }
 
   @override
@@ -50,25 +71,6 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.folder_open_rounded,
-                    color: AppColors.cyan,
-                    size: 22,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text('Select SFTP profile', style: portixTitle(18)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Pilih profile SSH dulu untuk membuka remote SFTP workspace.',
-                style: portixMuted(13),
-              ),
-              const SizedBox(height: 16),
               if (!hasProfiles)
                 AppPanel(
                   padding: const EdgeInsets.all(14),
@@ -132,6 +134,23 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                // Filter: sort tags A → Z / Z → A
+                Row(
+                  children: [
+                    _SortChip(
+                      label: 'A → Z',
+                      selected: _sortAscending,
+                      onTap: () => setState(() => _sortAscending = true),
+                    ),
+                    const SizedBox(width: 8),
+                    _SortChip(
+                      label: 'Z → A',
+                      selected: !_sortAscending,
+                      onTap: () => setState(() => _sortAscending = false),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
                 // Results count and clear button
                 if (_searchQuery.isNotEmpty && !hasMatches)
                   Padding(
@@ -175,10 +194,21 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                   Flexible(
                     child: ListView.separated(
                       shrinkWrap: true,
-                      itemCount: filteredProfiles.length,
+                      itemCount:
+                          filteredProfiles.length +
+                          (widget.includeLocal ? 1 : 0),
                       separatorBuilder: (_, _) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
-                        final profile = filteredProfiles[index];
+                        if (widget.includeLocal && index == 0) {
+                          return _LocalProfileTile(
+                            selected: widget.localSelected,
+                            onTap: widget.onLocalSelected,
+                          );
+                        }
+                        final profileIndex = widget.includeLocal
+                            ? index - 1
+                            : index;
+                        final profile = filteredProfiles[profileIndex];
                         return Material(
                           color: Colors.transparent,
                           child: InkWell(
@@ -207,12 +237,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                                         Text(
                                           profile.name,
                                           style: portixTitle(14),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          '${profile.address}:${profile.port} (${profile.username})',
                                           overflow: TextOverflow.ellipsis,
-                                          style: portixMuted(12),
                                         ),
                                       ],
                                     ),
@@ -237,3 +262,110 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
     );
   }
 }
+
+/// A small filter "tag" used to toggle profile sort order (A → Z / Z → A).
+class _SortChip extends StatelessWidget {
+  const _SortChip({required this.label, required this.selected, this.onTap});
+
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.primaryBlue.withValues(alpha: .10)
+                : AppColors.surfaceDark,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected ? AppColors.primaryBlue : AppColors.border,
+            ),
+          ),
+          child: Text(
+            label,
+            style: (selected ? portixTitle(12) : portixMuted(11)).copyWith(
+              color: selected ? AppColors.primaryBlue : null,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A leading picker row that represents the **Local** filesystem root.
+///
+/// Rendered as the first (topmost) entry whenever [_SftpProfileGate.includeLocal]
+/// is set, so the picker always offers "Local" as the primary choice — keeping
+/// the local root pinned at the top of the server list.
+class _LocalProfileTile extends StatelessWidget {
+  const _LocalProfileTile({required this.selected, this.onTap});
+
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.primaryBlue.withValues(alpha: .10)
+                : AppColors.surfaceDark,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? AppColors.primaryBlue : AppColors.border,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.computer_rounded, color: AppColors.cyan, size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Local', style: portixTitle(14)),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Local filesystem',
+                      overflow: TextOverflow.ellipsis,
+                      style: portixMuted(12),
+                    ),
+                  ],
+                ),
+              ),
+              if (selected)
+                const Icon(
+                  Icons.check_rounded,
+                  color: AppColors.primaryBlue,
+                  size: 18,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Text label for a profile's [ConnectionStatus], shown in the picker tile.
+String _connectionStatusLabel(ConnectionStatus status) => switch (status) {
+  ConnectionStatus.online => 'Online',
+  ConnectionStatus.offline => 'Offline',
+  ConnectionStatus.draft => 'Draft',
+  ConnectionStatus.error => 'Error',
+};

@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/features/rdp/bloc/index.dart';
-import 'package:portix/src/features/rdp/page/rdp_frame_test_page.dart';
 import 'package:portix/src/features/rdp/service/rdp_window_service.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -69,7 +68,6 @@ class _PortixAppState extends State<PortixApp> with WindowListener {
       title: 'Portix',
       debugShowCheckedModeBanner: false,
       theme: appTheme,
-      routes: {'/rdp-frame-test': (_) => const RdpFrameTestPage()},
       builder: (context, child) {
         final media = MediaQuery.of(context);
         final scale = media.textScaler

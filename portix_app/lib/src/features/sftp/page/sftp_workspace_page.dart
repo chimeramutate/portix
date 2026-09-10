@@ -42,6 +42,24 @@ class SftpWorkspacePage extends StatefulWidget {
 
 class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   late SftpWorkspaceController _controller;
+  late SftpWorkspaceController _leftController;
+  // Profile attached to the LEFT pane's independent controller. `null` means
+  // the left pane shows the Local filesystem — so the left side can be Local
+  // (local-vs-server) or any server (server-vs-server), independently of the
+  // right pane. The SSH controller code is unchanged and proven
+  // session-isolated, so two controllers on the shared ConnectionManager never
+  // cross-talk (see the two-controller independence test).
+  SshProfile? _leftSelectedProfile;
+  String? _leftSyncKey;
+  // When true, the LEFT pane renders the inline Local-first profile gate
+  // (search + A→Z/Z→A) in place of its content instead of a popup.
+  bool _leftPicking = false;
+
+  // Side ownership of the shared inline-create / inline-rename editor, so the
+  // editor only renders on the pane that started it (otherwise two server
+  // panes would both display it).
+  bool? _inlineCreateLeft;
+  bool? _renamingLeft;
   final TextEditingController _inlineCreateController = TextEditingController();
   final FocusNode _inlineCreateFocusNode = FocusNode(debugLabel: 'SFTP create');
   final TextEditingController _inlineRenameController = TextEditingController();
@@ -63,6 +81,15 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   String? _lastHandledSftpProfileId;
 
   _SftpTab get _activeTab => _tabs[_activeTabIndex];
+
+  /// The controller backing the pane on [isLeft]. The right pane keeps the
+  /// per-tab controller verbatim; the left pane uses a single independent
+  /// controller that owns its own SSH/SFTP session (proven session-isolated
+  /// by the two-controller test). Routing every handler through this keeps the
+  /// right pane byte-for-byte current while the left pane reuses the identical,
+  /// proven code paths.
+  SftpWorkspaceController _c(bool isLeft) =>
+      isLeft ? _leftController : _controller;
 
   static const Set<String> _codeFileExtensions = {
     'astro',
@@ -116,6 +143,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     _controller = SftpWorkspaceController(
       connectionManager: sl<ConnectionManager>(),
     )..addListener(_handleControllerChanged);
+    _leftController = SftpWorkspaceController(
+      connectionManager: sl<ConnectionManager>(),
+    )..addListener(_handleControllerChanged);
     _tabs.add(_SftpTab(controller: _controller, label: 'SFTP 1'));
 
     // When opened as a detached window (duplicate as new window),
@@ -144,6 +174,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         ..removeListener(_handleControllerChanged)
         ..dispose();
     }
+    _leftController
+      ..removeListener(_handleControllerChanged)
+      ..dispose();
     super.dispose();
   }
 
@@ -154,14 +187,14 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   }
 
   void _syncSelectionsWithRows() {
-    final localPaths = _controller.localRows
-        .map((row) => row.path)
-        .whereType<String>()
-        .toSet();
-    final remotePaths = _controller.remoteVisibleRows
-        .map((row) => row.path)
-        .whereType<String>()
-        .toSet();
+    final localPaths = {
+      ..._leftController.localRows,
+      ..._controller.localRows,
+    }.map((row) => row.path).whereType<String>().toSet();
+    final remotePaths = {
+      ..._leftController.remoteVisibleRows,
+      ..._controller.remoteVisibleRows,
+    }.map((row) => row.path).whereType<String>().toSet();
     _selectedLocalPaths.removeWhere((path) => !localPaths.contains(path));
     _selectedRemotePaths.removeWhere((path) => !remotePaths.contains(path));
     if (_localSelectionAnchor != null &&
@@ -225,13 +258,15 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   List<SftpFileEntry> _selectedTransferEntries(
     SftpFileEntry file,
     bool isRemote,
+    bool isLeft,
   ) {
     final path = file.path;
     final selected = isRemote ? _selectedRemotePaths : _selectedLocalPaths;
     if (path == null || !selected.contains(path)) return [file];
+    final controller = _c(isLeft);
     final rows = isRemote
-        ? _controller.remoteVisibleRows
-        : _controller.localVisibleRows;
+        ? controller.remoteVisibleRows
+        : controller.localVisibleRows;
     final entries = rows
         .where(
           (row) =>
@@ -263,6 +298,22 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(_controller.attachRemoteProfile(profile, targetPath));
+    });
+  }
+
+  void _scheduleLeftSync(SshProfile? profile, String remotePath) {
+    // Mirrors [_scheduleRemoteSync] for the independent left controller so the
+    // left pane can browse its own server.
+    final key = profile == null ? 'none' : '${profile.id}|$remotePath';
+    final forceSync = _leftController.needsRevalidation;
+    if (!forceSync && _leftSyncKey == key) return;
+    _leftSyncKey = key;
+    final targetPath = _leftController.hasRemoteSession
+        ? _leftController.remotePath
+        : remotePath;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_leftController.attachRemoteProfile(profile, targetPath));
     });
   }
 
@@ -304,12 +355,19 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         _activeTabIndex = _tabs.length - 1;
       }
       _controller = _tabs[_activeTabIndex].controller;
+      // Closing a tab returns the LEFT pane to Local so it never keeps an
+      // orphaned server session from the closed tab's context.
+      _leftSelectedProfile = null;
+      _leftSyncKey = null;
+      _leftPicking = false;
       _remoteSyncKey = null;
       _selectedLocalPaths.clear();
       _selectedRemotePaths.clear();
       _localSelectionAnchor = null;
       _remoteSelectionAnchor = null;
     });
+    // Drop the left pane's remote session so it returns to Local.
+    unawaited(_leftController.clearRemoteSession());
     if (wasLastTab) {
       // Reset the active tab's profile after rebuilding.
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -430,6 +488,16 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     context.read<SftpWorkspaceBloc>().add(SftpProfileSelected(profile));
   }
 
+  Future<void> _selectLeftProfileForActiveTab(SshProfile? profile) async {
+    if (!mounted) return;
+    setState(() {
+      _leftSelectedProfile = profile;
+      _leftSyncKey = null;
+    });
+    // The left controller owns its own session; no bloc event is needed.
+    // The following build schedules the attach via [_scheduleLeftSync].
+  }
+
   void _handleIncomingSftpProfile(
     SshSessionState sessionState,
     List<SshProfile> profiles,
@@ -478,7 +546,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     _FileAction action,
     SftpFileEntry file,
     bool isRemote,
+    bool isLeft,
   ) async {
+    final controller = _c(isLeft);
     try {
       switch (action) {
         case _FileAction.open:
@@ -486,11 +556,11 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
             if (isRemote) {
               await _runSftpAction(
                 context,
-                () => _controller.loadRemoteDirectory(file.path ?? file.name),
+                () => controller.loadRemoteDirectory(file.path ?? file.name),
                 success: 'Opened ${file.name}',
               );
             } else {
-              await _controller.loadLocalDirectory(file.path ?? file.name);
+              await controller.loadLocalDirectory(file.path ?? file.name);
             }
           } else {
             await _openFileWithEditor(
@@ -498,6 +568,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
               file,
               isRemote,
               preferredDefault: true,
+              isLeft: isLeft,
             );
           }
         case _FileAction.edit:
@@ -506,6 +577,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
             file,
             isRemote,
             preferredDefault: true,
+            isLeft: isLeft,
           );
         case _FileAction.openWith:
           await _openFileWithEditor(
@@ -513,6 +585,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
             file,
             isRemote,
             preferredDefault: false,
+            isLeft: isLeft,
           );
         case _FileAction.download:
           if (!isRemote) {
@@ -521,11 +594,11 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           }
           final selectedDir = await FilePicker.getDirectoryPath(
             dialogTitle: 'Download ${file.name} to...',
-            initialDirectory: _controller.defaultDownloadsPath,
+            initialDirectory: controller.defaultDownloadsPath,
           );
           if (selectedDir == null || !mounted) return;
           final localPath = '$selectedDir${Platform.pathSeparator}${file.name}';
-          final exists = _controller.localTargetExists(localPath);
+          final exists = controller.localTargetExists(localPath);
           if (exists) {
             final replace = await _confirmReplace(
               context,
@@ -542,7 +615,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           }
           await _runSftpAction(
             context,
-            () => _controller.downloadRemoteEntry(
+            () => controller.downloadRemoteEntry(
               file,
               localPath,
               overwrite: exists,
@@ -550,11 +623,19 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
             showErrorSnack: false,
           );
         case _FileAction.newFile:
-          _startInlineCreate(_SftpInlineCreateKind.file, remote: isRemote);
+          _startInlineCreate(
+            _SftpInlineCreateKind.file,
+            remote: isRemote,
+            isLeft: isLeft,
+          );
         case _FileAction.newFolder:
-          _startInlineCreate(_SftpInlineCreateKind.folder, remote: isRemote);
+          _startInlineCreate(
+            _SftpInlineCreateKind.folder,
+            remote: isRemote,
+            isLeft: isLeft,
+          );
         case _FileAction.rename:
-          _startInlineRename(file, remote: isRemote);
+          _startInlineRename(file, remote: isRemote, isLeft: isLeft);
         case _FileAction.duplicate:
           if (!isRemote) {
             final newName = await _promptText(
@@ -566,7 +647,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
             if (newName == null) return;
             await _runSftpAction(
               context,
-              () => _controller.duplicateLocalPath(file, newName),
+              () => controller.duplicateLocalPath(file, newName),
               success: 'Duplicated ${file.name}',
             );
             return;
@@ -580,29 +661,30 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           if (newName == null) return;
           await _runSftpAction(
             context,
-            () => _controller.duplicateRemotePath(file, newName),
+            () => controller.duplicateRemotePath(file, newName),
             success: 'Duplicated ${file.name}',
           );
         case _FileAction.move:
           if (!isRemote) {
             final selectedDir = await FilePicker.getDirectoryPath(
               dialogTitle: 'Move ${file.name} to...',
-              initialDirectory: _controller.localPath,
+              initialDirectory: controller.localPath,
             );
             if (selectedDir == null || !mounted) return;
             final targetPath =
                 '$selectedDir${Platform.pathSeparator}${file.name}';
             await _runSftpAction(
               context,
-              () => _controller.moveLocalPath(file, targetPath),
+              () => controller.moveLocalPath(file, targetPath),
               success: 'Moved ${file.name} to $selectedDir',
             );
             return;
           }
           final moveTarget = await _showRemoteFolderPicker(
             context,
+            controller,
             title: 'Move ${file.name}',
-            currentPath: _controller.remotePath,
+            currentPath: controller.remotePath,
           );
           if (moveTarget == null || !mounted) return;
           final remoteDest = moveTarget.endsWith('/')
@@ -610,7 +692,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
               : '$moveTarget/${file.name}';
           await _runSftpAction(
             context,
-            () => _controller.moveRemotePath(file, remoteDest),
+            () => controller.moveRemotePath(file, remoteDest),
             success: 'Moved ${file.name} to $moveTarget',
           );
         case _FileAction.chmod:
@@ -625,7 +707,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           }
           await _runSftpAction(
             context,
-            () => _controller.chmodRemotePath(file, mode),
+            () => controller.chmodRemotePath(file, mode),
             success: 'Updated permissions for ${file.name}',
           );
         case _FileAction.delete:
@@ -634,8 +716,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           await _runSftpAction(
             context,
             () => isRemote
-                ? _controller.deleteRemotePath(file)
-                : _controller.deleteLocalPath(file),
+                ? controller.deleteRemotePath(file)
+                : controller.deleteLocalPath(file),
             success: 'Deleted ${file.name}',
           );
       }
@@ -654,7 +736,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     SftpFileEntry file,
     bool isRemote, {
     required bool preferredDefault,
+    required bool isLeft,
   }) async {
+    final controller = _c(isLeft);
     if (file.folder) {
       _showSnack(context, 'Editor hanya untuk file. Pakai Open untuk folder.');
       return;
@@ -665,9 +749,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     // For non-code files opened with default action,
     // always use the OS system default application (Word for .docx, etc.)
     if (!isCodeFile && preferredDefault) {
-      final path = await _controller.editablePathFor(file, isRemote);
+      final path = await controller.editablePathFor(file, isRemote);
       try {
-        await _controller.openWithSystemDefault(path);
+        await controller.openWithSystemDefault(path);
         if (!mounted) return;
         if (isRemote) {
           _showSnack(context, 'Opened ${file.name} with system default app.');
@@ -682,18 +766,18 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     // Detect appropriate apps based on file type.
     final List<LocalEditor> editors;
     if (isCodeFile) {
-      editors = await _controller.detectLocalEditors();
+      editors = await controller.detectLocalEditors();
     } else {
       final extension = _fileExtension(file.name);
-      editors = await _controller.detectAppsForExtension(extension);
+      editors = await controller.detectAppsForExtension(extension);
     }
     if (!mounted) return;
 
     if (editors.isEmpty) {
       // No apps found — use system default directly.
-      final path = await _controller.editablePathFor(file, isRemote);
+      final path = await controller.editablePathFor(file, isRemote);
       try {
-        await _controller.openWithSystemDefault(path);
+        await controller.openWithSystemDefault(path);
       } catch (error) {
         if (!mounted) return;
         _showSnack(context, 'Failed to open ${file.name}: $error');
@@ -714,9 +798,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
     // Handle system default pseudo-command.
     if (editor.command == '_system_default_') {
-      final path = await _controller.editablePathFor(file, isRemote);
+      final path = await controller.editablePathFor(file, isRemote);
       try {
-        await _controller.openWithSystemDefault(path);
+        await controller.openWithSystemDefault(path);
       } catch (error) {
         if (!mounted) return;
         _showSnack(context, 'Failed to open ${file.name}: $error');
@@ -724,17 +808,18 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       return;
     }
 
-    final path = await _controller.editablePathFor(file, isRemote);
+    final path = await controller.editablePathFor(file, isRemote);
     final originalText = isRemote ? await _readFileTextIfPossible(path) : null;
 
     try {
-      await _controller.openEditor(editor, path);
+      await controller.openEditor(editor, path);
       if (!mounted) return;
       if (isRemote) {
         await _watchLocalEditForRewrite(
           file: file,
           localPath: path,
           originalText: originalText,
+          isLeft: isLeft,
         );
         _showSnack(
           context,
@@ -795,6 +880,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     required SftpFileEntry file,
     required String localPath,
     required String? originalText,
+    required bool isLeft,
   }) async {
     final localFile = File(localPath);
     final stat = await localFile.stat();
@@ -812,7 +898,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         lastPromptedAt = currentStat.modified;
         if (promptOpen) return;
         promptOpen = true;
-        await _showRewritePrompt(file, localPath, originalText);
+        await _showRewritePrompt(file, localPath, originalText, isLeft);
         promptOpen = false;
       } catch (_) {
         timer.cancel();
@@ -831,6 +917,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     SftpFileEntry file,
     String localPath,
     String? originalText,
+    bool isLeft,
   ) async {
     try {
       if (!mounted) return;
@@ -843,7 +930,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
             _SftpRewriteRemoteDialog(fileName: file.name, diff: diff),
       );
       if (shouldRewrite == true) {
-        await _rewriteEditedRemoteFile(file, localPath);
+        await _rewriteEditedRemoteFile(file, localPath, isLeft);
       }
     } catch (error) {
       // A dialog/context glitch here must not propagate into the file-watch
@@ -857,9 +944,11 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   Future<void> _rewriteEditedRemoteFile(
     SftpFileEntry file,
     String localPath,
+    bool isLeft,
   ) async {
+    final controller = _c(isLeft);
     try {
-      await _controller.rewriteRemoteFileFromLocal(file, localPath);
+      await controller.rewriteRemoteFileFromLocal(file, localPath);
       if (!mounted) return;
       _showSnack(context, 'Remote file rewritten: ${file.name}');
     } catch (error) {
@@ -959,7 +1048,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   }
 
   Future<String?> _showRemoteFolderPicker(
-    BuildContext context, {
+    BuildContext context,
+    SftpWorkspaceController controller, {
     required String title,
     required String currentPath,
   }) async {
@@ -968,7 +1058,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       builder: (context) => _RemoteFolderPickerDialog(
         title: title,
         initialPath: currentPath,
-        connectionManager: _controller,
+        connectionManager: controller,
       ),
     );
   }
@@ -1082,6 +1172,11 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                 : '~';
             _scheduleRemoteSync(selectedProfile, remotePath);
 
+            final leftPath = _leftSelectedProfile == null
+                ? '~'
+                : _remotePathForProfile(_leftSelectedProfile!);
+            _scheduleLeftSync(_leftSelectedProfile, leftPath);
+
             return Padding(
               padding: const EdgeInsets.all(14),
               child: Column(
@@ -1146,6 +1241,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                       profiles: profiles,
                       selectedProfile: selectedProfile,
                       remotePath: remotePath,
+                      leftSelectedProfile: _leftSelectedProfile,
                     ),
                   ),
                 ],
@@ -1162,416 +1258,339 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     required List<SshProfile> profiles,
     required SshProfile? selectedProfile,
     required String remotePath,
+    required SshProfile? leftSelectedProfile,
   }) {
+    // The LEFT pane is independent: Local when no left profile is selected, or
+    // whatever server the user picked for the left side. The RIGHT pane keeps
+    // the original behavior verbatim (same controller) — zero regression on the
+    // existing remote path. Tapping the LEFT pane's header swaps its content
+    // area for an inline Local-first profile gate (search + A→Z/Z→A); picking a
+    // profile attaches it to the left controller, choosing Local stays Local.
+    // No popup is used for choosing the left profile.
+    final leftPickGate = _leftPicking ? _leftPickGate(context, profiles) : null;
+    final leftPane = leftSelectedProfile == null
+        ? _buildLocalFilePane(
+            context,
+            _leftController,
+            isLeft: true,
+            onTitleTap: () => setState(() => _leftPicking = true),
+            pickGate: leftPickGate,
+          )
+        : _buildRemoteFilePane(
+            context,
+            _leftController,
+            profiles,
+            leftSelectedProfile,
+            isLeft: true,
+            onTitleTap: () => setState(() => _leftPicking = true),
+            pickGate: leftPickGate,
+          );
+    final rightPane = _buildRemoteFilePane(
+      context,
+      _controller,
+      profiles,
+      selectedProfile,
+      isLeft: false,
+      onTitleTap: null,
+      pickGate: null,
+    );
+
+    final leftJobs = _leftController.transferJobs;
+    final rightJobs = _controller.transferJobs;
+
     return Stack(
       children: [
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final narrow = constraints.maxWidth < 900;
-            if (narrow) {
-              return ListView(
-                children: [
-                  SizedBox(
-                    height: 520,
-                    child: _FilePane(
-                      title: 'Local',
-                      path: _controller.localPath,
-                      items: _controller.localVisibleRows,
-                      countLabel: _controller.loadingLocal
-                          ? 'Loading'
-                          : _controller.localSearchActive
-                          ? '${_controller.localVisibleItemCount} found'
-                          : '${_controller.localItemCount} items',
-                      footerLeft: _controller.localError == null
-                          ? '${_controller.localItemCount} items'
-                          : 'Local unavailable',
-                      footerRight: _controller.localError ?? '',
-                      loading: _controller.loadingLocal,
-                      error: _controller.localError,
-                      findQuery: _controller.localSearchQuery,
-                      findActive: _controller.localSearchActive,
-                      onFindSubmitted: _controller.searchLocal,
-                      onFindCleared: _controller.clearLocalSearch,
-                      onCreateFileRequested: () => _startInlineCreate(
-                        _SftpInlineCreateKind.file,
-                        remote: false,
-                      ),
-                      onCreateFolderRequested: () => _startInlineCreate(
-                        _SftpInlineCreateKind.folder,
-                        remote: false,
-                      ),
-                      inlineCreateKind: _inlineCreateRemote
-                          ? null
-                          : _inlineCreateKind,
-                      inlineCreateController: _inlineCreateController,
-                      inlineCreateFocusNode: _inlineCreateFocusNode,
-                      onInlineCreateSubmit: _submitInlineCreate,
-                      onInlineCreateCancel: _cancelInlineCreate,
-                      inlineRenameFile: _renamingRemote ? null : _renamingFile,
-                      inlineRenameController: _inlineRenameController,
-                      inlineRenameFocusNode: _inlineRenameFocusNode,
-                      onInlineRenameSubmit: _submitInlineRename,
-                      onInlineRenameCancel: _cancelInlineRename,
-                      onRefreshRequested: () => unawaited(
-                        _controller.loadLocalDirectory(_controller.localPath),
-                      ),
-                      onPathSubmitted: _controller.loadLocalDirectory,
-                      onOpenFolder: (file) => _controller.loadLocalDirectory(
-                        file.path ?? file.name,
-                      ),
-                      selectedPaths: _selectedLocalPaths,
-                      onItemSelected: (file, index, rows) =>
-                          _handleRowSelected(file, index, false, rows),
-                      selectedTransferEntries: (file) =>
-                          _selectedTransferEntries(file, false),
-                      onTransferDropped: (transfer) => unawaited(
-                        _handleDroppedTransfer(context, transfer, false),
-                      ),
-                      onFileAction: (action, file) =>
-                          _handleFileAction(context, action, file, false),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    height: 520,
-                    child: _FilePane(
-                      title: selectedProfile?.name ?? 'Remote',
-                      path: _controller.remotePath,
-                      items: selectedProfile == null
-                          ? const []
-                          : _controller.remoteVisibleRows,
-                      countLabel: selectedProfile == null
-                          ? 'No session'
-                          : _controller.searchingRemote
-                          ? 'Searching'
-                          : _controller.remoteSearchActive
-                          ? '${_controller.remoteVisibleItemCount} found'
-                          : _controller.loadingRemote
-                          ? 'Loading'
-                          : '${_controller.remoteItemCount} items',
-                      footerLeft: selectedProfile == null
-                          ? 'No remote session'
-                          : _controller.remoteError == null
-                          ? '${_controller.remoteItemCount} items'
-                          : 'Remote unavailable',
-                      footerRight: _controller.remoteError ?? '',
-                      loading: _controller.loadingRemote,
-                      error: _controller.remoteError,
-                      isRemote: true,
-                      showActions:
-                          selectedProfile != null &&
-                          !_controller.isRemoteDisconnected,
-                      showPathBar:
-                          selectedProfile != null &&
-                          !_controller.isRemoteDisconnected,
-                      statusTitle: _controller.remoteStatusTitle,
-                      statusMessage: _controller.remoteStatusMessage,
-                      remoteStatus: _controller.remoteStatus,
-                      showSteps: _controller.showConnectionSteps,
-                      showPasswordStep: _controller.showPasswordStep,
-                      remoteOsIconAsset: selectedProfile?.osIconAsset,
-                      profileName: selectedProfile?.name,
-                      findQuery: _controller.remoteSearchQuery,
-                      findBase: _controller.remoteSearchBase,
-                      findActive: _controller.remoteSearchActive,
-                      findError: _controller.remoteSearchError,
-                      findSearching: _controller.searchingRemote,
-                      onFindSubmitted:
-                          selectedProfile == null ||
-                              _controller.isRemoteDisconnected
-                          ? null
-                          : (query) =>
-                                unawaited(_controller.searchRemote(query)),
-                      onFindCleared:
-                          selectedProfile == null ||
-                              _controller.isRemoteDisconnected
-                          ? null
-                          : _controller.clearRemoteSearch,
-                      inputForm:
-                          _controller.showConnectionSteps &&
-                              _controller.showPasswordStep
-                          ? _SftpSecurePasswordInput(
-                              profile: selectedProfile,
-                              onSubmit: (password) =>
-                                  _controller.submitPassword(password),
-                              errorText: _controller.remoteError,
-                            )
-                          : null,
-                      onCreateFileRequested: selectedProfile == null
-                          ? null
-                          : () => _startInlineCreate(
-                              _SftpInlineCreateKind.file,
-                              remote: true,
-                            ),
-                      onCreateFolderRequested: selectedProfile == null
-                          ? null
-                          : () => _startInlineCreate(
-                              _SftpInlineCreateKind.folder,
-                              remote: true,
-                            ),
-                      inlineCreateKind:
-                          selectedProfile == null || !_inlineCreateRemote
-                          ? null
-                          : _inlineCreateKind,
-                      inlineCreateController: _inlineCreateController,
-                      inlineCreateFocusNode: _inlineCreateFocusNode,
-                      onInlineCreateSubmit: _submitInlineCreate,
-                      onInlineCreateCancel: _cancelInlineCreate,
-                      inlineRenameFile: !_renamingRemote ? null : _renamingFile,
-                      inlineRenameController: _inlineRenameController,
-                      inlineRenameFocusNode: _inlineRenameFocusNode,
-                      onInlineRenameSubmit: _submitInlineRename,
-                      onInlineRenameCancel: _cancelInlineRename,
-                      onRefreshRequested: selectedProfile == null
-                          ? null
-                          : () => unawaited(
-                              _controller.loadRemoteDirectory(
-                                _controller.remotePath,
-                              ),
-                            ),
-                      contentOverride: selectedProfile == null
-                          ? _SftpProfileGate(
-                              profiles: profiles,
-                              onSelected: (profile) => unawaited(
-                                _selectProfileForActiveTab(context, profile),
-                              ),
-                            )
-                          : _controller.isRemoteDisconnected
-                          ? _SftpDisconnectedOverlay(
-                              onReconnect: () => unawaited(
-                                _controller.reconnect(selectedProfile),
-                              ),
-                              errorMessage: _controller.remoteError,
-                            )
-                          : null,
-                      onPathSubmitted: _controller.loadRemoteDirectory,
-                      onOpenFolder: (file) => _controller.loadRemoteDirectory(
-                        file.path ?? file.name,
-                      ),
-                      selectedPaths: _selectedRemotePaths,
-                      onItemSelected: (file, index, rows) =>
-                          _handleRowSelected(file, index, true, rows),
-                      selectedTransferEntries: (file) =>
-                          _selectedTransferEntries(file, true),
-                      onTransferDropped: (transfer) => unawaited(
-                        _handleDroppedTransfer(context, transfer, true),
-                      ),
-                      onFileAction: (action, file) =>
-                          _handleFileAction(context, action, file, true),
-                    ),
-                  ),
-                ],
-              );
-            }
-            return Row(
-              children: [
-                Expanded(
-                  child: _FilePane(
-                    title: 'Local',
-                    path: _controller.localPath,
-                    items: _controller.localVisibleRows,
-                    countLabel: _controller.loadingLocal
-                        ? 'Loading'
-                        : _controller.localSearchActive
-                        ? '${_controller.localVisibleItemCount} found'
-                        : '${_controller.localItemCount} items',
-                    footerLeft: _controller.localError == null
-                        ? '${_controller.localItemCount} items'
-                        : 'Local unavailable',
-                    footerRight: _controller.localError ?? '',
-                    loading: _controller.loadingLocal,
-                    error: _controller.localError,
-                    findQuery: _controller.localSearchQuery,
-                    findActive: _controller.localSearchActive,
-                    onFindSubmitted: _controller.searchLocal,
-                    onFindCleared: _controller.clearLocalSearch,
-                    onCreateFileRequested: () => _startInlineCreate(
-                      _SftpInlineCreateKind.file,
-                      remote: false,
-                    ),
-                    onCreateFolderRequested: () => _startInlineCreate(
-                      _SftpInlineCreateKind.folder,
-                      remote: false,
-                    ),
-                    inlineCreateKind: _inlineCreateRemote
-                        ? null
-                        : _inlineCreateKind,
-                    inlineCreateController: _inlineCreateController,
-                    inlineCreateFocusNode: _inlineCreateFocusNode,
-                    onInlineCreateSubmit: _submitInlineCreate,
-                    onInlineCreateCancel: _cancelInlineCreate,
-                    inlineRenameFile: _renamingRemote ? null : _renamingFile,
-                    inlineRenameController: _inlineRenameController,
-                    inlineRenameFocusNode: _inlineRenameFocusNode,
-                    onInlineRenameSubmit: _submitInlineRename,
-                    onInlineRenameCancel: _cancelInlineRename,
-                    onRefreshRequested: () => unawaited(
-                      _controller.loadLocalDirectory(_controller.localPath),
-                    ),
-                    onPathSubmitted: _controller.loadLocalDirectory,
-                    onOpenFolder: (file) =>
-                        _controller.loadLocalDirectory(file.path ?? file.name),
-                    selectedPaths: _selectedLocalPaths,
-                    onItemSelected: (file, index, rows) =>
-                        _handleRowSelected(file, index, false, rows),
-                    selectedTransferEntries: (file) =>
-                        _selectedTransferEntries(file, false),
-                    onTransferDropped: (transfer) => unawaited(
-                      _handleDroppedTransfer(context, transfer, false),
-                    ),
-                    onFileAction: (action, file) =>
-                        _handleFileAction(context, action, file, false),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: _FilePane(
-                    title: selectedProfile?.name ?? 'Remote',
-                    path: _controller.remotePath,
-                    items: selectedProfile == null
-                        ? const []
-                        : _controller.remoteVisibleRows,
-                    countLabel: selectedProfile == null
-                        ? 'No session'
-                        : _controller.searchingRemote
-                        ? 'Searching'
-                        : _controller.remoteSearchActive
-                        ? '${_controller.remoteVisibleItemCount} found'
-                        : _controller.loadingRemote
-                        ? 'Loading'
-                        : '${_controller.remoteItemCount} items',
-                    footerLeft: selectedProfile == null
-                        ? 'No remote session'
-                        : _controller.remoteError == null
-                        ? '${_controller.remoteItemCount} items'
-                        : 'Remote unavailable',
-                    footerRight: _controller.remoteError ?? '',
-                    loading: _controller.loadingRemote,
-                    error: _controller.remoteError,
-                    isRemote: true,
-                    showActions:
-                        selectedProfile != null &&
-                        !_controller.isRemoteDisconnected,
-                    showPathBar:
-                        selectedProfile != null &&
-                        !_controller.isRemoteDisconnected,
-                    statusTitle: _controller.remoteStatusTitle,
-                    statusMessage: _controller.remoteStatusMessage,
-                    remoteStatus: _controller.remoteStatus,
-                    showSteps: _controller.showConnectionSteps,
-                    showPasswordStep: _controller.showPasswordStep,
-                    remoteOsIconAsset: selectedProfile?.osIconAsset,
-                    profileName: selectedProfile?.name,
-                    findQuery: _controller.remoteSearchQuery,
-                    findBase: _controller.remoteSearchBase,
-                    findActive: _controller.remoteSearchActive,
-                    findError: _controller.remoteSearchError,
-                    findSearching: _controller.searchingRemote,
-                    onFindSubmitted:
-                        selectedProfile == null ||
-                            _controller.isRemoteDisconnected
-                        ? null
-                        : (query) => unawaited(_controller.searchRemote(query)),
-                    onFindCleared:
-                        selectedProfile == null ||
-                            _controller.isRemoteDisconnected
-                        ? null
-                        : _controller.clearRemoteSearch,
-                    inputForm:
-                        _controller.showConnectionSteps &&
-                            _controller.showPasswordStep
-                        ? _SftpSecurePasswordInput(
-                            profile: selectedProfile,
-                            onSubmit: (password) =>
-                                _controller.submitPassword(password),
-                            errorText: _controller.remoteError,
-                          )
-                        : null,
-                    onCreateFileRequested: selectedProfile == null
-                        ? null
-                        : () => _startInlineCreate(
-                            _SftpInlineCreateKind.file,
-                            remote: true,
-                          ),
-                    onCreateFolderRequested: selectedProfile == null
-                        ? null
-                        : () => _startInlineCreate(
-                            _SftpInlineCreateKind.folder,
-                            remote: true,
-                          ),
-                    inlineCreateKind:
-                        selectedProfile == null || !_inlineCreateRemote
-                        ? null
-                        : _inlineCreateKind,
-                    inlineCreateController: _inlineCreateController,
-                    inlineCreateFocusNode: _inlineCreateFocusNode,
-                    onInlineCreateSubmit: _submitInlineCreate,
-                    onInlineCreateCancel: _cancelInlineCreate,
-                    inlineRenameFile: !_renamingRemote ? null : _renamingFile,
-                    inlineRenameController: _inlineRenameController,
-                    inlineRenameFocusNode: _inlineRenameFocusNode,
-                    onInlineRenameSubmit: _submitInlineRename,
-                    onInlineRenameCancel: _cancelInlineRename,
-                    onRefreshRequested: selectedProfile == null
-                        ? null
-                        : () => unawaited(
-                            _controller.loadRemoteDirectory(
-                              _controller.remotePath,
-                            ),
-                          ),
-                    contentOverride: selectedProfile == null
-                        ? _SftpProfileGate(
-                            profiles: profiles,
-                            onSelected: (profile) => unawaited(
-                              _selectProfileForActiveTab(context, profile),
-                            ),
-                          )
-                        : _controller.isRemoteDisconnected
-                        ? _SftpDisconnectedOverlay(
-                            onReconnect: () => unawaited(
-                              _controller.reconnect(selectedProfile),
-                            ),
-                            errorMessage: _controller.remoteError,
-                          )
-                        : null,
-                    onPathSubmitted: _controller.loadRemoteDirectory,
-                    onOpenFolder: (file) =>
-                        _controller.loadRemoteDirectory(file.path ?? file.name),
-                    selectedPaths: _selectedRemotePaths,
-                    onItemSelected: (file, index, rows) =>
-                        _handleRowSelected(file, index, true, rows),
-                    selectedTransferEntries: (file) =>
-                        _selectedTransferEntries(file, true),
-                    onTransferDropped: (transfer) => unawaited(
-                      _handleDroppedTransfer(context, transfer, true),
-                    ),
-                    onFileAction: (action, file) =>
-                        _handleFileAction(context, action, file, true),
-                  ),
-                ),
-              ],
-            );
-          },
+        Column(
+          children: [
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final narrow = constraints.maxWidth < 900;
+                  if (narrow) {
+                    return ListView(
+                      children: [
+                        SizedBox(height: 520, child: leftPane),
+                        const SizedBox(height: 14),
+                        SizedBox(height: 520, child: rightPane),
+                      ],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      Expanded(child: leftPane),
+                      const SizedBox(width: 14),
+                      Expanded(child: rightPane),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
         ),
-        if (_controller.transferJobs.isNotEmpty)
+        if (leftJobs.isNotEmpty || rightJobs.isNotEmpty)
           Positioned(
             right: 16,
             bottom: 16,
             width: 380,
             child: _TransferQueue(
-              jobs: _controller.transferJobs,
-              onClose: _controller.clearTransfers,
+              jobs: [...leftJobs, ...rightJobs],
+              onClose: () {
+                _leftController.clearTransfers();
+                _controller.clearTransfers();
+              },
             ),
           ),
       ],
     );
   }
 
-  void _startInlineCreate(_SftpInlineCreateKind kind, {required bool remote}) {
+  /// Inline (non-popup) Local-first profile gate used to (re-)pick the LEFT
+  /// pane's profile. Tapping a profile attaches it to the left controller;
+  /// choosing Local keeps (or returns) the left pane on the local filesystem.
+  Widget _leftPickGate(BuildContext context, List<SshProfile> profiles) {
+    return _SftpProfileGate(
+      profiles: profiles,
+      includeLocal: true,
+      localSelected: _leftSelectedProfile == null,
+      onLocalSelected: () {
+        setState(() {
+          _leftPicking = false;
+          _leftSelectedProfile = null;
+          _leftSyncKey = null;
+        });
+        unawaited(_leftController.clearRemoteSession());
+      },
+      onSelected: (profile) {
+        setState(() {
+          _leftPicking = false;
+          _leftSelectedProfile = profile;
+          _leftSyncKey = null;
+        });
+        // Klik profil di picker kiri: hanya buka SFTP ke pane kiri.
+        // Koneksi SFTP dilakukan oleh SftpWorkspaceController melalui
+        // _scheduleLeftSync -> attachRemoteProfile -> connectSftp.
+        // Jangan membuka sesi SSH terminal (remoteFolder) karena picker
+        // ini khusus SFTP, bukan terminal.
+      },
+    );
+  }
+
+  Widget _buildLocalFilePane(
+    BuildContext context,
+    SftpWorkspaceController controller, {
+    required bool isLeft,
+    VoidCallback? onTitleTap,
+    Widget? pickGate,
+  }) {
+    return _FilePane(
+      title: 'Local',
+      path: controller.localPath,
+      items: controller.localVisibleRows,
+      countLabel: controller.loadingLocal
+          ? 'Loading'
+          : controller.localSearchActive
+          ? '${controller.localVisibleItemCount} found'
+          : '${controller.localItemCount} items',
+      footerLeft: controller.localError == null
+          ? '${controller.localItemCount} items'
+          : 'Local unavailable',
+      footerRight: controller.localError ?? '',
+      loading: controller.loadingLocal,
+      error: controller.localError,
+      findQuery: controller.localSearchQuery,
+      findActive: controller.localSearchActive,
+      onFindSubmitted: controller.searchLocal,
+      onFindCleared: controller.clearLocalSearch,
+      onTitleTap: onTitleTap,
+      contentOverride: pickGate,
+      onCreateFileRequested: () => _startInlineCreate(
+        _SftpInlineCreateKind.file,
+        remote: false,
+        isLeft: isLeft,
+      ),
+      onCreateFolderRequested: () => _startInlineCreate(
+        _SftpInlineCreateKind.folder,
+        remote: false,
+        isLeft: isLeft,
+      ),
+      inlineCreateKind: !_inlineCreateRemote && _inlineCreateLeft == isLeft
+          ? _inlineCreateKind
+          : null,
+      inlineCreateController: _inlineCreateController,
+      inlineCreateFocusNode: _inlineCreateFocusNode,
+      onInlineCreateSubmit: _submitInlineCreate,
+      onInlineCreateCancel: _cancelInlineCreate,
+      inlineRenameFile: !_renamingRemote && _renamingLeft == isLeft
+          ? _renamingFile
+          : null,
+      inlineRenameController: _inlineRenameController,
+      inlineRenameFocusNode: _inlineRenameFocusNode,
+      onInlineRenameSubmit: _submitInlineRename,
+      onInlineRenameCancel: _cancelInlineRename,
+      onRefreshRequested: () =>
+          unawaited(controller.loadLocalDirectory(controller.localPath)),
+      onPathSubmitted: controller.loadLocalDirectory,
+      onOpenFolder: (file) =>
+          controller.loadLocalDirectory(file.path ?? file.name),
+      selectedPaths: _selectedLocalPaths,
+      onItemSelected: (file, index, rows) =>
+          _handleRowSelected(file, index, false, rows),
+      selectedTransferEntries: (file) =>
+          _selectedTransferEntries(file, false, isLeft),
+      onTransferDropped: (transfer) =>
+          unawaited(_handleDroppedTransfer(context, transfer, false, isLeft)),
+      onFileAction: (action, file) =>
+          _handleFileAction(context, action, file, false, isLeft),
+    );
+  }
+
+  Widget _buildRemoteFilePane(
+    BuildContext context,
+    SftpWorkspaceController controller,
+    List<SshProfile> profiles,
+    SshProfile? selectedProfile, {
+    required bool isLeft,
+    VoidCallback? onTitleTap,
+    Widget? pickGate,
+  }) {
+    return _FilePane(
+      title: selectedProfile?.name ?? 'Remote',
+      path: controller.remotePath,
+      items: selectedProfile == null ? const [] : controller.remoteVisibleRows,
+      countLabel: selectedProfile == null
+          ? 'No session'
+          : controller.searchingRemote
+          ? 'Searching'
+          : controller.remoteSearchActive
+          ? '${controller.remoteVisibleItemCount} found'
+          : controller.loadingRemote
+          ? 'Loading'
+          : '${controller.remoteItemCount} items',
+      footerLeft: selectedProfile == null
+          ? 'No remote session'
+          : controller.remoteError == null
+          ? '${controller.remoteItemCount} items'
+          : 'Remote unavailable',
+      footerRight: controller.remoteError ?? '',
+      loading: controller.loadingRemote,
+      error: controller.remoteError,
+      isRemote: true,
+      onTitleTap: onTitleTap,
+      showActions: selectedProfile != null && !controller.isRemoteDisconnected,
+      showPathBar: selectedProfile != null && !controller.isRemoteDisconnected,
+      statusTitle: controller.remoteStatusTitle,
+      statusMessage: controller.remoteStatusMessage,
+      remoteStatus: controller.remoteStatus,
+      showSteps: controller.showConnectionSteps,
+      showPasswordStep: controller.showPasswordStep,
+      remoteOsIconAsset: selectedProfile?.osIconAsset,
+      profileName: selectedProfile?.name,
+      findQuery: controller.remoteSearchQuery,
+      findBase: controller.remoteSearchBase,
+      findActive: controller.remoteSearchActive,
+      findError: controller.remoteSearchError,
+      findSearching: controller.searchingRemote,
+      onFindSubmitted:
+          selectedProfile == null || controller.isRemoteDisconnected
+          ? null
+          : (query) => unawaited(controller.searchRemote(query)),
+      onFindCleared: selectedProfile == null || controller.isRemoteDisconnected
+          ? null
+          : controller.clearRemoteSearch,
+      inputForm: controller.showConnectionSteps && controller.showPasswordStep
+          ? _SftpSecurePasswordInput(
+              profile: selectedProfile,
+              onSubmit: (password) => controller.submitPassword(password),
+              errorText: controller.remoteError,
+            )
+          : null,
+      onCreateFileRequested: selectedProfile == null
+          ? null
+          : () => _startInlineCreate(
+              _SftpInlineCreateKind.file,
+              remote: true,
+              isLeft: isLeft,
+            ),
+      onCreateFolderRequested: selectedProfile == null
+          ? null
+          : () => _startInlineCreate(
+              _SftpInlineCreateKind.folder,
+              remote: true,
+              isLeft: isLeft,
+            ),
+      inlineCreateKind:
+          selectedProfile == null ||
+              !_inlineCreateRemote ||
+              _inlineCreateLeft != isLeft
+          ? null
+          : _inlineCreateKind,
+      inlineCreateController: _inlineCreateController,
+      inlineCreateFocusNode: _inlineCreateFocusNode,
+      onInlineCreateSubmit: _submitInlineCreate,
+      onInlineCreateCancel: _cancelInlineCreate,
+      inlineRenameFile: !_renamingRemote || _renamingLeft != isLeft
+          ? null
+          : _renamingFile,
+      inlineRenameController: _inlineRenameController,
+      inlineRenameFocusNode: _inlineRenameFocusNode,
+      onInlineRenameSubmit: _submitInlineRename,
+      onInlineRenameCancel: _cancelInlineRename,
+      onRefreshRequested: selectedProfile == null
+          ? null
+          : () => unawaited(
+              controller.loadRemoteDirectory(controller.remotePath),
+            ),
+      contentOverride:
+          pickGate ??
+          (selectedProfile == null
+              ? _SftpProfileGate(
+                  profiles: profiles,
+                  onSelected: (profile) {
+                    if (isLeft) {
+                      unawaited(_selectLeftProfileForActiveTab(profile));
+                    } else {
+                      unawaited(_selectProfileForActiveTab(context, profile));
+                    }
+                    // Klik profil di picker: hanya buka SFTP ke pane yang
+                    // bersangkutan. Koneksi SFTP dilakukan oleh
+                    // SftpWorkspaceController melalui _scheduleRemoteSync /
+                    // _scheduleLeftSync -> attachRemoteProfile -> connectSftp.
+                    // Jangan membuka sesi SSH terminal (remoteFolder) karena
+                    // picker ini khusus SFTP, bukan terminal.
+                  },
+                )
+              : controller.isRemoteDisconnected
+              ? _SftpDisconnectedOverlay(
+                  onReconnect: () =>
+                      unawaited(controller.reconnect(selectedProfile)),
+                  errorMessage: controller.remoteError,
+                )
+              : null),
+      onPathSubmitted: controller.loadRemoteDirectory,
+      onOpenFolder: (file) =>
+          controller.loadRemoteDirectory(file.path ?? file.name),
+      selectedPaths: _selectedRemotePaths,
+      onItemSelected: (file, index, rows) =>
+          _handleRowSelected(file, index, true, rows),
+      selectedTransferEntries: (file) =>
+          _selectedTransferEntries(file, true, isLeft),
+      onTransferDropped: (transfer) =>
+          unawaited(_handleDroppedTransfer(context, transfer, true, isLeft)),
+      onFileAction: (action, file) =>
+          _handleFileAction(context, action, file, true, isLeft),
+    );
+  }
+
+  void _startInlineCreate(
+    _SftpInlineCreateKind kind, {
+    required bool remote,
+    required bool isLeft,
+  }) {
     setState(() {
       _clearInlineRename();
       _inlineCreateKind = kind;
       _inlineCreateRemote = remote;
+      _inlineCreateLeft = isLeft;
       _inlineCreateController.clear();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1583,16 +1602,23 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   void _cancelInlineCreate() {
     setState(() {
       _inlineCreateKind = null;
+      _inlineCreateLeft = null;
       _inlineCreateController.clear();
     });
   }
 
-  void _startInlineRename(SftpFileEntry file, {required bool remote}) {
+  void _startInlineRename(
+    SftpFileEntry file, {
+    required bool remote,
+    required bool isLeft,
+  }) {
     if (file.name == '..') return;
     setState(() {
       _inlineCreateKind = null;
+      _inlineCreateLeft = null;
       _renamingFile = file;
       _renamingRemote = remote;
+      _renamingLeft = isLeft;
       _inlineRenameController.text = file.name;
       final selected = remote ? _selectedRemotePaths : _selectedLocalPaths;
       final path = file.path;
@@ -1623,6 +1649,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   void _clearInlineRename() {
     _renamingFile = null;
+    _renamingLeft = null;
     _inlineRenameController.clear();
   }
 
@@ -1635,11 +1662,12 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       return;
     }
     final remote = _renamingRemote;
+    final controller = _c(_renamingLeft ?? false);
     await _runSftpAction(
       context,
       () => remote
-          ? _controller.renameRemotePath(file, newName)
-          : _controller.renameLocalPath(file, newName),
+          ? controller.renameRemotePath(file, newName)
+          : controller.renameLocalPath(file, newName),
       success: 'Renamed ${file.name}',
     );
     if (mounted) _cancelInlineRename();
@@ -1653,17 +1681,18 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       _cancelInlineCreate();
       return;
     }
+    final controller = _c(_inlineCreateLeft ?? false);
     await _runSftpAction(
       context,
       () {
         if (_inlineCreateRemote) {
           return kind == _SftpInlineCreateKind.folder
-              ? _controller.createRemoteFolder(name)
-              : _controller.createRemoteFile(name);
+              ? controller.createRemoteFolder(name)
+              : controller.createRemoteFile(name);
         }
         return kind == _SftpInlineCreateKind.folder
-            ? _controller.createLocalFolder(name)
-            : _controller.createLocalFile(name);
+            ? controller.createLocalFolder(name)
+            : controller.createLocalFile(name);
       },
       success: kind == _SftpInlineCreateKind.folder
           ? 'Created folder $name'
@@ -1676,14 +1705,16 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     BuildContext context,
     SftpFileTransfer transfer,
     bool targetRemote,
+    bool isLeft,
   ) async {
+    final controller = _c(isLeft);
     if (transfer.fromRemote == targetRemote) return;
     if (targetRemote) {
       for (final entry in transfer.entries) {
         final localPath = entry.path;
         if (localPath == null) continue;
-        final targetPath = _controller.remoteUploadTargetPath(localPath);
-        final exists = _controller.remoteTargetExistsForLocalPath(localPath);
+        final targetPath = controller.remoteUploadTargetPath(localPath);
+        final exists = controller.remoteTargetExistsForLocalPath(localPath);
         if (exists) {
           final replace = await _confirmReplace(
             context,
@@ -1700,15 +1731,15 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         }
         await _runSftpAction(
           context,
-          () => _controller.uploadLocalPath(localPath, overwrite: exists),
+          () => controller.uploadLocalPath(localPath, overwrite: exists),
         );
       }
       return;
     }
     for (final entry in transfer.entries) {
       final localPath =
-          '${_controller.localPath}${Platform.pathSeparator}${entry.name}';
-      final exists = _controller.localTargetExists(localPath);
+          '${controller.localPath}${Platform.pathSeparator}${entry.name}';
+      final exists = controller.localTargetExists(localPath);
       if (exists) {
         final replace = await _confirmReplace(
           context,
@@ -1723,11 +1754,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       }
       await _runSftpAction(
         context,
-        () => _controller.downloadRemoteEntry(
-          entry,
-          localPath,
-          overwrite: exists,
-        ),
+        () =>
+            controller.downloadRemoteEntry(entry, localPath, overwrite: exists),
       );
     }
   }

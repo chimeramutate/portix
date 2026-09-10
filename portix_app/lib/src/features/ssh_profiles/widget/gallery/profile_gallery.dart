@@ -703,17 +703,6 @@ class _ProfileList extends StatelessWidget {
                                     ),
                                   ),
                             ),
-                            const SizedBox(width: 8),
-                            AppIconButton(
-                              icon: Icons.folder_copy_outlined,
-                              onPressed: () =>
-                                  context.read<SshSessionBloc>().add(
-                                    SshSessionOpenRequested(
-                                      profile: profile,
-                                      target: SshSessionTarget.sftp,
-                                    ),
-                                  ),
-                            ),
                             const SizedBox(width: 4),
                             _ListProfileMenu(profile: profile),
                           ],
@@ -804,20 +793,6 @@ class _CompactProfileListRow extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: AppButton(
-                          icon: Icons.folder_copy_outlined,
-                          label: 'Open SFTP',
-                          onPressed: () => context.read<SshSessionBloc>().add(
-                            SshSessionOpenRequested(
-                              profile: profile,
-                              target: SshSessionTarget.sftp,
-                            ),
-                          ),
-                        ),
-                      ),
                     ],
                   )
                 : Row(
@@ -831,19 +806,6 @@ class _CompactProfileListRow extends StatelessWidget {
                               profile: profile,
                               target: SshSessionTarget.remoteFolder,
                               preferExistingSession: true,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: AppButton(
-                          icon: Icons.folder_copy_outlined,
-                          label: 'Open SFTP',
-                          onPressed: () => context.read<SshSessionBloc>().add(
-                            SshSessionOpenRequested(
-                              profile: profile,
-                              target: SshSessionTarget.sftp,
                             ),
                           ),
                         ),
