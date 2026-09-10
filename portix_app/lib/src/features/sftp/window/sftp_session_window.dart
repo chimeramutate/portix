@@ -5,6 +5,7 @@ import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/features/sftp/bloc/index.dart';
 import 'package:portix/src/features/sftp/page/index.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 
 import 'sftp_window_arguments.dart';
 
@@ -37,7 +38,6 @@ class _SftpSessionWindowState extends State<SftpSessionWindow> {
   @override
   void dispose() {
     _sftpWorkspaceBloc.close();
-    _closeThisWindow();
     super.dispose();
   }
 
@@ -55,11 +55,20 @@ class _SftpSessionWindowState extends State<SftpSessionWindow> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider.value(
-      value: _sftpWorkspaceBloc,
-      child: SftpWorkspacePage(
-        initialProfile: widget.arguments.profile,
-        initialRemotePath: widget.arguments.remotePath,
+    return PopScope(
+      onPopInvokedWithResult: (_, __) => _closeThisWindow(),
+      child: MultiBlocProvider(
+        providers: [
+          BlocProvider.value(value: _sftpWorkspaceBloc),
+          BlocProvider(create: (_) => sl<SshSessionBloc>()),
+        ],
+        child: Scaffold(
+          backgroundColor: AppColors.bg,
+          body: SftpWorkspacePage(
+            initialProfile: widget.arguments.profile,
+            initialRemotePath: widget.arguments.remotePath,
+          ),
+        ),
       ),
     );
   }

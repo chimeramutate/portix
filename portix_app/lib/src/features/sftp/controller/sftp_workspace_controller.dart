@@ -28,12 +28,15 @@ class SftpWorkspaceController extends ChangeNotifier {
 
   /// Stable, unique identifier for the SFTP tab that owns this controller.
   /// Generated when the controller is created so every tab — even one that is
-  /// closed and later re-opened — gets a fresh identity. This guarantees that
-  /// a freshly created tab never picks up a stale SFTP session left behind by
+  /// closed and later re-opened — gets a fresh identity. This guarantees that a freshly created tab never picks up a stale SFTP session left behind by
   /// a previously closed tab, and that disconnect notifications fired for a
   /// closed tab never bleed into a new one.
   final String tabId;
   final ConnectionManager _connectionManager;
+
+  /// Public accessor for the underlying connection manager, used by the
+  /// workspace page to resolve saved passwords for duplicate-window flows.
+  ConnectionManager get connectionManager => _connectionManager;
   final LocalFileBrowser _localFileBrowser;
   final LocalEditorService _localEditorService;
 

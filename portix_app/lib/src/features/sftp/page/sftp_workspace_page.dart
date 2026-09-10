@@ -117,6 +117,17 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       connectionManager: sl<ConnectionManager>(),
     )..addListener(_handleControllerChanged);
     _tabs.add(_SftpTab(controller: _controller, label: 'SFTP 1'));
+
+    // When opened as a detached window (duplicate as new window),
+    // auto-select the profile and start connecting so the new
+    // window mirrors the original's session state. The actual
+    // connection is triggered on the first build via
+    // [_scheduleRemoteSync], which calls [_controller.attachRemoteProfile].
+    final initialProfile = widget.initialProfile;
+    if (initialProfile != null) {
+      _activeTab.selectedProfile = initialProfile;
+      _remoteSyncKey = null;
+    }
   }
 
   @override
@@ -372,12 +383,30 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   /// Opens the tab at [index] in a new detached SFTP window via
   /// [SftpWindowService.openSession].
+  ///
+  /// If the profile is password-based and a password is saved in secure
+  /// storage, the password is resolved and embedded in the profile's
+  /// `credentialLabel` so the child window can connect immediately
+  /// without re-prompting.
   Future<void> _openInNewWindow(int index) async {
     if (index < 0 || index >= _tabs.length) return;
     final tab = _tabs[index];
-    final profile = tab.selectedProfile;
-    if (profile == null) return;
+    var profile = tab.selectedProfile;
+    if (profile == null || !tab.controller.isRemoteConnected) return;
     final remotePath = tab.controller.remotePath;
+
+    // Resolve saved password so the child window doesn't re-prompt.
+    if (profile.authMethod == AuthMethod.password &&
+        (profile.credentialLabel.trim().isEmpty ||
+            profile.credentialLabel == 'Saved password')) {
+      final saved = await _controller.connectionManager.readProfilePassword(
+        profile.id,
+      );
+      if (saved != null && saved.trim().isNotEmpty) {
+        profile = profile.copyWith(credentialLabel: saved);
+      }
+    }
+
     await SftpWindowService.openSession(
       profile: profile,
       remotePath: remotePath,
@@ -1043,8 +1072,13 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
             final profiles = state.connectableProfiles;
             final activeTab = _activeTab;
             final selectedProfile = activeTab.selectedProfile;
+            // In a detached window, use the initialRemotePath (the path the
+            // original tab was viewing) instead of re-deriving from the
+            // profile, so the duplicate window opens at the same location.
             final remotePath = selectedProfile != null
-                ? _remotePathForProfile(selectedProfile)
+                ? (widget.initialRemotePath != null
+                      ? widget.initialRemotePath!
+                      : _remotePathForProfile(selectedProfile))
                 : '~';
             _scheduleRemoteSync(selectedProfile, remotePath);
 
@@ -1079,7 +1113,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                                 onDuplicate: tab.selectedProfile != null
                                     ? () => _duplicateSftpTab(index)
                                     : null,
-                                onDuplicateWindow: tab.selectedProfile != null
+                                onDuplicateWindow:
+                                    (tab.selectedProfile != null &&
+                                        tab.controller.isRemoteConnected)
                                     ? () => _openInNewWindow(index)
                                     : null,
                               );
@@ -2080,9 +2116,11 @@ class _SftpTabChip extends StatelessWidget {
         : details.localPosition;
     showMenu(
       context: context,
-      position: RelativeRect.fromRect(
-        Rect.fromPoints(offset, offset),
-        Offset.zero & renderBox!.size,
+      position: RelativeRect.fromLTRB(
+        offset.dx,
+        offset.dy,
+        offset.dx,
+        offset.dy,
       ),
       items: [
         if (onDuplicate != null)
