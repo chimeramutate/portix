@@ -319,13 +319,15 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
 
   /// Selects characters in the terminal that starts from [from] to [to]. At
   /// least one cell is selected even if [from] and [to] are same.
+  ///
+  /// When [to] is provided the start cell ([from]) is resolved to a buffer
+  /// coordinate once and kept pinned to that cell. This way, while a selection
+  /// is being dragged and the viewport is scrolled, the start of the block
+  /// stays fixed while the end follows the cursor.
   void selectCharacters(Offset from, [Offset? to]) {
     final fromPosition = getCellOffset(from);
     if (to == null) {
-      final base = CellOffset(
-        fromPosition.x.clamp(0, _terminal.viewWidth - 1),
-        fromPosition.y.clamp(0, max(0, _terminal.buffer.lines.length - 1)),
-      );
+      final base = _clampCellOffset(fromPosition);
       _controller.setSelection(
         _terminal.buffer.createAnchorFromOffset(base),
         _terminal.buffer.createAnchorFromOffset(base),
@@ -334,24 +336,39 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
       return;
     }
 
+    selectCharactersFromBase(fromPosition, to);
+  }
+
+  /// Extends the selection from a fixed [base] cell (in buffer coordinates) to
+  /// the cell under [to].
+  ///
+  /// Unlike [selectCharacters], [base] is given in buffer coordinates and is
+  /// kept pinned to its original cell instead of being recomputed from a screen
+  /// position on every call. This keeps the start of a block selection fixed
+  /// while the end follows the cursor, even when the viewport is scrolled while
+  /// dragging (see [TerminalGestureHandler] selection auto-scroll).
+  void selectCharactersFromBase(CellOffset base, Offset to) {
+    final selectionBase = _clampCellOffset(base);
+
     var toPosition = getCellOffset(to);
-    if (toPosition.x >= fromPosition.x) {
+    if (toPosition.x >= selectionBase.x) {
       toPosition = CellOffset(toPosition.x + 1, toPosition.y);
     }
 
-    final base = CellOffset(
-      fromPosition.x.clamp(0, _terminal.viewWidth - 1),
-      fromPosition.y.clamp(0, max(0, _terminal.buffer.lines.length - 1)),
-    );
-    final extent = CellOffset(
-      toPosition.x.clamp(0, _terminal.viewWidth - 1),
-      toPosition.y.clamp(0, max(0, _terminal.buffer.lines.length - 1)),
-    );
+    final extent = _clampCellOffset(toPosition);
 
     _controller.setSelection(
-      _terminal.buffer.createAnchorFromOffset(base),
+      _terminal.buffer.createAnchorFromOffset(selectionBase),
       _terminal.buffer.createAnchorFromOffset(extent),
       mode: _controller.selectionMode,
+    );
+  }
+
+  /// Clamps a buffer cell offset so it always references a valid cell.
+  CellOffset _clampCellOffset(CellOffset offset) {
+    return CellOffset(
+      offset.x.clamp(0, _terminal.viewWidth - 1),
+      offset.y.clamp(0, max(0, _terminal.buffer.lines.length - 1)),
     );
   }
 
@@ -398,7 +415,6 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
     if (delta.isNaN || delta == 0.0) return 0.0;
     return delta;
   }
-
 
   bool mouseEvent(
     TerminalMouseButton button,

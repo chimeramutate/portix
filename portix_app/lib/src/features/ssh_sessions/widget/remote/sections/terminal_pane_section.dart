@@ -134,7 +134,19 @@ class _TerminalPaneState extends State<TerminalPane>
                   focusNode: widget.focusNode,
                   autofocus: widget.keyboardEnabled && widget.active,
                   readOnly: !widget.keyboardEnabled,
-                  hardwareKeyboardOnly: false,
+                  // On desktop there is no soft keyboard to drive, so the
+                  // hidden `TextInputConnection` from `CustomTextEdit` only
+                  // serves to track an invisible caret/rect on the terminal
+                  // cursor. In full-screen TUI apps (vi/nano) the cursor is
+                  // repainted constantly, which makes the platform IME reposition
+                  // the viewport / flicker the view and can double-deliver keys.
+                  // `hardwareKeyboardOnly` uses `CustomKeyboardListener` (raw
+                  // hardware keys, no hidden text field, single delivery) which is
+                  // the correct input path for a desktop SSH terminal.
+                  hardwareKeyboardOnly:
+                      !kIsWeb &&
+                      defaultTargetPlatform != TargetPlatform.android &&
+                      defaultTargetPlatform != TargetPlatform.iOS,
                   simulateScroll: true,
                   mouseCursor: SystemMouseCursors.text,
                   padding: EdgeInsets.fromLTRB(16, draggable ? 34 : 16, 16, 16),
