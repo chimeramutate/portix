@@ -303,6 +303,14 @@ class SftpWorkspaceController extends ChangeNotifier {
     }
   }
 
+  /// Reads the children of [path] without changing the current local
+  /// selection. Used by the path-bar autocomplete so typing an absolute path
+  /// (e.g. `/opt/`) can complete against that directory instead of the
+  /// currently‑browsed one.
+  Future<List<SftpFileEntry>> readLocalDirectory(String path) {
+    return _localFileBrowser.readDirectory(path).then((r) => r.entries);
+  }
+
   Future<void> attachRemoteProfile(
     domain.SshProfile? profile,
     String initialPath,

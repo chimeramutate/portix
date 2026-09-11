@@ -1457,6 +1457,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       onRefreshRequested: () =>
           unawaited(controller.loadLocalDirectory(controller.localPath)),
       onPathSubmitted: controller.loadLocalDirectory,
+      onListPath: (p) => controller.readLocalDirectory(p),
       onOpenFolder: (file) =>
           controller.loadLocalDirectory(file.path ?? file.name),
       selectedPaths: _selectedLocalPaths,
@@ -1594,6 +1595,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                 )
               : null),
       onPathSubmitted: controller.loadRemoteDirectory,
+      onListPath: controller.listRemoteDirectoryRaw,
       onOpenFolder: (file) =>
           controller.loadRemoteDirectory(file.path ?? file.name),
       selectedPaths: _selectedRemotePaths,
