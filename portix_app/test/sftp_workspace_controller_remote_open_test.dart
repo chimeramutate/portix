@@ -7,6 +7,7 @@ import 'package:portix/src/connection_manager/connection_backend.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/connection_manager/ssh_profile.dart';
+import 'package:portix/src/connection_manager/profile_secret_store.dart';
 import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/data/services/sftp/local_editor_service.dart';
 import 'package:portix/src/data/services/sftp/local_file_browser.dart';
@@ -474,6 +475,174 @@ void main() {
         controllerB.dispose();
       },
     );
+
+    test('beginLoading sets step-indicator state so file-pane controls are '
+        'hidden during the pre-connection frame', () {
+      // Simulates _selectLeftProfileForActiveTab / _selectProfileForActiveTab
+      // calling controller.beginLoading() before setState. On the rebuild
+      // BEFORE attachRemoteProfile's post-frame callback fires, the file
+      // pane must show the step indicator (showSteps = true) — not the path
+      // bar / actions / find bar — so controls like "Open path", "New file",
+      // "New folder", "Reload" don't flash for one frame.
+      controller.beginLoading();
+
+      expect(controller.loadingRemote, isTrue);
+      expect(controller.showConnectionSteps, isTrue);
+      expect(controller.remoteStatus, equals('connecting'));
+      // _FilePane.build: showSteps comes from controller.showConnectionSteps,
+      // and `if (showSteps) ... else ... [path bar, actions, find bar]`
+      // means showSteps = true hides those controls.
+      expect(controller.showConnectionSteps, isTrue);
+
+      // A second beginLoading is a no-op (already loading).
+      controller.beginLoading();
+      expect(controller.loadingRemote, isTrue);
+      expect(controller.showConnectionSteps, isTrue);
+      expect(controller.remoteStatus, equals('connecting'));
+    });
+
+    test('beginLoading + attachRemoteProfile(same profile) resets loading '
+        'state via the session-reuse path — step indicator does not get '
+        'stuck', () async {
+      await _attachRemoteProfile(controller);
+      // Controller is connected: controls should be visible (showSteps = false).
+      expect(controller.loadingRemote, isFalse);
+      expect(controller.showConnectionSteps, isFalse);
+      expect(controller.remoteStatus, equals('connected'));
+
+      // Simulate re-selecting the same profile: the page calls beginLoading()
+      // before setState, then attachRemoteProfile runs via post-frame callback.
+      controller.beginLoading();
+      expect(controller.loadingRemote, isTrue);
+      expect(controller.showConnectionSteps, isTrue);
+      expect(controller.remoteStatus, equals('connecting'));
+
+      // Re-attach the same profile (same id → session-reuse path).
+      // The session-reuse path must reset the pre-emptive beginLoading state
+      // so the step indicator doesn't stay stuck on 'connecting'.
+      const sameProfile = domain.SshProfile(
+        id: 'profile-1',
+        name: 'Remote host',
+        host: 'example.com',
+        port: 22,
+        username: 'deploy',
+        group: 'Production',
+        tags: [],
+        authMethod: domain.AuthMethod.sshKey,
+        credentialLabel: '~/.ssh/id_ed25519',
+        defaultPath: '/',
+        status: domain.ConnectionStatus.online,
+        color: domain.ProfileColor.blue,
+      );
+      await controller.attachRemoteProfile(sameProfile, controller.remotePath);
+
+      expect(controller.remoteStatus, equals('connected'));
+      expect(controller.loadingRemote, isFalse);
+      expect(controller.showConnectionSteps, isFalse);
+      expect(controller.remoteError, isNull);
+      expect(controller.hasRemoteSession, isTrue);
+    });
+
+    test('reconnect establishes a new session without being blocked by the '
+        'loading guard', () async {
+      await _attachRemoteProfile(controller);
+      final oldSessionId = controller.remoteSessionId;
+      expect(oldSessionId, isNotNull);
+
+      // reconnect(): clearRemoteSession → beginLoading → attachRemoteProfile.
+      // Previously, reconnect manually set _loadingRemote + _remoteStatus =
+      // 'connecting' before calling attachRemoteProfile, which tripped the
+      // old loading guard (`_loadingRemote && _remoteStatus == 'connecting'`)
+      // and returned early — the reconnect silently never started.
+      // With the _connectInProgress-based guard, beginLoading's pre-emptive
+      // 'connecting' state does NOT block, and connectSftp proceeds.
+      const reconnectProfile = domain.SshProfile(
+        id: 'profile-1',
+        name: 'Remote host',
+        host: 'example.com',
+        port: 22,
+        username: 'deploy',
+        group: 'Production',
+        tags: [],
+        authMethod: domain.AuthMethod.sshKey,
+        credentialLabel: '~/.ssh/id_ed25519',
+        defaultPath: '/',
+        status: domain.ConnectionStatus.online,
+        color: domain.ProfileColor.blue,
+      );
+      await controller.reconnect(reconnectProfile);
+      // Flush the deferred status event that _FakeConnectionBackend.connect
+      // schedules via Future.delayed so it doesn't fire during tearDown
+      // (which closes the stream) and trip a "sent after close" error.
+      await Future.delayed(Duration.zero);
+      await Future.delayed(Duration.zero);
+
+      expect(controller.remoteStatus, equals('connected'));
+      expect(controller.loadingRemote, isFalse);
+      expect(controller.showConnectionSteps, isFalse);
+      expect(controller.remoteError, isNull);
+      expect(controller.hasRemoteSession, isTrue);
+      expect(controller.remoteSessionId, isNotNull);
+      expect(controller.remoteSessionId, isNot(equals(oldSessionId)));
+    });
+
+    test('left-pane profile re-select returns to the file table instead of '
+        'staying on the profile gate / step indicator', () async {
+      // Mirrors the page's independent LEFT controller — a second controller
+      // on the shared ConnectionManager. Re-selecting the already-connected
+      // profile must reset showConnectionSteps (via the session-reuse path in
+      // attachRemoteProfile) so the pane's `_leftConnecting` is false, the
+      // profile-gate `contentOverride` is dropped, and the file table renders
+      // — never a stuck step indicator or gate. Saved-password resolution is
+      // a no-op for this sshKey profile, so no password prompt is involved.
+      final leftController = SftpWorkspaceController(
+        connectionManager: connectionManager,
+        localFileBrowser: _FakeLocalFileBrowser(),
+        localEditorService: _FakeLocalEditorService(),
+      );
+
+      await _attachRemoteProfile(leftController);
+      expect(leftController.isRemoteConnected, isTrue);
+      expect(leftController.showConnectionSteps, isFalse);
+      expect(leftController.pendingProfile, isNull);
+
+      // Simulate the left pane re-selecting its connected profile:
+      // onSelected -> beginLoading() (pre-arms 'connecting') -> setState ->
+      // _scheduleLeftSync -> attachRemoteProfile(same id).
+      leftController.beginLoading();
+      expect(leftController.loadingRemote, isTrue);
+      expect(leftController.showConnectionSteps, isTrue);
+      expect(leftController.remoteStatus, equals('connecting'));
+
+      const sameProfile = domain.SshProfile(
+        id: 'profile-1',
+        name: 'Remote host',
+        host: 'example.com',
+        port: 22,
+        username: 'deploy',
+        group: 'Production',
+        tags: [],
+        authMethod: domain.AuthMethod.sshKey,
+        credentialLabel: '~/.ssh/id_ed25519',
+        defaultPath: '/',
+        status: domain.ConnectionStatus.online,
+        color: domain.ProfileColor.blue,
+      );
+      await leftController.attachRemoteProfile(
+        sameProfile,
+        leftController.remotePath,
+      );
+
+      expect(leftController.remoteStatus, equals('connected'));
+      expect(leftController.loadingRemote, isFalse);
+      expect(leftController.showConnectionSteps, isFalse);
+      expect(leftController.pendingProfile, isNull);
+      expect(leftController.isRemoteConnected, isTrue);
+      expect(leftController.remoteError, isNull);
+      expect(leftController.hasRemoteSession, isTrue);
+
+      leftController.dispose();
+    });
   });
 
   test('notifyListeners after dispose is a no-op (tab/page close safety)', () {
@@ -491,6 +660,141 @@ void main() {
     controller.dispose();
     expect(() => controller.notifyListeners(), returnsNormally);
     connectionManager.dispose();
+    backend.dispose();
+  });
+
+  test('failed remote listing keeps the SFTP session alive but sets an error, '
+      'so the file-pane controls are hidden', () async {
+    final failingBackend = _ListingFailBackend();
+    final manager = ConnectionManager(backend: failingBackend);
+    final ctrl = SftpWorkspaceController(
+      connectionManager: manager,
+      localFileBrowser: _FakeLocalFileBrowser(),
+      localEditorService: _FakeLocalEditorService(),
+    );
+
+    // 1) Initial connect + first listing succeeds: showSteps flips to
+    //    false so the file pane starts rendering the path bar & actions.
+    await _attachRemoteProfile(ctrl);
+    expect(ctrl.loadingRemote, isFalse);
+    expect(ctrl.remoteStatus, equals('connected'));
+    expect(ctrl.remoteError, isNull);
+    expect(ctrl.showConnectionSteps, isFalse);
+
+    // 2) Simulate the SFTP channel silently dying — the TCP session is
+    //    still "connected" but listing now fails (e.g. after a network
+    //    hiccup or a server-side channel closure).
+    failingBackend.failListing = true;
+    await ctrl.loadRemoteDirectory(ctrl.remotePath);
+    await Future.delayed(Duration.zero);
+
+    // The session is NOT disconnected at the TCP level, but the listing
+    // failed: loading is false, status is 'failed', and an error is set.
+    // This is the exact precondition that lets the _FilePane widget's
+    // `showControls = isRemote ? (loading || error == null) : true` guard
+    // collapse to false — hiding "Open path", "New file", "New folder",
+    // and "Reload" while the error is surfaced in the pane content area.
+    expect(ctrl.loadingRemote, isFalse);
+    expect(ctrl.remoteStatus, equals('failed'));
+    expect(ctrl.remoteError, isNotNull);
+    expect(ctrl.isRemoteDisconnected, isFalse);
+    expect(ctrl.showConnectionSteps, isFalse);
+    expect(ctrl.loadingRemote || ctrl.remoteError == null, isFalse);
+
+    ctrl.dispose();
+    manager.dispose();
+    failingBackend.dispose();
+  });
+
+  test('submitPassword suppresses a racing duplicate attachRemoteProfile so '
+      'the password form is not re-shown', () async {
+    final secretStore = _ControllableSecretStore();
+    final backend = _FakeConnectionBackend();
+    final manager = ConnectionManager(
+      backend: backend,
+      secretStore: secretStore,
+    );
+    final ctrl = SftpWorkspaceController(
+      connectionManager: manager,
+      localFileBrowser: _FakeLocalFileBrowser(),
+      localEditorService: _FakeLocalEditorService(),
+    );
+
+    const profile = domain.SshProfile(
+      id: 'p-password',
+      name: 'Password Host',
+      host: 'example.com',
+      port: 22,
+      username: 'deploy',
+      group: '',
+      tags: [],
+      authMethod: domain.AuthMethod.password,
+      credentialLabel: 'Saved password',
+      defaultPath: '/',
+      status: domain.ConnectionStatus.online,
+      color: domain.ProfileColor.blue,
+    );
+
+    // 1) attachRemoteProfile enters 'authenticating' because no password
+    //    is stored for this profile.
+    final initial = ctrl.attachRemoteProfile(profile, '/');
+    await Future.delayed(Duration.zero);
+    await Future.delayed(Duration.zero);
+    await initial;
+    expect(ctrl.remoteStatus, equals('authenticating'));
+    expect(ctrl.pendingProfile, isNotNull);
+    expect(ctrl.loadingRemote, isTrue);
+
+    // 2) Begin password submission. submitPassword clears _pendingProfile,
+    //    sets _passwordSubmitting = true, then awaits saveProfilePassword.
+    //    We delay the save so we can inject a racing attachRemoteProfile.
+    final saveGate = Completer<void>();
+    secretStore.saveDelay = saveGate.future;
+
+    final submitFuture = ctrl.submitPassword('superSecret');
+
+    // submitPassword runs synchronously up to the save await, so the
+    // flag is already set and _pendingProfile is already null.
+    expect(ctrl.pendingProfile, isNull);
+    expect(ctrl.remoteStatus, equals('authenticating'));
+
+    // 3) Simulate a scheduled-sync callback (_scheduleLeftSync /
+    //    _scheduleRemoteSync) firing during the saveProfilePassword await.
+    //    This calls attachRemoteProfile with the ORIGINAL (password-less)
+    //    profile — the exact race that re-enters 'authenticating' and
+    //    makes the password form re-appear (the reported bug).
+    final duplicate = ctrl.attachRemoteProfile(profile, '/');
+    await Future.delayed(Duration.zero);
+    await Future.delayed(Duration.zero);
+    await duplicate;
+
+    // 4) FIX: the duplicate must be suppressed — _pendingProfile must
+    //    stay null and the status must not be re-pushed to 'authenticating'
+    //    with a new pendingProfile (which would re-show the form).
+    expect(
+      ctrl.pendingProfile,
+      isNull,
+      reason:
+          'Racing attachRemoteProfile with the original profile must '
+          'not re-set _pendingProfile during password submission',
+    );
+    expect(ctrl.remoteStatus, equals('authenticating'));
+
+    // 5) Complete the save — submitPassword proceeds to connect with the
+    //    resolved profile (password embedded in credentialLabel).
+    secretStore.saveDelay = null;
+    saveGate.complete();
+    await submitFuture;
+    await Future.delayed(Duration.zero);
+    await Future.delayed(Duration.zero);
+
+    expect(ctrl.remoteStatus, equals('connected'));
+    expect(ctrl.remoteError, isNull);
+    expect(ctrl.hasRemoteSession, isTrue);
+    expect(ctrl.loadingRemote, isFalse);
+
+    ctrl.dispose();
+    manager.dispose();
     backend.dispose();
   });
 }
@@ -697,5 +1001,57 @@ class _FakeConnectionBackend implements ConnectionBackend {
   void emitStatus(String? sessionId, ConnectionStatus status) {
     if (sessionId == null) return;
     _status.add(ConnectionStatusEvent(sessionId: sessionId, status: status));
+  }
+}
+
+/// Variant of [_FakeConnectionBackend] whose directory listing can be toggled
+/// to throw, to exercise the controller's listing-failure path — the scenario
+/// where the SFTP channel is alive but unreadable, which is what the
+/// file-pane control-hiding guard must react to.
+class _ListingFailBackend extends _FakeConnectionBackend {
+  bool failListing = false;
+
+  @override
+  Future<List<RemoteFileEntry>> listRemoteDirectory(
+    String sessionId,
+    String path,
+  ) async {
+    if (failListing) {
+      throw StateError('simulated listing failure');
+    }
+    return const [];
+  }
+}
+
+/// In-memory [ProfileSecretStore] replacement whose `savePassword` can be
+/// delayed via [saveDelay], enabling controller tests to reproduce the race
+/// between `submitPassword`'s `saveProfilePassword` await and a scheduled-sync
+/// `attachRemoteProfile(originalProfile)` callback.
+class _ControllableSecretStore extends ProfileSecretStore {
+  _ControllableSecretStore() : super();
+
+  final Map<String, String> _passwords = {};
+
+  /// When non-null, `savePassword` awaits this future before storing the
+  /// credential, letting tests inject a window during which a duplicate
+  /// `attachRemoteProfile` can fire.
+  Future<void>? saveDelay;
+
+  @override
+  Future<void> savePassword(String profileId, String password) async {
+    if (saveDelay != null) {
+      await saveDelay!;
+    }
+    _passwords[profileId] = password;
+  }
+
+  @override
+  Future<String?> readPassword(String profileId) async {
+    return _passwords[profileId];
+  }
+
+  @override
+  Future<void> deletePassword(String profileId) async {
+    _passwords.remove(profileId);
   }
 }

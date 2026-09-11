@@ -110,6 +110,20 @@ class _FilePane extends StatelessWidget {
       onAcceptWithDetails: (details) => onTransferDropped(details.data),
       builder: (context, candidateData, rejectedData) {
         final isDropTarget = candidateData.isNotEmpty;
+        // Hide the path bar, actions bar, and find bar whenever the page
+        // substitutes the full profile-selection gate (or a connection
+        // overlay) for the body via `contentOverride` — for BOTH the local
+        // and remote panes. This is what makes "pick profile" show only the
+        // full profile list (like the right-side gallery) with no Open Path /
+        // Add File / Add Folder / Reload / Find / table in the way. Once the
+        // gate is gone (contentOverride == null) the normal chrome rules
+        // apply: remote panes hide controls while loading or on error; local
+        // panes always keep controls visible. Local panes also pass
+        // `showSteps: false` (see [_buildLocalFilePane]) so this `else`
+        // (chrome) branch is taken rather than the step-only spacer branch.
+        final showControls = contentOverride != null
+            ? false
+            : (isRemote ? (loading || error == null) : true);
         return AppPanel(
           padding: const EdgeInsets.all(14),
           borderColor: isDropTarget ? AppColors.cyan : AppColors.border,
@@ -171,12 +185,12 @@ class _FilePane extends StatelessWidget {
               if (showSteps) ...[
                 const SizedBox(height: 12),
               ] else ...[
-                if (showPathBar)
+                if (showPathBar && showControls)
                   Skeletonizer(
                     enabled: loading,
                     child: _PathBar(path: path, onSubmitted: onPathSubmitted),
                   ),
-                if (showActions) ...[
+                if (showActions && showControls) ...[
                   const SizedBox(height: 12),
                   Skeletonizer(
                     enabled: loading,
@@ -188,7 +202,7 @@ class _FilePane extends StatelessWidget {
                     ),
                   ),
                 ],
-                if (onFindSubmitted != null) ...[
+                if (onFindSubmitted != null && showControls) ...[
                   const SizedBox(height: 10),
                   Skeletonizer(
                     enabled: loading,
