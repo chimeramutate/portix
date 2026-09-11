@@ -481,6 +481,12 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     // keeps the step indicator visible so the user can follow:
     //   0 Pick profile → 1 Loading (password) → 2 Connecting → 3 Connected
     if (!mounted) return;
+    // Pre-emptively mark the remote pane as loading BEFORE setState so
+    // that on the very first rebuild the step indicator is shown —
+    // not a one-frame flash of the file-table controls (Open Path,
+    // New File, New Folder, Reload).  beginLoading() is a no-op if a
+    // connection is already in flight.
+    _controller.beginLoading();
     setState(() {
       _activeTab.selectedProfile = profile;
       _remoteSyncKey = null;
@@ -490,6 +496,17 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   Future<void> _selectLeftProfileForActiveTab(SshProfile? profile) async {
     if (!mounted) return;
+    // Pre-emptively mark the left pane as loading BEFORE setState so
+    // that on the very first rebuild the step indicator is shown —
+    // not a one-frame flash of the file-table controls (Open Path,
+    // New File, New Folder, Reload).  This is the left-pane analogue
+    // of the same fix applied in [_selectProfileForActiveTab] for the
+    // right pane.  beginLoading() is a no-op if a connection is already
+    // in flight, and the session-reuse path in attachRemoteProfile resets
+    // the state when the profile is already connected.
+    if (profile != null) {
+      _leftController.beginLoading();
+    }
     setState(() {
       _leftSelectedProfile = profile;
       _leftSyncKey = null;
@@ -1361,6 +1378,14 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         unawaited(_leftController.clearRemoteSession());
       },
       onSelected: (profile) {
+        // Pre-emptively mark the left pane as connecting BEFORE setState so the
+        // step indicator renders on the very first rebuild (mirroring
+        // [_selectProfileForActiveTab] for the right pane) instead of a
+        // one-frame flash of empty file-table controls. beginLoading() is a
+        // no-op if a connection is already in flight; the session-reuse path
+        // in attachRemoteProfile resets the state when the profile is already
+        // connected, so the step indicator does not get stuck.
+        _leftController.beginLoading();
         setState(() {
           _leftPicking = false;
           _leftSelectedProfile = profile;
@@ -1403,6 +1428,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       onFindCleared: controller.clearLocalSearch,
       onTitleTap: onTitleTap,
       contentOverride: pickGate,
+      isRemote: false,
+      showSteps: false,
       onCreateFileRequested: () => _startInlineCreate(
         _SftpInlineCreateKind.file,
         remote: false,
