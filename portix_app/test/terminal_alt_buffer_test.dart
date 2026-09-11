@@ -575,4 +575,110 @@ void main() {
       scrollController.dispose();
     });
   });
+
+  group('IndexAwareCircularBuffer', () {
+    test('replaceWith keeps all slots addressable when the buffer has wrapped', () {
+      // Regression for a crash where resize -> reflow -> replaceWith on a
+      // buffer whose backing array had wrapped (startIndex != 0, e.g. after
+      // scrollback overflow) left null slots in [0, length). The next resize's
+      // reflow then read those slots via `lines[i]` and threw
+      // "Null check operator used on a null value".
+      const capacity = 4;
+      final buffer = IndexAwareCircularBuffer<_IndexedProbe>(capacity);
+
+      final original = List.generate(capacity + 3, (_) => _IndexedProbe());
+      for (final item in original) {
+        buffer.push(item);
+      }
+      // Buffer is now full (length == capacity) and wrapped: startIndex != 0.
+
+      final replacement = List.generate(2, (_) => _IndexedProbe());
+      buffer.replaceWith(replacement);
+
+      expect(buffer.length, replacement.length);
+      for (var i = 0; i < buffer.length; i++) {
+        final line = buffer[i]; // operator [] -> used to throw here
+        expect(line, replacement[i], reason: 'slot $i mismatch');
+        expect(line.attached, isTrue, reason: 'slot $i detached');
+        expect(line.index, i, reason: 'slot $i has wrong index');
+      }
+    });
+
+    test('replaceWith drops leading overflow items on a wrapped buffer', () {
+      // replacement.length > maxLength -> the leading (replacement.length -
+      // maxLength) items are dropped, the survivors keep their relative order
+      // at logical indices [0, maxLength).
+      const capacity = 4;
+      final buffer = IndexAwareCircularBuffer<_IndexedProbe>(capacity);
+      for (var i = 0; i < capacity + 1; i++) {
+        buffer.push(_IndexedProbe());
+      }
+
+      final replacement = List.generate(capacity + 3, (_) => _IndexedProbe());
+      buffer.replaceWith(replacement);
+
+      expect(buffer.length, capacity);
+      // Survivors are the last `capacity` replacement items: replacement[3..6].
+      expect(buffer[0], replacement[3]);
+      expect(buffer[1], replacement[4]);
+      expect(buffer[2], replacement[5]);
+      expect(buffer[3], replacement[6]);
+    });
+
+    test('replaceWith with an empty replacement clears the buffer', () {
+      final buffer = IndexAwareCircularBuffer<_IndexedProbe>(4);
+      for (var i = 0; i < 6; i++) {
+        buffer.push(_IndexedProbe());
+      }
+      buffer.replaceWith([]);
+      expect(buffer.length, 0);
+    });
+  });
+
+  group('main buffer reflow on resize', () {
+    test(
+      'width-change resizes after scrollback overflow keep all lines addressable',
+      () {
+        // Regression for the crash in the rendering library:
+        // "Null check operator used on a null value" thrown from
+        // IndexAwareCircularBuffer.[] via reflow during Terminal.resize.
+        // The terminal overflows past maxLines (so the buffer wraps, i.e.
+        // startIndex != 0), is then scrolled back to the viewport, and finally
+        // resized with a width change twice. The buffer must keep every
+        // addressable line valid across both reflows.
+        final terminal = Terminal(maxLines: 50);
+        // The buffers are created lazily on first access. Initialize them at the
+        // default size first so a following shrink resize doesn't pop more lines
+        // than currently exist in an uninitialized buffer.
+        terminal.resize(80, 24);
+        terminal.resize(80, 5);
+
+        // Overflow past maxLines so the backing array wraps (startIndex != 0).
+        for (var i = 0; i < 100; i++) {
+          terminal.write('scrollback line $i\r\n');
+        }
+        expect(terminal.buffer.lines.length, 50);
+
+        // Trim scrollback so length < maxLength while startIndex stays != 0,
+        // which is the configuration that makes replaceWith leave nulls in
+        // [0, length) on the buggy version.
+        terminal.buffer.clearScrollback();
+        expect(terminal.buffer.scrollBack, 0);
+        expect(terminal.buffer.lines.length, lessThan(50));
+
+        // Width-change resize #1: reflow reads the (still consistent) buffer,
+        // then replaceWith rewrites it (corrupting it on the buggy version).
+        terminal.resize(120, 5);
+        // Width-change resize #2: reflow reads every line back via lines[i].
+        // On the buggy version this throws "Null check operator ...".
+        terminal.resize(80, 5);
+
+        for (var i = 0; i < terminal.buffer.lines.length; i++) {
+          final line = terminal.buffer.lines[i];
+          expect(line, isNotNull, reason: 'line $i is null after resize');
+          expect(line.attached, isTrue, reason: 'line $i detached after resize');
+        }
+      },
+    );
+  });
 }

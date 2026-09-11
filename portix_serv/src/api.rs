@@ -159,6 +159,22 @@ pub async fn chmod_remote_path(
         .await?)
 }
 
+/// Run an arbitrary remote command on the session's *dedicated exec channel*.
+///
+/// This is intentionally separate from `send_terminal_input` (the interactive
+/// shell channel). File-management operations performed by the SFTP/file
+/// manager (rename, move, delete, duplicate) used to be sent through the
+/// interactive shell, which caused them to be recorded in the remote user's
+/// shell history (`HISTFILE`) and to echo marker/printf noise into the visible
+/// terminal. Running them through here opens a fresh SSH `exec` channel, so the
+/// command never touches the user's interactive shell, its history, or the
+/// terminal UI — the captured output (and exit status) is returned directly.
+pub async fn exec_remote_command(session_id: String, command: String) -> anyhow::Result<String> {
+    Ok(SESSION_MANAGER
+        .exec_remote_command(session_id, command)
+        .await?)
+}
+
 pub async fn terminal_output_stream(sink: StreamSink<String>) -> anyhow::Result<()> {
     let mut rx = SESSION_MANAGER.terminal_output_stream();
     tokio::spawn(async move {

@@ -55,6 +55,97 @@ class _EditorPickerSheet extends StatelessWidget {
   }
 }
 
+class _SftpPasswordDialog extends StatefulWidget {
+  const _SftpPasswordDialog({required this.profile});
+
+  final SshProfile profile;
+
+  @override
+  State<_SftpPasswordDialog> createState() => _SftpPasswordDialogState();
+}
+
+class _SftpPasswordDialogState extends State<_SftpPasswordDialog> {
+  final TextEditingController _passwordController = TextEditingController();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_formKey.currentState!.validate()) {
+      Navigator.of(context).pop(_passwordController.text.trim());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = widget.profile;
+    return AlertDialog(
+      backgroundColor: AppColors.surface,
+      insetPadding: const EdgeInsets.all(16),
+      title: const Text('Enter SFTP Password'),
+      content: SizedBox(
+        width: 400,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '"${profile.name}" belum memiliki secure password. '
+                'Masukkan password untuk menyambung.',
+                style: portixMuted(12),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _passwordController,
+                obscureText: true,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  hintText: 'Enter SFTP password',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  filled: true,
+                  fillColor: AppColors.bg,
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Password is required';
+                  }
+                  return null;
+                },
+                onFieldSubmitted: (_) => _submit(),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'The password will be saved to local secure storage.',
+                style: portixMuted(10),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: _submit,
+          icon: const Icon(Icons.login_rounded, size: 16),
+          label: const Text('Connect'),
+        ),
+      ],
+    );
+  }
+}
+
 class _SftpDisconnectedOverlay extends StatelessWidget {
   const _SftpDisconnectedOverlay({this.onReconnect, this.errorMessage});
 
@@ -63,54 +154,30 @@ class _SftpDisconnectedOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Just the icon + a one-line title + reconnect button.
+    // No container, no border, no description text — keeps it simple.
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: AppColors.danger.withValues(alpha: .12),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.cloud_off_rounded,
-                color: AppColors.danger,
-                size: 28,
-              ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.cloud_off_rounded,
+            color: AppColors.danger,
+            size: 32,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Connection lost',
+            style: portixTitle(16).copyWith(color: AppColors.danger),
+          ),
+          const SizedBox(height: 20),
+          if (onReconnect != null)
+            FilledButton.icon(
+              onPressed: onReconnect,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Reconnect'),
             ),
-            const SizedBox(height: 16),
-            Text(
-              'Connection lost',
-              style: portixTitle(16).copyWith(color: AppColors.danger),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              errorMessage ??
-                  'SFTP session disconnected. Reconnect to continue browsing remote files.',
-              textAlign: TextAlign.center,
-              style: portixMuted(12),
-            ),
-            const SizedBox(height: 20),
-            if (onReconnect != null)
-              FilledButton.icon(
-                onPressed: onReconnect,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('Reconnect'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.primaryBlue,
-                  foregroundColor: AppColors.text,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
-                ),
-              ),
-          ],
-        ),
+        ],
       ),
     );
   }

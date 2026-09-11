@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/di/injection.dart';
-import 'package:portix/src/features/sftp/bloc/index.dart';
+import 'package:portix/src/core/theme/app_theme.dart';
+import 'package:portix/src/features/rdp/widget/rdp_workspace_view.dart';
 import 'package:portix/src/features/settings/page/setting_page.dart';
+import 'package:portix/src/features/sftp/bloc/index.dart';
 import 'package:portix/src/features/sftp/page/index.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
 import 'package:portix/src/features/ssh_sessions/page/index.dart';
 
-import 'package:portix/src/core/theme/app_theme.dart';
 import '../bloc/index.dart';
 import '../widget/form/index.dart';
 import '../widget/gallery/index.dart';
@@ -45,69 +46,78 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
 
   @override
   Widget build(BuildContext context) {
-    return MultiBlocListener(
-      listeners: [
-        BlocListener<SshWorkspaceBloc, SshWorkspaceState>(
-          listenWhen: (previous, current) =>
-              previous.message != current.message && current.message.isNotEmpty,
-          listener: (context, state) => _showNotice(context, state.message),
-        ),
-        BlocListener<SshWorkspaceBloc, SshWorkspaceState>(
+    final sshSessionBloc = context.read<SshSessionBloc>();
+    return BlocProvider.value(
+      value: sshSessionBloc,
+      child: MultiBlocListener(
+        listeners: [
+          BlocListener<SshWorkspaceBloc, SshWorkspaceState>(
+            listenWhen: (previous, current) =>
+                previous.message != current.message &&
+                current.message.isNotEmpty,
+            listener: (context, state) => _showNotice(context, state.message),
+          ),
+          BlocListener<SshWorkspaceBloc, SshWorkspaceState>(
+            listenWhen: (previous, current) =>
+                previous.activeView != current.activeView &&
+                current.activeView != WorkspaceView.remoteFolder,
+            listener: (context, state) {
+              FocusManager.instance.primaryFocus?.unfocus();
+            },
+          ),
+          BlocListener<SshSessionBloc, SshSessionState>(
+            bloc: sshSessionBloc,
+            listenWhen: (previous, current) =>
+                previous.message != current.message &&
+                current.message.isNotEmpty,
+            listener: (context, state) => _showNotice(context, state.message),
+          ),
+          BlocListener<SshSessionBloc, SshSessionState>(
+            bloc: sshSessionBloc,
+            listenWhen: (previous, current) =>
+                previous.pendingTarget != current.pendingTarget &&
+                current.pendingTarget != null,
+            listener: (context, state) {
+              context.read<SshWorkspaceBloc>().add(
+                NavigationChanged(_viewForSessionTarget(state.pendingTarget!)),
+              );
+              context.read<SshSessionBloc>().add(
+                const SshSessionNavigationConsumed(),
+              );
+            },
+          ),
+        ],
+        child: BlocConsumer<SshWorkspaceBloc, SshWorkspaceState>(
           listenWhen: (previous, current) =>
               previous.activeView != current.activeView &&
-              current.activeView != WorkspaceView.remoteFolder,
+              current.activeView == WorkspaceView.sftp,
           listener: (context, state) {
-            FocusManager.instance.primaryFocus?.unfocus();
+            _sftpWorkspaceBloc.add(const SftpProfilesRequested());
           },
-        ),
-        BlocListener<SshSessionBloc, SshSessionState>(
-          listenWhen: (previous, current) =>
-              previous.message != current.message && current.message.isNotEmpty,
-          listener: (context, state) => _showNotice(context, state.message),
-        ),
-        BlocListener<SshSessionBloc, SshSessionState>(
-          listenWhen: (previous, current) =>
-              previous.pendingTarget != current.pendingTarget &&
-              current.pendingTarget != null,
-          listener: (context, state) {
-            context.read<SshWorkspaceBloc>().add(
-              NavigationChanged(_viewForSessionTarget(state.pendingTarget!)),
-            );
-            context.read<SshSessionBloc>().add(
-              const SshSessionNavigationConsumed(),
-            );
-          },
-        ),
-      ],
-      child: BlocConsumer<SshWorkspaceBloc, SshWorkspaceState>(
-        listenWhen: (previous, current) =>
-            previous.activeView != current.activeView &&
-            current.activeView == WorkspaceView.sftp,
-        listener: (context, state) {
-          _sftpWorkspaceBloc.add(const SftpProfilesRequested());
-        },
-        builder: (context, state) {
-          _visitedViews.add(state.activeView);
-          return BlocProvider.value(
-            value: _sftpWorkspaceBloc,
-            child: WorkspaceShell(
-              state: state,
-              child: IndexedStack(
-                index: _viewIndex(state.activeView),
-                children: [
-                  _lazyView(WorkspaceView.gallery, const GalleryShell()),
-                  _lazyView(WorkspaceView.form, const ProfileFormView()),
-                  _lazyView(
-                    WorkspaceView.remoteFolder,
-                    const RemoteFolderPage(),
-                  ),
-                  _lazyView(WorkspaceView.sftp, const SftpWorkspacePage()),
-                  _lazyView(WorkspaceView.settings, const SettingsView()),
-                ],
+          builder: (context, state) {
+            _visitedViews.add(state.activeView);
+            return BlocProvider.value(
+              value: _sftpWorkspaceBloc,
+              child: WorkspaceShell(
+                state: state,
+                child: IndexedStack(
+                  index: _viewIndex(state.activeView),
+                  children: [
+                    _lazyView(WorkspaceView.gallery, const GalleryShell()),
+                    _lazyView(WorkspaceView.form, const ProfileFormView()),
+                    _lazyView(
+                      WorkspaceView.remoteFolder,
+                      const RemoteFolderPage(),
+                    ),
+                    _lazyView(WorkspaceView.sftp, const SftpWorkspacePage()),
+                    _lazyView(WorkspaceView.settings, const SettingsView()),
+                    _lazyView(WorkspaceView.rdp, const RdpWorkspaceView()),
+                  ],
+                ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

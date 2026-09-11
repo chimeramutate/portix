@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/connection_manager/ssh_profile.dart'
@@ -15,17 +16,38 @@ class SftpWorkspaceController extends ChangeNotifier {
     required ConnectionManager connectionManager,
     LocalFileBrowser? localFileBrowser,
     LocalEditorService? localEditorService,
+    String? tabId,
   }) : _connectionManager = connectionManager,
        _localFileBrowser = localFileBrowser ?? LocalFileBrowser(),
-       _localEditorService = localEditorService ?? LocalEditorService() {
+       _localEditorService = localEditorService ?? LocalEditorService(),
+       tabId = tabId ?? const Uuid().v4() {
     _localPath = _localFileBrowser.defaultPath();
     unawaited(loadLocalDirectory(_localPath));
     _connectionManager.addListener(_handleConnectionManagerChanged);
   }
 
+  /// Stable, unique identifier for the SFTP tab that owns this controller.
+  /// Generated when the controller is created so every tab — even one that is
+  /// closed and later re-opened — gets a fresh identity. This guarantees that a freshly created tab never picks up a stale SFTP session left behind by
+  /// a previously closed tab, and that disconnect notifications fired for a
+  /// closed tab never bleed into a new one.
+  final String tabId;
   final ConnectionManager _connectionManager;
+
+  /// Public accessor for the underlying connection manager, used by the
+  /// workspace page to resolve saved passwords for duplicate-window flows.
+  ConnectionManager get connectionManager => _connectionManager;
   final LocalFileBrowser _localFileBrowser;
   final LocalEditorService _localEditorService;
+
+  /// True once [dispose] has run. The controller starts an in-flight
+  /// `loadLocalDirectory` in its constructor and `attachRemoteProfile` awaits
+  /// `ConnectionManager.connectSftp`, so those async ops can resume *after*
+  /// the owning tab/page is closed and the controller is disposed. Guarding
+  /// [notifyListeners] with this flag lets such resumes no-op instead of
+  /// tripping Flutter's "A SftpWorkspaceController was used after being
+  /// disposed" ChangeNotifier assert. This touches no SSH/auth logic.
+  bool _isDisposed = false;
 
   final List<SftpTransferJob> _transferJobs = [];
   int _transferSerial = 0;
@@ -48,6 +70,21 @@ class SftpWorkspaceController extends ChangeNotifier {
   bool _searchingRemote = false;
   String? _remoteSessionId;
   String? _remoteProfileId;
+  String? _remoteProfileName;
+
+  /// Profile pending password submission (when authMethod is password-based
+  /// and no saved password exists). Used by [submitPassword] to complete
+  /// the connection once the inline form collects a password.
+  domain.SshProfile? _pendingProfile;
+
+  /// Exposed for the UI to read the profile currently awaiting password
+  /// input, so it can show a contextual dialog.
+  domain.SshProfile? get pendingProfile => _pendingProfile;
+
+  /// True once the 'authenticating' step has been visited. Keeps the step
+  /// indicator at 4 steps even after transitioning to 'connecting'/'listing'
+  /// so the completed ✓ marks for "Pick profile" and "Loading" remain visible.
+  bool _didAuthenticate = false;
   // Consecutive remote operation failures. When this hits the threshold the
   // session is force-closed so the disconnect overlay appears immediately
   // without waiting for the Rust keepalive timeout (~17 s).
@@ -57,8 +94,19 @@ class SftpWorkspaceController extends ChangeNotifier {
   int _remoteSearchToken = 0;
   Timer? _remoteSearchDebounce;
 
-  // Track disconnected state for one-time notifications
-  bool _wasDisconnected = false;
+  // Guards against re-notifying while already disconnected so the
+  // "connection lost" state is only entered once per disconnect event
+  // instead of being re-triggered on every ConnectionManager notification
+  // (heartbeat, status events, closeSession, etc.).
+  bool _remoteDisconnectNotified = false;
+
+  /// Whether the step indicator should be shown during remote loading.
+  ///
+  /// Set `true` at the start of an initial connection / reconnect (when
+  /// `attachRemoteProfile` is called). Set `false` once the first directory
+  /// listing completes — subsequent reloads via [loadRemoteDirectory] will
+  /// therefore show *only* the skeleton table, without the step indicator.
+  bool _showConnectionSteps = false;
 
   List<SftpTransferJob> get transferJobs => List.unmodifiable(_transferJobs);
   String get localPath => _localPath;
@@ -82,6 +130,39 @@ class SftpWorkspaceController extends ChangeNotifier {
   bool get loadingRemote => _loadingRemote;
   bool get searchingRemote => _searchingRemote;
   bool get hasRemoteSession => _remoteSessionId != null;
+
+  /// Raw remote connection status string (e.g. 'authenticating',
+  /// 'connecting', 'listing', 'connected', 'disconnected', 'failed',
+  /// 'idle'). Exposed so the UI can drive step-based loading indicators.
+  String get remoteStatus => _remoteStatus;
+
+  /// The UI session ID currently attached to this tab, or null when no
+  /// remote profile is selected. Exposed for diagnostics and testing.
+  String? get remoteSessionId => _remoteSessionId;
+
+  /// Human-readable name of the currently attached SSH profile, or null when
+  /// no remote profile is selected.
+  String? get remoteProfileName => _remoteProfileName;
+
+  /// Whether the 4-step loading indicator should be used (with a dedicated
+  /// "Loading" step for inline password input). This is true when the
+  /// profile required a password that wasn't saved, and remains true after
+  /// authentication succeeds so the step indicator shows all 4 steps with
+  /// the first two marked as completed (✓).
+  ///
+  /// When the profile uses an SSH key or already has a saved password,
+  /// only 3 steps are shown: Pick profile → Connecting... → Connected.
+  bool get showPasswordStep =>
+      _didAuthenticate || _remoteStatus == 'authenticating';
+
+  /// Whether the step indicator should be displayed during remote loading.
+  ///
+  /// True during the initial connection / reconnect flow (set by
+  /// [beginLoading] and [attachRemoteProfile]).  Becomes false once the
+  /// first directory listing finishes — reloads via [loadRemoteDirectory]
+  /// will then show only the skeleton table.
+  bool get showConnectionSteps => _showConnectionSteps;
+
   bool get isRemoteDisconnected {
     if (_remoteSessionId == null) return false;
     final session = _connectionManager.sessions
@@ -90,6 +171,25 @@ class SftpWorkspaceController extends ChangeNotifier {
     if (session == null) return true;
     return session.status == ConnectionStatus.disconnected ||
         session.status == ConnectionStatus.error;
+  }
+
+  /// Marks the remote pane as loading **before** the async
+  /// [attachRemoteProfile] call is scheduled (via addPostFrameCallback).
+  ///
+  /// Without this, there is a single-frame window after the profile is
+  /// selected (via setState in [_selectProfileForActiveTab]) but before
+  /// attachRemoteProfile sets _loadingRemote = true.  During that frame
+  /// _loadingRemote is still false, so the file table — including the
+  /// _TableHeader — flashes before the step indicator appears.  Calling
+  /// this method before setState ensures loading = true on the very first
+  /// rebuild, so only the step indicator is shown.
+  void beginLoading() {
+    if (_loadingRemote) return;
+    _loadingRemote = true;
+    _remoteStatus = 'connecting';
+    _showConnectionSteps = true;
+    _remoteError = null;
+    notifyListeners();
   }
 
   bool get isRemoteConnected {
@@ -125,33 +225,32 @@ class SftpWorkspaceController extends ChangeNotifier {
     return false;
   }
 
-  /// Returns true if the connection was just lost and a notification should be shown.
-  /// This is reset when the user reconnects or clears the session.
-  bool get shouldNotifyDisconnection {
-    return _wasDisconnected && isRemoteDisconnected;
-  }
-
-  /// Reset the disconnection notification flag (called after showing notification).
-  void clearDisconnectionNotification() {
-    _wasDisconnected = false;
-  }
-
   String get remoteStatusTitle {
-    if (_remoteError != null) return 'Remote unavailable';
-    if (_remoteStatus == 'connecting') return 'Connecting to SFTP';
-    if (_remoteStatus == 'resolving') return 'Resolving remote path';
-    if (_remoteStatus == 'listing') return 'Loading remote folder';
-    if (_remoteSessionId != null) return 'Remote connected';
+    if (_remoteError != null) {
+      if (_remoteStatus == 'failed') return 'Connection failed';
+      return 'Remote unavailable';
+    }
+    if (_remoteStatus == 'authenticating') return 'Authenticating';
+    if (_remoteStatus == 'connecting') return 'Loading';
+    if (_remoteStatus == 'listing') return 'Connecting...';
+    if (_remoteSessionId != null) return 'Connected';
     return 'No remote session';
   }
 
   String get remoteStatusMessage {
+    // During 'authenticating' the message is always empty — the error
+    // (if any) is shown inline in the password form, not above the
+    // step indicator.
+    if (_remoteStatus == 'authenticating') {
+      return '';
+    }
     if (_remoteError != null) return _remoteError!;
     if (_remoteStatus == 'connecting') {
-      return 'Opening SSH/SFTP channel through the Rust backend...';
+      return 'Connecting to server...';
     }
-    if (_remoteStatus == 'resolving') return 'Checking path $_remotePath';
-    if (_remoteStatus == 'listing') return 'Reading files from $_remotePath';
+    if (_remoteStatus == 'listing') {
+      return '';
+    }
     if (_remoteSessionId != null) return 'Connected to $_remotePath';
     return 'Choose a profile to start SFTP.';
   }
@@ -187,6 +286,11 @@ class SftpWorkspaceController extends ChangeNotifier {
     final normalizedPath = initialPath.trim().isEmpty
         ? '~'
         : initialPath.trim();
+
+    // Initial connection or auth-error retry — show the step indicator
+    // so the user can follow the connection progress.
+    _showConnectionSteps = true;
+
     // Check if we can reuse existing session - but only if it's still connected
     // and has no outstanding error (an error means the SFTP channel may be
     // silently dead even though TCP port-22 is still reachable).
@@ -205,9 +309,47 @@ class SftpWorkspaceController extends ChangeNotifier {
         }
         return;
       }
-      // Session is stale, disconnected, or errored — clear and reconnect.
-      await clearRemoteSession();
+      // Session is stale, disconnected, or errored — do NOT auto-reconnect.
+      // Show the disconnected overlay so the user can click "Reconnect"
+      // manually instead of silently re-establishing the session on every
+      // tab switch.
+      _remoteError ??= 'Remote connection lost.';
+      _remoteStatus = 'disconnected';
+      _remoteDisconnectNotified = true;
+      notifyListeners();
+      return;
     }
+
+    // If the profile is password-based but no usable password is stored
+    // locally, enter the 'authenticating' state so the UI can collect a
+    // password via an inline form. The connection is resumed in
+    // [submitPassword] once the password is provided.
+    if (profile.authMethod == domain.AuthMethod.password &&
+        (profile.credentialLabel.trim().isEmpty ||
+            profile.credentialLabel == 'Saved password')) {
+      final hasSaved = await _connectionManager.hasSavedPassword(profile.id);
+      if (!hasSaved) {
+        _pendingProfile = profile;
+        _remoteProfileId = profile.id;
+        _remoteProfileName = profile.name;
+        _remotePath = normalizedPath;
+        _remoteStatus = 'authenticating';
+        _loadingRemote = true;
+        _remoteError = null;
+        _didAuthenticate = true;
+        notifyListeners();
+        return;
+      }
+    }
+
+    // Prevent duplicate connection attempts while already connecting or
+    // listing. The password path ('authenticating') is allowed through so
+    // [submitPassword] can resume with the saved credential.
+    if (_loadingRemote &&
+        (_remoteStatus == 'connecting' || _remoteStatus == 'listing')) {
+      return;
+    }
+
     _remotePath = normalizedPath;
     _loadingRemote = true;
     _remoteStatus = 'connecting';
@@ -217,14 +359,36 @@ class SftpWorkspaceController extends ChangeNotifier {
     final result = await _connectionManager.connectSftp(
       _toManagerProfile(profile),
     );
-    final failure = result.fold<String?>(
-      (failure) => failure.message,
-      (_) => null,
-    );
-    if (failure != null) {
+    if (result.isLeft) {
+      final failureStr = result.fold<String?>((f) => f.toString(), (_) => null);
+
+      // If the profile is password-based and the error is auth-related,
+      // re-enter the 'authenticating' state so the inline form can collect
+      // a different password. The error is shown below the password field.
+      if (profile.authMethod == domain.AuthMethod.password &&
+          failureStr != null &&
+          _isAuthError(failureStr)) {
+        _pendingProfile = profile;
+        _remoteStatus = 'authenticating';
+        _loadingRemote = true;
+        _remoteError = 'Authentication failed';
+        notifyListeners();
+        return;
+      }
+
+      // Timeout — surface a specific message so the user knows the
+      // server didn't respond in time. Retry is possible via reconnect.
+      if (failureStr != null && _isTimeoutError(failureStr)) {
+        _loadingRemote = false;
+        _remoteStatus = 'failed';
+        _remoteError = 'Connection timeout';
+        notifyListeners();
+        return;
+      }
+
       _loadingRemote = false;
       _remoteStatus = 'failed';
-      _remoteError = failure;
+      _remoteError = failureStr ?? 'Unknown connection error.';
       notifyListeners();
       return;
     }
@@ -246,6 +410,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     final session = sessions.last;
     _remoteSessionId = session.id;
     _remoteProfileId = profile.id;
+    _remoteProfileName = profile.name;
     await loadRemoteDirectory(_remotePath);
   }
 
@@ -253,12 +418,16 @@ class SftpWorkspaceController extends ChangeNotifier {
     final sessionId = _remoteSessionId;
     _remoteSessionId = null;
     _remoteProfileId = null;
+    _remoteProfileName = null;
+    _pendingProfile = null;
+    _didAuthenticate = false;
     _remoteRows = const [];
     _clearRemoteSearchState();
     _remoteError = null;
     _loadingRemote = false;
     _remoteStatus = 'idle';
-    _wasDisconnected = false;
+    _remoteDisconnectNotified = false;
+    _showConnectionSteps = false;
     _remoteConsecutiveFailures = 0;
     _remoteLoadToken += 1;
     _remoteSearchToken += 1;
@@ -268,6 +437,28 @@ class SftpWorkspaceController extends ChangeNotifier {
     }
   }
 
+  /// Returns true when [error] looks like an authentication failure
+  /// (wrong password, missing credentials, SSH auth rejection, etc.).
+  /// Used to decide whether to re-prompt for a password inline instead of
+  /// showing a generic "Connection failed" message.
+  static bool _isAuthError(String error) {
+    final lower = error.toLowerCase();
+    return lower.contains('password') ||
+        lower.contains('auth') ||
+        lower.contains('credential') ||
+        lower.contains('permission denied') ||
+        lower.contains('access denied');
+  }
+
+  /// Returns true when [error] indicates a connection timeout rather than
+  /// an authentication or generic failure.
+  static bool _isTimeoutError(String error) {
+    final lower = error.toLowerCase();
+    return lower.contains('timeout') ||
+        lower.contains('timed out') ||
+        lower.contains('timedout');
+  }
+
   Future<void> loadRemoteDirectory(String path) async {
     final sessionId = _remoteSessionId;
     if (sessionId == null) return;
@@ -275,7 +466,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     _remoteSearchToken += 1;
     _clearRemoteSearchState();
     _loadingRemote = true;
-    _remoteStatus = 'resolving';
+    _remoteStatus = 'listing';
     _remoteError = null;
     notifyListeners();
 
@@ -294,8 +485,6 @@ class SftpWorkspaceController extends ChangeNotifier {
     }, (value) => value);
     if (resolvedPath == null) return;
 
-    _remoteStatus = 'listing';
-    notifyListeners();
     final entriesResult = await _connectionManager.listRemoteDirectory(
       sessionId,
       resolvedPath,
@@ -317,6 +506,10 @@ class SftpWorkspaceController extends ChangeNotifier {
         _remoteStatus = 'connected';
         _remoteError = null;
         _remoteConsecutiveFailures = 0;
+        // First successful listing completes — subsequent
+        // loadRemoteDirectory calls (reloads, folder navigation)
+        // should show skeleton only, without the step indicator.
+        _showConnectionSteps = false;
         notifyListeners();
       },
     );
@@ -384,7 +577,9 @@ class SftpWorkspaceController extends ChangeNotifier {
     bool overwrite = false,
   }) async {
     final sessionId = _remoteSessionId;
-    if (sessionId == null) return;
+    if (sessionId == null) {
+      throw StateError('Remote SFTP session is not connected yet.');
+    }
     final normalized = localPath.trim();
     final entityType = FileSystemEntity.typeSync(normalized);
     if (entityType == FileSystemEntityType.notFound) {
@@ -503,7 +698,10 @@ class SftpWorkspaceController extends ChangeNotifier {
     final sessionId = _remoteSessionId;
     final remotePath = file.path;
     final trimmed = newName.trim();
-    if (sessionId == null || remotePath == null || trimmed.isEmpty) return;
+    if (sessionId == null) {
+      throw StateError('Remote SFTP session is not connected yet.');
+    }
+    if (remotePath == null || trimmed.isEmpty) return;
     if (trimmed.contains('/') || trimmed.contains('\\')) {
       throw StateError('Rename only supports a name, not a path.');
     }
@@ -576,7 +774,10 @@ class SftpWorkspaceController extends ChangeNotifier {
   Future<void> renameLocalPath(SftpFileEntry file, String newName) async {
     final localPath = file.path;
     final trimmed = newName.trim();
-    if (localPath == null || trimmed.isEmpty) return;
+    if (localPath == null) {
+      throw StateError('Local file path is missing.');
+    }
+    if (trimmed.isEmpty) return;
     if (trimmed.contains('/') || trimmed.contains('\\')) {
       throw StateError('Rename only supports a name, not a path.');
     }
@@ -850,7 +1051,18 @@ class SftpWorkspaceController extends ChangeNotifier {
   }
 
   @override
+  void notifyListeners() {
+    // No-op once disposed: in-flight async ops (the constructor's
+    // loadLocalDirectory, attachRemoteProfile's connect await, etc.) may
+    // resume on a closed tab and call notifyListeners — which would assert.
+    // State they mutate is discarded along with the dead controller.
+    if (_isDisposed) return;
+    super.notifyListeners();
+  }
+
+  @override
   void dispose() {
+    _isDisposed = true;
     _connectionManager.removeListener(_handleConnectionManagerChanged);
     _clearTransferTimer?.cancel();
     _remoteSearchDebounce?.cancel();
@@ -869,26 +1081,92 @@ class SftpWorkspaceController extends ChangeNotifier {
         .firstOrNull;
     if (session == null) {
       // Session was removed entirely — mark as disconnected.
-      _remoteError = 'SFTP session lost. Connection was closed.';
-      _remoteStatus = 'disconnected';
-      _wasDisconnected = true;
-      notifyListeners();
+      if (!_remoteDisconnectNotified) {
+        _remoteError = 'SFTP session lost. Connection was closed.';
+        _remoteStatus = 'disconnected';
+        _remoteDisconnectNotified = true;
+        notifyListeners();
+      }
       return;
     }
-    if (session.status == ConnectionStatus.disconnected ||
-        session.status == ConnectionStatus.error) {
-      _remoteError ??= 'Remote connection lost.';
-      _remoteStatus = 'disconnected';
-      _wasDisconnected = true;
-      notifyListeners();
+    final isDisconnected =
+        session.status == ConnectionStatus.disconnected ||
+        session.status == ConnectionStatus.error;
+    if (isDisconnected) {
+      // Only enter the disconnected state once per disconnect event so the
+      // overlay is not re-triggered on every ConnectionManager notification.
+      if (!_remoteDisconnectNotified) {
+        _remoteError ??= 'Remote connection lost.';
+        _remoteStatus = 'disconnected';
+        _remoteDisconnectNotified = true;
+        notifyListeners();
+      }
+    } else {
+      // Session is connecting/connected — only re-arm the notification
+      // when we reach a stable connected state, not during transient
+      // "connecting" transitions that could re-trigger false notifications.
+      if (session.status == ConnectionStatus.connected) {
+        _remoteDisconnectNotified = false;
+      }
     }
+  }
+
+  /// Whether the page should show a disconnection notification.
+  ///
+  /// Returns `true` when a disconnection has been detected by
+  /// [_handleConnectionManagerChanged] (the flag is armed) and the
+  /// connection is still considered disconnected. The page calls
+  /// [clearDisconnectionNotification] after displaying the snackbar so the
+  /// notification is not re-shown on subsequent change notifications.
+  bool get shouldNotifyDisconnection =>
+      isRemoteDisconnected && _remoteDisconnectNotified;
+
+  /// Clears the disconnection notification flag so the snackbar is not
+  /// shown again until a new disconnection is detected.
+  void clearDisconnectionNotification() {
+    _remoteDisconnectNotified = false;
   }
 
   /// Reconnect the SFTP session using the same profile and path.
   Future<void> reconnect(domain.SshProfile profile) async {
     final previousPath = _remotePath;
     await clearRemoteSession();
+    // Set loading immediately AFTER clearRemoteSession (which sets
+    // _loadingRemote = false + notifyListeners) but BEFORE the async
+    // attachRemoteProfile call. Because both notifyListeners calls happen
+    // synchronously, the page's _pendingRebuild coalesces them into a
+    // single setState — so the table header never flashes.
+    _loadingRemote = true;
+    _remoteStatus = 'connecting';
+    _remoteError = null;
+    _showConnectionSteps = true;
+    notifyListeners();
     await attachRemoteProfile(profile, previousPath);
+  }
+
+  /// Called when the user submits a password via the inline form shown
+  /// when the remote status is 'authenticating'. Saves the password to
+  /// secure storage, updates the profile, and proceeds with the SFTP
+  /// connection.
+  Future<void> submitPassword(String password) async {
+    final profile = _pendingProfile;
+    if (profile == null) return;
+    _pendingProfile = null;
+    await _connectionManager.saveProfilePassword(profile.id, password);
+    final resolvedProfile = profile.copyWith(credentialLabel: password);
+    await attachRemoteProfile(resolvedProfile, _remotePath);
+  }
+
+  /// Called when the user cancels the inline password form. Resets the
+  /// remote status so the profile-selection UI returns.
+  void cancelPasswordRequest() {
+    if (_remoteStatus != 'authenticating') return;
+    _pendingProfile = null;
+    _didAuthenticate = false;
+    _remoteStatus = 'idle';
+    _loadingRemote = false;
+    _remoteError = null;
+    notifyListeners();
   }
 
   bool _isCurrentRemoteRequest(int token) {
@@ -908,7 +1186,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     if (_remoteConsecutiveFailures >= _remoteFailThreshold) {
       _remoteConsecutiveFailures = 0;
       _remoteStatus = 'disconnected';
-      _wasDisconnected = true;
+      _remoteDisconnectNotified = true;
       _remoteError ??= 'Remote connection lost.';
       notifyListeners();
       // Force-close so ConnectionManager removes the session and

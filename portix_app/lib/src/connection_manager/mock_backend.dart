@@ -256,6 +256,11 @@ class MockConnectionBackend implements ConnectionBackend {
   }
 
   @override
+  Future<String> execRemoteCommand(String sessionId, String command) async {
+    throw UnsupportedError('Remote exec is available only on Rust backend');
+  }
+
+  @override
   Future<void> sendTerminalInput(String sessionId, String data) async {
     for (final char in data.codeUnits) {
       switch (char) {

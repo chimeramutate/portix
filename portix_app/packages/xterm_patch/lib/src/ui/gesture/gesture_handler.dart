@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:developer' as dev;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
+import 'package:xterm/src/core/buffer/cell_offset.dart';
 import 'package:xterm/src/core/mouse/button.dart';
 import 'package:xterm/src/core/mouse/button_state.dart';
 import 'package:xterm/src/terminal_view.dart';
@@ -65,11 +67,27 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
 
   RenderTerminal get renderTerminal => terminalView.renderTerminal;
 
-  DragStartDetails? _lastDragStartDetails;
+  /// The buffer cell where the current selection started, captured once at
+  /// drag start. Keeping this in buffer coordinates (instead of re-deriving
+  /// the start from a screen position on every update) keeps the start of the
+  /// block pinned to its original cell even when the viewport scrolls while the
+  /// selection is being dragged. The end of the selection is recomputed on
+  /// every update from the live pointer position, so it stays flexible.
+  CellOffset? _selectionBaseOffset;
 
   LongPressStartDetails? _lastLongPressStartDetails;
 
   bool _dragSelectionActive = false;
+
+  /// Tracks a periodic timer that auto-scrolls the viewport while a selection
+  /// is being dragged past the top/bottom edge of the visible area, so block
+  /// selections can extend past what currently fits on screen.
+  Timer? _selectionAutoScrollTimer;
+
+  /// The last pointer position reported during a selection drag.  Kept so the
+  /// auto-scroll timer can keep extending the selection while the pointer sits
+  /// stationary against an edge.
+  Offset? _lastPointerLocal;
 
   @override
   Widget build(BuildContext context) {
@@ -189,7 +207,12 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
   // void onLongPressUp() {}
 
   void onDragStart(DragStartDetails details) {
-    _lastDragStartDetails = details;
+    // Pin the start of the selection to the buffer cell under the pointer at
+    // drag start. Captured in buffer coordinates (not screen coordinates) so
+    // that scrolling the viewport while dragging does not drift the start of
+    // the block along with the cursor; the end stays flexible and follows the
+    // live pointer position.
+    _selectionBaseOffset = renderTerminal.getCellOffset(details.localPosition);
     _terminalDebugLog(
       'dragStart kind=${details.kind} pos=${details.localPosition} '
       'mouseMode=${terminalView.widget.terminal.mouseMode} '
@@ -201,6 +224,8 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
       _dragSelectionActive = true;
       widget.terminalController.setSuspendPointerInput(true);
       renderTerminal.selectCharacters(details.localPosition);
+      _lastPointerLocal = details.localPosition;
+      _startSelectionAutoScroll();
       _terminalDebugLog(
         'dragStart mouse selection=${widget.terminalController.selection} '
         'suspended=${widget.terminalController.suspendedPointerInputs}',
@@ -215,12 +240,17 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
   }
 
   void onDragUpdate(DragUpdateDetails details) {
-    renderTerminal.selectCharacters(
-      _lastDragStartDetails!.localPosition,
+    _lastPointerLocal = details.localPosition;
+    // Extend from the pinned start cell (captured at drag start) instead of
+    // re-deriving the start from the (still) screen position, so the start of
+    // the block does not drift when the viewport scrolls while dragging.
+    renderTerminal.selectCharactersFromBase(
+      _selectionBaseOffset ??
+          renderTerminal.getCellOffset(details.localPosition),
       details.localPosition,
     );
     _terminalDebugLog(
-      'dragUpdate from=${_lastDragStartDetails!.localPosition} '
+      'dragUpdate base=$_selectionBaseOffset '
       'to=${details.localPosition} '
       'selection=${widget.terminalController.selection}',
     );
@@ -235,10 +265,11 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
       _dragSelectionActive = false;
       widget.terminalController.setSuspendPointerInput(false);
     }
+    _stopSelectionAutoScroll();
     _terminalDebugLog(
       'dragEnd suspended=${widget.terminalController.suspendedPointerInputs}',
     );
-    _lastDragStartDetails = null;
+    _selectionBaseOffset = null;
   }
 
   void onDragCancel() {
@@ -248,9 +279,50 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
       _dragSelectionActive = false;
       widget.terminalController.setSuspendPointerInput(false);
     }
+    _stopSelectionAutoScroll();
     _terminalDebugLog(
       'dragCancel suspended=${widget.terminalController.suspendedPointerInputs}',
     );
-    _lastDragStartDetails = null;
+    _selectionBaseOffset = null;
+  }
+
+  void _startSelectionAutoScroll() {
+    if (_selectionAutoScrollTimer?.isActive == true) return;
+    _selectionAutoScrollTimer = Timer.periodic(
+      const Duration(milliseconds: 16),
+      _onSelectionAutoScrollTick,
+    );
+  }
+
+  void _stopSelectionAutoScroll() {
+    _selectionAutoScrollTimer?.cancel();
+    _selectionAutoScrollTimer = null;
+    _lastPointerLocal = null;
+  }
+
+  void _onSelectionAutoScrollTick(Timer timer) {
+    if (!_dragSelectionActive || _lastPointerLocal == null) return;
+    if (!terminalView.mounted) {
+      _stopSelectionAutoScroll();
+      return;
+    }
+    // In the alt buffer there is no scrollback, so there is nothing to scroll
+    // into view; auto-scroll only applies to selections in the main buffer.
+    if (terminalView.widget.terminal.isUsingAltBuffer) return;
+
+    final delta =
+        renderTerminal.getSelectionDragScrollDelta(_lastPointerLocal!);
+    if (delta == 0.0) return;
+
+    // Move the viewport, then re-extend the selection.  Because the viewport
+    // moved, the same pointer position now maps to further buffer content, so
+    // selectCharactersFromBase picks up the newly revealed lines automatically.
+    // The start of the selection is kept pinned to the cell captured at drag
+    // start, so only the end follows the cursor while the viewport scrolls.
+    terminalView.scrollBy(delta);
+    renderTerminal.selectCharactersFromBase(
+      _selectionBaseOffset ?? renderTerminal.getCellOffset(_lastPointerLocal!),
+      _lastPointerLocal!,
+    );
   }
 }

@@ -83,6 +83,14 @@ class IndexAwareCircularBuffer<T extends IndexedItem> {
 
     _startIndex = 0;
     _array = newArray;
+
+    // When shrinking, _length must be clamped to the new array size.
+    // Otherwise indices >= value would wrap around ([_getCyclicIndex]) and
+    // either return stale data or — if the wrapped slot was nulled by a prior
+    // trim — throw a null-check error at paint/read time.
+    if (_length > value) {
+      _length = value;
+    }
   }
 
   /// Number of elements in the list.
@@ -103,6 +111,16 @@ class IndexAwareCircularBuffer<T extends IndexedItem> {
   T operator [](int index) {
     RangeError.checkValueInInterval(index, 0, length - 1, 'index');
     return _getChild(index)!;
+  }
+
+  /// Safely gets the element at the specified [index] in the list, or `null`
+  /// if the slot is empty.  This can happen transiently when the buffer
+  /// was resized (via [maxLength]) and `_length` was not yet clamped, or
+  /// during buffer reallocation where null slots may temporarily exist
+  /// in the backing array.  Unlike [operator []], this never throws.
+  T? tryGet(int index) {
+    if (index < 0 || index >= _length) return null;
+    return _getChild(index);
   }
 
   /// Sets the element at the specified [index] in the list. Throws if the
@@ -249,12 +267,24 @@ class IndexAwareCircularBuffer<T extends IndexedItem> {
     }
 
     final copyLength = replacement.length - copyStart;
+
+    // Reset the cyclic start index (and length) BEFORE adopting the new
+    // children.  [_adoptChild] maps a logical index i to the cyclic index
+    // (_startIndex + i) % maxLength, so the replacement children must be
+    // written while _startIndex is already 0 so they land at cyclic position
+    // i — the same slot that [operator []] (also using _startIndex == 0) will
+    // later read.  Resetting _startIndex only after the loop, as a previous
+    // version did, left the children at the previous cyclic positions when the
+    // buffer had wrapped (_startIndex != 0, e.g. after scrollback overflow) and
+    // left the leading slots of the backing array null.  A subsequent read of
+    // those slots (e.g. reflow's `lines[i]` during the next resize) then
+    // crashed with "Null check operator used on a null value".
+    _startIndex = 0;
+    _length = copyLength;
+
     for (var i = 0; i < copyLength; i++) {
       _adoptChild(i, replacement[copyStart + i]);
     }
-
-    _startIndex = 0;
-    _length = copyLength;
   }
 
   /// Replaces the element at [index] with [value] and returns the replaced

@@ -33,4 +33,12 @@ abstract interface class ConnectionBackend {
   Future<void> createRemoteDirectory(String sessionId, String path);
   Future<void> createRemoteFile(String sessionId, String path);
   Future<void> chmodRemotePath(String sessionId, String path, String mode);
+
+  /// Execute an arbitrary remote command on the session's *dedicated exec*
+  /// channel (a separate SSH channel, not the interactive shell). The raw
+  /// stdout is returned; a non-zero exit status is surfaced as an exception.
+  /// Used for SFTP/file-manager file-management operations so they never reach
+  /// the interactive shell and therefore never pollute the remote shell
+  /// history or the visible terminal.
+  Future<String> execRemoteCommand(String sessionId, String command);
 }
