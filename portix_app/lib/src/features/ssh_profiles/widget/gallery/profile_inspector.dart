@@ -2,13 +2,13 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
+import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+
 import '../../bloc/index.dart';
-import 'package:portix/src/core/widgets/index.dart';
 import 'profile_card.dart';
 
 class ProfileInspector extends StatelessWidget {
@@ -112,17 +112,6 @@ class ProfileInspector extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 10),
-            AppButton(
-              icon: Icons.cable_rounded,
-              label: 'Start SFTP Connect',
-              onPressed: () => context.read<SshSessionBloc>().add(
-                SshSessionOpenRequested(
-                  profile: profile,
-                  target: SshSessionTarget.sftp,
-                ),
-              ),
-            ),
             const SizedBox(height: 18),
             _ConnectionFeedbackPanel(profile: profile),
           ],
@@ -159,10 +148,12 @@ class _DetailBox extends StatelessWidget {
                 Icon(icon, color: AppColors.cyan, size: 17),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    value,
-                    overflow: TextOverflow.ellipsis,
-                    style: portixTitle(13),
+                  child: SelectionArea(
+                    child: Text(
+                      value,
+                      overflow: TextOverflow.ellipsis,
+                      style: portixTitle(13),
+                    ),
                   ),
                 ),
               ],

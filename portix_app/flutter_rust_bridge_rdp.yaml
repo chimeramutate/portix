@@ -1,0 +1,11 @@
+# RDP backend — produces libportix_rdp.so
+# Kept as a separate crate to avoid the curve25519-dalek version conflict:
+#   russh requires =5.0.0-rc.0, IronRDP/picky requires =5.0.0-rc.1.
+#   These cannot be unified in a single Cargo dependency tree.
+#
+# Run: flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge_rdp.yaml
+rust_input: crate::api
+rust_root: ../portix_rdp/
+dart_output: lib/src/rust_rdp
+dart_entrypoint_class_name: RdpRustLib
+c_output: ../portix_rdp/binding.h

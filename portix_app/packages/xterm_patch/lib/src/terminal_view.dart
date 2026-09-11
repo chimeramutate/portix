@@ -457,6 +457,23 @@ class TerminalViewState extends State<TerminalView> {
     }
   }
 
+  /// Scrolls the terminal viewport by [delta] pixels (positive = scroll down).
+  ///
+  /// This is used to auto-scroll the viewport while a selection is being
+  /// dragged past the top/bottom edge of the terminal, so the user can keep
+  /// extending their selection beyond the visible area.  The [delta] is
+  /// clamped to the available scroll range; a value that would not move the
+  /// viewport is a no-op.  Safe to call from gesture/timer callbacks.
+  void scrollBy(double delta) {
+    if (!mounted || delta == 0.0) return;
+    final position = _scrollController.position;
+    final target =
+        (position.pixels + delta).clamp(0.0, position.maxScrollExtent);
+    if ((target - position.pixels).abs() > 0.001) {
+      position.jumpTo(target);
+    }
+  }
+
   /// Returns true if the terminal is scrolled up (not at bottom).
   /// Used to determine if auto-scroll should be disabled.
   bool get isScrolledUp {

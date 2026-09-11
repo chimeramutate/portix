@@ -156,7 +156,6 @@ class _FileRow extends StatelessWidget {
     final compact = MediaQuery.sizeOf(context).width < 720;
     final row = GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: onSelected,
       onDoubleTap: () {
         if (data.folder || data.name == '..') {
           onOpenFolder(data);
@@ -164,22 +163,32 @@ class _FileRow extends StatelessWidget {
           onAction(_FileAction.open, data);
         }
       },
-      child: Container(
-        height: compact
-            ? data.location == null
-                  ? 52
-                  : 58
-            : data.location == null
-            ? 34
-            : 44,
-        padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
-        decoration: BoxDecoration(
-          color: selected ? const Color(0xFF123B63) : Colors.transparent,
-          border: Border(
-            bottom: BorderSide(color: AppColors.border.withValues(alpha: .65)),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onSelected,
+          highlightColor: AppColors.surfaceDark.withValues(alpha: .35),
+          splashColor: AppColors.primaryBlue.withValues(alpha: .08),
+          child: Container(
+            height: compact
+                ? data.location == null
+                      ? 52
+                      : 58
+                : data.location == null
+                ? 34
+                : 44,
+            padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
+            decoration: BoxDecoration(
+              color: selected ? const Color(0xFF123B63) : Colors.transparent,
+              border: Border(
+                bottom: BorderSide(
+                  color: AppColors.border.withValues(alpha: .65),
+                ),
+              ),
+            ),
+            child: compact ? _compactRow() : _desktopRow(),
           ),
         ),
-        child: compact ? _compactRow() : _desktopRow(),
       ),
     );
 
@@ -204,6 +213,43 @@ class _FileRow extends StatelessWidget {
     );
   }
 
+  Widget _buildFileIcon({required bool compact}) {
+    final iconSize = compact ? 20.0 : 18.0;
+    final color = _iconColorForFile(data.name);
+    if (data.folder) {
+      return Icon(Icons.folder_outlined, color: color, size: iconSize);
+    }
+    final asset = FileTypeRegistry.assetForExtension(data.name);
+    if (asset != null) {
+      return SizedBox(
+        width: iconSize,
+        height: iconSize,
+        child: SvgPicture.asset(
+          asset,
+          fit: BoxFit.contain,
+          colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+        ),
+      );
+    }
+    return Icon(Icons.insert_drive_file_outlined, color: color, size: iconSize);
+  }
+
+  Color _iconColorForFile(String fileName) {
+    final category = FileTypeRegistry.categoryFor(fileName);
+    return switch (category) {
+      FileCategory.code => AppColors.cyan,
+      FileCategory.document => AppColors.primaryBlue,
+      FileCategory.image => AppColors.amber,
+      FileCategory.audio => AppColors.danger,
+      FileCategory.video => AppColors.danger,
+      FileCategory.archive => AppColors.amber,
+      FileCategory.executable => AppColors.danger,
+      FileCategory.database => AppColors.primaryBlue,
+      FileCategory.design => AppColors.amber,
+      FileCategory.unknown => AppColors.muted,
+    };
+  }
+
   Widget _nameCell({required bool compact}) {
     final meta = [
       if (data.location != null) data.location!,
@@ -213,14 +259,8 @@ class _FileRow extends StatelessWidget {
     ].where((item) => item.trim().isNotEmpty && item != '-').join(' · ');
     return Row(
       children: [
-        Icon(
-          data.folder
-              ? Icons.folder_outlined
-              : Icons.insert_drive_file_outlined,
-          color: data.folder ? AppColors.cyan : AppColors.muted,
-          size: compact ? 18 : 16,
-        ),
-        SizedBox(width: compact ? 10 : 9),
+        _buildFileIcon(compact: compact),
+        const SizedBox(width: 8),
         Expanded(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -230,7 +270,7 @@ class _FileRow extends StatelessWidget {
                 data.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: portixTitle(compact ? 13 : 12),
+                style: portixTitle(compact ? 15 : 14),
               ),
               if (compact && meta.isNotEmpty) ...[
                 const SizedBox(height: 3),
@@ -238,13 +278,13 @@ class _FileRow extends StatelessWidget {
                   meta,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: portixMuted(10),
+                  style: portixMuted(12),
                 ),
               ] else if (!compact && data.location != null)
                 Text(
                   data.location!,
                   overflow: TextOverflow.ellipsis,
-                  style: portixMuted(9),
+                  style: portixMuted(11),
                 ),
             ],
           ),
@@ -273,7 +313,7 @@ class _FileRow extends StatelessWidget {
         Expanded(flex: 5, child: _nameCell(compact: false)),
         Expanded(
           flex: 2,
-          child: Text(isRemote ? data.type : data.size, style: portixMuted(11)),
+          child: Text(isRemote ? data.type : data.size, style: portixMuted(13)),
         ),
         Expanded(
           flex: 2,
@@ -375,12 +415,12 @@ class _PaneFooter extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Text(left, style: portixMuted(11)),
+          Text(left, style: portixMuted(12)),
           const Spacer(),
           Text(
             right,
             overflow: TextOverflow.ellipsis,
-            style: portixMuted(11).copyWith(color: AppColors.cyan),
+            style: portixMuted(12).copyWith(color: AppColors.cyan),
           ),
         ],
       ),

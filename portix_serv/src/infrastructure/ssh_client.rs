@@ -48,9 +48,12 @@ const MAX_ROWS: u32 = 256;
 /// How often to send an SSH keepalive request to the server.
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
 
-/// How long to wait for a keepalive reply before treating the connection as dead.
+/// How long to wait for a keepalive reply before giving up (non-fatal).
 /// Must be shorter than KEEPALIVE_INTERVAL to avoid stacking.
-const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(7);
+/// Set to 1 s so the select! loop is never stalled by keepalive I/O —
+/// a truly dead connection is detected via channel closure or the next
+/// operation, not via a blocking keepalive timeout.
+const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(1);
 
 impl client::Handler for Client {
     type Error = russh::Error;
@@ -137,18 +140,38 @@ impl SshRuntime {
                     }
                 }
                 _ = keepalive_tick.tick() => {
-                    // Send SSH keepalive. If the server doesn't respond within
-                    // KEEPALIVE_TIMEOUT the underlying russh session is dead and
-                    // the next channel operation will return an error, breaking
-                    // the loop and triggering a Disconnected status event.
-                    let alive = timeout(
+                    // Send keepalive without blocking the select! loop or
+                    // exiting the runtime on failure.
+                    //
+                    // Previously, a keepalive timeout (7 s) would:
+                    //  1. block the select! loop for up to 7 s, delaying all
+                    //     SFTP command processing (the "glitchy view"), and
+                    //  2. immediately kill the runtime via
+                    //     `return Err(PortixError::ConnectionTimeout)`, marking
+                    //     the session as error/disconnected — even though SFTP
+                    //     file commands run on a *separate* exec channel
+                    //     (`run_exec_worker`) with its own auto-reconnect, so
+                    //     the keepalive timeout was a false positive. This
+                    //     caused false disconnect notifications that kept
+                    //     re-appearing every ~17 s.
+                    //
+                    // With a 1 s non-fatal timeout:
+                    //  - The select! loop is stalled for at most 1 s per tick.
+                    //  - SFTP operations are not blocked for the full 7 s.
+                    //  - The runtime does NOT exit on keepalive failure.
+                    //  - For terminal sessions, a truly dead SSH connection is
+                    //    still detected: the terminal channel closes
+                    //    (channel.wait() → None/Eof/Close → break) or the next
+                    //    channel operation (data/resize) returns an error (?).
+                    //  - For SFTP sessions, file commands work via the exec
+                    //    worker (separate SSH connection with auto-reconnect).
+                    //  - The Rust `inactivity_timeout` (30 s) remains as a
+                    //    backstop for genuinely dead connections.
+                    let _ = timeout(
                         KEEPALIVE_TIMEOUT,
                         session.send_keepalive(false),
-                    ).await;
-                    if alive.is_err() || alive.is_ok_and(|r| r.is_err()) {
-                        // Connection is dead — break so the caller emits Disconnected.
-                        return Err(PortixError::ConnectionTimeout);
-                    }
+                    )
+                    .await;
                 }
             }
         }
@@ -217,28 +240,92 @@ async fn run_exec(session: &client::Handle<Client>, command: String) -> Result<S
 
 async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest>) {
     let mut session = connect_and_authenticate_profile(&profile).await.ok();
-    while let Some((command, response_tx)) = rx.recv().await {
-        // Try to establish session if not connected (with one retry).
-        if session.is_none() {
-            session = connect_and_authenticate_profile(&profile).await.ok();
-            if session.is_none() {
-                // Retry once after a brief delay.
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                session = connect_and_authenticate_profile(&profile).await.ok();
+
+    // This dedicated exec connection is used only for SFTP/remote-file
+    // commands, so — unlike the interactive terminal session — it carries no
+    // traffic between operations. Without keepalives the SSH server (or russh's
+    // own `inactivity_timeout`, currently 30s) reaps it while the SFTP panel
+    // sits idle, which is why the first file transfer / directory load after
+    // idle failed and only the second attempt (which reconnects) succeeded.
+    //
+    // Mirror the terminal session: send a keepalive each interval so the
+    // channel stays warm, and — as a safety net for any death that still
+    // slips through between pings — transparently reconnect and retry the
+    // command once instead of surfacing the transient failure.
+    let mut keepalive = interval(KEEPALIVE_INTERVAL);
+    keepalive.tick().await; // consume the immediate first tick
+
+    loop {
+        tokio::select! {
+            msg = rx.recv() => {
+                let Some((command, response_tx)) = msg else {
+                    // Channel closed: no more exec requests will arrive.
+                    break;
+                };
+
+                // Establish the connection if we don't have one yet (with one
+                // retry), preserving the original behaviour.
+                if session.is_none() {
+                    session = connect_and_authenticate_profile(&profile).await.ok();
+                    if session.is_none() {
+                        // Retry once after a brief delay.
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        session = connect_and_authenticate_profile(&profile).await.ok();
+                    }
+                }
+
+                let result = if let Some(handle) = session.as_ref() {
+                    let result = run_exec(handle, command.clone()).await;
+                    if result.is_err() {
+                        // Connection dropped between keepalive pings (or the
+                        // connect above just failed). Reconnect once and retry
+                        // the command so the caller never observes the
+                        // transient failure — this is what makes the first
+                        // transfer succeed instead of needing a second attempt.
+                        session = None;
+                        match connect_and_authenticate_profile(&profile).await {
+                            Ok(new_handle) => {
+                                session = Some(new_handle);
+                                run_exec(session.as_ref().unwrap(), command).await
+                            }
+                            Err(_) => result,
+                        }
+                    } else {
+                        result
+                    }
+                } else {
+                    Err(PortixError::ConnectionTimeout)
+                };
+                let _ = response_tx.send(result);
+            }
+            _ = keepalive.tick() => {
+                if let Some(handle) = session.as_ref() {
+                    // Non-blocking keepalive with a short timeout.
+                    //
+                    // IMPORTANT: do NOT set `session = None` on timeout.
+                    // The keepalive timeout (1 s) can fire on slow-but-alive
+                    // SSH servers (the server is just slow to ACK the
+                    // SSH_MSG_IGNORE packet). Dropping the session here
+                    // would force a full re-connect on the *next* exec
+                    // request, which is wasteful and — if that re-connect
+                    // also hits a slow response — causes cascading failures
+                    // that trigger the Dart-side force-close threshold
+                    // (_recordRemoteFailure after 2 failures), producing a
+                    // false disconnect even though the server is still
+                    // reachable.
+                    //
+                    // Instead, we silently discard the keepalive result.
+                    // If the connection is *truly* dead, the next exec
+                    // request's `run_exec` will fail and the existing retry
+                    // path (connect → retry command) will reconnect cleanly.
+                    let _ = timeout(
+                        KEEPALIVE_TIMEOUT,
+                        handle.send_keepalive(false),
+                    )
+                    .await;
+                }
             }
         }
-
-        let result = if let Some(handle) = session.as_ref() {
-            let result = run_exec(handle, command.clone()).await;
-            if result.is_err() {
-                // Connection might be broken — try a fresh one for the next request.
-                session = None;
-            }
-            result
-        } else {
-            Err(PortixError::ConnectionTimeout)
-        };
-        let _ = response_tx.send(result);
     }
 
     if let Some(handle) = session {
@@ -338,6 +425,9 @@ fn expand_user_path(path: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+
+    // ── normalize_terminal_size ───────────────────────────────────────────────
 
     #[test]
     fn normalize_terminal_size_clamps_tiny_values() {
@@ -347,5 +437,121 @@ mod tests {
     #[test]
     fn normalize_terminal_size_clamps_large_values() {
         assert_eq!(normalize_terminal_size(999, 999), (MAX_COLS, MAX_ROWS));
+    }
+
+    #[test]
+    fn normalize_terminal_size_zero_input() {
+        assert_eq!(normalize_terminal_size(0, 0), (MIN_COLS, MIN_ROWS));
+    }
+
+    #[test]
+    fn normalize_terminal_size_passes_normal_values() {
+        assert_eq!(normalize_terminal_size(80, 24), (80, 24));
+    }
+
+    #[test]
+    fn normalize_terminal_size_passes_max_boundary() {
+        assert_eq!(
+            normalize_terminal_size(MAX_COLS, MAX_ROWS),
+            (MAX_COLS, MAX_ROWS)
+        );
+    }
+
+    #[test]
+    fn normalize_terminal_size_passes_min_boundary() {
+        assert_eq!(
+            normalize_terminal_size(MIN_COLS, MIN_ROWS),
+            (MIN_COLS, MIN_ROWS)
+        );
+    }
+
+    #[test]
+    fn normalize_terminal_size_one_above_max_cols() {
+        let (cols, _) = normalize_terminal_size(MAX_COLS + 1, 24);
+        assert_eq!(cols, MAX_COLS);
+    }
+
+    #[test]
+    fn normalize_terminal_size_one_below_min_rows() {
+        let (_, rows) = normalize_terminal_size(80, MIN_ROWS - 1);
+        assert_eq!(rows, MIN_ROWS);
+    }
+
+    #[test]
+    fn normalize_terminal_size_large_cols_small_rows() {
+        let (cols, rows) = normalize_terminal_size(9999, 1);
+        assert_eq!(cols, MAX_COLS);
+        assert_eq!(rows, MIN_ROWS);
+    }
+
+    // ── expand_user_path ──────────────────────────────────────────────────────
+
+    #[test]
+    fn expand_user_path_tilde_slash_expands_to_home() {
+        let orig = env::var("HOME").ok();
+        // SAFETY: single-threaded test, no other threads read HOME concurrently.
+        unsafe {
+            env::set_var("HOME", "/test/home");
+        }
+        let expanded = expand_user_path("~/projects");
+        assert_eq!(expanded.to_str().unwrap(), "/test/home/projects");
+        match orig {
+            Some(h) => unsafe {
+                env::set_var("HOME", h);
+            },
+            None => unsafe {
+                env::remove_var("HOME");
+            },
+        }
+    }
+
+    #[test]
+    fn expand_user_path_tilde_alone_expands_to_home() {
+        let orig = env::var("HOME").ok();
+        // SAFETY: single-threaded test.
+        unsafe {
+            env::set_var("HOME", "/test/home");
+        }
+        let expanded = expand_user_path("~");
+        assert_eq!(expanded.to_str().unwrap(), "/test/home");
+        match orig {
+            Some(h) => unsafe {
+                env::set_var("HOME", h);
+            },
+            None => unsafe {
+                env::remove_var("HOME");
+            },
+        }
+    }
+
+    #[test]
+    fn expand_user_path_absolute_not_changed() {
+        let path = "/etc/ssh/sshd_config";
+        assert_eq!(expand_user_path(path).to_str().unwrap(), path);
+    }
+
+    #[test]
+    fn expand_user_path_relative_not_changed() {
+        let path = "relative/key";
+        assert_eq!(expand_user_path(path).to_str().unwrap(), path);
+    }
+
+    #[test]
+    fn expand_user_path_nested_tilde() {
+        let orig = env::var("HOME").ok();
+        // SAFETY: single-threaded test.
+        unsafe {
+            env::set_var("HOME", "/home/deploy");
+        }
+        let expanded = expand_user_path("~/.ssh/id_ed25519");
+        assert_eq!(expanded.to_str().unwrap(), "/home/deploy/.ssh/id_ed25519");
+        match orig {
+            Some(h) => unsafe {
+                env::set_var("HOME", h);
+            },
+            None => unsafe {
+                env::remove_var("HOME");
+            },
+        }
     }
 }

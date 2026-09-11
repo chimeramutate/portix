@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
-import 'package:portix/src/core/widgets/index.dart';
-
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/connection_manager/session_models.dart'
     as session_models;
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
+import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+
 import '../../bloc/index.dart';
 
 class ProfileCard extends StatelessWidget {
@@ -54,12 +54,6 @@ class ProfileCard extends StatelessWidget {
                         profile.name.isEmpty ? 'new profile' : profile.name,
                         overflow: TextOverflow.ellipsis,
                         style: portixTitle(17),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        profile.host.isEmpty ? 'Add host / IP' : profile.host,
-                        overflow: TextOverflow.ellipsis,
-                        style: portixMuted(),
                       ),
                     ],
                   ),
@@ -127,13 +121,6 @@ class ProfileCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             MetaLine(
-              icon: Icons.person_outline,
-              text: profile.username.isEmpty
-                  ? 'Set username'
-                  : profile.username,
-            ),
-            MetaLine(icon: Icons.tag_rounded, text: '${profile.port}'),
-            MetaLine(
               icon: profile.authMethod == AuthMethod.sshKey
                   ? Icons.key_rounded
                   : Icons.lock_outline_rounded,
@@ -180,16 +167,6 @@ class ProfileCard extends StatelessWidget {
                             target: SshSessionTarget.remoteFolder,
                           ),
                         ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  AppIconButton(
-                    icon: Icons.folder_copy_outlined,
-                    onPressed: () => context.read<SshSessionBloc>().add(
-                      SshSessionOpenRequested(
-                        profile: profile,
-                        target: SshSessionTarget.sftp,
                       ),
                     ),
                   ),

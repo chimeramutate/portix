@@ -7,8 +7,8 @@ import 'package:portix/src/domain/entities/ssh/index.dart';
 class ProfileFileController {
   const ProfileFileController();
 
-  static const fileExtension = '.portix-profiles.json';
-  static const defaultFileName = 'portix-profiles$fileExtension';
+  static const fileExtension = '.json';
+  static const defaultFileName = 'portix-profile$fileExtension';
 
   Future<ProfilePathPickResult> pickImportPath() async {
     if (Platform.isMacOS) {
@@ -24,7 +24,7 @@ class ProfileFileController {
         r'''
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.OpenFileDialog
-$dialog.Filter = "Portix profiles (*.portix-profiles.json)|*.portix-profiles.json|JSON files (*.json)|*.json|All files (*.*)|*.*"
+$dialog.Filter = "Portix profiles (*.json)|*.json|All files (*.*)|*.*"
 $dialog.Multiselect = $false
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.FileName }
 ''',
@@ -34,7 +34,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.
     final zenityResult = await _runPicker('zenity', const [
       '--file-selection',
       '--title=Import Portix profile file',
-      '--file-filter=Portix profiles | *.portix-profiles.json *.json',
+      '--file-filter=Portix profiles | *.json',
     ]);
     if (zenityResult.status != ProfilePathPickStatus.unavailable) {
       return zenityResult;
@@ -56,8 +56,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.
         r'''
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.SaveFileDialog
-$dialog.Filter = "Portix profiles (*.portix-profiles.json)|*.portix-profiles.json|JSON files (*.json)|*.json"
-$dialog.FileName = "portix-profiles.portix-profiles.json"
+$dialog.Filter = "Portix profiles (*.json)|*.json"
+$dialog.FileName = "portix-profile.json"
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.FileName }
 ''',
       ]);
@@ -68,7 +68,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.
       '--save',
       '--confirm-overwrite',
       '--title=Export Portix profiles',
-      '--filename=portix-profiles.portix-profiles.json',
+      '--filename=portix-profile.json',
     ]);
     if (zenityResult.status != ProfilePathPickStatus.unavailable) {
       return zenityResult;
@@ -175,7 +175,6 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.
   String _ensureProfileExtension(String path) {
     final trimmed = path.trim();
     if (trimmed.endsWith(fileExtension)) return trimmed;
-    if (trimmed.endsWith('.json')) return trimmed;
     return '$trimmed$fileExtension';
   }
 

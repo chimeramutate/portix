@@ -66,10 +66,78 @@ class TerminalSuggestionController {
     if (data.isEmpty) return false;
 
     var changed = false;
-    for (final codeUnit in data.codeUnits) {
-      changed = _handleCodeUnit(sessionId, codeUnit) || changed;
+    final units = data.codeUnits;
+    var i = 0;
+    while (i < units.length) {
+      final unit = units[i];
+
+      // Skip ANSI escape sequences in their entirety.  Their printable body
+      // (e.g. the `[A`/`[D` of arrow keys, or `3~` of Delete) used to be
+      // buffered as typed text, which polluted the suggestion input with
+      // `[D[D…[A[A` garbage and surfaced bogus suggestions.  The full
+      // sequence is still forwarded to the SSH session by the panel, so
+      // shell-side handling (cursor movement, up-history on Enter, etc.) is
+      // unaffected.
+      if (unit == 0x1b /* ESC */) {
+        i = _skipAnsiEscapeSequence(units, i + 1);
+        continue;
+      }
+
+      changed = _handleCodeUnit(sessionId, unit) || changed;
+      i++;
     }
     return changed;
+  }
+
+  /// Returns the index in [units] to resume scanning from, having skipped the
+  /// ANSI escape sequence that began at `start` (i.e. the byte right after the
+  /// introducing `ESC`).  Handles the common CSI / OSC / SS3 families produced
+  /// by cursor/home/end/delete keys.  A lone `ESC` or an unrecognised payload
+  /// skips only the introducing byte so a following normal character is still
+  /// processed as ordinary input.
+  static int _skipAnsiEscapeSequence(List<int> units, int start) {
+    if (start >= units.length) return start;
+    final c1 = units[start];
+
+    // OSC: ESC ] ... ST (ESC \)  or  BEL-terminated.
+    if (c1 == 0x5d /* ] */) {
+      var i = start + 1;
+      while (i < units.length) {
+        final u = units[i];
+        if (u == 0x07 /* BEL */) return i + 1;
+        if (u == 0x1b /* ESC */ &&
+            i + 1 < units.length &&
+            units[i + 1] == 0x5c /* \ */) {
+          return i + 2;
+        }
+        i++;
+      }
+      return i;
+    }
+
+    // CSI: ESC [ [params] [intermediates] final.  Arrow keys and the
+    // home/end/delete family all take this form.
+    if (c1 == 0x5b /* [ */) {
+      var i = start + 1;
+      while (i < units.length) {
+        final u = units[i];
+        if ((u >= 0x30 && u <= 0x3f) || (u >= 0x20 && u <= 0x2f)) {
+          i++;
+          continue;
+        }
+        if (u >= 0x40 && u <= 0x7e) return i + 1; // final byte consumed
+        i++;
+      }
+      return i;
+    }
+
+    // SS3 / other ESC-led two-char sequences: ESC O <final>.
+    if (c1 == 0x4f /* O */) {
+      return (start + 1 < units.length) ? start + 2 : start + 1;
+    }
+
+    // Unrecognised ESC payload: don't swallow any more bytes.
+    return start;
   }
 
   String inputFor(String sessionId) => (_buffers[sessionId] ?? '').trimLeft();
