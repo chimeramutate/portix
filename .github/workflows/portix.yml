@@ -932,10 +932,39 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Patch FRB library paths for bundle deployment BEFORE build
+          # Set ioDirectory to empty string so libraries are loaded from executable directory
+          echo "Patching FRB library paths for bundled deployment..."
+          
+          sed -i "s|ioDirectory: '../portix_serv/target/release/'|ioDirectory: ''|g" \
+            "lib/src/rust/frb_generated.dart"
+          sed -i "s|ioDirectory: '../portix_rdp/target/release/'|ioDirectory: ''|g" \
+            "lib/src/rust_rdp/frb_generated.dart"
+
           flutter build linux \
             --release \
             --dart-define=PORTIX_BACKEND=rust \
             --dart-define=RUST_LIBRARY_MODE=production
+
+      - name: Verify Flutter bundle directory
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BUNDLE_DIR="${APP_DIR}/build/linux/x64/release/bundle"
+
+          if [ ! -d "$BUNDLE_DIR" ]; then
+            echo "ERROR: Flutter bundle directory not found: $BUNDLE_DIR"
+            echo "Flutter build may have failed"
+            exit 1
+          fi
+
+          echo "Bundle directory contents:"
+          ls -laR "$BUNDLE_DIR"
+
+          echo ""
+          echo "Bundle directory size:"
+          du -sh "$BUNDLE_DIR"
 
       - name: Bundle Rust libraries
         shell: bash
@@ -991,6 +1020,24 @@ jobs:
             "$BUNDLE_DIR/libportix_serv.so" \
             "$BUNDLE_DIR/libportix_rdp.so"
 
+      - name: Dump full bundle structure
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BUNDLE_DIR="${APP_DIR}/build/linux/x64/release/bundle"
+
+          echo "=== Full Bundle Structure ==="
+          find "$BUNDLE_DIR" -type f -exec ls -la {} \;
+
+          echo ""
+          echo "=== Checking executable is runnable ==="
+          file "$BUNDLE_DIR/portix"
+
+          echo ""
+          echo "=== Checking library dependencies ==="
+          ldd "$BUNDLE_DIR/portix" || true
+
       - name: Bundle Linux runtime libraries
         shell: bash
         run: |
@@ -1024,12 +1071,42 @@ jobs:
           RELEASE_NAME="${{ steps.version.outputs.release_name }}"
           ARCHIVE="portix-linux-${RELEASE_NAME}.tar.gz"
 
+          # Package bundle contents directly (without 'bundle' wrapper directory)
           tar \
             -czf "$ARCHIVE" \
-            -C "${APP_DIR}/build/linux/x64/release" \
-            bundle
+            -C "${APP_DIR}/build/linux/x64/release/bundle" \
+            .
 
           ls -lah "$ARCHIVE"
+
+          echo ""
+          echo "=== TAR contents ==="
+          # Suppress SIGPIPE errors from tar when piped to head
+          set +o pipefail
+          tar -tzf "$ARCHIVE" | head -30 || true
+          set -o pipefail
+
+      - name: Verify TAR bundle structure
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_NAME="${{ steps.version.outputs.release_name }}"
+          ARCHIVE="portix-linux-${RELEASE_NAME}.tar.gz"
+
+          # Check that required files are in the tarball
+          # Use a subshell to isolate the pipeline from pipefail, avoiding SIGPIPE errors
+          # when grep or head exits early
+          for pattern in "./portix" "./libportix_serv.so" "./libportix_rdp.so" "./flutter_assets"; do
+            set +o pipefail
+            if ! tar -tzf "$ARCHIVE" | grep -q "$pattern"; then
+              echo "ERROR: Required file $pattern not found in bundle"
+              exit 1
+            fi
+            set -o pipefail
+          done
+
+          echo "TAR bundle structure verified!"
 
       - name: Package Linux DEB
         shell: bash
@@ -1482,20 +1559,32 @@ jobs:
           name: portix-Linux-${{ needs.build-desktop-linux.outputs.release_name }}
           path: artifact/
 
+      - name: List Linux artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          find artifact -type f -print
+
       - name: Extract Linux bundle
         shell: bash
         run: |
           set -euo pipefail
 
-          ARCHIVE="artifact/portix-linux-*.tar.gz"
+          ARCHIVE="artifact/portix-linux-${{ needs.build-desktop-linux.outputs.release_name }}.tar.gz"
 
           if [ ! -f "$ARCHIVE" ]; then
-            echo "ERROR: Linux bundle not found"
+            echo "ERROR: Linux archive not found: $ARCHIVE"
+            echo "Available files:"
+            find artifact -type f -print
             exit 1
           fi
 
-          mkdir -p /tmp/artifact/bundle
-          tar -xzf "$ARCHIVE" -C /tmp/artifact/bundle --strip-components=1
+          # Create bundle directory in the project root for snap build access
+          mkdir -p bundle
+          tar -xzf "$ARCHIVE" -C bundle
+
+          echo "Bundle extracted to bundle/"
+          ls -la bundle/
 
       - name: Sync snap version
         shell: bash
@@ -1507,11 +1596,16 @@ jobs:
 
           test -f "$SNAPCRAFT_FILE"
           if grep -qE '^version:' "$SNAPCRAFT_FILE"; then
-            sed -i "s/^version:.*/version: \"${VERSION}\"/" "$SNAPCRAFT_FILE"
+            sed -i.bak "s/^version:.*/version: \"${VERSION}\"/" "$SNAPCRAFT_FILE"
+            rm -f "${SNAPCRAFT_FILE}.bak"
           else
-            sed -i "/^name:/a version: \"${VERSION}\"" "$SNAPCRAFT_FILE"
+            sed -i.bak "/^name:/a version: \"${VERSION}\" " "$SNAPCRAFT_FILE"
+            rm -f "${SNAPCRAFT_FILE}.bak"
           fi
           grep '^version:' "$SNAPCRAFT_FILE"
+
+          echo "Bundle directory:"
+          ls -la bundle/
 
       - name: Build Snap
         id: snap
@@ -1579,8 +1673,7 @@ jobs:
 
           tar \
             -xzf "$ARCHIVE" \
-            -C flatpak/bundle-src \
-            --strip-components=1
+            -C flatpak/bundle-src
 
       - name: Copy Flatpak assets
         shell: bash
