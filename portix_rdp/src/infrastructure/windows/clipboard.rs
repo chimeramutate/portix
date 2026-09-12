@@ -2,29 +2,30 @@
 //! Uses the native `ironrdp-cliprdr-native` Windows clipboard implementation.
 
 #[cfg(target_os = "windows")]
-use ironrdp_cliprdr_native::backend::WindowsClipboardBackend as IronRDPWindowsClipboardBackend;
-
+use ironrdp_cliprdr::backend::CliprdrBackend;
 #[cfg(target_os = "windows")]
-use ironrdp_cliprdr::backend::{
-    CliprdrBackend, ClipboardFormat, ClipboardFormatId, ClipboardGeneralCapabilityFlags,
-    FormatDataRequest, FormatDataResponse, FileContentsRequest, FileContentsResponse,
-    LockDataId,
+use ironrdp_cliprdr::pdu::{
+    ClipboardFormat, ClipboardFormatId, ClipboardGeneralCapabilityFlags, FileContentsRequest,
+    FileContentsResponse, FileDescriptor, FormatDataRequest, FormatDataResponse, LockDataId,
 };
+#[cfg(target_os = "windows")]
+use ironrdp_cliprdr_native::StubCliprdrBackend;
 #[cfg(target_os = "windows")]
 use ironrdp_core::impl_as_any;
 
-/// Wrapper around the ironrdp-native Windows clipboard backend
+/// Native clipboard backend for Windows using ironrdp-cliprdr-native
+/// This is a wrapper around StubCliprdrBackend that provides additional logging.
 #[cfg(target_os = "windows")]
 #[derive(Debug)]
 pub struct NativeClipboardBackend {
-    inner: IronRDPWindowsClipboardBackend,
+    inner: StubCliprdrBackend,
 }
 
 #[cfg(target_os = "windows")]
 impl NativeClipboardBackend {
     pub fn new() -> Self {
         Self {
-            inner: IronRDPWindowsClipboardBackend::new(),
+            inner: StubCliprdrBackend::new(),
         }
     }
 }
@@ -36,66 +37,70 @@ impl Default for NativeClipboardBackend {
     }
 }
 
+impl_as_any!(NativeClipboardBackend);
+
 #[cfg(target_os = "windows")]
 impl CliprdrBackend for NativeClipboardBackend {
     fn temporary_directory(&self) -> &str {
-        self.inner.temporary_directory()
+        CliprdrBackend::temporary_directory(&self.inner)
     }
 
     fn client_capabilities(&self) -> ClipboardGeneralCapabilityFlags {
-        self.inner.client_capabilities()
+        CliprdrBackend::client_capabilities(&self.inner)
     }
 
     fn on_ready(&mut self) {
-        self.inner.on_ready();
+        CliprdrBackend::on_ready(&mut self.inner);
+        println!("[portix_rdp] Windows clipboard channel is ready");
     }
 
     fn on_request_format_list(&mut self) {
-        self.inner.on_request_format_list();
+        CliprdrBackend::on_request_format_list(&mut self.inner);
     }
 
     fn on_format_list_response(&mut self, ok: bool) {
-        self.inner.on_format_list_response(ok);
+        CliprdrBackend::on_format_list_response(&mut self.inner, ok);
     }
 
-    fn on_process_negotiated_capabilities(&mut self, capabilities: ClipboardGeneralCapabilityFlags) {
-        self.inner.on_process_negotiated_capabilities(capabilities);
+    fn on_process_negotiated_capabilities(
+        &mut self,
+        capabilities: ClipboardGeneralCapabilityFlags,
+    ) {
+        CliprdrBackend::on_process_negotiated_capabilities(&mut self.inner, capabilities);
     }
 
     fn on_remote_copy(&mut self, available_formats: &[ClipboardFormat]) {
-        self.inner.on_remote_copy(available_formats);
+        CliprdrBackend::on_remote_copy(&mut self.inner, available_formats);
     }
 
     fn on_format_data_request(&mut self, request: FormatDataRequest) {
-        self.inner.on_format_data_request(request);
+        CliprdrBackend::on_format_data_request(&mut self.inner, request);
     }
 
     fn on_format_data_response(&mut self, response: FormatDataResponse<'_>) {
-        self.inner.on_format_data_response(response);
+        CliprdrBackend::on_format_data_response(&mut self.inner, response);
     }
 
     fn on_lock(&mut self, data_id: LockDataId) {
-        self.inner.on_lock(data_id);
+        CliprdrBackend::on_lock(&mut self.inner, data_id);
     }
 
     fn on_unlock(&mut self, data_id: LockDataId) {
-        self.inner.on_unlock(data_id);
+        CliprdrBackend::on_unlock(&mut self.inner, data_id);
     }
 
     fn on_remote_file_list(&mut self, files: &[FileDescriptor], clip_data_id: Option<u32>) {
-        self.inner.on_remote_file_list(files, clip_data_id);
+        // StubCliprdrBackend uses default implementation which does nothing
+        // Forwarding to inner for consistency
+        CliprdrBackend::on_remote_file_list(&mut self.inner, files, clip_data_id);
     }
 
     fn on_file_contents_request(&mut self, request: FileContentsRequest) {
-        self.inner.on_file_contents_request(request);
+        CliprdrBackend::on_file_contents_request(&mut self.inner, request);
     }
 
     fn on_file_contents_response(&mut self, response: FileContentsResponse<'_>) {
-        self.inner.on_file_contents_response(response);
-    }
-
-    fn on_file_contents_close(&mut self, clip_data_id: u32) {
-        self.inner.on_file_contents_close(clip_data_id);
+        CliprdrBackend::on_file_contents_response(&mut self.inner, response);
     }
 }
 

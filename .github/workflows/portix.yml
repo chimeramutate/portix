@@ -927,6 +927,7 @@ jobs:
           PY
 
       - name: Build Flutter Linux
+        working-directory: ${{ env.APP_DIR }}
         shell: bash
         run: |
           set -euo pipefail
@@ -936,9 +937,9 @@ jobs:
           echo "Patching FRB library paths for bundled deployment..."
           
           sed -i "s|ioDirectory: '../portix_serv/target/release/'|ioDirectory: ''|g" \
-            "${APP_DIR}/lib/src/rust/frb_generated.dart"
+            "lib/src/rust/frb_generated.dart"
           sed -i "s|ioDirectory: '../portix_rdp/target/release/'|ioDirectory: ''|g" \
-            "${APP_DIR}/lib/src/rust_rdp/frb_generated.dart"
+            "lib/src/rust_rdp/frb_generated.dart"
 
           flutter build linux \
             --release \
