@@ -1,7 +1,5 @@
 use flutter_rust_bridge::frb;
 use once_cell::sync::Lazy;
-use std::sync::Mutex;
-use tokio_util::sync::CancellationToken;
 
 use crate::application::session_manager::RdpSessionManager;
 use crate::domain::events::{RdpErrorEvent, RdpFrameEvent, RdpStatusEvent};
@@ -10,14 +8,6 @@ use crate::domain::session::RdpSessionInfo;
 use crate::frb_generated::StreamSink;
 
 static RDP_MANAGER: Lazy<RdpSessionManager> = Lazy::new(RdpSessionManager::new);
-
-// Token untuk membatalkan handler stream sebelumnya saat subscriber baru didaftarkan.
-// Ini menangani kasus hot restart Flutter di mana .so tidak di-reload tapi Dart
-// memanggil rdp_frame_stream() lagi → handler lama di-cancel sebelum handler baru mulai.
-static FRAME_STREAM_CANCEL: Lazy<Mutex<Option<CancellationToken>>> = Lazy::new(|| Mutex::new(None));
-static STATUS_STREAM_CANCEL: Lazy<Mutex<Option<CancellationToken>>> =
-    Lazy::new(|| Mutex::new(None));
-static ERROR_STREAM_CANCEL: Lazy<Mutex<Option<CancellationToken>>> = Lazy::new(|| Mutex::new(None));
 
 #[frb(init)]
 pub fn init_rdp_app() {

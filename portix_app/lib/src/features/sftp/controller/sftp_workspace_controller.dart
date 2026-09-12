@@ -77,6 +77,25 @@ class SftpWorkspaceController extends ChangeNotifier {
   /// the connection once the inline form collects a password.
   domain.SshProfile? _pendingProfile;
 
+  /// True while [submitPassword] is awaiting `saveProfilePassword` so that
+  /// scheduled-sync callbacks (from the page's build-phase
+  /// `_scheduleLeftSync` / `_scheduleRemoteSync`) can't re-enter the
+  /// 'authenticating' state with the *original* (password-less) profile.
+  ///
+  /// Without this guard there is a race: `submitPassword` clears
+  /// `_pendingProfile` and then `await`s `saveProfilePassword` (a platform
+  /// channel round-trip to the secure keychain). During that suspension a
+  /// post-frame callback fires `attachRemoteProfile(originalProfile)` which
+  /// sees no saved password yet (`hasSavedPassword` → false), re-enters
+  /// 'authenticating', re-sets `_pendingProfile`, and makes the inline
+  /// password form re-appear — exactly the "password input comes back" bug.
+  ///
+  /// The flag is scoped to the auth-check block only, so
+  /// `submitPassword`'s own `attachRemoteProfile(resolvedProfile)` — which
+  /// carries the password in `credentialLabel` and therefore skips the auth
+  /// check entirely — is never blocked by it.
+  bool _passwordSubmitting = false;
+
   /// Exposed for the UI to read the profile currently awaiting password
   /// input, so it can show a contextual dialog.
   domain.SshProfile? get pendingProfile => _pendingProfile;
@@ -99,6 +118,15 @@ class SftpWorkspaceController extends ChangeNotifier {
   // instead of being re-triggered on every ConnectionManager notification
   // (heartbeat, status events, closeSession, etc.).
   bool _remoteDisconnectNotified = false;
+
+  /// Whether an `attachRemoteProfile → connectSftp` call is currently in
+  /// flight.  This replaces the old loading-guard that keyed on
+  /// `_loadingRemote && (_remoteStatus == 'connecting' || 'listing')`,
+  /// because [beginLoading] now pre-sets that same `_remoteStatus = 'connecting'`
+  /// state — without starting `connectSftp` — to avoid a one-frame controls
+  /// flash when a profile is selected.  The old guard would have tripped on
+  /// that pre-set state and blocked the very connection it was meant to start.
+  bool _connectInProgress = false;
 
   /// Whether the step indicator should be shown during remote loading.
   ///
@@ -275,6 +303,14 @@ class SftpWorkspaceController extends ChangeNotifier {
     }
   }
 
+  /// Reads the children of [path] without changing the current local
+  /// selection. Used by the path-bar autocomplete so typing an absolute path
+  /// (e.g. `/opt/`) can complete against that directory instead of the
+  /// currently‑browsed one.
+  Future<List<SftpFileEntry>> readLocalDirectory(String path) {
+    return _localFileBrowser.readDirectory(path).then((r) => r.entries);
+  }
+
   Future<void> attachRemoteProfile(
     domain.SshProfile? profile,
     String initialPath,
@@ -307,6 +343,18 @@ class SftpWorkspaceController extends ChangeNotifier {
         } else if (_remotePath != normalizedPath && _remoteRows.isEmpty) {
           await loadRemoteDirectory(normalizedPath);
         }
+        // beginLoading() may have pre-emptively set _loadingRemote +
+        // _remoteStatus = 'connecting' before this attachRemoteProfile
+        // call fired (to avoid a one-frame controls flash).  If we reach
+        // here with the session already connected and rows loaded, reset
+        // to the connected state so the file table + controls show instead
+        // of the step indicator getting stuck on 'connecting'.
+        if (_loadingRemote && _remoteStatus == 'connecting') {
+          _loadingRemote = false;
+          _showConnectionSteps = false;
+          _remoteStatus = 'connected';
+          notifyListeners();
+        }
         return;
       }
       // Session is stale, disconnected, or errored — do NOT auto-reconnect.
@@ -327,6 +375,14 @@ class SftpWorkspaceController extends ChangeNotifier {
     if (profile.authMethod == domain.AuthMethod.password &&
         (profile.credentialLabel.trim().isEmpty ||
             profile.credentialLabel == 'Saved password')) {
+      // Suppress scheduled-sync re-entry (see [_passwordSubmitting] docs)
+      // while a password submission is in flight. submitPassword's own
+      // attachRemoteProfile call carries the password in credentialLabel
+      // and therefore never reaches this branch — it proceeds straight
+      // to 'connecting' below.
+      if (_passwordSubmitting) {
+        return;
+      }
       final hasSaved = await _connectionManager.hasSavedPassword(profile.id);
       if (!hasSaved) {
         _pendingProfile = profile;
@@ -342,11 +398,21 @@ class SftpWorkspaceController extends ChangeNotifier {
       }
     }
 
-    // Prevent duplicate connection attempts while already connecting or
-    // listing. The password path ('authenticating') is allowed through so
-    // [submitPassword] can resume with the saved credential.
-    if (_loadingRemote &&
-        (_remoteStatus == 'connecting' || _remoteStatus == 'listing')) {
+    // Prevent duplicate connection attempts while connectSftp is actually
+    // in flight, or while a listing is already underway.
+    //
+    // [beginLoading] — called by the page before setState — sets
+    // _remoteStatus = 'connecting' (without starting connectSftp) so the
+    // step indicator shows immediately and the file-table controls don't
+    // flash for one frame.  We must NOT block on that mere 'connecting'
+    // status; only on _connectInProgress (set around the real connectSftp
+    // call below) and on 'listing' (loadRemoteDirectory in progress,
+    // already protected downstream by the session-reuse path or the
+    // _remoteLoadToken mechanism).
+    //
+    // The 'authenticating' status is allowed through so [submitPassword]
+    // can resume with the saved credential.
+    if (_connectInProgress || _remoteStatus == 'listing') {
       return;
     }
 
@@ -356,9 +422,11 @@ class SftpWorkspaceController extends ChangeNotifier {
     _remoteError = null;
     notifyListeners();
 
+    _connectInProgress = true;
     final result = await _connectionManager.connectSftp(
       _toManagerProfile(profile),
     );
+    _connectInProgress = false;
     if (result.isLeft) {
       final failureStr = result.fold<String?>((f) => f.toString(), (_) => null);
 
@@ -421,12 +489,14 @@ class SftpWorkspaceController extends ChangeNotifier {
     _remoteProfileName = null;
     _pendingProfile = null;
     _didAuthenticate = false;
+    _passwordSubmitting = false;
     _remoteRows = const [];
     _clearRemoteSearchState();
     _remoteError = null;
     _loadingRemote = false;
     _remoteStatus = 'idle';
     _remoteDisconnectNotified = false;
+    _connectInProgress = false;
     _showConnectionSteps = false;
     _remoteConsecutiveFailures = 0;
     _remoteLoadToken += 1;
@@ -1131,16 +1201,12 @@ class SftpWorkspaceController extends ChangeNotifier {
   Future<void> reconnect(domain.SshProfile profile) async {
     final previousPath = _remotePath;
     await clearRemoteSession();
-    // Set loading immediately AFTER clearRemoteSession (which sets
-    // _loadingRemote = false + notifyListeners) but BEFORE the async
-    // attachRemoteProfile call. Because both notifyListeners calls happen
-    // synchronously, the page's _pendingRebuild coalesces them into a
-    // single setState — so the table header never flashes.
-    _loadingRemote = true;
-    _remoteStatus = 'connecting';
-    _remoteError = null;
-    _showConnectionSteps = true;
-    notifyListeners();
+    // beginLoading() sets _loadingRemote = true + _remoteStatus = 'connecting'
+    // synchronously before the await attachRemoteProfile, so the page's
+    // _pendingRebuild coalesces the notifyListeners from beginLoading and
+    // the setState from attachRemoteProfile into a single frame — the
+    // table header never flashes.
+    beginLoading();
     await attachRemoteProfile(profile, previousPath);
   }
 
@@ -1151,10 +1217,21 @@ class SftpWorkspaceController extends ChangeNotifier {
   Future<void> submitPassword(String password) async {
     final profile = _pendingProfile;
     if (profile == null) return;
+    // Clear _pendingProfile immediately so the UI no longer treats the
+    // password form as awaiting input. _passwordSubmitting is set BEFORE
+    // the save await so that any scheduled-sync callback that fires during
+    // the secure-storage round-trip (saveProfilePassword) is suppressed by
+    // the guard in attachRemoteProfile — preventing the 'authenticating'
+    // state from being re-entered and the password form from re-appearing.
     _pendingProfile = null;
-    await _connectionManager.saveProfilePassword(profile.id, password);
-    final resolvedProfile = profile.copyWith(credentialLabel: password);
-    await attachRemoteProfile(resolvedProfile, _remotePath);
+    _passwordSubmitting = true;
+    try {
+      await _connectionManager.saveProfilePassword(profile.id, password);
+      final resolvedProfile = profile.copyWith(credentialLabel: password);
+      await attachRemoteProfile(resolvedProfile, _remotePath);
+    } finally {
+      _passwordSubmitting = false;
+    }
   }
 
   /// Called when the user cancels the inline password form. Resets the

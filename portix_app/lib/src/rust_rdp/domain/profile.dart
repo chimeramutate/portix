@@ -21,6 +21,10 @@ class RdpProfile {
   final String? alternateShell;
   final String? sourceRdpContent;
 
+  /// Passthru username for CyberArk PSM (the actual RDP username when using PSM)
+  /// This is used when connecting through CyberArk Privileged Session Manager
+  final String? passthruUsername;
+
   /// Enable RDP drive redirection.
   final bool redirectDrives;
 
@@ -53,6 +57,7 @@ class RdpProfile {
     required this.enableCredSsp,
     this.alternateShell,
     this.sourceRdpContent,
+    this.passthruUsername,
     required this.redirectDrives,
     required this.redirectClipboard,
     this.localSharePath,
@@ -74,6 +79,7 @@ class RdpProfile {
       enableCredSsp.hashCode ^
       alternateShell.hashCode ^
       sourceRdpContent.hashCode ^
+      passthruUsername.hashCode ^
       redirectDrives.hashCode ^
       redirectClipboard.hashCode ^
       localSharePath.hashCode ^
@@ -97,6 +103,7 @@ class RdpProfile {
           enableCredSsp == other.enableCredSsp &&
           alternateShell == other.alternateShell &&
           sourceRdpContent == other.sourceRdpContent &&
+          passthruUsername == other.passthruUsername &&
           redirectDrives == other.redirectDrives &&
           redirectClipboard == other.redirectClipboard &&
           localSharePath == other.localSharePath &&
