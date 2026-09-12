@@ -7,6 +7,13 @@ use ironrdp_pdu::input::fast_path::FastPathInput;
 use ironrdp_rdpdr::Rdpdr;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use ironrdp_rdpdr_native::backend::NixRdpdrBackend;
+use ironrdp_cliprdr::Cliprdr;
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+use crate::infrastructure::clipboard::NativeClipboardBackend;
+
+#[cfg(target_os = "windows")]
+use crate::infrastructure::windows::clipboard::ClipboardBackend;
 use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{ActiveStageBuilder, ActiveStageOutput};
 use ironrdp_tokio::reqwest::ReqwestNetworkClient;
@@ -212,7 +219,10 @@ impl RdpRuntime {
             .try_connect(self.profile.enable_cred_ssp, &cancel_token)
             .await
         {
-            Ok(result) => result,
+            Ok(result) => {
+                println!("[portix_rdp] connect_begin completed");
+                result
+            },
             Err(RdpError::NegotiationFailed(ref msg)) if self.profile.enable_cred_ssp => {
                 println!(
                     "[portix_rdp] NLA negotiation failed ({}), retrying without CredSSP …",
@@ -224,7 +234,18 @@ impl RdpRuntime {
                 );
                 self.try_connect(false, &cancel_token).await?
             }
-            Err(e) => return Err(e),
+            Err(RdpError::ConnectionTimeout) => {
+                eprintln!("[portix_rdp] ERROR: Connection timeout to {}", self.profile.host);
+                return Err(RdpError::ConnectionTimeout);
+            }
+            Err(RdpError::Io(e)) => {
+                eprintln!("[portix_rdp] ERROR: IO error during connection: {}", e);
+                return Err(RdpError::Io(e));
+            }
+            Err(e) => {
+                eprintln!("[portix_rdp] ERROR: Connection failed: {:?}", e);
+                return Err(e);
+            },
         };
 
         let (mut tls_framed, connection_result) = connection_result;
@@ -274,30 +295,38 @@ impl RdpRuntime {
                 }
 
                 pdu_result = tls_framed.read_pdu() => {
-                    let (action, pdu_bytes) = pdu_result
-                        .map_err(|e| RdpError::Protocol(e.to_string()))?;
+                    match pdu_result {
+                        Ok((action, pdu_bytes)) => {
+                            let outputs = match active_stage.process(&mut image, action, &pdu_bytes) {
+                                Ok(o) => o,
+                                Err(e) => {
+                                    eprintln!("[portix_rdp] PROTOCOL ERROR in process(): {}", e);
+                                    return Err(RdpError::Protocol(e.to_string()));
+                                }
+                            };
 
-                    let outputs = active_stage
-                        .process(&mut image, action, &pdu_bytes)
-                        .map_err(|e| RdpError::Protocol(e.to_string()))?;
-
-                    for output in outputs {
-                        match output {
-                            ActiveStageOutput::ResponseFrame(frame) => {
-
-                                tls_framed.write_all(&frame).await.map_err(RdpError::Io)?;
+                            for output in outputs {
+                                match output {
+                                    ActiveStageOutput::ResponseFrame(frame) => {
+                                        if let Err(e) = tls_framed.write_all(&frame).await {
+                                            eprintln!("[portix_rdp] IO ERROR writing frame: {}", e);
+                                            return Err(RdpError::Io(e));
+                                        }
+                                    }
+                                    ActiveStageOutput::GraphicsUpdate(_region) => {
+                                        frame_dirty = true;
+                                    }
+                                    ActiveStageOutput::Terminate(_) => {
+                                        println!("[portix_rdp] session {} terminated by server", self.session_id);
+                                        return Ok(());
+                                    }
+                                    _ => {}
+                                }
                             }
-                            ActiveStageOutput::GraphicsUpdate(_region) => {
-
-
-
-                                frame_dirty = true;
-                            }
-                            ActiveStageOutput::Terminate(_) => {
-                                println!("[portix_rdp] session {} terminated by server", self.session_id);
-                                return Ok(());
-                            }
-                            _ => {}
+                        }
+                        Err(e) => {
+                            eprintln!("[portix_rdp] PROTOCOL ERROR reading PDU: {}", e);
+                            return Err(RdpError::Protocol(e.to_string()));
                         }
                     }
                 }
@@ -505,22 +534,74 @@ impl RdpRuntime {
             println!("[portix_rdp] attaching rdpsnd companion channel");
         }
 
+        // Clipboard redirection
+        if self.profile.redirect_clipboard {
+            println!("[portix_rdp] clipboard redirection enabled");
+
+            #[cfg(target_os = "windows")]
+            {
+                let backend = ClipboardBackend::new();
+                let cliprdr = Cliprdr::new(Box::new(backend));
+                println!("[portix_rdp] attaching cliprdr channel (Windows backend)");
+                connector.attach_static_channel(cliprdr);
+            }
+
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            {
+                let backend = NativeClipboardBackend::new();
+                let cliprdr = Cliprdr::new(Box::new(backend));
+                println!("[portix_rdp] attaching cliprdr channel (Native backend)");
+                connector.attach_static_channel(cliprdr);
+            }
+        }
+
         let mut framed = TokioFramed::new(tcp);
 
-        let should_upgrade = timeout(CONNECT_TIMEOUT, connect_begin(&mut framed, &mut connector))
-            .await
-            .map_err(|_| RdpError::ConnectionTimeout)?
-            .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+        println!("[portix_rdp] starting connect_begin (credssp={})", enable_credssp);
+        let begin_result = timeout(CONNECT_TIMEOUT, connect_begin(&mut framed, &mut connector))
+            .await;
+
+        let should_upgrade = match begin_result {
+            Ok(Ok(result)) => {
+                println!("[portix_rdp] connect_begin completed");
+                result
+            },
+            Ok(Err(e)) => {
+                eprintln!("[portix_rdp] ERROR: connect_begin FAILED: {}", e);
+                eprintln!("[portix_rdp] connection details: host={}, credssp={}, user={}",
+                    self.profile.host, enable_credssp, self.profile.username);
+                return Err(RdpError::NegotiationFailed(e.to_string()));
+            },
+            Err(_) => {
+                eprintln!("[portix_rdp] ERROR: connect_begin TIMEOUT after {:?}", CONNECT_TIMEOUT);
+                return Err(RdpError::ConnectionTimeout);
+            }
+        };
 
         let (raw_stream, leftover) = framed.into_inner();
 
-        let (upgraded_stream, server_cert_der) = timeout(
+        println!("[portix_rdp] starting TLS upgrade for host={}", self.profile.host);
+        let tls_result = timeout(
             CONNECT_TIMEOUT,
             ironrdp_tls::upgrade(raw_stream, self.profile.host.as_str()),
         )
-        .await
-        .map_err(|_| RdpError::ConnectionTimeout)?
-        .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+        .await;
+
+        let (upgraded_stream, server_cert_der) = match tls_result {
+            Ok(Ok(result)) => {
+                println!("[portix_rdp] TLS upgrade SUCCESS");
+                result
+            },
+            Ok(Err(e)) => {
+                eprintln!("[portix_rdp] ERROR: TLS upgrade FAILED: {}", e);
+                eprintln!("[portix_rdp] This usually indicates NLA/CredSSP authentication failure");
+                return Err(RdpError::NegotiationFailed(e.to_string()));
+            },
+            Err(_) => {
+                eprintln!("[portix_rdp] ERROR: TLS upgrade TIMEOUT after {:?}", CONNECT_TIMEOUT);
+                return Err(RdpError::ConnectionTimeout);
+            }
+        };
 
         let server_public_key =
             ironrdp_tls::extract_tls_server_public_key(&server_cert_der).unwrap_or_default();
@@ -528,9 +609,10 @@ impl RdpRuntime {
         let mut tls_framed = TokioFramed::new_with_leftover(upgraded_stream, leftover);
         let upgraded = mark_as_upgraded(should_upgrade, &mut connector);
 
+        println!("[portix_rdp] starting connect_finalize");
         let mut network_client = ReqwestNetworkClient::new();
 
-        let connection_result = timeout(
+        let finalize_result = timeout(
             CONNECT_TIMEOUT,
             connect_finalize(
                 upgraded,
@@ -542,9 +624,30 @@ impl RdpRuntime {
                 None,
             ),
         )
-        .await
-        .map_err(|_| RdpError::ConnectionTimeout)?
-        .map_err(|e| RdpError::NegotiationFailed(e.to_string()))?;
+        .await;
+
+        let connection_result = match finalize_result {
+            Ok(Ok(result)) => {
+                println!("[portix_rdp] connect_finalize SUCCESS, desktop={}x{}",
+                    result.desktop_size.width, result.desktop_size.height);
+                result
+            },
+            Ok(Err(e)) => {
+                eprintln!("[portix_rdp] ERROR: connect_finalize FAILED: {}", e);
+                eprintln!("[portix_rdp] This is the 'privileged session could not be established securely' error from CyberArk");
+                eprintln!("[portix_rdp] Root causes:");
+                eprintln!("[portix_rdp]   1. CredSSP not enabled (check enable_credssp parameter)");
+                eprintln!("[portix_rdp]   2. PAS/PSM configuration issue");
+                eprintln!("[portix_rdp]   3. Network/TLS handshake failure");
+                return Err(RdpError::NegotiationFailed(e.to_string()));
+            },
+            Err(_) => {
+                eprintln!("[portix_rdp] ERROR: connect_finalize TIMEOUT after {:?}", CONNECT_TIMEOUT);
+                return Err(RdpError::ConnectionTimeout);
+            }
+        };
+
+        println!("[portix_rdp] connection established");
 
         Ok((tls_framed, connection_result))
     }

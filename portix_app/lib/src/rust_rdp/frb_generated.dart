@@ -615,8 +615,8 @@ class RdpRustLibApiImpl extends RdpRustLibApiImplPlatform
   RdpProfile dco_decode_rdp_profile(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 17)
-      throw Exception('unexpected arr length: expect 17 but see ${arr.length}');
+    if (arr.length != 18)
+      throw Exception('unexpected arr length: expect 18 but see ${arr.length}');
     return RdpProfile(
       id: dco_decode_String(arr[0]),
       name: dco_decode_String(arr[1]),
@@ -631,10 +631,11 @@ class RdpRustLibApiImpl extends RdpRustLibApiImplPlatform
       enableCredSsp: dco_decode_bool(arr[10]),
       alternateShell: dco_decode_opt_String(arr[11]),
       sourceRdpContent: dco_decode_opt_String(arr[12]),
-      redirectDrives: dco_decode_bool(arr[13]),
-      redirectClipboard: dco_decode_bool(arr[14]),
-      localSharePath: dco_decode_opt_String(arr[15]),
-      localShareName: dco_decode_String(arr[16]),
+      passthruUsername: dco_decode_opt_String(arr[13]),
+      redirectDrives: dco_decode_bool(arr[14]),
+      redirectClipboard: dco_decode_bool(arr[15]),
+      localSharePath: dco_decode_opt_String(arr[16]),
+      localShareName: dco_decode_String(arr[17]),
     );
   }
 
@@ -833,6 +834,7 @@ class RdpRustLibApiImpl extends RdpRustLibApiImplPlatform
     var var_enableCredSsp = sse_decode_bool(deserializer);
     var var_alternateShell = sse_decode_opt_String(deserializer);
     var var_sourceRdpContent = sse_decode_opt_String(deserializer);
+    var var_passthruUsername = sse_decode_opt_String(deserializer);
     var var_redirectDrives = sse_decode_bool(deserializer);
     var var_redirectClipboard = sse_decode_bool(deserializer);
     var var_localSharePath = sse_decode_opt_String(deserializer);
@@ -851,6 +853,7 @@ class RdpRustLibApiImpl extends RdpRustLibApiImplPlatform
       enableCredSsp: var_enableCredSsp,
       alternateShell: var_alternateShell,
       sourceRdpContent: var_sourceRdpContent,
+      passthruUsername: var_passthruUsername,
       redirectDrives: var_redirectDrives,
       redirectClipboard: var_redirectClipboard,
       localSharePath: var_localSharePath,
@@ -1077,6 +1080,7 @@ class RdpRustLibApiImpl extends RdpRustLibApiImplPlatform
     sse_encode_bool(self.enableCredSsp, serializer);
     sse_encode_opt_String(self.alternateShell, serializer);
     sse_encode_opt_String(self.sourceRdpContent, serializer);
+    sse_encode_opt_String(self.passthruUsername, serializer);
     sse_encode_bool(self.redirectDrives, serializer);
     sse_encode_bool(self.redirectClipboard, serializer);
     sse_encode_opt_String(self.localSharePath, serializer);
