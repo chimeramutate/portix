@@ -1586,6 +1586,14 @@ jobs:
           echo "Bundle extracted to bundle/"
           ls -la bundle/
 
+      - name: Cache snapcraft
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/snapcraft
+            ~/.local/share/snapcraft
+          key: snapcraft-${{ runner.os }}-${{ hashFiles('snap/snapcraft.yaml') }}
+
       - name: Sync snap version
         shell: bash
         run: |
@@ -1607,22 +1615,47 @@ jobs:
           echo "Bundle directory:"
           ls -la bundle/
 
+      - name: Install snapcraft
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Check if snapcraft is already installed
+          if snap list snapcraft 2>/dev/null | grep -q snapcraft; then
+            echo "snapcraft already installed"
+          else
+            sudo snap install snapcraft --classic --channel=8.x
+          fi
+          snapcraft --version
+
       - name: Build Snap
-        id: snap
-        uses: snapcore/action-build@v1
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd snap
+          snapcraft pack --output="../portix_${{ github.ref_name }}.snap"
+          cd ..
+          ls -la portix_*.snap
 
       - name: Upload Snap artifact
         uses: actions/upload-artifact@v7
         with:
           name: portix-snap-${{ github.ref_name }}
-          path: ${{ steps.snap.outputs.snap }}
+          path: portix_${{ github.ref_name }}.snap
           if-no-files-found: error
 
       - name: Upload Snap to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           prerelease: ${{ env.IS_BETA == 'true' }}
-          files: ${{ steps.snap.outputs.snap }}
+          files: portix_${{ github.ref_name }}.snap
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          rm -rf bundle/
+          rm -rf portix_*.snap
+          echo "Cleanup complete"
 
   # ==========================================================================
   # SNAP PUBLISH
