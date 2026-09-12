@@ -22,6 +22,14 @@ pub struct RdpProfile {
     pub source_rdp_content: Option<String>,
 
     // ─────────────────────────────────────────────────────────────
+    // CyberArk PSM specific
+    // ─────────────────────────────────────────────────────────────
+    /// Passthru username for CyberArk PSM (the actual RDP username when using PSM)
+    /// This is used when connecting through CyberArk Privileged Session Manager
+    #[serde(default)]
+    pub passthru_username: Option<String>,
+
+    // ─────────────────────────────────────────────────────────────
     // RDP redirection
     // ─────────────────────────────────────────────────────────────
     /// Enable RDP drive redirection.
@@ -151,6 +159,8 @@ impl Default for RdpProfile {
             alternate_shell: None,
             source_rdp_content: None,
 
+            passthru_username: None,
+
             // RDP redirection defaults.
             redirect_drives: false,
             redirect_clipboard: true,
@@ -191,11 +201,39 @@ pub fn parse_rdp_file(
         .and_then(|v| v.parse().ok())
         .unwrap_or(1);
 
-    let enable_cred_ssp = settings
+    let is_cyberark_psm = alternate_shell
+        .as_ref()
+        .map(|s| s.to_lowercase().contains("psm"))
+        .unwrap_or(false);
+
+    // Read CredSSP setting from file
+    let original_cred_ssp = settings
         .get("enablecredsspsupport")
         .and_then(|v| v.parse::<i32>().ok())
-        .unwrap_or(1)
-        == 1;
+        .unwrap_or(1) == 1;
+
+    // For CyberArk PSM, force enable CredSSP because:
+    // 1. PAS portals often generate .rdp files with CredSSP disabled by mistake
+    // 2. CyberArk PSM servers require CredSSP for secure privileged sessions
+    // 3. Without CredSSP, CyberArk returns "privileged session could not be established securely" error
+    let enable_cred_ssp = if is_cyberark_psm {
+        if !original_cred_ssp {
+            eprintln!(
+                "[portix_rdp] INFO: Force-enabling CredSSP for CyberArk PSM connection. \
+                PAS-generated .rdp files sometimes have CredSSP disabled but PSM requires it."
+            );
+        }
+        true
+    } else {
+        original_cred_ssp
+    };
+
+    let redirect_drives = settings
+        .get("redirectdrives")
+        .and_then(|v| v.parse::<i32>().ok())
+        .unwrap_or(0) == 1;
+
+    let _drivestoredirect = settings.get("drivestoredirect").cloned();
 
     // ─────────────────────────────────────────────────────────────
     // Parse host / port
@@ -272,9 +310,10 @@ pub fn parse_rdp_file(
 
         source_rdp_content: Some(content.to_owned()),
 
-        // Local drive sharing is deliberately NOT enabled
-        // just because an .rdp file was imported.
-        redirect_drives: false,
+        passthru_username: None,
+
+        // Local drive sharing - only enabled if explicitly set in .rdp
+        redirect_drives: redirect_drives,
         redirect_clipboard: true,
 
         local_share_path: None,
@@ -379,6 +418,9 @@ EnableCredSspSupport:i:1"#;
     #[test]
     fn local_share_is_valid() {
         let profile = RdpProfile {
+            id: "test-id".to_owned(),
+            host: "localhost".to_owned(),
+            username: "user".to_owned(),
             redirect_drives: true,
             local_share_path: Some("/tmp/PortixShare".into()),
             local_share_name: "Portix".into(),

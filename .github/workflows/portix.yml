@@ -1482,15 +1482,21 @@ jobs:
           name: portix-Linux-${{ needs.build-desktop-linux.outputs.release_name }}
           path: artifact/
 
+      - name: List Linux artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          find artifact -type f -print
+
       - name: Extract Linux bundle
         shell: bash
         run: |
           set -euo pipefail
 
-          ARCHIVE="artifact/portix-linux-*.tar.gz"
+          ARCHIVE="artifact/portix-linux-${{ needs.build-desktop-linux.outputs.release_name }}.tar.gz"
 
           if [ ! -f "$ARCHIVE" ]; then
-            echo "ERROR: Linux bundle not found"
+            echo "ERROR: Linux archive not found: $ARCHIVE"
             exit 1
           fi
 

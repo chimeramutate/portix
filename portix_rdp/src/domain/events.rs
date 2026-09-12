@@ -9,6 +9,19 @@ pub struct RdpStatusEvent {
     pub message: Option<String>,
 }
 
+/// Event for debugging logs to be displayed in Flutter app
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RdpLogEvent {
+    /// Timestamp of the log (Unix timestamp in seconds)
+    pub timestamp: i64,
+    /// Log level: INFO, WARN, ERROR, DEBUG
+    pub level: String,
+    /// Log message
+    pub message: String,
+    /// Optional session ID if related to a specific session
+    pub session_id: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RdpErrorEvent {
     pub session_id: Option<String>,
@@ -31,6 +44,13 @@ pub struct RdpFrameEvent {
     pub y: u32,
 
     pub frame_id: u64,
+}
+
+/// Event for clipboard data received from remote session
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RdpClipboardEvent {
+    pub session_id: String,
+    pub data: String,
 }
 
 fn default_error_code() -> String {
