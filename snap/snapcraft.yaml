@@ -34,7 +34,18 @@ parts:
         echo "Found bundle in ./bundle, copying..."
         cp -r ./bundle/. $CRAFT_PART_INSTALL/
         echo "Bundle copied successfully"
+        
+        # Fix desktop file location for snap
+        # Flutter creates portix.desktop at bundle root, but snap expects it in usr/share/applications/
+        if [ -f "$CRAFT_PART_INSTALL/portix.desktop" ]; then
+          mkdir -p "$CRAFT_PART_INSTALL/usr/share/applications"
+          mv "$CRAFT_PART_INSTALL/portix.desktop" "$CRAFT_PART_INSTALL/usr/share/applications/portix.desktop"
+          echo "Moved desktop file to usr/share/applications/"
+        fi
+        
         ls -la $CRAFT_PART_INSTALL/
+        echo "usr/share/applications:"
+        ls -la $CRAFT_PART_INSTALL/usr/share/applications/ 2>/dev/null || echo "No usr/share/applications directory"
         exit 0
       fi
       
@@ -43,6 +54,14 @@ parts:
         echo "Found bundle in /tmp/artifact/bundle, copying..."
         cp -r /tmp/artifact/bundle/. $CRAFT_PART_INSTALL/
         echo "Bundle copied successfully"
+        
+        # Fix desktop file location for snap
+        if [ -f "$CRAFT_PART_INSTALL/portix.desktop" ]; then
+          mkdir -p "$CRAFT_PART_INSTALL/usr/share/applications"
+          mv "$CRAFT_PART_INSTALL/portix.desktop" "$CRAFT_PART_INSTALL/usr/share/applications/portix.desktop"
+          echo "Moved desktop file to usr/share/applications/"
+        fi
+        
         ls -la $CRAFT_PART_INSTALL/
         exit 0
       fi
