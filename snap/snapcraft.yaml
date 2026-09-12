@@ -21,8 +21,6 @@ parts:
     plugin: nil
     source: .
     source-type: local
-    build-packages:
-      - nothing # Placeholder
     stage-packages:
       - libgtk-3-0
       - libsecret-1-0
