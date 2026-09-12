@@ -1081,7 +1081,10 @@ jobs:
 
           echo ""
           echo "=== TAR contents ==="
-          tar -tzf "$ARCHIVE" | head -30
+          # Suppress SIGPIPE errors from tar when piped to head
+          set +o pipefail
+          tar -tzf "$ARCHIVE" | head -30 || true
+          set -o pipefail
 
       - name: Verify TAR bundle structure
         shell: bash
@@ -1092,10 +1095,16 @@ jobs:
           ARCHIVE="portix-linux-${RELEASE_NAME}.tar.gz"
 
           # Check that required files are in the tarball
-          tar -tzf "$ARCHIVE" | grep -q "./portix" || { echo "ERROR: portix executable not found in bundle"; exit 1; }
-          tar -tzf "$ARCHIVE" | grep -q "./libportix_serv.so" || { echo "ERROR: libportix_serv.so not found in bundle"; exit 1; }
-          tar -tzf "$ARCHIVE" | grep -q "./libportix_rdp.so" || { echo "ERROR: libportix_rdp.so not found in bundle"; exit 1; }
-          tar -tzf "$ARCHIVE" | grep -q "./flutter_assets" || { echo "ERROR: flutter_assets not found in bundle"; exit 1; }
+          # Use a subshell to isolate the pipeline from pipefail, avoiding SIGPIPE errors
+          # when grep or head exits early
+          for pattern in "./portix" "./libportix_serv.so" "./libportix_rdp.so" "./flutter_assets"; do
+            set +o pipefail
+            if ! tar -tzf "$ARCHIVE" | grep -q "$pattern"; then
+              echo "ERROR: Required file $pattern not found in bundle"
+              exit 1
+            fi
+            set -o pipefail
+          done
 
           echo "TAR bundle structure verified!"
 
