@@ -1590,15 +1590,17 @@ jobs:
 
           test -f "$SNAPCRAFT_FILE"
           if grep -qE '^version:' "$SNAPCRAFT_FILE"; then
-            sed -i "s/^version:.*/version: \"${VERSION}\"/" "$SNAPCRAFT_FILE"
+            sed -i.bak "s/^version:.*/version: \"${VERSION}\"/" "$SNAPCRAFT_FILE"
+            rm -f "${SNAPCRAFT_FILE}.bak"
           else
-            sed -i "/^name:/a version: \"${VERSION}\"" "$SNAPCRAFT_FILE"
+            sed -i.bak "/^name:/a version: \"${VERSION}\" " "$SNAPCRAFT_FILE"
+            rm -f "${SNAPCRAFT_FILE}.bak"
           fi
           grep '^version:' "$SNAPCRAFT_FILE"
 
       - name: Build Snap
         id: snap
-        uses: snapcore/action-build@v1
+        uses: snapcore/action-build@v2
 
       - name: Upload Snap artifact
         uses: actions/upload-artifact@v7
