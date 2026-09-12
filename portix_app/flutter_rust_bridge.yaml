@@ -3,4 +3,6 @@
 rust_input: crate::api
 rust_root: ../portix_serv/
 dart_output: lib/src/rust
+# Note: For bundled releases, use ioDirectory: "" to load from executable directory
+# This is overridden at build time via --dart-define for bundled output
 c_output: ../portix_serv/binding.h
