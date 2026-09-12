@@ -1574,11 +1574,17 @@ jobs:
 
           if [ ! -f "$ARCHIVE" ]; then
             echo "ERROR: Linux archive not found: $ARCHIVE"
+            echo "Available files:"
+            find artifact -type f -print
             exit 1
           fi
 
-          mkdir -p /tmp/artifact/bundle
-          tar -xzf "$ARCHIVE" -C /tmp/artifact/bundle
+          # Create bundle directory in the project root for snap build access
+          mkdir -p bundle
+          tar -xzf "$ARCHIVE" -C bundle
+
+          echo "Bundle extracted to bundle/"
+          ls -la bundle/
 
       - name: Sync snap version
         shell: bash
@@ -1597,6 +1603,9 @@ jobs:
             rm -f "${SNAPCRAFT_FILE}.bak"
           fi
           grep '^version:' "$SNAPCRAFT_FILE"
+
+          echo "Bundle directory:"
+          ls -la bundle/
 
       - name: Build Snap
         id: snap

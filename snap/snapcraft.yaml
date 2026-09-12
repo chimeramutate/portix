@@ -25,15 +25,31 @@ parts:
       - libgtk-3-0
       - libsecret-1-0
       - libgcrypt20
+      - wget  # needed for downloading bundle
     override-build: |
-      # Copy pre-built bundle ke install dir
-      # Bundle sudah ada di /tmp/artifact/bundle/ dari workflow
-      if [ -d /tmp/artifact/bundle ]; then
-        cp -r /tmp/artifact/bundle/. $CRAFT_PART_INSTALL/
-      else
-        echo "ERROR: Pre-built bundle not found"
-        exit 1
+      echo "Starting bundle copy..."
+      
+      # Check for bundle in source directory first (for local/artifact staging)
+      if [ -d "./bundle" ]; then
+        echo "Found bundle in ./bundle, copying..."
+        cp -r ./bundle/. $CRAFT_PART_INSTALL/
+        echo "Bundle copied successfully"
+        ls -la $CRAFT_PART_INSTALL/
+        exit 0
       fi
+      
+      # Fall back to /tmp/artifact/bundle for compatibility
+      if [ -d "/tmp/artifact/bundle" ]; then
+        echo "Found bundle in /tmp/artifact/bundle, copying..."
+        cp -r /tmp/artifact/bundle/. $CRAFT_PART_INSTALL/
+        echo "Bundle copied successfully"
+        ls -la $CRAFT_PART_INSTALL/
+        exit 0
+      fi
+      
+      echo "ERROR: Pre-built bundle not found!"
+      echo "Looked in: ./bundle and /tmp/artifact/bundle"
+      exit 1
 
 apps:
   portix:
