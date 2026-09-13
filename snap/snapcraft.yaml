@@ -7,7 +7,7 @@ description: |
   manager, remote file browsing, command autocomplete, and cross-platform
   support for Linux, macOS, and Windows.
 
-icon: ../portix_app/assets/icons/portix_launcher.png
+icon: snap/gui/icon.png
 
 base: core22
 grade: stable
@@ -27,22 +27,22 @@ parts:
       - libgcrypt20
     override-build: |
       set -euo pipefail
-      
+
       echo "Starting bundle copy..."
       echo "CRAFT_PART_INSTALL: $CRAFT_PART_INSTALL"
       echo "CRAFT_SOURCE: $CRAFT_SOURCE"
-      
+
       # Copy GUI assets from snap/gui directory
-      if [ -d "$CRAFT_SOURCE/gui" ]; then
+      if [ -d "$CRAFT_SOURCE/snap/gui" ]; then
         echo "Copying GUI assets from snap/gui..."
         mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
-        cp -r "$CRAFT_SOURCE/gui"/* "$CRAFT_PART_INSTALL/meta/gui/"
+        cp -r "$CRAFT_SOURCE/snap/gui"/* "$CRAFT_PART_INSTALL/meta/gui/"
         ls -la "$CRAFT_PART_INSTALL/meta/gui/"
       fi
-      
+
       # Try multiple bundle locations (CI vs local)
       BUNDLE_DIR=""
-      
+
       # For CI builds - bundle is at project root (parent of snap directory)
       if [ -d "../bundle" ]; then
         BUNDLE_DIR="../bundle"
@@ -50,18 +50,18 @@ parts:
       elif [ -d "./bundle" ]; then
         BUNDLE_DIR="./bundle"
       fi
-      
+
       if [ -z "$BUNDLE_DIR" ]; then
         echo "ERROR: Bundle not found in ./bundle or ../bundle"
         ls -la .
         ls -la .. 2>/dev/null || true
         exit 1
       fi
-      
+
       echo "Found bundle in $BUNDLE_DIR, copying..."
       cp -r "$BUNDLE_DIR"/. $CRAFT_PART_INSTALL/
       echo "Bundle copied successfully"
-      
+
       # Fix desktop file location for snap
       # Flutter creates portix.desktop at bundle root, but snap expects it in usr/share/applications/
       if [ -f "$CRAFT_PART_INSTALL/portix.desktop" ]; then
@@ -69,21 +69,21 @@ parts:
         mv "$CRAFT_PART_INSTALL/portix.desktop" "$CRAFT_PART_INSTALL/usr/share/applications/portix.desktop"
         echo "Moved desktop file to usr/share/applications/"
       fi
-      
+
       # Also move desktop file from meta/gui if it exists there
       if [ -f "$CRAFT_PART_INSTALL/meta/gui/portix.desktop" ]; then
         # Update the icon path in the desktop file to use ${SNAP}/meta/gui/icon.png
         sed -i 's|Icon=.*|Icon=${SNAP}/meta/gui/icon.png|' "$CRAFT_PART_INSTALL/meta/gui/portix.desktop"
         echo "Updated desktop file icon path"
       fi
-      
+
       ls -la $CRAFT_PART_INSTALL/
       echo "usr/share/applications:"
       ls -la $CRAFT_PART_INSTALL/usr/share/applications/ 2>/dev/null || echo "No usr/share/applications directory"
-      
+
       echo "meta/gui:"
       ls -la $CRAFT_PART_INSTALL/meta/gui/ 2>/dev/null || echo "No meta/gui directory"
-      
+
       echo "Snapbuild complete"
 
 apps:

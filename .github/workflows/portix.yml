@@ -935,7 +935,7 @@ jobs:
           # Patch FRB library paths for bundle deployment BEFORE build
           # Set ioDirectory to empty string so libraries are loaded from executable directory
           echo "Patching FRB library paths for bundled deployment..."
-          
+
           sed -i "s|ioDirectory: '../portix_serv/target/release/'|ioDirectory: ''|g" \
             "lib/src/rust/frb_generated.dart"
           sed -i "s|ioDirectory: '../portix_rdp/target/release/'|ioDirectory: ''|g" \
@@ -1586,6 +1586,19 @@ jobs:
           echo "Bundle extracted to bundle/"
           ls -la bundle/
 
+      - name: Copy icon to snap/gui directory
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p snap/gui
+
+          # Copy icon from portix_app to snap/gui for snapcraft to find
+          cp portix_app/assets/icons/portix_launcher.png snap/gui/icon.png
+
+          echo "Icon copied to snap/gui/icon.png"
+          ls -la snap/gui/
+
       - name: Cache snapcraft
         uses: actions/cache@v4
         with:
@@ -1615,36 +1628,9 @@ jobs:
           echo "Bundle directory:"
           ls -la bundle/
 
-      # Prepare LXD (required for snapcore/action-build)
-      - name: Prepare LXD
-        shell: bash
-        run: |
-          set -euo pipefail
-          
-          echo "Preparing LXD for snap build..."
-          
-          # Install LXD if not present
-          if ! snap list lxd 2>/dev/null | grep -q lxd; then
-            echo "Installing LXD..."
-            sudo snap install lxd
-          fi
-          
-          # Ensure user is in lxd group
-          sudo usermod --append --groups lxd $USER || true
-          
-          # Initialize LXD with auto mode
-          echo "Initializing LXD..."
-          lxd init --auto || echo "LXD already initialized"
-          
-          # Verify LXD is running
-          echo "LXD status:"
-          lxd info --status || true
-
       - name: Build Snap
         id: snap
         uses: snapcore/action-build@v1
-        with:
-          use-lxd: true
 
       - name: Rename snap file
         shell: bash
