@@ -1615,25 +1615,49 @@ jobs:
           echo "Bundle directory:"
           ls -la bundle/
 
-      - name: Install snapcraft
+      # Prepare LXD (required for snapcore/action-build)
+      - name: Prepare LXD
         shell: bash
         run: |
           set -euo pipefail
-          # Check if snapcraft is already installed
-          if snap list snapcraft 2>/dev/null | grep -q snapcraft; then
-            echo "snapcraft already installed"
-          else
-            sudo snap install snapcraft --classic --channel=8.x
+          
+          echo "Preparing LXD for snap build..."
+          
+          # Install LXD if not present
+          if ! snap list lxd 2>/dev/null | grep -q lxd; then
+            echo "Installing LXD..."
+            sudo snap install lxd
           fi
-          snapcraft --version
+          
+          # Ensure user is in lxd group
+          sudo usermod --append --groups lxd $USER || true
+          
+          # Initialize LXD with auto mode
+          echo "Initializing LXD..."
+          lxd init --auto || echo "LXD already initialized"
+          
+          # Verify LXD is running
+          echo "LXD status:"
+          lxd info --status || true
 
       - name: Build Snap
+        id: snap
+        uses: snapcore/action-build@v1
+        with:
+          use-lxd: true
+
+      - name: Rename snap file
         shell: bash
         run: |
           set -euo pipefail
-          cd snap
-          snapcraft pack --output="../portix_${{ github.ref_name }}.snap"
-          cd ..
+          # Rename the snap file to match expected naming
+          for snapfile in *.snap; do
+            if [ -f "$snapfile" ]; then
+              mv "$snapfile" "portix_${{ github.ref_name }}.snap"
+              echo "Renamed to portix_${{ github.ref_name }}.snap"
+              break
+            fi
+          done
           ls -la portix_*.snap
 
       - name: Upload Snap artifact
