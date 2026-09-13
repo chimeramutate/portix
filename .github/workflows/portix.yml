@@ -1580,11 +1580,18 @@ jobs:
           fi
 
           # Create bundle directory in the project root for snap build access
+          # CRAFT_PART_SRC points to the project root when snapcraft runs
           mkdir -p bundle
           tar -xzf "$ARCHIVE" -C bundle
 
-          echo "Bundle extracted to bundle/"
-          ls -la bundle/
+          echo "Bundle extracted to project root/bundle"
+          echo "Bundle contents:"
+          ls -la bundle/ | head -20
+          echo ""
+          echo "Checking required files exist:"
+          test -f bundle/portix && echo "✓ portix executable"
+          test -f bundle/libportix_serv.so && echo "✓ libportix_serv.so"
+          test -f bundle/libportix_rdp.so && echo "✓ libportix_rdp.so"
 
       - name: Copy icon to snap/gui directory
         shell: bash
@@ -1679,10 +1686,27 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-beta') && github.event_name != 'pull_request'
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download snap artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: portix-snap-${{ github.ref_name }}
+          path: snap_artifact/
+
+      - name: List snap files
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Snap files available:"
+          find snap_artifact -type f -print
+
       - name: Publish to Snap Store
         uses: snapcore/action-publish@v1
         with:
-          snap-id: portix
+          snap: snap_artifact/portix_${{ github.ref_name }}.snap
+          release: stable
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
 
