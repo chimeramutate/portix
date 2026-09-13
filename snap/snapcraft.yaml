@@ -30,36 +30,41 @@ parts:
 
       echo "Starting bundle copy..."
       echo "CRAFT_PART_INSTALL: $CRAFT_PART_INSTALL"
-      echo "CRAFT_SOURCE: $CRAFT_SOURCE"
+      echo "CRAFT_PART_SRC: $CRAFT_PART_SRC"
 
       # Copy GUI assets from snap/gui directory
-      if [ -d "$CRAFT_SOURCE/snap/gui" ]; then
+      if [ -d "$CRAFT_PART_SRC/snap/gui" ]; then
         echo "Copying GUI assets from snap/gui..."
         mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
-        cp -r "$CRAFT_SOURCE/snap/gui"/* "$CRAFT_PART_INSTALL/meta/gui/"
+        cp -r "$CRAFT_PART_SRC/snap/gui"/* "$CRAFT_PART_INSTALL/meta/gui/"
         ls -la "$CRAFT_PART_INSTALL/meta/gui/"
       fi
 
-      # Try multiple bundle locations (CI vs local)
+      # Look for extracted bundle - should be in project root
+      # The workflow extracts bundle/ before snapcraft runs
       BUNDLE_DIR=""
 
-      # For CI builds - bundle is at project root (parent of snap directory)
-      if [ -d "../bundle" ]; then
-        BUNDLE_DIR="../bundle"
-      # For local builds - bundle in current directory
+      # Try relative to source root first
+      if [ -d "$CRAFT_PART_SRC/bundle" ]; then
+        BUNDLE_DIR="$CRAFT_PART_SRC/bundle"
+        echo "Found bundle in $CRAFT_PART_SRC/bundle"
       elif [ -d "./bundle" ]; then
         BUNDLE_DIR="./bundle"
+        echo "Found bundle in ./bundle"
       fi
 
       if [ -z "$BUNDLE_DIR" ]; then
-        echo "ERROR: Bundle not found in ./bundle or ../bundle"
-        ls -la .
-        ls -la .. 2>/dev/null || true
+        echo "ERROR: Bundle not found"
+        echo "Contents of CRAFT_PART_SRC ($CRAFT_PART_SRC):"
+        ls -laR "$CRAFT_PART_SRC" || true
+        echo ""
+        echo "Contents of current directory (.):"
+        ls -la . || true
         exit 1
       fi
 
-      echo "Found bundle in $BUNDLE_DIR, copying..."
-      cp -r "$BUNDLE_DIR"/. $CRAFT_PART_INSTALL/
+      echo "Copying bundle from $BUNDLE_DIR to $CRAFT_PART_INSTALL..."
+      cp -r "$BUNDLE_DIR"/. "$CRAFT_PART_INSTALL/"
       echo "Bundle copied successfully"
 
       # Fix desktop file location for snap
@@ -77,13 +82,10 @@ parts:
         echo "Updated desktop file icon path"
       fi
 
-      ls -la $CRAFT_PART_INSTALL/
-      echo "usr/share/applications:"
-      ls -la $CRAFT_PART_INSTALL/usr/share/applications/ 2>/dev/null || echo "No usr/share/applications directory"
-
-      echo "meta/gui:"
-      ls -la $CRAFT_PART_INSTALL/meta/gui/ 2>/dev/null || echo "No meta/gui directory"
-
+      echo ""
+      echo "Final layout:"
+      ls -la "$CRAFT_PART_INSTALL/" | head -20
+      echo ""
       echo "Snapbuild complete"
 
 apps:
