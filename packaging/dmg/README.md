@@ -2,6 +2,37 @@
 
 Build script untuk membuat paket instalasi DMG untuk Portix pada macOS.
 
+## Build Options
+
+Ada dua cara untuk build DMG:
+
+### Option 1: Full Build (Build Rust + Flutter + DMG)
+Jika Anda ingin build dari awal termasuk Rust library:
+
+```bash
+# Dari root proyek
+./packaging/dmg/build_dmg.sh 1.0.0 1
+```
+
+### Option 2: Flutter App Only (Faster)
+Jika Rust library sudah ada (sudah dibuild atau di-download):
+
+```bash
+# Rust libraries harus ada di:
+# portix_app/artifacts/libportix_serv.dylib
+# portix_app/artifacts/libportix_rdp.dylib
+
+./packaging/dmg/build_flutter_app.sh 1.0.0
+```
+
+atau untuk simple build:
+
+```bash
+./packaging/dmg/build_dmg_simple.sh 1.0.0
+```
+
+---
+
 ## Prerequisites
 
 Pastikan Anda memiliki:
@@ -9,46 +40,52 @@ Pastikan Anda memiliki:
 1. **macOS** (script harus dijalankan di macOS)
 2. **Flutter SDK** - [Instalasi Flutter](https://docs.flutter.dev/get-started/install/macos)
 3. **Xcode Command Line Tools** - `xcode-select --install`
-4. **Rust** - [Instalasi Rust](https://www.rust-lang.org/tools/install)
-5. **OpenSSL** (untuk signing opsional)
+4. **OpenSSL** (opsional untuk signing)
+
+Untuk **Option 2 (Flutter-only)**, Rust libraries harus sudah ada di:
+```
+portix_app/artifacts/
+├── libportix_serv.dylib
+└── libportix_rdp.dylib
+```
+
+---
 
 ## Build Instructions
 
-### Quick Build
+### Option 1: Full Build
 
 ```bash
-# Dari root proyek
-./packaging/dmg/build_dmg.sh 1.0.0 1
+cd packaging/dmg
+./build_dmg.sh 1.0.0 1
 ```
 
-### Manual Build
+Output: `dist/Portix-1.0.0.dmg`
+
+### Option 2: Flutter App Only (Recommended)
+
+Rust library biasanya sudah dibuild di CI. Gunakan script ini untuk build Flutter app saja:
 
 ```bash
-# Masuk ke direktori portix_app
-cd portix_app
-
-# Build Rust library
-cd ../portix_serv
-cargo build --release
-cp target/release/libportix_serv.dylib ../portix_app/artifacts/
-
-# Kembali ke portix_app dan build Flutter macos
-cd ../portix_app
-flutter build macos --build-name=1.0.0 --build-number=1
-
-# Buat DMG
-cd ../packaging/dmg
-./build_dmg.sh
+cd packaging/dmg
+./build_flutter_app.sh 1.0.0
 ```
 
-## Build Options
+Output: `dist/Portix-1.0.0.zip` (dan DMG)
+
+---
+
+## Build Commands
 
 ```bash
-./build_dmg.sh [version] [build_number]
+# Build with version
+./build_flutter_app.sh 1.2.0
 
-# Contoh:
-./build_dmg.sh 1.2.0 5
+# Build with version (simple DMG)
+./build_dmg_simple.sh 1.2.0
 ```
+
+---
 
 ## Output
 
@@ -58,14 +95,32 @@ Setelah build selesai, Anda akan menemukan:
 - `dist/Portix-VERSION.dmg.sha256` - Checksum SHA256
 - `dist/Portix-VERSION.zip` - File ZIP sebagai backup
 
+---
+
 ## DMG Features
 
 - ✅ App bundle yang ditas-kan (codesign optional untuk release)
-- ✅ Struktur DMG bersih tanpa folder macOS biasa
-- ✅readme.txt yang otomatis ditampilkan
-- ✅Drag-and-drop instalasi
+- ✅ Struktur DMG bersih
+- ✅ Drag-and-drop instalasi
+- ✅ Versi tertentu
+
+---
 
 ## Troubleshooting
+
+### Error: "Rust libraries not found"
+
+Build Rust library terlebih dahulu:
+
+```bash
+cd portix_serv
+cargo build --release
+cp target/release/libportix_serv.dylib ../portix_app/artifacts/
+
+cd ../portix_rdp
+cargo build --release
+cp target/release/libportix_rdp.dylib ../portix_app/artifacts/
+```
 
 ### Error: "Flutter not found"
 
@@ -74,38 +129,10 @@ Pastikan Flutter berada di PATH:
 export PATH="$PATH:`pwd`/flutter/bin"
 ```
 
-### Error: "Product bundle not found"
+---
 
-Build Flutter mungkin gagal. Jalankan:
-```bash
-cd portix_app
-flutter build macos
-```
+## CI/CD Integration
 
-### Code Signing (untuk release)
-
-Untuk membuat DMG yang dapat didistribusikan di App Store:
-
-```bash
-# Tanda tangani app sebelum membuat DMG
-codesign --deep --force --verify --verbose \
-    --sign "Developer ID Application: YOUR_NAME (TEAM_ID)" \
-    portix_app/build/macos/Build/Products/Release/Portix.app
-
-# Atasi untuk notarization (opsional)
-xcrun notarytool submit dist/Portix-VERSION.dmg \
-    --keychain-profile "AC_PASSWORD" \
-    --wait
-```
-
-## Icon Setup
-
-Pastikan icon macOS ada di:
-```
-packaging/icons/portix.icns
-```
-
-Jika belum ada, buat dengan:
-```bash
-./packaging/create_icons.sh
-```
+Workflow utama `.github/workflows/portix.yml` sudah mengatur build DMG secara otomatis saat:
+- Push tag versi (misal: `v1.0.0`)
+- Manual workflow dispatch
