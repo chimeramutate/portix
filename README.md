@@ -49,8 +49,10 @@ The Rust backend is responsible for:
 
 The repository includes packaging configurations for multiple platforms:
 
-- **Flatpak**
-- **Snap**
+- **Flatpak** - Linux Flatpak package
+- **Snap** - Linux Snap package
+- **DMG** - macOS disk image installer (`.dmg`)
+- **EXE** - Windows executable installer (`.exe`)
 - Additional packaging assets
 
 ---
@@ -130,6 +132,46 @@ Run the command from inside the `portix_app` directory.
 3. If the Rust public API changes, regenerate the FRB bindings.
 4. Build the Rust library.
 5. Run the Flutter application.
+
+---
+
+# Building Installers
+
+## macOS DMG
+
+Build a macOS disk image:
+
+```bash
+cd packaging/dmg
+./build_dmg.sh 1.0.0 1
+```
+
+Output:
+- `dist/Portix-VERSION.dmg` - macOS installer
+- `dist/Portix-VERSION.dmg.sha256` - Checksum file
+
+## Windows EXE
+
+Build a Windows executable:
+
+```bash
+# On Windows (Command Prompt)
+cd packaging\windows
+build_windows.bat 1.0.0 1
+
+# On macOS/Linux (requires cross-compilation setup)
+cd packaging/windows
+./build_windows.sh 1.0.0 1
+```
+
+Output:
+- `dist/windows/portix-VERSION-win-x64.zip` - Windows package
+
+### Creating an Installer (Windows)
+
+1. Install [NSIS](https://nsis.sourceforge.io/Download)
+2. Open the Release folder from the build output
+3. Compile: `makensis portix-installer.nsi`
 
 ---
 
