@@ -1544,57 +1544,72 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          $version = "${{ steps.version.outputs.version }}"
+          $version     = "${{ steps.version.outputs.version }}"
           $releaseName = "${{ steps.version.outputs.release_name }}"
-          $releaseDir = "portix_app\build\windows\x64\runner\Release"
 
-          $nsis = @"
-          Unicode true
-          !define APP_NAME    "Portix"
-          !define APP_VERSION "$version"
-          !define APP_EXE     "portix.exe"
-          !define INST_DIR    "$releaseDir"
-          !define OUT_FILE    "portix-windows-${releaseName}.exe"
+          # Absolute path to the Flutter release directory.
+          # Use backslashes for the NSIS File command; NSIS !define is fine with
+          # forward slashes but File /r requires backslashes on Windows.
+          $releaseDirAbs = (Resolve-Path "portix_app\build\windows\x64\runner\Release").Path
+          # Backslash form for File /r glob pattern
+          $releaseDirBS  = $releaseDirAbs
+          # Forward slash form for !define (avoids NSIS escape confusion)
+          $releaseDirFS  = $releaseDirAbs.Replace('\', '/')
 
-          Name            "\${APP_NAME} \${APP_VERSION}"
-          OutFile         "\${OUT_FILE}"
-          InstallDir      "\$PROGRAMFILES64\Portix"
-          InstallDirRegKey HKCU "Software\Portix" ""
-          RequestExecutionLevel admin
-          SetCompressor    /SOLID lzma
+          $outFile = "portix-windows-${releaseName}.exe"
 
-          Page directory
-          Page instfiles
+          # Write each line individually so PowerShell string expansion only
+          # affects tokens we explicitly interpolate, and NSIS-syntax tokens
+          # like $INSTDIR / ${APP_NAME} are written verbatim.
+          $lines = @(
+            'Unicode true',
+            '',
+            '!define APP_NAME    "Portix"',
+            "!define APP_VERSION `"$version`"",
+            '!define APP_EXE     "portix.exe"',
+            "!define OUT_FILE    `"$outFile`"",
+            '',
+            'Name            "${APP_NAME} ${APP_VERSION}"',
+            'OutFile         "${OUT_FILE}"',
+            'InstallDir      "$PROGRAMFILES64\Portix"',
+            'InstallDirRegKey HKCU "Software\Portix" ""',
+            'RequestExecutionLevel admin',
+            'SetCompressor    /SOLID lzma',
+            '',
+            'Page directory',
+            'Page instfiles',
+            '',
+            'Section "Portix (required)"',
+            '  SectionIn RO',
+            '  SetOutPath "$INSTDIR"',
+            # Use the resolved absolute path directly in File /r so NSIS can
+            # find the files regardless of the working directory makensis uses.
+            "  File /r `"$releaseDirBS\*.*`"",
+            '  WriteRegStr HKCU "Software\Portix" "" "$INSTDIR"',
+            '  WriteUninstaller "$INSTDIR\Uninstall.exe"',
+            '  CreateShortcut  "$DESKTOP\Portix.lnk" "$INSTDIR\${APP_EXE}"',
+            '  CreateDirectory "$SMPROGRAMS\Portix"',
+            '  CreateShortcut  "$SMPROGRAMS\Portix\Portix.lnk"    "$INSTDIR\${APP_EXE}"',
+            '  CreateShortcut  "$SMPROGRAMS\Portix\Uninstall.lnk" "$INSTDIR\Uninstall.exe"',
+            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "DisplayName"     "Portix"',
+            "  WriteRegStr HKLM `"Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix`" `"DisplayVersion`"  `"$version`"",
+            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "UninstallString" "$INSTDIR\Uninstall.exe"',
+            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "InstallLocation" "$INSTDIR"',
+            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "Publisher"       "Portix"',
+            'SectionEnd',
+            '',
+            'Section "Uninstall"',
+            '  Delete "$INSTDIR\Uninstall.exe"',
+            '  RMDir  /r "$INSTDIR"',
+            '  Delete "$DESKTOP\Portix.lnk"',
+            '  RMDir  /r "$SMPROGRAMS\Portix"',
+            '  DeleteRegKey HKCU "Software\Portix"',
+            '  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix"',
+            'SectionEnd'
+          )
 
-          Section "Portix (required)"
-            SectionIn RO
-            SetOutPath "\$INSTDIR"
-            File /r "\${INST_DIR}\*.*"
-            WriteRegStr HKCU "Software\Portix" "" "\$INSTDIR"
-            WriteUninstaller "\$INSTDIR\Uninstall.exe"
-            CreateShortcut  "\$DESKTOP\Portix.lnk" "\$INSTDIR\\${APP_EXE}"
-            CreateDirectory "\$SMPROGRAMS\Portix"
-            CreateShortcut  "\$SMPROGRAMS\Portix\Portix.lnk" "\$INSTDIR\\${APP_EXE}"
-            CreateShortcut  "\$SMPROGRAMS\Portix\Uninstall.lnk" "\$INSTDIR\Uninstall.exe"
-            WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "DisplayName"    "Portix"
-            WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "DisplayVersion" "\${APP_VERSION}"
-            WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "UninstallString" "\$INSTDIR\Uninstall.exe"
-            WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "InstallLocation" "\$INSTDIR"
-            WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "Publisher"      "Portix"
-          SectionEnd
-
-          Section "Uninstall"
-            Delete "\$INSTDIR\Uninstall.exe"
-            RMDir  /r "\$INSTDIR"
-            Delete "\$DESKTOP\Portix.lnk"
-            RMDir  /r "\$SMPROGRAMS\Portix"
-            DeleteRegKey HKCU "Software\Portix"
-            DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix"
-          SectionEnd
-          "@
-
-          Set-Content -Path "portix_installer.nsi" -Value $nsis -Encoding UTF8
-          Write-Host "NSIS script created."
+          Set-Content -Path "portix_installer.nsi" -Value $lines -Encoding UTF8
+          Write-Host "=== portix_installer.nsi ==="
           Get-Content "portix_installer.nsi"
 
       - name: Build Windows EXE installer
