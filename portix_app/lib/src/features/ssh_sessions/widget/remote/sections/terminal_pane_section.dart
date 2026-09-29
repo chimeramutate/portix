@@ -182,24 +182,6 @@ class _TerminalPaneState extends State<TerminalPane>
                     onReconnect: connecting ? null : widget.onReconnect,
                   ),
                 ),
-              if (connected &&
-                  widget.active &&
-                  widget.suggestion != null &&
-                  widget.suggestionSuffix != null)
-                TerminalInlineSuggestion(
-                  terminal: widget.terminal,
-                  terminalViewKey: widget.terminalViewKey,
-                  text: widget.suggestionSuffix!,
-                ),
-              if (connected &&
-                  widget.active &&
-                  widget.suggestionCandidates.isNotEmpty)
-                TerminalCompletionMenu(
-                  terminal: widget.terminal,
-                  terminalViewKey: widget.terminalViewKey,
-                  suggestions: widget.suggestionCandidates,
-                  selectedSuggestion: widget.suggestion,
-                ),
               if (connected)
                 TerminalSelectionToolbar(
                   terminal: widget.terminal,

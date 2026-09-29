@@ -722,7 +722,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Application version: $VERSION"
 
-      - name: Package macOS
+      - name: Package macOS ZIP
         shell: bash
         run: |
           set -euo pipefail
@@ -753,11 +753,64 @@ jobs:
 
           ls -lah "portix-macos-${RELEASE_NAME}.zip"
 
+      - name: Package macOS DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$(
+            find "${APP_DIR}/build/macos/Build/Products/Release" \
+              -maxdepth 1 \
+              -name "*.app" \
+              -type d |
+            head -n 1
+          )"
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: macOS .app bundle not found"
+            exit 1
+          fi
+
+          APP_NAME="$(basename "$APP_PATH" .app)"
+          VERSION="${{ steps.version.outputs.version }}"
+          RELEASE_NAME="${{ github.ref_name }}-${VERSION}"
+          DMG_NAME="portix-macos-${RELEASE_NAME}.dmg"
+
+          # Create staging directory for DMG layout
+          DMG_STAGING="dmg-staging"
+          mkdir -p "$DMG_STAGING"
+          cp -R "$APP_PATH" "$DMG_STAGING/"
+
+          # Create symlink to /Applications for drag-and-drop install
+          ln -s /Applications "$DMG_STAGING/Applications"
+
+          # Create a read/write DMG first then convert to compressed read-only
+          hdiutil create \
+            -volname "Portix ${VERSION}" \
+            -srcfolder "$DMG_STAGING" \
+            -ov \
+            -format UDRW \
+            "portix-rw.dmg"
+
+          # Convert to compressed read-only DMG
+          hdiutil convert \
+            "portix-rw.dmg" \
+            -format UDZO \
+            -imagekey zlib-level=9 \
+            -o "$DMG_NAME"
+
+          rm -f "portix-rw.dmg"
+          rm -rf "$DMG_STAGING"
+
+          ls -lah "$DMG_NAME"
+
       - name: Upload macOS desktop
         uses: actions/upload-artifact@v7
         with:
           name: portix-macos-${{ github.ref_name }}-${{ steps.version.outputs.version }}
-          path: portix-macos-${{ github.ref_name }}-${{ steps.version.outputs.version }}.zip
+          path: |
+            portix-macos-${{ github.ref_name }}-${{ steps.version.outputs.version }}.zip
+            portix-macos-${{ github.ref_name }}-${{ steps.version.outputs.version }}.dmg
           if-no-files-found: error
 
   # ==========================================================================
@@ -1150,6 +1203,84 @@ jobs:
           dpkg-deb --contents "$DEB_FILE" |
             grep -E 'opt/portix/libportix_(serv|rdp)\.so$'
 
+      - name: Package Linux AppImage
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.version.outputs.version }}"
+          RELEASE_NAME="${{ steps.version.outputs.release_name }}"
+          BUNDLE_DIR="${APP_DIR}/build/linux/x64/release/bundle"
+          APPDIR="AppDir"
+
+          # Install appimagetool
+          curl -fsSL -o appimagetool \
+            "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x appimagetool
+
+          # Build AppDir structure
+          mkdir -p "${APPDIR}/usr/bin"
+          mkdir -p "${APPDIR}/usr/lib"
+          mkdir -p "${APPDIR}/usr/share/applications"
+          mkdir -p "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
+
+          # Copy Flutter bundle into AppDir
+          cp -r "${BUNDLE_DIR}/." "${APPDIR}/usr/bin/"
+
+          # Move shared libraries to usr/lib
+          for so in \
+            libportix_serv.so \
+            libportix_rdp.so \
+            libflutter_linux_gtk.so
+          do
+            if [ -f "${APPDIR}/usr/bin/${so}" ]; then
+              mv "${APPDIR}/usr/bin/${so}" "${APPDIR}/usr/lib/${so}"
+            fi
+          done
+
+          # Copy bundled runtime libs if present
+          if [ -d "${APPDIR}/usr/bin/lib" ]; then
+            cp -r "${APPDIR}/usr/bin/lib/." "${APPDIR}/usr/lib/"
+            rm -rf "${APPDIR}/usr/bin/lib"
+          fi
+
+          # App icon
+          cp "${APP_DIR}/assets/icons/portix_launcher.png" \
+            "${APPDIR}/usr/share/icons/hicolor/256x256/apps/portix.png"
+          cp "${APPDIR}/usr/share/icons/hicolor/256x256/apps/portix.png" \
+            "${APPDIR}/portix.png"
+
+          # Desktop entry
+          cat > "${APPDIR}/usr/share/applications/portix.desktop" <<EOF
+          [Desktop Entry]
+          Name=Portix
+          Exec=portix
+          Icon=portix
+          Type=Application
+          Categories=Network;RemoteAccess;
+          EOF
+          cp "${APPDIR}/usr/share/applications/portix.desktop" \
+            "${APPDIR}/portix.desktop"
+
+          # AppRun launcher script — sets LD_LIBRARY_PATH so Flutter and Rust
+          # shared libs are found relative to the AppImage mount point
+          cat > "${APPDIR}/AppRun" <<'APPRUN'
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/bin:${LD_LIBRARY_PATH:-}"
+          exec "${HERE}/usr/bin/portix" "$@"
+          APPRUN
+          chmod +x "${APPDIR}/AppRun"
+
+          # Build AppImage (FUSE not available in CI — use --appimage-extract-and-run)
+          ARCH=x86_64 ./appimagetool \
+            --appimage-extract-and-run \
+            "${APPDIR}" \
+            "portix-linux-${RELEASE_NAME}.AppImage"
+
+          chmod +x "portix-linux-${RELEASE_NAME}.AppImage"
+          ls -lah "portix-linux-${RELEASE_NAME}.AppImage"
+
       - name: Upload Linux desktop
         uses: actions/upload-artifact@v7
         with:
@@ -1157,6 +1288,7 @@ jobs:
           path: |
             portix-linux-${{ steps.version.outputs.release_name }}.tar.gz
             portix_app/build/linux/deb/portix_${{ steps.version.outputs.version }}_amd64.deb
+            portix-linux-${{ steps.version.outputs.release_name }}.AppImage
           if-no-files-found: error
 
   # ==========================================================================
@@ -1386,7 +1518,7 @@ jobs:
           Get-Item $required |
             Format-Table Name,Length,FullName
 
-      - name: Package Windows
+      - name: Package Windows ZIP
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -1402,11 +1534,106 @@ jobs:
           Get-Item $destination |
             Format-List Name,Length,FullName
 
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis --no-progress -y
+
+      - name: Create NSIS installer script
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $version     = "${{ steps.version.outputs.version }}"
+          $releaseName = "${{ steps.version.outputs.release_name }}"
+
+          # Absolute path to the Flutter release directory.
+          # Use backslashes for the NSIS File command; NSIS !define is fine with
+          # forward slashes but File /r requires backslashes on Windows.
+          $releaseDirAbs = (Resolve-Path "portix_app\build\windows\x64\runner\Release").Path
+          # Backslash form for File /r glob pattern
+          $releaseDirBS  = $releaseDirAbs
+          # Forward slash form for !define (avoids NSIS escape confusion)
+          $releaseDirFS  = $releaseDirAbs.Replace('\', '/')
+
+          $outFile = "portix-windows-${releaseName}.exe"
+
+          # Write each line individually so PowerShell string expansion only
+          # affects tokens we explicitly interpolate, and NSIS-syntax tokens
+          # like $INSTDIR / ${APP_NAME} are written verbatim.
+          $lines = @(
+            'Unicode true',
+            '',
+            '!define APP_NAME    "Portix"',
+            "!define APP_VERSION `"$version`"",
+            '!define APP_EXE     "portix.exe"',
+            "!define OUT_FILE    `"$outFile`"",
+            '',
+            'Name            "${APP_NAME} ${APP_VERSION}"',
+            'OutFile         "${OUT_FILE}"',
+            'InstallDir      "$PROGRAMFILES64\Portix"',
+            'InstallDirRegKey HKCU "Software\Portix" ""',
+            'RequestExecutionLevel admin',
+            'SetCompressor    /SOLID lzma',
+            '',
+            'Page directory',
+            'Page instfiles',
+            '',
+            'Section "Portix (required)"',
+            '  SectionIn RO',
+            '  SetOutPath "$INSTDIR"',
+            # Use the resolved absolute path directly in File /r so NSIS can
+            # find the files regardless of the working directory makensis uses.
+            "  File /r `"$releaseDirBS\*.*`"",
+            '  WriteRegStr HKCU "Software\Portix" "" "$INSTDIR"',
+            '  WriteUninstaller "$INSTDIR\Uninstall.exe"',
+            '  CreateShortcut  "$DESKTOP\Portix.lnk" "$INSTDIR\${APP_EXE}"',
+            '  CreateDirectory "$SMPROGRAMS\Portix"',
+            '  CreateShortcut  "$SMPROGRAMS\Portix\Portix.lnk"    "$INSTDIR\${APP_EXE}"',
+            '  CreateShortcut  "$SMPROGRAMS\Portix\Uninstall.lnk" "$INSTDIR\Uninstall.exe"',
+            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "DisplayName"     "Portix"',
+            "  WriteRegStr HKLM `"Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix`" `"DisplayVersion`"  `"$version`"",
+            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "UninstallString" "$INSTDIR\Uninstall.exe"',
+            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "InstallLocation" "$INSTDIR"',
+            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "Publisher"       "Portix"',
+            'SectionEnd',
+            '',
+            'Section "Uninstall"',
+            '  Delete "$INSTDIR\Uninstall.exe"',
+            '  RMDir  /r "$INSTDIR"',
+            '  Delete "$DESKTOP\Portix.lnk"',
+            '  RMDir  /r "$SMPROGRAMS\Portix"',
+            '  DeleteRegKey HKCU "Software\Portix"',
+            '  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix"',
+            'SectionEnd'
+          )
+
+          Set-Content -Path "portix_installer.nsi" -Value $lines -Encoding UTF8
+          Write-Host "=== portix_installer.nsi ==="
+          Get-Content "portix_installer.nsi"
+
+      - name: Build Windows EXE installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          & "C:\Program Files (x86)\NSIS\makensis.exe" portix_installer.nsi
+
+          $exe = "portix-windows-${{ steps.version.outputs.release_name }}.exe"
+
+          if (-not (Test-Path $exe)) {
+            throw "NSIS installer was not created: $exe"
+          }
+
+          Get-Item $exe | Format-List Name,Length,FullName
+
       - name: Upload Windows desktop
         uses: actions/upload-artifact@v7
         with:
           name: portix-Windows-${{ steps.version.outputs.release_name }}
-          path: portix-windows-${{ steps.version.outputs.release_name }}.zip
+          path: |
+            portix-windows-${{ steps.version.outputs.release_name }}.zip
+            portix-windows-${{ steps.version.outputs.release_name }}.exe
           if-no-files-found: error
 
   # ==========================================================================
@@ -1472,6 +1699,9 @@ jobs:
             artifacts/**/*.zip
             artifacts/**/*.tar.gz
             artifacts/**/*.deb
+            artifacts/**/*.dmg
+            artifacts/**/*.AppImage
+            artifacts/**/*.exe
           fail_on_unmatched_files: false
 
   # ==========================================================================
