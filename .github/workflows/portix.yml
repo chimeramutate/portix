@@ -880,7 +880,16 @@ jobs:
             liblzma-dev \
             libsecret-1-dev \
             libgcrypt20-dev \
-            libssl-dev
+            libssl-dev \
+            libepoxy-dev \
+            libharfbuzz-dev \
+            libfontconfig1-dev \
+            libfreetype-dev \
+            libatk1.0-dev \
+            libpango1.0-dev \
+            libcairo2-dev \
+            libgdk-pixbuf2.0-dev
+          sudo ldconfig
 
       - name: Flutter pub get
         working-directory: ${{ env.APP_DIR }}
@@ -1093,6 +1102,9 @@ jobs:
 
           mkdir -p "$BUNDLE_LIB"
 
+          # Refresh ldconfig cache so newly installed packages are visible.
+          sudo ldconfig 2>/dev/null || true
+
           # Bundle runtime libs needed by Flutter/Rust that may not exist on
           # all distros (Fedora, Arch, etc.). GTK3, libsecret, libgcrypt,
           # libgpg-error are all required at runtime.
@@ -1132,6 +1144,15 @@ jobs:
               )"
             fi
 
+            # second fallback: search common library directories directly
+            if [ -z "$LIB_PATH" ]; then
+              LIB_PATH="$(
+                find /usr/lib /usr/lib/x86_64-linux-gnu /lib /lib/x86_64-linux-gnu \
+                  -name "${lib}" -type f 2>/dev/null |
+                head -n 1
+              )"
+            fi
+
             if [ -n "$LIB_PATH" ] && [ -f "$LIB_PATH" ]; then
               cp "$LIB_PATH" "$BUNDLE_LIB/$lib"
               echo "Bundled: $lib  ←  $LIB_PATH"
@@ -1142,7 +1163,11 @@ jobs:
 
           echo ""
           echo "Bundled runtime libraries:"
-          ls -lah "$BUNDLE_LIB/" || echo "(none)"
+          if [ "$(ls -A "$BUNDLE_LIB" 2>/dev/null)" ]; then
+            ls -lah "$BUNDLE_LIB/"
+          else
+            echo "(none bundled — all libs expected to exist on target system)"
+          fi
 
       - name: Package Linux TAR
         shell: bash
