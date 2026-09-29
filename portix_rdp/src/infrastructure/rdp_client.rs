@@ -1,4 +1,11 @@
-use ironrdp_connector::{ClientConnector, Config, Credentials, DesktopSize, ServerName};
+use ironrdp_cliprdr::Cliprdr;
+use ironrdp_connector::{
+    ClientConnector, ClientConnectorState, Config, ConnectionResult, ConnectorError,
+    ConnectorErrorExt as _, ConnectorResult, Credentials, DesktopSize, LicenseCache, Sequence,
+    ServerName,
+};
+use ironrdp_core::WriteBuf;
+use ironrdp_core::encode_vec;
 use ironrdp_graphics::image_processing::PixelFormat;
 use ironrdp_input::{Database, MouseButton, MousePosition, Operation, Scancode, WheelRotations};
 use ironrdp_pdu::Encode;
@@ -7,7 +14,6 @@ use ironrdp_pdu::input::fast_path::FastPathInput;
 use ironrdp_rdpdr::Rdpdr;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use ironrdp_rdpdr_native::backend::NixRdpdrBackend;
-use ironrdp_cliprdr::Cliprdr;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use crate::infrastructure::clipboard::NativeClipboardBackend;
@@ -17,7 +23,10 @@ use crate::infrastructure::windows::clipboard::ClipboardBackend;
 use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{ActiveStageBuilder, ActiveStageOutput};
 use ironrdp_tokio::reqwest::ReqwestNetworkClient;
-use ironrdp_tokio::{FramedWrite, TokioFramed, connect_begin, connect_finalize, mark_as_upgraded};
+use ironrdp_tokio::{
+    FramedRead, FramedWrite, TokioFramed, connect_begin, connect_finalize, mark_as_upgraded,
+};
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::net::TcpStream;
@@ -29,6 +38,7 @@ use crate::domain::errors::{RdpError, Result};
 use crate::domain::events::{RdpErrorEvent, RdpFrameEvent, RdpStatusEvent};
 use crate::domain::profile::RdpProfile;
 use crate::domain::session::RdpConnectionStatus;
+use crate::infrastructure::license_cache::{StubLicenseCache, is_cyberark_pam, is_license_error};
 use crate::infrastructure::rdpsnd::NoopRdpSnd;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -215,14 +225,40 @@ impl RdpRuntime {
             return Err(RdpError::Cancelled);
         }
 
+        // ── Pre-emptive licence cache for CyberArk PAM/PSM ──────────────
+        // When the username matches the CyberArk pattern (PSM@… / PAM@…),
+        // use StubLicenseCache from the very first attempt. This makes the
+        // client send CLIENT_LICENSE_INFO instead of CLIENT_NEW_LICENSE_REQUEST,
+        // which causes the PSM gateway to reply with LicensingErrorMessage(
+        // StatusValidClient) — a well-formed PDU — instead of the malformed
+        // ServerUpgradeLicense that triggers the decode error.
+        let is_cyberark = is_cyberark_pam(&self.profile.username);
+        if is_cyberark {
+            println!(
+                "[portix_rdp] CyberArk PAM/PSM detected (username={}), using stub license cache to skip license upgrade",
+                self.profile.username
+            );
+        }
+        let pre_emptive_cache: Option<Arc<dyn LicenseCache>> = if is_cyberark {
+            Some(Arc::new(StubLicenseCache))
+        } else {
+            None
+        };
+
         let connection_result = match self
-            .try_connect(self.profile.enable_cred_ssp, &cancel_token)
+            .try_connect(
+                self.profile.enable_cred_ssp,
+                pre_emptive_cache.clone(),
+                false,
+                &cancel_token,
+            )
             .await
         {
             Ok(result) => {
                 println!("[portix_rdp] connect_begin completed");
                 result
-            },
+            }
+            // ── CredSSP enabled, negotiation failed → retry without CredSSP ──
             Err(RdpError::NegotiationFailed(ref msg)) if self.profile.enable_cred_ssp => {
                 println!(
                     "[portix_rdp] NLA negotiation failed ({}), retrying without CredSSP …",
@@ -232,10 +268,74 @@ impl RdpRuntime {
                     RdpConnectionStatus::Connecting,
                     Some("NLA failed, retrying with TLS-only"),
                 );
-                self.try_connect(false, &cancel_token).await?
+                match self
+                    .try_connect(false, pre_emptive_cache.clone(), false, &cancel_token)
+                    .await
+                {
+                    Ok(result) => result,
+                    // ── License decode error → retry with stub license cache ──
+                    Err(RdpError::NegotiationFailed(ref msg2)) if is_license_error(msg2) => {
+                        println!(
+                            "[portix_rdp] License exchange decode error ({}), retrying with stub license cache …",
+                            msg2
+                        );
+                        self.emit_status(
+                            RdpConnectionStatus::Connecting,
+                            Some("License exchange failed, retrying with fallback cache"),
+                        );
+                        self.try_connect(
+                            false,
+                            Some(Arc::new(StubLicenseCache)),
+                            true,  // license_bypass: PDU repair mode
+                            &cancel_token,
+                        )
+                        .await
+                        .map_err(|e| {
+                            eprintln!(
+                                "[portix_rdp] ERROR: All connection retries exhausted. Last error: {:?}",
+                                e
+                            );
+                            e
+                        })?
+                    }
+                    Err(e) => {
+                        eprintln!("[portix_rdp] ERROR: Connection failed: {:?}", e);
+                        return Err(e);
+                    }
+                }
+            }
+            // ── CredSSP disabled, license decode error → retry with stub cache ──
+            Err(RdpError::NegotiationFailed(ref msg))
+                if !self.profile.enable_cred_ssp && is_license_error(msg) =>
+            {
+                println!(
+                    "[portix_rdp] License exchange decode error ({}), retrying with stub license cache …",
+                    msg
+                );
+                self.emit_status(
+                    RdpConnectionStatus::Connecting,
+                    Some("License exchange failed, retrying with fallback cache"),
+                );
+                self.try_connect(
+                    false,
+                    Some(Arc::new(StubLicenseCache)),
+                    true, // license_bypass: PDU repair mode
+                    &cancel_token,
+                )
+                .await
+                .map_err(|e| {
+                    eprintln!(
+                        "[portix_rdp] ERROR: All connection retries exhausted. Last error: {:?}",
+                        e
+                    );
+                    e
+                })?
             }
             Err(RdpError::ConnectionTimeout) => {
-                eprintln!("[portix_rdp] ERROR: Connection timeout to {}", self.profile.host);
+                eprintln!(
+                    "[portix_rdp] ERROR: Connection timeout to {}",
+                    self.profile.host
+                );
                 return Err(RdpError::ConnectionTimeout);
             }
             Err(RdpError::Io(e)) => {
@@ -245,7 +345,7 @@ impl RdpRuntime {
             Err(e) => {
                 eprintln!("[portix_rdp] ERROR: Connection failed: {:?}", e);
                 return Err(e);
-            },
+            }
         };
 
         let (mut tls_framed, connection_result) = connection_result;
@@ -420,9 +520,154 @@ impl RdpRuntime {
         }
     }
 
+    /// Custom `connect_finalize` that pre-validates license-exchange PDUs before
+    /// passing them to `ClientConnector::step()`.  When the connector is in the
+    /// `LicensingExchange` state, each PDU read from the stream is first decoded
+    /// as a `LicensePdu`.  If the decode fails (the server sent a malformed
+    /// `ServerUpgradeLicense`, as CyberArk PAS/PSM does), the PDU is **repaired**
+    /// in-place: a `LicensingErrorMessage(StatusValidClient)` is synthesised,
+    /// wrapped in a `SendDataIndication` with the original channel info, re-encoded
+    /// as an X.224 PDU, and handed to `step()` instead.  This prevents the
+    /// `LicenseExchangeSequence` from consuming its state and lets the connector
+    /// proceed to `LicenseExchanged` → `MultitransportBootstrapping` → … → `Connected`.
+    ///
+    /// This function assumes CredSSP is **disabled** (`enable_credssp = false`),
+    /// which is always the case in the retry tiers that use it.
+    async fn connect_finalize_with_license_bypass<S>(
+        connector: ClientConnector,
+        framed: &mut ironrdp_tokio::Framed<S>,
+    ) -> ConnectorResult<ConnectionResult>
+    where
+        S: FramedRead + FramedWrite,
+    {
+        use ironrdp_connector::ConnectorErrorKind;
+        use ironrdp_pdu::mcs::{McsMessage, SendDataIndication, decode_send_data_indication};
+        use ironrdp_pdu::rdp::server_license::{LicensePdu, LicensingErrorMessage};
+        use ironrdp_pdu::x224::X224;
+        use std::mem;
+
+        let mut connector = connector;
+        let mut buf = WriteBuf::new();
+
+        // CredSSP is disabled for this code path; skip perform_credssp_step entirely.
+        // The connector should already be past EnhancedSecurityUpgrade (mark_as_upgraded
+        // was called by the caller).
+
+        loop {
+            buf.clear();
+
+            let next_pdu_hint = connector.next_pdu_hint();
+
+            if let Some(hint) = next_pdu_hint {
+                // Read PDU from the stream.
+                let pdu = framed.read_by_hint(hint).await.map_err(|e| {
+                    ConnectorError::new("read frame by hint", ConnectorErrorKind::General)
+                        .with_source(e)
+                })?;
+
+                // Pre-validate: if in LicensingExchange state, try to decode as LicensePdu.
+                let is_licensing = matches!(
+                    &connector.state,
+                    ClientConnectorState::LicensingExchange { .. }
+                );
+
+                let input: Vec<u8> = if is_licensing {
+                    // Attempt to decode the PDU as a SendDataIndication + LicensePdu.
+                    let pre_decode: std::result::Result<(), ironrdp_core::DecodeError> = (|| {
+                        let sdi_ctx = decode_send_data_indication(&pdu)?;
+                        let _: LicensePdu = sdi_ctx.decode_user_data()?;
+                        Ok(())
+                    })(
+                    );
+
+                    if pre_decode.is_ok() {
+                        // PDU decodes fine — use as-is.
+                        pdu.to_vec()
+                    } else {
+                        // Malformed license PDU — attempt repair.
+                        eprintln!(
+                            "[portix_rdp] License PDU decode failed, attempting in-place repair..."
+                        );
+
+                        match decode_send_data_indication(&pdu) {
+                            Ok(sdi_ctx) => {
+                                // Build a LicensingErrorMessage(StatusValidClient).
+                                let err_msg = LicensingErrorMessage::new_valid_client()
+                                    .map_err(ConnectorError::encode)?;
+                                let license_pdu_bytes =
+                                    encode_vec(&LicensePdu::LicensingErrorMessage(err_msg))
+                                        .map_err(ConnectorError::encode)?;
+
+                                // Wrap in a SendDataIndication with the original channel info.
+                                let repaired = SendDataIndication {
+                                    initiator_id: sdi_ctx.initiator_id,
+                                    channel_id: sdi_ctx.channel_id,
+                                    user_data: Cow::Owned(license_pdu_bytes),
+                                };
+
+                                let repaired_pdu = X224(McsMessage::SendDataIndication(repaired));
+                                let repaired_bytes =
+                                    encode_vec(&repaired_pdu).map_err(ConnectorError::encode)?;
+
+                                eprintln!(
+                                    "[portix_rdp] PDU repaired (channel_id={}, initiator_id={}), \
+                                     injecting LicensingErrorMessage(StatusValidClient)",
+                                    sdi_ctx.channel_id, sdi_ctx.initiator_id
+                                );
+                                repaired_bytes
+                            }
+                            Err(_) => {
+                                eprintln!(
+                                    "[portix_rdp] WARNING: Cannot decode as SendDataIndication, \
+                                     passing original PDU to step()"
+                                );
+                                pdu.to_vec()
+                            }
+                        }
+                    }
+                } else {
+                    // Not in licensing state — use original PDU.
+                    pdu.to_vec()
+                };
+
+                // Call step() with the (possibly repaired) PDU.
+                let written = connector.step(&input, &mut buf)?;
+
+                if let Some(response_len) = written.size() {
+                    framed.write_all(&buf[..response_len]).await.map_err(|e| {
+                        ConnectorError::new("write all", ConnectorErrorKind::General).with_source(e)
+                    })?;
+                }
+
+                // Check if connected.
+                if let ClientConnectorState::Connected { result } = mem::take(&mut connector.state)
+                {
+                    return Ok(result);
+                }
+            } else {
+                // No PDU expected — use step_no_input.
+                let written = connector.step_no_input(&mut buf)?;
+
+                if let Some(response_len) = written.size() {
+                    framed.write_all(&buf[..response_len]).await.map_err(|e| {
+                        ConnectorError::new("write all", ConnectorErrorKind::General).with_source(e)
+                    })?;
+                }
+
+                // Check if connected.
+                if let ClientConnectorState::Connected { result } = mem::take(&mut connector.state)
+                {
+                    return Ok(result);
+                }
+            }
+        }
+    }
+
     async fn try_connect(
         &self,
         enable_credssp: bool,
+        license_cache: Option<Arc<dyn LicenseCache>>,
+        license_bypass: bool,
         cancel_token: &CancellationToken,
     ) -> Result<(
         ironrdp_tokio::TokioFramed<ironrdp_tls::TlsStream<TcpStream>>,
@@ -433,8 +678,16 @@ impl RdpRuntime {
         }
 
         println!(
-            "[portix_rdp] try_connect host={} credssp={} redirect_drives={}",
-            self.profile.host, enable_credssp, self.profile.redirect_drives
+            "[portix_rdp] try_connect host={} credssp={} redirect_drives={} license_cache={} license_bypass={}",
+            self.profile.host,
+            enable_credssp,
+            self.profile.redirect_drives,
+            if license_cache.is_some() {
+                "enabled"
+            } else {
+                "disabled"
+            },
+            if license_bypass { "true" } else { "false" },
         );
 
         let tcp = timeout(
@@ -483,7 +736,7 @@ impl RdpRuntime {
 
             performance_flags: ironrdp_pdu::rdp::client_info::PerformanceFlags::empty(),
 
-            license_cache: None,
+            license_cache,
             timezone_info: ironrdp_pdu::rdp::client_info::TimezoneInfo::default(),
 
             compression_type: None,
@@ -557,30 +810,41 @@ impl RdpRuntime {
 
         let mut framed = TokioFramed::new(tcp);
 
-        println!("[portix_rdp] starting connect_begin (credssp={})", enable_credssp);
-        let begin_result = timeout(CONNECT_TIMEOUT, connect_begin(&mut framed, &mut connector))
-            .await;
+        println!(
+            "[portix_rdp] starting connect_begin (credssp={})",
+            enable_credssp
+        );
+        let begin_result =
+            timeout(CONNECT_TIMEOUT, connect_begin(&mut framed, &mut connector)).await;
 
         let should_upgrade = match begin_result {
             Ok(Ok(result)) => {
                 println!("[portix_rdp] connect_begin completed");
                 result
-            },
+            }
             Ok(Err(e)) => {
                 eprintln!("[portix_rdp] ERROR: connect_begin FAILED: {}", e);
-                eprintln!("[portix_rdp] connection details: host={}, credssp={}, user={}",
-                    self.profile.host, enable_credssp, self.profile.username);
+                eprintln!(
+                    "[portix_rdp] connection details: host={}, credssp={}, user={}",
+                    self.profile.host, enable_credssp, self.profile.username
+                );
                 return Err(RdpError::NegotiationFailed(e.to_string()));
-            },
+            }
             Err(_) => {
-                eprintln!("[portix_rdp] ERROR: connect_begin TIMEOUT after {:?}", CONNECT_TIMEOUT);
+                eprintln!(
+                    "[portix_rdp] ERROR: connect_begin TIMEOUT after {:?}",
+                    CONNECT_TIMEOUT
+                );
                 return Err(RdpError::ConnectionTimeout);
             }
         };
 
         let (raw_stream, leftover) = framed.into_inner();
 
-        println!("[portix_rdp] starting TLS upgrade for host={}", self.profile.host);
+        println!(
+            "[portix_rdp] starting TLS upgrade for host={}",
+            self.profile.host
+        );
         let tls_result = timeout(
             CONNECT_TIMEOUT,
             ironrdp_tls::upgrade(raw_stream, self.profile.host.as_str()),
@@ -591,14 +855,17 @@ impl RdpRuntime {
             Ok(Ok(result)) => {
                 println!("[portix_rdp] TLS upgrade SUCCESS");
                 result
-            },
+            }
             Ok(Err(e)) => {
                 eprintln!("[portix_rdp] ERROR: TLS upgrade FAILED: {}", e);
                 eprintln!("[portix_rdp] This usually indicates NLA/CredSSP authentication failure");
                 return Err(RdpError::NegotiationFailed(e.to_string()));
-            },
+            }
             Err(_) => {
-                eprintln!("[portix_rdp] ERROR: TLS upgrade TIMEOUT after {:?}", CONNECT_TIMEOUT);
+                eprintln!(
+                    "[portix_rdp] ERROR: TLS upgrade TIMEOUT after {:?}",
+                    CONNECT_TIMEOUT
+                );
                 return Err(RdpError::ConnectionTimeout);
             }
         };
@@ -612,37 +879,85 @@ impl RdpRuntime {
         println!("[portix_rdp] starting connect_finalize");
         let mut network_client = ReqwestNetworkClient::new();
 
-        let finalize_result = timeout(
-            CONNECT_TIMEOUT,
-            connect_finalize(
-                upgraded,
-                connector,
-                &mut tls_framed,
-                &mut network_client,
-                ServerName::new(self.profile.host.clone()),
-                server_public_key.to_vec(),
-                None,
-            ),
-        )
-        .await;
+        let finalize_result = if license_bypass && !enable_credssp {
+            // Use custom connect_finalize with license PDU bypass for
+            // servers (e.g. CyberArk PAS/PSM) that send malformed
+            // ServerUpgradeLicense PDUs.
+            timeout(
+                CONNECT_TIMEOUT,
+                Self::connect_finalize_with_license_bypass(connector, &mut tls_framed),
+            )
+            .await
+        } else {
+            timeout(
+                CONNECT_TIMEOUT,
+                connect_finalize(
+                    upgraded,
+                    connector,
+                    &mut tls_framed,
+                    &mut network_client,
+                    ServerName::new(self.profile.host.clone()),
+                    server_public_key.to_vec(),
+                    None,
+                ),
+            )
+            .await
+        };
 
         let connection_result = match finalize_result {
             Ok(Ok(result)) => {
-                println!("[portix_rdp] connect_finalize SUCCESS, desktop={}x{}",
-                    result.desktop_size.width, result.desktop_size.height);
+                println!(
+                    "[portix_rdp] connect_finalize SUCCESS, desktop={}x{}",
+                    result.desktop_size.width, result.desktop_size.height
+                );
                 result
-            },
+            }
             Ok(Err(e)) => {
                 eprintln!("[portix_rdp] ERROR: connect_finalize FAILED: {}", e);
-                eprintln!("[portix_rdp] This is the 'privileged session could not be established securely' error from CyberArk");
-                eprintln!("[portix_rdp] Root causes:");
-                eprintln!("[portix_rdp]   1. CredSSP not enabled (check enable_credssp parameter)");
-                eprintln!("[portix_rdp]   2. PAS/PSM configuration issue");
-                eprintln!("[portix_rdp]   3. Network/TLS handshake failure");
+
+                // Provide targeted diagnostics for license-exchange decode errors,
+                // which are common with CyberArk PAS/PSM gateways.
+                if is_license_error(&e.to_string()) {
+                    eprintln!(
+                        "[portix_rdp] This is the 'privileged session could not be established securely' error from CyberArk"
+                    );
+                    eprintln!("[portix_rdp] License exchange decode error details:");
+                    eprintln!(
+                        "[portix_rdp]   - The server sent a PDU during license-exchange that could not be decoded."
+                    );
+                    eprintln!(
+                        "[portix_rdp]   - This commonly happens with CyberArk PAS/PSM when the client requests"
+                    );
+                    eprintln!(
+                        "[portix_rdp]     a new license (CLIENT_NEW_LICENSE_REQUEST) instead of reporting a cached one."
+                    );
+                    eprintln!(
+                        "[portix_rdp]   - A retry with a stub license cache (CLIENT_LICENSE_INFO) will be attempted."
+                    );
+                    eprintln!("[portix_rdp] Root causes:");
+                    eprintln!(
+                        "[portix_rdp]   1. CredSSP not enabled (check enable_credssp parameter)"
+                    );
+                    eprintln!("[portix_rdp]   2. PAS/PSM configuration issue");
+                    eprintln!("[portix_rdp]   3. Network/TLS handshake failure");
+                } else {
+                    eprintln!(
+                        "[portix_rdp] This is the 'privileged session could not be established securely' error from CyberArk"
+                    );
+                    eprintln!("[portix_rdp] Root causes:");
+                    eprintln!(
+                        "[portix_rdp]   1. CredSSP not enabled (check enable_credssp parameter)"
+                    );
+                    eprintln!("[portix_rdp]   2. PAS/PSM configuration issue");
+                    eprintln!("[portix_rdp]   3. Network/TLS handshake failure");
+                }
                 return Err(RdpError::NegotiationFailed(e.to_string()));
-            },
+            }
             Err(_) => {
-                eprintln!("[portix_rdp] ERROR: connect_finalize TIMEOUT after {:?}", CONNECT_TIMEOUT);
+                eprintln!(
+                    "[portix_rdp] ERROR: connect_finalize TIMEOUT after {:?}",
+                    CONNECT_TIMEOUT
+                );
                 return Err(RdpError::ConnectionTimeout);
             }
         };

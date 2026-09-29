@@ -1736,9 +1736,14 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     bool targetRemote,
     bool isLeft,
   ) async {
+    // `isLeft` identifies which PANE received the drop.
+    // `controller` = the pane that owns the *target* filesystem.
     final controller = _c(isLeft);
     if (transfer.fromRemote == targetRemote) return;
+
     if (targetRemote) {
+      // Local → Remote: use the target pane's controller (it has the remote
+      // session we want to upload into).
       for (final entry in transfer.entries) {
         final localPath = entry.path;
         if (localPath == null) continue;
@@ -1765,9 +1770,33 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       }
       return;
     }
+
+    // Remote → Local: the *source* of the transfer is a remote pane.
+    // The target pane (`controller`) owns the LOCAL filesystem we save into.
+    // The remote session lives in whichever controller was the DRAG SOURCE —
+    // that is the other side: if isLeft (drop on local-left) the source is the
+    // right remote controller; if !isLeft (drop on local-right, unusual but
+    // possible) the source is the left controller.
+    //
+    // We cannot use `controller` (the drop target) to perform the download
+    // because it may not have an active remote session (e.g. the left pane is
+    // in Local mode). Instead we pick the controller that currently holds a
+    // valid remote SFTP session and use the target controller's localPath as
+    // the download destination.
+    final remoteController = _remoteControllerForTransfer(isLeft);
+    if (remoteController == null) {
+      if (mounted) {
+        _showSnack(context, 'No active remote session to download from.');
+      }
+      return;
+    }
+
+    // Use the DROP-TARGET controller's localPath so the files land in the
+    // directory the user is currently viewing on the local side.
+    final destinationDir = controller.localPath;
+
     for (final entry in transfer.entries) {
-      final localPath =
-          '${controller.localPath}${Platform.pathSeparator}${entry.name}';
+      final localPath = '$destinationDir${Platform.pathSeparator}${entry.name}';
       final exists = controller.localTargetExists(localPath);
       if (exists) {
         final replace = await _confirmReplace(
@@ -1783,10 +1812,41 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       }
       await _runSftpAction(
         context,
-        () =>
-            controller.downloadRemoteEntry(entry, localPath, overwrite: exists),
+        () => remoteController.downloadRemoteEntry(
+          entry,
+          localPath,
+          overwrite: exists,
+        ),
       );
     }
+    // Refresh the local pane so the downloaded files appear immediately.
+    if (mounted) {
+      unawaited(controller.loadLocalDirectory(destinationDir));
+    }
+  }
+
+  /// Returns the [SftpWorkspaceController] that owns the active remote SFTP
+  /// session that is the *source* of the current drag.
+  ///
+  /// When the drop target is the LEFT pane ([isLeft] == true) the drag source
+  /// is the RIGHT pane's controller, and vice-versa.  If neither side has a
+  /// live remote session (disconnected / not connected yet) this returns null.
+  SftpWorkspaceController? _remoteControllerForTransfer(bool targetIsLeft) {
+    // The source pane is always the opposite side from the drop target.
+    final sourceController = targetIsLeft ? _controller : _leftController;
+    if (sourceController.hasRemoteSession &&
+        !sourceController.isRemoteDisconnected) {
+      return sourceController;
+    }
+    // Fallback: try the target controller itself (e.g. both panes are remote,
+    // or the source is on the same side). This keeps single-pane scenarios
+    // working even though the guard at the top of _handleDroppedTransfer
+    // already blocks same-direction transfers.
+    final fallback = targetIsLeft ? _leftController : _controller;
+    if (fallback.hasRemoteSession && !fallback.isRemoteDisconnected) {
+      return fallback;
+    }
+    return null;
   }
 
   Future<bool?> _confirmReplace(

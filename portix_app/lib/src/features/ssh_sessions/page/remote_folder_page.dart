@@ -233,6 +233,21 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
                           _PathCrumb(
                             path: _remotePath,
                             onSubmit: (path) => _loadRemoteDirectory(path),
+                            onListPath: _activeSessionId != null
+                                ? (dir) async {
+                                    final sessionId = _activeSessionId;
+                                    if (sessionId == null ||
+                                        !_isSessionConnected(sessionId)) {
+                                      return const [];
+                                    }
+                                    final result = await _connectionManager
+                                        .listRemoteDirectory(sessionId, dir);
+                                    return result.fold(
+                                      (_) => const [],
+                                      (entries) => entries,
+                                    );
+                                  }
+                                : null,
                           ),
                           if (_canShowRemoteActions) ...[
                             const SizedBox(height: 10),
