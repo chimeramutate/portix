@@ -2,11 +2,6 @@ name: Build & Release
 
 on:
   push:
-    branches:
-      - main
-      - develop
-      - staging
-      - "release/**"
     tags:
       - "v*.*.*"
       - "v*.*.*-beta*"
