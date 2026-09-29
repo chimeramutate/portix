@@ -741,7 +741,7 @@ jobs:
           fi
 
           VERSION="${{ steps.version.outputs.version }}"
-          RELEASE_NAME="${{ github.ref_name }}-${VERSION}"
+          RELEASE_NAME="${{ github.ref_name }}"
 
           ditto \
             -c \
@@ -773,7 +773,7 @@ jobs:
 
           APP_NAME="$(basename "$APP_PATH" .app)"
           VERSION="${{ steps.version.outputs.version }}"
-          RELEASE_NAME="${{ github.ref_name }}-${VERSION}"
+          RELEASE_NAME="${{ github.ref_name }}"
           DMG_NAME="portix-macos-${RELEASE_NAME}.dmg"
 
           # Create staging directory for DMG layout
@@ -807,10 +807,10 @@ jobs:
       - name: Upload macOS desktop
         uses: actions/upload-artifact@v7
         with:
-          name: portix-macos-${{ github.ref_name }}-${{ steps.version.outputs.version }}
+          name: portix-macos-${{ github.ref_name }}
           path: |
-            portix-macos-${{ github.ref_name }}-${{ steps.version.outputs.version }}.zip
-            portix-macos-${{ github.ref_name }}-${{ steps.version.outputs.version }}.dmg
+            portix-macos-${{ github.ref_name }}.zip
+            portix-macos-${{ github.ref_name }}.dmg
           if-no-files-found: error
 
   # ==========================================================================
@@ -897,9 +897,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Extract base semver from pubspec.yaml (strip build metadata after +)
           VERSION="$(
             sed -nE \
-              's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' \
+              's/^version:[[:space:]]*([0-9]+\.[0-9]+(\.[0-9]+)?(\.[0-9]+)?).*/\1/p' \
               "${APP_DIR}/pubspec.yaml" |
             head -n 1
           )"
@@ -909,12 +910,8 @@ jobs:
             exit 1
           fi
 
-          if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,3}$ ]]; then
-            echo "ERROR: Invalid application version: $VERSION"
-            exit 1
-          fi
-
-          RELEASE_NAME="${{ github.ref_name }}-${VERSION}"
+          # Use the git tag as-is for release artifact naming
+          RELEASE_NAME="${{ github.ref_name }}"
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
@@ -1101,20 +1098,56 @@ jobs:
 
           mkdir -p "$BUNDLE_LIB"
 
-          for lib in libsecret-1.so.0 libgcrypt.so.20; do
+          # Bundle runtime libs needed by Flutter/Rust that may not exist on
+          # all distros (Fedora, Arch, etc.). GTK3, libsecret, libgcrypt,
+          # libgpg-error are all required at runtime.
+          REQUIRED_LIBS=(
+            libsecret-1.so.0
+            libgcrypt.so.20
+            libgpg-error.so.0
+            libgtk-3.so.0
+            libgdk-3.so.0
+            libglib-2.0.so.0
+            libgobject-2.0.so.0
+            libgio-2.0.so.0
+            libpango-1.0.so.0
+            libpangocairo-1.0.so.0
+            libcairo.so.2
+            libgdk_pixbuf-2.0.so.0
+            libatk-1.0.so.0
+            libharfbuzz.so.0
+            libfontconfig.so.1
+            libfreetype.so.6
+            libepoxy.so.0
+          )
+
+          for lib in "${REQUIRED_LIBS[@]}"; do
             LIB_PATH="$(
               ldconfig -p 2>/dev/null |
-              grep -m1 -F "$lib" |
+              grep -m1 -F " ${lib} " |
               awk '{print $NF}'
             )"
 
+            # fallback: try without spaces (some ldconfig formats differ)
+            if [ -z "$LIB_PATH" ]; then
+              LIB_PATH="$(
+                ldconfig -p 2>/dev/null |
+                grep -m1 -F "${lib}" |
+                awk '{print $NF}'
+              )"
+            fi
+
             if [ -n "$LIB_PATH" ] && [ -f "$LIB_PATH" ]; then
               cp "$LIB_PATH" "$BUNDLE_LIB/$lib"
-              echo "Bundled $lib from $LIB_PATH"
+              echo "Bundled: $lib  ←  $LIB_PATH"
             else
-              echo "Warning: Could not locate $lib"
+              echo "Warning: Could not locate $lib (may be pulled from system on compatible distros)"
             fi
           done
+
+          echo ""
+          echo "Bundled runtime libraries:"
+          ls -lah "$BUNDLE_LIB/" || echo "(none)"
 
       - name: Package Linux TAR
         shell: bash
@@ -1227,22 +1260,21 @@ jobs:
           # Copy Flutter bundle into AppDir
           cp -r "${BUNDLE_DIR}/." "${APPDIR}/usr/bin/"
 
-          # Move shared libraries to usr/lib
-          for so in \
-            libportix_serv.so \
-            libportix_rdp.so \
-            libflutter_linux_gtk.so
-          do
-            if [ -f "${APPDIR}/usr/bin/${so}" ]; then
-              mv "${APPDIR}/usr/bin/${so}" "${APPDIR}/usr/lib/${so}"
-            fi
+          # Move all .so files from usr/bin directly into usr/lib
+          find "${APPDIR}/usr/bin" -maxdepth 1 -name "*.so*" -type f | while read -r so; do
+            mv "$so" "${APPDIR}/usr/lib/"
+            echo "Moved $(basename "$so") → usr/lib/"
           done
 
-          # Copy bundled runtime libs if present
+          # Move the bundled runtime lib/ subdirectory into usr/lib/
           if [ -d "${APPDIR}/usr/bin/lib" ]; then
             cp -r "${APPDIR}/usr/bin/lib/." "${APPDIR}/usr/lib/"
             rm -rf "${APPDIR}/usr/bin/lib"
+            echo "Moved bundled lib/ → usr/lib/"
           fi
+
+          echo "usr/lib contents:"
+          ls -lah "${APPDIR}/usr/lib/" || true
 
           # App icon
           cp "${APP_DIR}/assets/icons/portix_launcher.png" \
@@ -1250,27 +1282,34 @@ jobs:
           cp "${APPDIR}/usr/share/icons/hicolor/256x256/apps/portix.png" \
             "${APPDIR}/portix.png"
 
-          # Desktop entry
-          cat > "${APPDIR}/usr/share/applications/portix.desktop" <<EOF
-          [Desktop Entry]
-          Name=Portix
-          Exec=portix
-          Icon=portix
-          Type=Application
-          Categories=Network;RemoteAccess;
-          EOF
+          # Desktop entry — must NOT be indented inside the heredoc
+          cat > "${APPDIR}/usr/share/applications/portix.desktop" << 'DESKTOP'
+[Desktop Entry]
+Name=Portix
+Exec=portix
+Icon=portix
+Type=Application
+Categories=Network;RemoteAccess;
+X-AppImage-Version=$VERSION
+DESKTOP
           cp "${APPDIR}/usr/share/applications/portix.desktop" \
             "${APPDIR}/portix.desktop"
 
-          # AppRun launcher script — sets LD_LIBRARY_PATH so Flutter and Rust
-          # shared libs are found relative to the AppImage mount point
-          cat > "${APPDIR}/AppRun" <<'APPRUN'
-          #!/bin/bash
-          HERE="$(dirname "$(readlink -f "$0")")"
-          export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/bin:${LD_LIBRARY_PATH:-}"
-          exec "${HERE}/usr/bin/portix" "$@"
-          APPRUN
+          # AppRun launcher — must NOT be indented so bash executes correctly.
+          # Sets LD_LIBRARY_PATH to include bundled libs before system libs so
+          # the AppImage is self-contained across distros (Ubuntu, Fedora, Arch…).
+          cat > "${APPDIR}/AppRun" << 'APPRUN'
+#!/bin/bash
+HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/bin:${LD_LIBRARY_PATH:-}"
+export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export GDK_BACKEND="${GDK_BACKEND:-x11}"
+exec "${HERE}/usr/bin/portix" "$@"
+APPRUN
           chmod +x "${APPDIR}/AppRun"
+
+          echo "AppDir structure:"
+          find "${APPDIR}" -type f | sort
 
           # Build AppImage (FUSE not available in CI — use --appimage-extract-and-run)
           ARCH=x86_64 ./appimagetool \
@@ -1436,7 +1475,7 @@ jobs:
             throw "Invalid application version: $version"
           }
 
-          $releaseName = "${{ github.ref_name }}-$version"
+          $releaseName = "${{ github.ref_name }}"
 
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "release_name=$releaseName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
