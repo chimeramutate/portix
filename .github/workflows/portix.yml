@@ -1277,30 +1277,30 @@ jobs:
           cp "${APPDIR}/usr/share/icons/hicolor/256x256/apps/portix.png" \
             "${APPDIR}/portix.png"
 
-          # Desktop entry — must NOT be indented inside the heredoc
-          cat > "${APPDIR}/usr/share/applications/portix.desktop" << 'DESKTOP'
-[Desktop Entry]
-Name=Portix
-Exec=portix
-Icon=portix
-Type=Application
-Categories=Network;RemoteAccess;
-X-AppImage-Version=$VERSION
-DESKTOP
+          # Desktop entry
+          printf '%s\n' \
+            '[Desktop Entry]' \
+            'Name=Portix' \
+            'Exec=portix' \
+            'Icon=portix' \
+            'Type=Application' \
+            'Categories=Network;RemoteAccess;' \
+            "X-AppImage-Version=${VERSION}" \
+            > "${APPDIR}/usr/share/applications/portix.desktop"
+
           cp "${APPDIR}/usr/share/applications/portix.desktop" \
             "${APPDIR}/portix.desktop"
 
-          # AppRun launcher — must NOT be indented so bash executes correctly.
-          # Sets LD_LIBRARY_PATH to include bundled libs before system libs so
-          # the AppImage is self-contained across distros (Ubuntu, Fedora, Arch…).
-          cat > "${APPDIR}/AppRun" << 'APPRUN'
-#!/bin/bash
-HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
-export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/bin:${LD_LIBRARY_PATH:-}"
-export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-export GDK_BACKEND="${GDK_BACKEND:-x11}"
-exec "${HERE}/usr/bin/portix" "$@"
-APPRUN
+          # AppRun launcher
+          printf '%s\n' \
+            '#!/bin/bash' \
+            'HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"' \
+            'export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/bin:${LD_LIBRARY_PATH:-}"' \
+            'export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"' \
+            'export GDK_BACKEND="${GDK_BACKEND:-x11}"' \
+            'exec "${HERE}/usr/bin/portix" "$@"' \
+            > "${APPDIR}/AppRun"
+
           chmod +x "${APPDIR}/AppRun"
 
           echo "AppDir structure:"
