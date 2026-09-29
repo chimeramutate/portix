@@ -58,7 +58,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -106,7 +106,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -200,14 +200,14 @@ jobs:
           exit-code: "0"
 
       - name: Upload macOS server library
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: macos-lib
           path: dist-serv/libportix_serv.dylib
           if-no-files-found: error
 
       - name: Upload macOS RDP library
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: macos-rdp-lib
           path: dist-rdp/libportix_rdp.dylib
@@ -232,7 +232,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -340,14 +340,14 @@ jobs:
           exit-code: "0"
 
       - name: Upload Linux server library
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: linux-lib
           path: dist-serv/libportix_serv.so
           if-no-files-found: error
 
       - name: Upload Linux RDP library
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: linux-rdp-lib
           path: dist-rdp/libportix_rdp.so
@@ -372,7 +372,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -506,14 +506,14 @@ jobs:
           exit-code: "0"
 
       - name: Upload Windows server library
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: windows-lib
           path: dist-serv/portix_serv.dll
           if-no-files-found: error
 
       - name: Upload Windows RDP library
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: windows-rdp-lib
           path: dist-rdp/portix_rdp.dll
@@ -541,16 +541,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download macOS server library
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: macos-lib
           path: portix_serv_lib
 
       - name: Download macOS RDP library
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: macos-rdp-lib
           path: portix_rdp_lib
@@ -800,7 +800,7 @@ jobs:
           ls -lah "$DMG_NAME"
 
       - name: Upload macOS desktop
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: portix-macos-${{ github.ref_name }}
           path: |
@@ -834,16 +834,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download Linux server library
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: linux-lib
           path: portix_serv_lib
 
       - name: Download Linux RDP library
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: linux-rdp-lib
           path: portix_rdp_lib
@@ -1316,7 +1316,7 @@ APPRUN
           ls -lah "portix-linux-${RELEASE_NAME}.AppImage"
 
       - name: Upload Linux desktop
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: portix-Linux-${{ steps.version.outputs.release_name }}
           path: |
@@ -1347,16 +1347,16 @@ APPRUN
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download Windows server library
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: windows-lib
           path: portix_serv_lib
 
       - name: Download Windows RDP library
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: windows-rdp-lib
           path: portix_rdp_lib
@@ -1662,7 +1662,7 @@ APPRUN
           Get-Item $exe | Format-List Name,Length,FullName
 
       - name: Upload Windows desktop
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: portix-Windows-${{ steps.version.outputs.release_name }}
           path: |
@@ -1687,7 +1687,7 @@ APPRUN
 
     steps:
       - name: Download available desktop artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           pattern: portix-*
           path: artifacts/
@@ -1755,7 +1755,7 @@ APPRUN
 
     steps:
       - name: Download available libraries
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           pattern: "*-lib"
           path: libs/
@@ -1815,10 +1815,10 @@ APPRUN
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download Linux bundle
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: portix-Linux-${{ needs.build-desktop-linux.outputs.release_name }}
           path: artifact/
@@ -1918,7 +1918,7 @@ APPRUN
           ls -la portix_*.snap
 
       - name: Upload Snap artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: portix-snap-${{ github.ref_name }}
           path: portix_${{ github.ref_name }}.snap
@@ -1951,10 +1951,10 @@ APPRUN
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download snap artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: portix-snap-${{ github.ref_name }}
           path: snap_artifact/
@@ -1993,10 +1993,10 @@ APPRUN
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download Linux bundle
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: portix-Linux-${{ needs.build-desktop-linux.outputs.release_name }}
           path: artifact/
@@ -2073,7 +2073,7 @@ APPRUN
           cache-key: flatpak-builder-${{ github.sha }}
 
       - name: Upload Flatpak artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: portix-flatpak-${{ github.ref_name }}
           path: portix-${{ github.ref_name }}.flatpak
@@ -2100,12 +2100,12 @@ APPRUN
 
     steps:
       - name: Checkout monorepo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           path: portix
 
       - name: Checkout Flathub repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           repository: flathub/com.github.asepimam.Portix
           token: ${{ secrets.FLATHUB_PAT }}
@@ -2143,7 +2143,7 @@ APPRUN
           echo "URL: $URL"
 
       - name: Download Linux bundle artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: portix-Linux-${{ github.ref_name }}-${{ steps.vars.outputs.version }}
           path: artifact/
