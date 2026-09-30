@@ -1133,7 +1133,7 @@ jobs:
               ldconfig -p 2>/dev/null |
               grep -m1 -F " ${lib} " |
               awk '{print $NF}'
-            )"
+            )" || true
 
             # fallback: try without spaces (some ldconfig formats differ)
             if [ -z "$LIB_PATH" ]; then
@@ -1141,16 +1141,17 @@ jobs:
                 ldconfig -p 2>/dev/null |
                 grep -m1 -F "${lib}" |
                 awk '{print $NF}'
-              )"
+              )" || true
             fi
 
             # second fallback: search common library directories directly
+            # Use -quit so find exits immediately after first match,
+            # avoiding SIGPIPE from head -n 1 under pipefail.
             if [ -z "$LIB_PATH" ]; then
               LIB_PATH="$(
-                find /usr/lib /usr/lib/x86_64-linux-gnu /lib /lib/x86_64-linux-gnu \
-                  -name "${lib}" -type f 2>/dev/null |
-                head -n 1
-              )"
+                find /usr/lib/x86_64-linux-gnu /usr/lib /lib/x86_64-linux-gnu /lib \
+                  -name "${lib}" -type f -print -quit 2>/dev/null
+              )" || true
             fi
 
             if [ -n "$LIB_PATH" ] && [ -f "$LIB_PATH" ]; then
