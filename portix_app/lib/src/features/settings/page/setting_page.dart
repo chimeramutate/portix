@@ -5,6 +5,7 @@ import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/features/settings/bloc/index.dart';
 import 'package:portix/src/features/settings/widget/index.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/terminal_settings.dart';
+import 'package:portix/src/features/ssh_sessions/widget/remote/terminal_themes.dart';
 
 class SettingsView extends StatefulWidget {
   const SettingsView({super.key});
@@ -153,15 +154,30 @@ const settingsNavigationGroups = [
             'Controls baseline behavior for SSH and terminal sessions',
         sections: [
           SettingsDetailSection(
-            title: 'Workspace',
+            title: 'Appearance',
             rows: [
               SettingsDetailRow('Theme density', 'Compact'),
               SettingsDetailRow('Profile card mode', 'Detailed'),
+              SettingsDetailRow(
+                'Terminal theme',
+                'Portix',
+                terminalThemeNames,
+              ),
+              SettingsDetailRow(
+                'Terminal font',
+                'Monospace',
+                terminalFonts,
+              ),
               SettingsDetailRow(
                 'Terminal font scale',
                 '13 px',
                 terminalFontSizes,
               ),
+            ],
+          ),
+          SettingsDetailSection(
+            title: 'Terminal Colors',
+            rows: [
               SettingsDetailRow(
                 'Terminal text color',
                 'White',
@@ -172,7 +188,6 @@ const settingsNavigationGroups = [
                 'Black',
                 terminalBackgroundColors,
               ),
-              SettingsDetailRow('Terminal font', 'Monospace', terminalFonts),
             ],
           ),
           SettingsDetailSection(
@@ -212,33 +227,6 @@ const settingsNavigationGroups = [
               SettingsDetailRow('Auto-rewrite prompt', 'Enabled'),
               SettingsDetailRow('Temp file cleanup', 'After close'),
               SettingsDetailRow('Binary file action', 'Download only'),
-            ],
-          ),
-        ],
-      ),
-      SettingsNavigationItem(
-        id: 'teams',
-        title: 'Teams',
-        icon: Icons.groups_2_outlined,
-        headerTitle: 'Team Controls',
-        headerSubtitle: 'Shared workspace policy',
-        profileTitle: 'Team Access Profile',
-        profileSubtitle: 'Controls collaborative profile ownership',
-        sections: [
-          SettingsDetailSection(
-            title: 'Membership',
-            rows: [
-              SettingsDetailRow('Default role', 'Operator'),
-              SettingsDetailRow('Invite approval', 'Required'),
-              SettingsDetailRow('Shared profile edits', 'Review'),
-            ],
-          ),
-          SettingsDetailSection(
-            title: 'Sync',
-            rows: [
-              SettingsDetailRow('Team profile sync', 'Enabled'),
-              SettingsDetailRow('Conflict strategy', 'Newest valid'),
-              SettingsDetailRow('Audit trail', 'Enabled'),
             ],
           ),
         ],
@@ -305,17 +293,17 @@ const settingsNavigationGroups = [
     ],
   ),
   SettingsNavigationGroup(
-    label: 'Mission',
+    label: 'Connection',
     items: [
       SettingsNavigationItem(
         id: 'configuration',
-        title: 'Configuration Center',
+        title: 'Configuration',
         icon: Icons.adjust_rounded,
-        headerTitle: 'Mission Config Center',
-        headerSubtitle: 'Policy and rollout controls',
+        headerTitle: 'Connection Config',
+        headerSubtitle: 'Session and transfer controls',
         profileTitle: 'Global Configuration Profile',
         profileSubtitle:
-            'Controls default behavior for SSH, SFTP, and rollout safety',
+            'Controls default behavior for SSH, SFTP, and transfer safety',
         sections: [
           SettingsDetailSection(
             title: 'Session Guardrails',
@@ -331,140 +319,6 @@ const settingsNavigationGroups = [
               SettingsDetailRow('Retry strategy', 'Exponential'),
               SettingsDetailRow('Auto resume', 'Enabled'),
               SettingsDetailRow('Integrity verify', 'SHA-256'),
-            ],
-          ),
-          SettingsDetailSection(
-            title: 'Compliance Matrix',
-            rows: [
-              SettingsDetailRow('Host key pinning', 'Required'),
-              SettingsDetailRow('Passphrase policy', 'Strong'),
-              SettingsDetailRow('Credential rotation', '30 days'),
-            ],
-          ),
-          SettingsDetailSection(
-            title: 'Notification Routing',
-            rows: [
-              SettingsDetailRow('Ops channel', '#infra-alerts'),
-              SettingsDetailRow('Pager route', 'Primary'),
-              SettingsDetailRow('Digest report', 'Daily'),
-            ],
-          ),
-        ],
-      ),
-      SettingsNavigationItem(
-        id: 'automation',
-        title: 'Automation',
-        icon: Icons.account_tree_outlined,
-        headerTitle: 'Automation Policy',
-        headerSubtitle: 'Workflow execution preferences',
-        profileTitle: 'Automation Profile',
-        profileSubtitle: 'Defines safe defaults for remote actions',
-        sections: [
-          SettingsDetailSection(
-            title: 'Runbooks',
-            rows: [
-              SettingsDetailRow('Preflight validation', 'Required'),
-              SettingsDetailRow('Autofix mode', 'Manual'),
-              SettingsDetailRow('Rollback checkpoints', 'Enabled'),
-            ],
-          ),
-          SettingsDetailSection(
-            title: 'Scheduling',
-            rows: [
-              SettingsDetailRow('Maintenance window', '02:00 UTC'),
-              SettingsDetailRow('Parallel jobs', '4'),
-              SettingsDetailRow('Failure policy', 'Pause'),
-            ],
-          ),
-        ],
-      ),
-    ],
-  ),
-  SettingsNavigationGroup(
-    label: 'Integrations',
-    items: [
-      SettingsNavigationItem(
-        id: 'connectors',
-        title: 'Connectors',
-        icon: Icons.cable_rounded,
-        headerTitle: 'Connector Settings',
-        headerSubtitle: 'External service bindings',
-        profileTitle: 'Connector Profile',
-        profileSubtitle: 'Routes workspace events to external services',
-        sections: [
-          SettingsDetailSection(
-            title: 'Providers',
-            rows: [
-              SettingsDetailRow('GitHub', 'Connected'),
-              SettingsDetailRow('Jira', 'Available'),
-              SettingsDetailRow('Linear', 'Available'),
-            ],
-          ),
-          SettingsDetailSection(
-            title: 'Secrets',
-            rows: [
-              SettingsDetailRow('Token storage', 'Vault'),
-              SettingsDetailRow('Rotation reminder', 'Enabled'),
-              SettingsDetailRow('Scope validation', 'ON'),
-            ],
-          ),
-        ],
-      ),
-      SettingsNavigationItem(
-        id: 'webhooks',
-        title: 'Webhooks',
-        icon: Icons.webhook_outlined,
-        headerTitle: 'Webhook Routing',
-        headerSubtitle: 'Outbound event delivery',
-        profileTitle: 'Webhook Profile',
-        profileSubtitle: 'Controls alerts and transfer completion callbacks',
-        sections: [
-          SettingsDetailSection(
-            title: 'Delivery',
-            rows: [
-              SettingsDetailRow('Transfer complete', 'Enabled'),
-              SettingsDetailRow('Failure alerts', 'Enabled'),
-              SettingsDetailRow('Retry count', '3'),
-            ],
-          ),
-          SettingsDetailSection(
-            title: 'Security',
-            rows: [
-              SettingsDetailRow('Signature', 'HMAC'),
-              SettingsDetailRow('Payload format', 'JSON'),
-              SettingsDetailRow('Timeout', '10 sec'),
-            ],
-          ),
-        ],
-      ),
-    ],
-  ),
-  SettingsNavigationGroup(
-    label: 'Runtime',
-    items: [
-      SettingsNavigationItem(
-        id: 'agents',
-        title: 'Agents',
-        icon: Icons.smart_toy_outlined,
-        headerTitle: 'Runtime Agents',
-        headerSubtitle: 'Local and remote helper behavior',
-        profileTitle: 'Agent Runtime Profile',
-        profileSubtitle: 'Controls local helper processes and diagnostics',
-        sections: [
-          SettingsDetailSection(
-            title: 'Local Agent',
-            rows: [
-              SettingsDetailRow('Auto start', 'Enabled'),
-              SettingsDetailRow('Health check', '30 sec'),
-              SettingsDetailRow('Crash restart', 'ON'),
-            ],
-          ),
-          SettingsDetailSection(
-            title: 'Remote Agent',
-            rows: [
-              SettingsDetailRow('Install prompt', 'Manual'),
-              SettingsDetailRow('Version pinning', 'Enabled'),
-              SettingsDetailRow('Telemetry', 'Minimal'),
             ],
           ),
         ],

@@ -23,6 +23,7 @@ class TerminalPane extends StatefulWidget {
     this.backgroundColor = AppColors.terminal,
     this.fontFamily = 'monospace',
     this.fontSize = 13,
+    this.themeName,
     this.allowPaneDrag = false,
     this.onTap,
     this.onReconnect,
@@ -52,6 +53,11 @@ class TerminalPane extends StatefulWidget {
   final Color backgroundColor;
   final String fontFamily;
   final double fontSize;
+
+  /// Name of the active terminal color scheme preset (e.g. 'Dracula').
+  /// When set, it takes priority over [textColor] and [backgroundColor].
+  final String? themeName;
+
   final bool allowPaneDrag;
   final VoidCallback? onTap;
   final VoidCallback? onReconnect;
@@ -169,6 +175,7 @@ class _TerminalPaneState extends State<TerminalPane>
                     widget.profile,
                     foreground: widget.textColor,
                     background: widget.backgroundColor,
+                    themeName: widget.themeName,
                   ),
                   cursorType: TerminalCursorType.block,
                   alwaysShowCursor: widget.active && connected,

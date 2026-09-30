@@ -93,6 +93,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   Color _terminalBackgroundColor = AppColors.terminal;
   String _terminalFontFamily = 'monospace';
   double _terminalFontSize = 13;
+  String? _terminalThemeName;
   bool _passwordPromptActive = false;
   session_models.RemoteSystemSnapshot? _remoteSnapshot;
   String? _telemetryError;
@@ -211,6 +212,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
       final values = await _settingsRepository.loadSettings();
       if (!mounted) return;
       setState(() {
+        _terminalThemeName = values[terminalThemeSettingKey];
         _terminalTextColor = terminalTextColorFromValue(
           values[terminalTextColorSettingKey],
         );
@@ -227,6 +229,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
+        _terminalThemeName = null;
         _terminalTextColor = AppColors.text;
         _terminalBackgroundColor = AppColors.terminal;
         _terminalFontFamily = 'monospace';
@@ -742,10 +745,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
   }
 
   bool _isAcceptSuggestionInput(String data) {
-    return data == '\t' ||
-        data == '\x1b[C' ||
-        data == '\x1b[F' ||
-        data == '\x1b[4~';
+    // Only Tab accepts a suggestion inline.
+    // Arrow-right (\x1b[C), End (\x1b[F / \x1b[4~) are normal cursor-movement
+    // keys and must not consume the suggestion.
+    return data == '\t';
   }
 
   bool _isSelectNextSuggestionInput(String data) {
@@ -2382,9 +2385,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
           if (!activeTerminalIsAltBuffer) {
             if (!isModifierPressed &&
-                (event.logicalKey == LogicalKeyboardKey.arrowRight ||
-                    event.logicalKey == LogicalKeyboardKey.end ||
-                    event.logicalKey == LogicalKeyboardKey.tab)) {
+                event.logicalKey == LogicalKeyboardKey.tab) {
               if (sessionId != null && _acceptSuggestion(sessionId)) {
                 return KeyEventResult.handled;
               }
@@ -2612,6 +2613,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                         backgroundColor: _terminalBackgroundColor,
                         fontFamily: _terminalFontFamily,
                         fontSize: _terminalFontSize,
+                        themeName: _terminalThemeName,
                         onFocus: (sessionId) {
                           final session = _sessionById(sessionId);
                           if (session != null) {

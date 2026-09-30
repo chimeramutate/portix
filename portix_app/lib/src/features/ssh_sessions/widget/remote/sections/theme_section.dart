@@ -1,41 +1,27 @@
 part of '../terminal_workspace_view.dart';
 
-const portixTerminalTheme = TerminalTheme(
-  cursor: AppColors.green,
-  selection: Color(0x663A78B7),
-  foreground: AppColors.text,
-  background: AppColors.terminal,
-  black: Color(0xFF020814),
-  red: AppColors.danger,
-  green: AppColors.green,
-  yellow: AppColors.amber,
-  blue: AppColors.primaryBlue,
-  magenta: Color(0xFFFF6BD6),
-  cyan: AppColors.cyan,
-  white: AppColors.text,
-  brightBlack: AppColors.muted,
-  brightRed: Color(0xFFFF7C9B),
-  brightGreen: Color(0xFF49F5A5),
-  brightYellow: Color(0xFFFFD37A),
-  brightBlue: Color(0xFF69A3FF),
-  brightMagenta: Color(0xFFFF95E2),
-  brightCyan: Color(0xFF71E9FF),
-  brightWhite: Colors.white,
-  searchHitBackground: Color(0x66406200),
-  searchHitBackgroundCurrent: Color(0xAA805800),
-  searchHitForeground: AppColors.text,
-);
-
-/// Builds a [TerminalTheme] with cursor and selection tinted by the
-/// profile's chosen [domain.ProfileColor], while allowing foreground and
-/// background colors to be customized.
+/// Builds a [TerminalTheme] from the combined inputs:
+/// - [themeName]: preset name (e.g. 'Dracula'). When non-null and not 'Custom',
+///   the preset is used as-is and [foreground]/[background] are ignored.
+/// - [profile]: tints cursor/selection with the profile accent color when no
+///   preset is active.
+/// - [foreground] / [background]: custom per-setting colors (used only when
+///   [themeName] is null, empty, or 'Custom').
 TerminalTheme terminalThemeForProfile(
   domain.SshProfile? profile, {
   Color? foreground,
   Color? background,
+  String? themeName,
 }) {
+  // ── Preset path ────────────────────────────────────────────────────────
+  if (isTerminalThemePreset(themeName)) {
+    return terminalThemeByName(themeName);
+  }
+
+  // ── Custom / legacy path ───────────────────────────────────────────────
   final textColor = foreground ?? AppColors.text;
   final terminalBackground = background ?? AppColors.terminal;
+
   if (profile == null) {
     return TerminalTheme(
       cursor: AppColors.green,
@@ -96,3 +82,4 @@ TerminalTheme terminalThemeForProfile(
     searchHitForeground: textColor,
   );
 }
+

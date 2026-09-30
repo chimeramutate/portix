@@ -36,6 +36,7 @@ class TerminalWorkspaceView extends StatelessWidget {
     required this.onReconnect,
     required this.onToggleBroadcast,
     required this.onToggleSolo,
+    this.themeName,
   });
 
   final SplitNode? root;
@@ -68,6 +69,7 @@ class TerminalWorkspaceView extends StatelessWidget {
   final Color backgroundColor;
   final String fontFamily;
   final double fontSize;
+  final String? themeName;
   final ValueChanged<String> onFocus;
   final ValueChanged<String> onClosePane;
   final void Function(
@@ -99,6 +101,7 @@ class TerminalWorkspaceView extends StatelessWidget {
         backgroundColor: backgroundColor,
         fontFamily: fontFamily,
         fontSize: fontSize,
+        themeName: themeName,
       );
     }
     return Padding(
@@ -126,6 +129,7 @@ class TerminalWorkspaceView extends StatelessWidget {
         backgroundColor: backgroundColor,
         fontFamily: fontFamily,
         fontSize: fontSize,
+        themeName: themeName,
         onFocus: onFocus,
         onClosePane: onClosePane,
         onSplit: onSplit,
@@ -171,6 +175,7 @@ class SplitTreeView extends StatelessWidget {
     required this.onToggleBroadcast,
     required this.onToggleSolo,
     required this.canClosePane,
+    this.themeName,
   });
 
   final SplitNode node;
@@ -198,6 +203,7 @@ class SplitTreeView extends StatelessWidget {
   final Color backgroundColor;
   final String fontFamily;
   final double fontSize;
+  final String? themeName;
   final ValueChanged<String> onFocus;
   final ValueChanged<String> onClosePane;
   final void Function(
@@ -253,6 +259,7 @@ class SplitTreeView extends StatelessWidget {
         fontFamily: fontFamily,
         fontSize: fontSize,
         allowPaneDrag: showPaneControls,
+        themeName: themeName,
         onTap: () {
           onFocus(node.sessionId);
           if (keyboardEnabled) focusNode.requestFocus();
@@ -296,6 +303,7 @@ class SplitTreeView extends StatelessWidget {
             backgroundColor: backgroundColor,
             fontFamily: fontFamily,
             fontSize: fontSize,
+            themeName: themeName,
             onFocus: onFocus,
             onClosePane: onClosePane,
             onSplit: onSplit,
