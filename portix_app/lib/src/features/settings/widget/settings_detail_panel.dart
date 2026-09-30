@@ -36,30 +36,46 @@ class SettingsDetailPanel extends StatelessWidget {
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                // Calculate card height based on max row count across sections.
-                // row height(28) + spacing(7) = 35 per row, title(20) + gap(8) + padding(20) = 48
-                final maxRows = item.sections.isEmpty
-                    ? 3
-                    : item.sections
-                          .map((s) => s.rows.length)
-                          .reduce((a, b) => a > b ? a : b);
-                final cardHeight = 48.0 + maxRows * 35.0;
+                // Card height per section: title(12) + gap(8) + padding(10*2)
+                // = 40px fixed overhead, plus each row is 28px tall + 7px gap,
+                // minus the last gap.
+                // Formula: 40 + rows * 28 + max(rows-1, 0) * 7
+                double cardHeightForSection(SettingsDetailSection s) {
+                  final n = s.rows.length;
+                  return 40.0 + n * 28.0 + (n > 1 ? (n - 1) * 7.0 : 0.0);
+                }
 
                 return GridView.builder(
                   itemCount: item.sections.length,
                   gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
                     maxCrossAxisExtent: 380,
-                    mainAxisExtent: cardHeight,
+                    // Each card gets its own computed height via a custom
+                    // delegate that sizes each item individually. Since
+                    // SliverGridDelegateWithMaxCrossAxisExtent requires a
+                    // single mainAxisExtent, use the height of each section
+                    // by wrapping in a separate builder.
+                    mainAxisExtent: item.sections.isEmpty
+                        ? 120
+                        : item.sections
+                              .map(cardHeightForSection)
+                              .reduce((a, b) => a > b ? a : b),
                     crossAxisSpacing: 10,
                     mainAxisSpacing: 10,
                   ),
-                  itemBuilder: (context, index) => _SettingsSectionCard(
-                    item: item,
-                    section: item.sections[index],
-                    values: values,
-                    defaults: defaults,
-                    onChanged: onChanged,
-                  ),
+                  itemBuilder: (context, index) {
+                    final section = item.sections[index];
+                    final height = cardHeightForSection(section);
+                    return SizedBox(
+                      height: height,
+                      child: _SettingsSectionCard(
+                        item: item,
+                        section: section,
+                        values: values,
+                        defaults: defaults,
+                        onChanged: onChanged,
+                      ),
+                    );
+                  },
                 );
               },
             ),

@@ -1,10 +1,20 @@
 import 'package:flutter/widgets.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
+import 'terminal_themes.dart';
 
 const terminalTextColorSettingKey = 'general.terminal_text_color';
 const terminalBackgroundColorSettingKey = 'general.terminal_background_color';
 const terminalFontSettingKey = 'general.terminal_font';
 const terminalFontSizeSettingKey = 'general.terminal_font_scale';
+
+/// Setting key for the selected terminal color scheme preset.
+/// When set to anything other than 'Custom', the preset overrides the
+/// individual text/background color settings.
+const terminalThemeSettingKey = 'general.terminal_theme';
+
+/// Returns true when the saved [value] selects a preset theme (not 'Custom').
+bool isTerminalThemePreset(String? value) =>
+    value != null && value != 'Custom' && terminalThemeNames.contains(value);
 
 const terminalTextColors = ['White', 'Green', 'Amber', 'Cyan', 'Blue', 'Red'];
 
