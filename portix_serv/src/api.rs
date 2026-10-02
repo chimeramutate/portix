@@ -175,6 +175,33 @@ pub async fn exec_remote_command(session_id: String, command: String) -> anyhow:
         .await?)
 }
 
+/// Generates an unencrypted ed25519 keypair: the private key at `path` (0600
+/// on unix) and the public key at `path.pub`. Refuses to overwrite either
+/// file. Returns the OpenSSH public key line (for `authorized_keys`).
+///
+/// Unencrypted because the connect path loads keys without a passphrase
+/// (`load_secret_key(path, None)` in ssh_client.rs).
+pub fn generate_ed25519_key(path: String, comment: String) -> anyhow::Result<String> {
+    use russh::keys::ssh_key::{Algorithm, LineEnding, PrivateKey};
+
+    let private_path = std::path::PathBuf::from(&path);
+    let public_path = std::path::PathBuf::from(format!("{path}.pub"));
+    for existing in [&private_path, &public_path] {
+        if existing.exists() {
+            anyhow::bail!("{} already exists", existing.display());
+        }
+    }
+    if let Some(parent) = private_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519)?;
+    key.set_comment(comment);
+    key.write_openssh_file(&private_path, LineEnding::LF)?;
+    let public_key = key.public_key().to_openssh()?;
+    std::fs::write(&public_path, format!("{public_key}\n"))?;
+    Ok(public_key)
+}
+
 pub async fn terminal_output_stream(sink: StreamSink<String>) -> anyhow::Result<()> {
     let mut rx = SESSION_MANAGER.terminal_output_stream();
     tokio::spawn(async move {
@@ -216,5 +243,33 @@ where
             Err(broadcast::error::RecvError::Lagged(_)) => continue,
             Err(broadcast::error::RecvError::Closed) => break,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_ed25519_key_writes_loadable_pair_and_refuses_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("id_test").to_string_lossy().into_owned();
+
+        let public_key = generate_ed25519_key(path.clone(), "me@portix".into()).unwrap();
+        assert!(public_key.starts_with("ssh-ed25519 "));
+        assert!(public_key.ends_with(" me@portix"));
+        assert!(russh::keys::load_secret_key(&path, None).is_ok());
+        assert_eq!(
+            std::fs::read_to_string(format!("{path}.pub")).unwrap().trim(),
+            public_key
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+
+        assert!(generate_ed25519_key(path, String::new()).is_err());
     }
 }

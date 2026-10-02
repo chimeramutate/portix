@@ -1549,6 +1549,7 @@ dependencies = [
  "base64",
  "flutter_rust_bridge",
  "once_cell",
+ "rand 0.10.1",
  "russh",
  "serde",
  "serde_json",
