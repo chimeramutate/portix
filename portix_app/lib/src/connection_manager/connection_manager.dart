@@ -165,6 +165,30 @@ class ConnectionManager extends ChangeNotifier {
 
   Future<void> disconnect(String sessionId) => _backend.disconnect(sessionId);
 
+  Future<Result<PortForward>> startLocalForward(
+    SshProfile profile, {
+    required int localPort,
+    required String remoteHost,
+    required int remotePort,
+  }) async {
+    try {
+      final forward = await _backend.startLocalForward(
+        await _profileWithResolvedPassword(profile),
+        localPort,
+        remoteHost,
+        remotePort,
+      );
+      return Right(forward);
+    } catch (error) {
+      return Left(AppFailure('Failed to start port forward', cause: error));
+    }
+  }
+
+  Future<void> stopLocalForward(String id) => _backend.stopLocalForward(id);
+
+  Future<List<PortForward>> listLocalForwards() =>
+      _backend.listLocalForwards().catchError((Object _) => <PortForward>[]);
+
   /// The host key refused during the last connect to [profile], if any.
   /// Lookup failures read as "no pending key" so the caller falls back to
   /// its generic connection error.

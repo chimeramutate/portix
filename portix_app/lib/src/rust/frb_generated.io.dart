@@ -45,6 +45,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ConnectionStatus dco_decode_connection_status(dynamic raw);
 
   @protected
+  ForwardInfo dco_decode_forward_info(dynamic raw);
+
+  @protected
   HostKeyInfo dco_decode_host_key_info(dynamic raw);
 
   @protected
@@ -55,6 +58,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
+  List<ForwardInfo> dco_decode_list_forward_info(dynamic raw);
 
   @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
@@ -130,6 +136,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ConnectionStatus sse_decode_connection_status(SseDeserializer deserializer);
 
   @protected
+  ForwardInfo sse_decode_forward_info(SseDeserializer deserializer);
+
+  @protected
   HostKeyInfo sse_decode_host_key_info(SseDeserializer deserializer);
 
   @protected
@@ -140,6 +149,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
+  List<ForwardInfo> sse_decode_list_forward_info(SseDeserializer deserializer);
 
   @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
@@ -232,6 +244,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_forward_info(ForwardInfo self, SseSerializer serializer);
+
+  @protected
   void sse_encode_host_key_info(HostKeyInfo self, SseSerializer serializer);
 
   @protected
@@ -242,6 +257,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_forward_info(
+    List<ForwardInfo> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);

@@ -22,6 +22,7 @@ import '../../controller/index.dart';
 import 'terminal_settings.dart';
 import 'terminal_shortcuts.dart';
 import 'host_key_dialog.dart';
+import 'port_forward_dialog.dart';
 import 'terminal_profile_picker_dialog.dart';
 import 'terminal_snippets.dart';
 import 'terminal_status_footer.dart';
@@ -799,6 +800,22 @@ class _TerminalPanelState extends State<TerminalPanel> {
   }
 
   bool _snippetPaletteOpen = false;
+
+  /// Tunnels go through the active tab's server (or the selected profile).
+  Future<void> _openPortForwarding() async {
+    final profileId = _sessionId == null
+        ? widget.profile?.id
+        : _sessionById(_sessionId!)?.profileId;
+    final profile = widget.profiles
+        .where((profile) => profile.id == profileId)
+        .firstOrNull;
+    if (profile == null) return;
+    await showPortForwardDialog(
+      context,
+      _connectionManager,
+      manager_profile.SshProfile.fromDomain(profile),
+    );
+  }
 
   Future<void> _openSnippetPalette() async {
     if (_snippetPaletteOpen) return;
@@ -2021,6 +2038,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                           child: AppIconButton(
                                             icon: Icons.bolt_rounded,
                                             onPressed: _openSnippetPalette,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Tooltip(
+                                          message: 'Port forwarding',
+                                          child: AppIconButton(
+                                            icon: Icons.swap_horiz_rounded,
+                                            onPressed: _openPortForwarding,
                                           ),
                                         ),
                                         if (showDropHint) ...[

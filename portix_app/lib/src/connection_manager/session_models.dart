@@ -2,6 +2,24 @@ enum ConnectionStatus { disconnected, connecting, connected, error }
 
 enum SessionKind { ssh, sftp }
 
+/// An active local port forward: 127.0.0.1:[localPort] reaches
+/// [remoteHost]:[remotePort] as seen from the SSH server.
+class PortForward {
+  const PortForward({
+    required this.id,
+    required this.profileId,
+    required this.localPort,
+    required this.remoteHost,
+    required this.remotePort,
+  });
+
+  final String id;
+  final String profileId;
+  final int localPort;
+  final String remoteHost;
+  final int remotePort;
+}
+
 /// A server host key the backend refused during the last connect.
 class HostKeyInfo {
   const HostKeyInfo({

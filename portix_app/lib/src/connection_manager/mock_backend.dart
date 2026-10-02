@@ -170,4 +170,31 @@ class MockConnectionBackend implements ConnectionBackend {
 
   @override
   Future<void> trustHostKey(String host, int port, String fingerprint) async {}
+
+  final List<PortForward> _forwards = [];
+
+  @override
+  Future<PortForward> startLocalForward(
+    SshProfile profile,
+    int localPort,
+    String remoteHost,
+    int remotePort,
+  ) async {
+    final forward = PortForward(
+      id: 'forward-${_forwards.length + 1}',
+      profileId: profile.id,
+      localPort: localPort == 0 ? 40000 + _forwards.length : localPort,
+      remoteHost: remoteHost,
+      remotePort: remotePort,
+    );
+    _forwards.add(forward);
+    return forward;
+  }
+
+  @override
+  Future<void> stopLocalForward(String id) async =>
+      _forwards.removeWhere((forward) => forward.id == id);
+
+  @override
+  Future<List<PortForward>> listLocalForwards() async => List.of(_forwards);
 }

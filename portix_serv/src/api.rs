@@ -9,7 +9,7 @@ use crate::domain::autocomplete::TerminalCompleteRequest;
 use crate::domain::errors::PortixError;
 use crate::domain::profile::SshProfile;
 use crate::domain::session::{RemoteFileEntry, RemoteSystemSnapshot, SessionInfo};
-use crate::infrastructure::{host_keys, ssh_client};
+use crate::infrastructure::{host_keys, port_forward, ssh_client};
 use crate::frb_generated::StreamSink;
 
 static SESSION_MANAGER: Lazy<SessionManager> = Lazy::new(SessionManager::new);
@@ -226,6 +226,54 @@ pub fn pending_host_key(host: String, port: u16) -> Option<HostKeyInfo> {
 pub fn trust_host_key(host: String, port: u16, fingerprint: String) -> anyhow::Result<()> {
     let path = host_keys::default_known_hosts_path(ssh_client::home_dir())?;
     Ok(host_keys::trust_pending_host_key(&host, port, &fingerprint, &path)?)
+}
+
+/// An active local port forward (`ssh -L local_port:remote_host:remote_port`).
+pub struct ForwardInfo {
+    pub id: String,
+    pub profile_id: String,
+    pub local_port: u16,
+    pub remote_host: String,
+    pub remote_port: u16,
+}
+
+impl From<port_forward::LocalForward> for ForwardInfo {
+    fn from(forward: port_forward::LocalForward) -> Self {
+        Self {
+            id: forward.id,
+            profile_id: forward.profile_id,
+            local_port: forward.local_port,
+            remote_host: forward.remote_host,
+            remote_port: forward.remote_port,
+        }
+    }
+}
+
+/// Starts forwarding 127.0.0.1:`local_port` (0 = any free port) to
+/// `remote_host:remote_port` as seen from the SSH server, over a dedicated
+/// connection. Returns once listening and connected.
+pub async fn start_local_forward(
+    profile: SshProfile,
+    local_port: u16,
+    remote_host: String,
+    remote_port: u16,
+) -> anyhow::Result<ForwardInfo> {
+    profile.validate()?;
+    Ok(port_forward::start_local_forward(profile, local_port, remote_host, remote_port)
+        .await?
+        .into())
+}
+
+pub fn stop_local_forward(id: String) {
+    port_forward::stop_local_forward(&id);
+}
+
+/// Tunnels still running (one ends on its own when its SSH connection drops).
+pub fn list_local_forwards() -> Vec<ForwardInfo> {
+    port_forward::active_local_forwards()
+        .into_iter()
+        .map(Into::into)
+        .collect()
 }
 
 pub async fn terminal_output_stream(sink: StreamSink<String>) -> anyhow::Result<()> {
