@@ -47,17 +47,13 @@ class ConnectionManager extends ChangeNotifier {
   // Sessions currently being probed — avoid parallel probes for the same session.
   final Set<String> _heartbeatInFlight = {};
   final Map<String, String> _backendToUiSessionIds = {};
-  final Map<String, Future<void>> _pendingSecretWrites = {};
-  final Map<String, Object> _secretWriteErrors = {};
+  // Host/port of each UI session, so the heartbeat knows what to probe.
+  final Map<String, ({String host, int port})> _sessionEndpoints = {};
   final _terminalOutput = StreamController<TerminalOutputEvent>.broadcast();
   final _errors = StreamController<ConnectionErrorEvent>.broadcast();
   final _sessionLost = StreamController<String>.broadcast();
 
-  final List<SshProfile> _profiles = [];
-
   final List<TerminalSession> _sessions = [];
-
-  List<SshProfile> get profiles => List.unmodifiable(_profiles);
 
   List<TerminalSession> get sessions => List.unmodifiable(_sessions);
 
@@ -88,55 +84,6 @@ class ConnectionManager extends ChangeNotifier {
     }
   }
 
-  Result<void> upsertProfile(SshProfile profile) {
-    try {
-      final password = profile.password?.trim();
-      if ((profile.privateKeyPath ?? '').trim().isNotEmpty) {
-        _queueSecretWrite(profile.id, _secretStore.deletePassword(profile.id));
-        profile = profile.copyWith(hasPassword: false, clearPassword: true);
-      } else if (password != null && password.isNotEmpty) {
-        _queueSecretWrite(
-          profile.id,
-          _secretStore.savePassword(profile.id, password),
-        );
-        profile = profile.copyWith(hasPassword: true, clearPassword: true);
-      } else {
-        profile = profile.copyWith(clearPassword: true);
-      }
-      final index = _profiles.indexWhere((item) => item.id == profile.id);
-      if (index == -1) {
-        _profiles.add(profile);
-      } else {
-        _profiles[index] = profile;
-      }
-      notifyListeners();
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to save profile', cause: error));
-    }
-  }
-
-  Result<void> deleteProfile(String id) {
-    try {
-      _profiles.removeWhere((profile) => profile.id == id);
-      _queueSecretWrite(id, _secretStore.deletePassword(id));
-      notifyListeners();
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to delete profile', cause: error));
-    }
-  }
-
-  SshProfile newProfile() {
-    return SshProfile(
-      id: _uuid.v4(),
-      name: 'New server',
-      host: '',
-      port: 22,
-      username: '',
-    );
-  }
-
   Future<Result<void>> connect(SshProfile profile) async {
     return _connect(profile, kind: SessionKind.ssh);
   }
@@ -160,6 +107,10 @@ class ConnectionManager extends ChangeNotifier {
       );
     }
     final uiSessionId = _uuid.v4();
+    _sessionEndpoints[uiSessionId] = (
+      host: profile.host.trim(),
+      port: profile.port,
+    );
     final baseTitle = title ?? profile.name;
     final duplicateCount = _sessions
         .where(
@@ -240,6 +191,7 @@ class ConnectionManager extends ChangeNotifier {
     }
 
     _sessions.removeAt(index);
+    _sessionEndpoints.remove(sessionId);
     final backendSessionId = _backendSessionIdForUiSession(sessionId);
     if (backendSessionId != null) {
       _backendToUiSessionIds.remove(backendSessionId);
@@ -490,14 +442,9 @@ class ConnectionManager extends ChangeNotifier {
     for (final session in candidates) {
       if (_heartbeatInFlight.contains(session.id)) continue;
 
-      // Find the SshProfile for this session so we know host + port.
-      final profile = _profiles
-          .where((p) => p.id == session.profileId)
-          .firstOrNull;
-      if (profile == null) continue;
-      final host = profile.host.trim();
-      final port = profile.port;
-      if (host.isEmpty) continue;
+      final endpoint = _sessionEndpoints[session.id];
+      if (endpoint == null || endpoint.host.isEmpty) continue;
+      final (:host, :port) = endpoint;
 
       _heartbeatInFlight.add(session.id);
       unawaited(
@@ -613,34 +560,11 @@ class ConnectionManager extends ChangeNotifier {
     if ((profile.privateKeyPath ?? '').trim().isNotEmpty) return profile;
     if ((profile.password ?? '').trim().isNotEmpty) return profile;
     if (!profile.hasPassword) return profile;
-    await _waitForSecretWrite(profile.id);
     final password = await _secretStore.readPassword(profile.id);
     if ((password ?? '').isEmpty) {
       throw PasswordUnavailableException(profile.name, profile.id);
     }
     return profile.copyWith(password: password);
-  }
-
-  void _queueSecretWrite(String profileId, Future<void> write) {
-    final trackedWrite = write
-        .catchError((Object error) {
-          _secretWriteErrors[profileId] = error;
-        })
-        .whenComplete(() {
-          _pendingSecretWrites.remove(profileId);
-        });
-    _pendingSecretWrites[profileId] = trackedWrite;
-  }
-
-  Future<void> _waitForSecretWrite(String profileId) async {
-    final pendingWrite = _pendingSecretWrites[profileId];
-    if (pendingWrite != null) {
-      await pendingWrite;
-    }
-    final error = _secretWriteErrors.remove(profileId);
-    if (error != null) {
-      throw StateError('Failed to save profile password: $error');
-    }
   }
 
   static const int _maxRemoteSearchDepth = 12;
