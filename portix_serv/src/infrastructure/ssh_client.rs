@@ -12,7 +12,9 @@ use crate::domain::errors::{PortixError, Result};
 use crate::domain::events::{ConnectionStatusEvent, ErrorEvent, TerminalOutputEvent};
 use crate::domain::profile::SshProfile;
 use crate::domain::session::ConnectionStatus;
-use crate::infrastructure::host_keys::{HostKeyPolicy, default_known_hosts_path, verify_host_key};
+use crate::infrastructure::host_keys::{
+    default_known_hosts_path, forget_pending_host_key, verify_host_key,
+};
 
 pub enum SshCommand {
     Input(Vec<u8>),
@@ -39,7 +41,6 @@ struct Client {
     host: String,
     port: u16,
     known_hosts: PathBuf,
-    policy: HostKeyPolicy,
 }
 
 type ExecRequest = (String, oneshot::Sender<Result<String>>);
@@ -70,13 +71,7 @@ impl client::Handler for Client {
         &mut self,
         server_public_key: &russh::keys::ssh_key::PublicKey,
     ) -> std::result::Result<bool, Self::Error> {
-        verify_host_key(
-            &self.host,
-            self.port,
-            server_public_key,
-            &self.known_hosts,
-            self.policy,
-        )?;
+        verify_host_key(&self.host, self.port, server_public_key, &self.known_hosts)?;
         Ok(true)
     }
 }
@@ -194,7 +189,7 @@ impl SshRuntime {
     }
 
     async fn connect_and_authenticate(&self) -> Result<client::Handle<Client>> {
-        connect_and_authenticate_profile(&self.profile, HostKeyPolicy::AcceptNew).await
+        connect_and_authenticate_profile(&self.profile).await
     }
 
     fn emit_status(&self, status: ConnectionStatus, message: Option<&str>) {
@@ -257,7 +252,7 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
     // KnownOnly: the interactive session has already recorded the host key, and
     // this worker reconnects silently in the background, so a key that is not
     // already trusted must never be accepted here.
-    let connect = || connect_and_authenticate_profile(&profile, HostKeyPolicy::KnownOnly);
+    let connect = || connect_and_authenticate_profile(&profile);
     let mut session = connect().await.ok();
 
     // This dedicated exec connection is used only for SFTP/remote-file
@@ -362,15 +357,12 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
     }
 }
 
-async fn connect_and_authenticate_profile(
-    profile: &SshProfile,
-    policy: HostKeyPolicy,
-) -> Result<client::Handle<Client>> {
+async fn connect_and_authenticate_profile(profile: &SshProfile) -> Result<client::Handle<Client>> {
+    forget_pending_host_key(&profile.host, profile.port);
     let handler = Client {
         host: profile.host.clone(),
         port: profile.port,
         known_hosts: default_known_hosts_path(home_dir())?,
-        policy,
     };
     let config = Arc::new(client::Config {
         // If the TCP connection goes silent for longer than this, russh closes
@@ -424,7 +416,7 @@ fn normalize_terminal_size(cols: u32, rows: u32) -> (u32, u32) {
 }
 
 /// Returns the user's home directory, supporting both Unix (HOME) and Windows (USERPROFILE).
-fn home_dir() -> Option<PathBuf> {
+pub(crate) fn home_dir() -> Option<PathBuf> {
     env::var("HOME")
         .or_else(|_| env::var("USERPROFILE"))
         .ok()

@@ -17,6 +17,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     LocalFileBrowser? localFileBrowser,
     LocalEditorService? localEditorService,
     String? tabId,
+    this.resolveRefusedHostKey,
   }) : _connectionManager = connectionManager,
        _localFileBrowser = localFileBrowser ?? LocalFileBrowser(),
        _localEditorService = localEditorService ?? LocalEditorService(),
@@ -25,6 +26,12 @@ class SftpWorkspaceController extends ChangeNotifier {
     unawaited(loadLocalDirectory(_localPath));
     _connectionManager.addListener(_handleConnectionManagerChanged);
   }
+
+  /// Asks the user about a server host key refused during connect (the UI
+  /// owns the dialog): null = not a host key problem, true = trusted, so
+  /// reconnect, false = not trusted.
+  final Future<bool?> Function(manager_profile.SshProfile profile)?
+  resolveRefusedHostKey;
 
   /// Stable, unique identifier for the SFTP tab that owns this controller.
   /// Generated when the controller is created so every tab — even one that is
@@ -423,12 +430,23 @@ class SftpWorkspaceController extends ChangeNotifier {
     notifyListeners();
 
     _connectInProgress = true;
-    final result = await _connectionManager.connectSftp(
-      manager_profile.SshProfile.fromDomain(profile),
-    );
+    final managerProfile = manager_profile.SshProfile.fromDomain(profile);
+    final result = await _connectionManager.connectSftp(managerProfile);
     _connectInProgress = false;
     if (result.isLeft) {
       final failureStr = result.fold<String?>((f) => f.toString(), (_) => null);
+
+      final hostKeyTrusted = await resolveRefusedHostKey?.call(managerProfile);
+      if (hostKeyTrusted == true) {
+        return attachRemoteProfile(profile, initialPath);
+      }
+      if (hostKeyTrusted == false) {
+        _loadingRemote = false;
+        _remoteStatus = 'failed';
+        _remoteError = 'Host key not trusted';
+        notifyListeners();
+        return;
+      }
 
       // If the profile is password-based and the error is auth-related,
       // re-enter the 'authenticating' state so the inline form can collect

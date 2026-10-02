@@ -9,6 +9,7 @@ use crate::domain::autocomplete::TerminalCompleteRequest;
 use crate::domain::errors::PortixError;
 use crate::domain::profile::SshProfile;
 use crate::domain::session::{RemoteFileEntry, RemoteSystemSnapshot, SessionInfo};
+use crate::infrastructure::{host_keys, ssh_client};
 use crate::frb_generated::StreamSink;
 
 static SESSION_MANAGER: Lazy<SessionManager> = Lazy::new(SessionManager::new);
@@ -200,6 +201,31 @@ pub fn generate_ed25519_key(path: String, comment: String) -> anyhow::Result<Str
     let public_key = key.public_key().to_openssh()?;
     std::fs::write(&public_path, format!("{public_key}\n"))?;
     Ok(public_key)
+}
+
+/// A server host key that was refused: unknown (`changed_line` is None) or
+/// different from the key recorded on `changed_line` of known_hosts.
+pub struct HostKeyInfo {
+    pub algorithm: String,
+    pub fingerprint: String,
+    pub changed_line: Option<u32>,
+}
+
+/// The host key refused during the last connect to `host:port`, so the UI can
+/// ask the user to confirm it (unknown host) or explain the risk (changed key).
+pub fn pending_host_key(host: String, port: u16) -> Option<HostKeyInfo> {
+    host_keys::pending_host_key(&host, port).map(|pending| HostKeyInfo {
+        algorithm: pending.algorithm,
+        fingerprint: pending.fingerprint,
+        changed_line: pending.changed_line.map(|line| line as u32),
+    })
+}
+
+/// Records the refused key of an unknown host in ~/.ssh/known_hosts after the
+/// user confirmed `fingerprint`. Fails for a changed key or a stale fingerprint.
+pub fn trust_host_key(host: String, port: u16, fingerprint: String) -> anyhow::Result<()> {
+    let path = host_keys::default_known_hosts_path(ssh_client::home_dir())?;
+    Ok(host_keys::trust_pending_host_key(&host, port, &fingerprint, &path)?)
 }
 
 pub async fn terminal_output_stream(sink: StreamSink<String>) -> anyhow::Result<()> {

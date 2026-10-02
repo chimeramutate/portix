@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 732113900;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -83033668;
 
 // Section: executor
 
@@ -500,6 +500,40 @@ fn wire__crate__api__list_remote_directory_impl(
         },
     )
 }
+fn wire__crate__api__pending_host_key_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "pending_host_key",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_host = <String>::sse_decode(&mut deserializer);
+            let api_port = <u16>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Ok::<_, ()>(crate::api::pending_host_key(api_host, api_port))?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__read_remote_file_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -802,6 +836,44 @@ fn wire__crate__api__terminal_output_stream_impl(
         },
     )
 }
+fn wire__crate__api__trust_host_key_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "trust_host_key",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_host = <String>::sse_decode(&mut deserializer);
+            let api_port = <u16>::sse_decode(&mut deserializer);
+            let api_fingerprint = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::trust_host_key(api_host, api_port, api_fingerprint)?;
+                        std::result::Result::Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__upload_remote_file_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -930,6 +1002,20 @@ impl SseDecode for crate::domain::session::ConnectionStatus {
     }
 }
 
+impl SseDecode for crate::api::HostKeyInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_algorithm = <String>::sse_decode(deserializer);
+        let mut var_fingerprint = <String>::sse_decode(deserializer);
+        let mut var_changedLine = <Option<u32>>::sse_decode(deserializer);
+        return crate::api::HostKeyInfo {
+            algorithm: var_algorithm,
+            fingerprint: var_fingerprint,
+            changed_line: var_changedLine,
+        };
+    }
+}
+
 impl SseDecode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -987,6 +1073,28 @@ impl SseDecode for Option<String> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<String>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::HostKeyInfo> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::HostKeyInfo>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<u32> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u32>::sse_decode(deserializer));
         } else {
             return None;
         }
@@ -1131,16 +1239,18 @@ fn pde_ffi_dispatcher_primary_impl(
         10 => wire__crate__api__generate_ed25519_key_impl(port, ptr, rust_vec_len, data_len),
         11 => wire__crate__api__init_app_impl(port, ptr, rust_vec_len, data_len),
         12 => wire__crate__api__list_remote_directory_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__read_remote_file_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__read_remote_file_bytes_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__remote_system_snapshot_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__resize_terminal_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__resolve_remote_directory_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__send_terminal_input_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__terminal_complete_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__terminal_output_stream_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__upload_remote_file_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__write_remote_file_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__pending_host_key_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__read_remote_file_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__read_remote_file_bytes_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__remote_system_snapshot_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__resize_terminal_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__resolve_remote_directory_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__send_terminal_input_impl(port, ptr, rust_vec_len, data_len),
+        20 => wire__crate__api__terminal_complete_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__terminal_output_stream_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__trust_host_key_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__upload_remote_file_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__write_remote_file_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1179,6 +1289,23 @@ impl flutter_rust_bridge::IntoIntoDart<crate::domain::session::ConnectionStatus>
     for crate::domain::session::ConnectionStatus
 {
     fn into_into_dart(self) -> crate::domain::session::ConnectionStatus {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::HostKeyInfo {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.algorithm.into_into_dart().into_dart(),
+            self.fingerprint.into_into_dart().into_dart(),
+            self.changed_line.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::HostKeyInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::HostKeyInfo> for crate::api::HostKeyInfo {
+    fn into_into_dart(self) -> crate::api::HostKeyInfo {
         self
     }
 }
@@ -1331,6 +1458,15 @@ impl SseEncode for crate::domain::session::ConnectionStatus {
     }
 }
 
+impl SseEncode for crate::api::HostKeyInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.algorithm, serializer);
+        <String>::sse_encode(self.fingerprint, serializer);
+        <Option<u32>>::sse_encode(self.changed_line, serializer);
+    }
+}
+
 impl SseEncode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1381,6 +1517,26 @@ impl SseEncode for Option<String> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <String>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::HostKeyInfo> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::HostKeyInfo>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<u32> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u32>::sse_encode(value, serializer);
         }
     }
 }

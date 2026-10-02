@@ -33,4 +33,11 @@ abstract interface class ConnectionBackend {
   /// the interactive shell and therefore never pollute the remote shell
   /// history or the visible terminal.
   Future<String> execRemoteCommand(String sessionId, String command);
+
+  /// The host key refused during the last connect to [host]:[port], if any.
+  Future<HostKeyInfo?> pendingHostKey(String host, int port);
+
+  /// Records the refused key of an unknown host after the user confirmed
+  /// [fingerprint]. Throws for a changed key or a stale fingerprint.
+  Future<void> trustHostKey(String host, int port, String fingerprint);
 }

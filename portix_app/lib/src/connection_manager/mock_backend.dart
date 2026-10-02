@@ -164,4 +164,10 @@ class MockConnectionBackend implements ConnectionBackend {
     _status.close();
     _errors.close();
   }
+
+  @override
+  Future<HostKeyInfo?> pendingHostKey(String host, int port) async => null;
+
+  @override
+  Future<void> trustHostKey(String host, int port, String fingerprint) async {}
 }
