@@ -386,15 +386,6 @@ class _FilePane extends StatelessWidget {
   }
 }
 
-/// Labels for each remote-load step. The first element ('Pick profile') is
-/// replaced at runtime with the selected profile name.
-const kRemoteLoadSteps = [
-  'Pick profile',
-  'Loading',
-  'Connecting...',
-  'Connected',
-];
-
 /// Maps a [remoteStatus] string to a step index for the loading indicator.
 /// Returns -1 when the status doesn't correspond to an active step.
 ///

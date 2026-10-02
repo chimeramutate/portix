@@ -45,23 +45,6 @@ class UnavailableConnectionBackend implements ConnectionBackend {
       _unavailable();
 
   @override
-  Future<List<String>> commandHelpSuggestions(
-    String sessionId,
-    String input,
-  ) async => _unavailable();
-
-  @override
-  Future<List<TerminalCompletionCandidate>> commandCompletions(
-    String sessionId,
-    String input,
-  ) async => _unavailable();
-
-  @override
-  Future<TerminalCompleteResponse> terminalComplete(
-    TerminalCompleteRequest request,
-  ) async => _unavailable();
-
-  @override
   Future<String> resolveRemoteDirectory(String sessionId, String path) async =>
       _unavailable();
 

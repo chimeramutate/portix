@@ -13,14 +13,6 @@ abstract interface class ConnectionBackend {
   Future<void> sendTerminalInput(String sessionId, String data);
   Future<void> resizeTerminal(String sessionId, int cols, int rows);
   Future<RemoteSystemSnapshot> remoteSystemSnapshot(String sessionId);
-  Future<List<String>> commandHelpSuggestions(String sessionId, String input);
-  Future<List<TerminalCompletionCandidate>> commandCompletions(
-    String sessionId,
-    String input,
-  );
-  Future<TerminalCompleteResponse> terminalComplete(
-    TerminalCompleteRequest request,
-  );
   Future<String> resolveRemoteDirectory(String sessionId, String path);
   Future<List<RemoteFileEntry>> listRemoteDirectory(
     String sessionId,

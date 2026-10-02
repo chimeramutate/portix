@@ -127,8 +127,6 @@ class _RecordingBackend implements ConnectionBackend {
   final List<({String sessionId, String data})> sendTerminalInputCalls = [];
   Object? execError;
 
-  String? _nextSessionId;
-
   @override
   Stream<TerminalOutputEvent> get terminalOutputStream => _output.stream;
 
@@ -141,7 +139,6 @@ class _RecordingBackend implements ConnectionBackend {
   @override
   Future<String> connect(SshProfile profile) async {
     final sessionId = 'backend-ssh-1';
-    _nextSessionId = sessionId;
     _status.add(ConnectionStatusEvent(sessionId: sessionId, status: ConnectionStatus.connected));
     return sessionId;
   }
@@ -164,21 +161,6 @@ class _RecordingBackend implements ConnectionBackend {
       disk: '10 GB',
     );
   }
-
-  @override
-  Future<List<String>> commandHelpSuggestions(String sessionId, String input) async =>
-      const [];
-
-  @override
-  Future<List<TerminalCompletionCandidate>> commandCompletions(
-    String sessionId,
-    String input,
-  ) async => const [];
-
-  @override
-  Future<TerminalCompleteResponse> terminalComplete(
-    TerminalCompleteRequest request,
-  ) async => const TerminalCompleteResponse(items: []);
 
   @override
   Future<String> resolveRemoteDirectory(String sessionId, String path) async => path;

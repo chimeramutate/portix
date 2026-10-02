@@ -370,59 +370,6 @@ class ConnectionManager extends ChangeNotifier {
     }
   }
 
-  Future<Result<List<String>>> commandHelpSuggestions(
-    String sessionId,
-    String input,
-  ) async {
-    try {
-      final suggestions = await _backend.commandHelpSuggestions(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        input,
-      );
-      return Right(suggestions);
-    } catch (error) {
-      return Left(
-        AppFailure('Failed to load command suggestions', cause: error),
-      );
-    }
-  }
-
-  Future<Result<List<TerminalCompletionCandidate>>> commandCompletions(
-    String sessionId,
-    String input,
-  ) async {
-    try {
-      final suggestions = await _backend.commandCompletions(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        input,
-      );
-      return Right(suggestions);
-    } catch (error) {
-      return Left(
-        AppFailure('Failed to load command completions', cause: error),
-      );
-    }
-  }
-
-  Future<Result<TerminalCompleteResponse>> terminalComplete(
-    TerminalCompleteRequest request,
-  ) async {
-    try {
-      final sessionId = request.sessionId;
-      final backendSessionId = sessionId == null
-          ? null
-          : _backendSessionIdForUiSession(sessionId) ?? sessionId;
-      final response = await _backend.terminalComplete(
-        request.copyWith(sessionId: backendSessionId),
-      );
-      return Right(response);
-    } catch (error) {
-      return Left(
-        AppFailure('Failed to load terminal autocomplete', cause: error),
-      );
-    }
-  }
-
   Future<Result<String>> resolveRemoteDirectory(
     String sessionId,
     String path,

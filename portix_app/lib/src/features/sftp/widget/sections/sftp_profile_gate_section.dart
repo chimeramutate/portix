@@ -363,9 +363,3 @@ class _LocalProfileTile extends StatelessWidget {
 }
 
 /// Text label for a profile's [ConnectionStatus], shown in the picker tile.
-String _connectionStatusLabel(ConnectionStatus status) => switch (status) {
-  ConnectionStatus.online => 'Online',
-  ConnectionStatus.offline => 'Offline',
-  ConnectionStatus.draft => 'Draft',
-  ConnectionStatus.error => 'Error',
-};

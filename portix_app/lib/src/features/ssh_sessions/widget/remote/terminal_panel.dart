@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -65,8 +64,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
   final Set<String> _scrollListenersRegistered = {};
   late final ConnectionManager _connectionManager;
   late final SettingsRepository _settingsRepository;
-  final TerminalSuggestionController _suggestions =
-      TerminalSuggestionController();
   final TerminalSplitController _splitController =
       const TerminalSplitController();
   final TerminalSessionOrderController _sessionOrder =
@@ -88,8 +85,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
   // _reconnectSession shares _workspaceReconnectInProgress across calls.
   Future<void> _reconnectQueue = Future.value();
   Timer? _telemetryTimer;
-  final Map<String, Timer> _suggestionHelpTimers = {};
-  final Map<String, String> _suggestionHelpRequests = {};
   String? _sessionId;
   String? _telemetrySessionId;
   String? _connectedProfileId;
@@ -134,13 +129,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     HardwareKeyboard.instance.addHandler(_handleSnippetShortcut);
     _bootTerminal();
     _tabScrollController.addListener(_handleTabScrollChanged);
-    // Suggestion UI (inline ghost + menu) was removed in 9da016f. Keeping the
-    // controller on made suggestions invisible but live: ↑/↓ were swallowed
-    // to move a hidden selection and Tab inserted text nobody could see, so
-    // keystrokes now always reach the shell untouched.
-    _suggestions.setEnabled(false);
-    unawaited(_loadTerminalClipboardSettings());
-    unawaited(_loadTerminalAppearanceSettings());
+    unawaited(_loadTerminalSettings());
     WidgetsBinding.instance.addPostFrameCallback((_) => _connect());
   }
 
@@ -176,67 +165,43 @@ class _TerminalPanelState extends State<TerminalPanel> {
     unawaited(_errorSubscription?.cancel());
     unawaited(_sessionLostSubscription?.cancel());
     _telemetryTimer?.cancel();
-    for (final timer in _suggestionHelpTimers.values) {
-      timer.cancel();
-    }
-    _suggestionHelpTimers.clear();
     _pendingDisposedSessionIds.clear();
-    _suggestions.clear();
     _terminalUi.dispose();
 
     super.dispose();
   }
 
-  Future<void> _loadTerminalClipboardSettings() async {
+  /// Reads clipboard + appearance settings in one file read. On failure the
+  /// current values (initially the defaults) are kept.
+  Future<void> _loadTerminalSettings() async {
+    final Map<String, String> values;
     try {
-      final values = await _settingsRepository.loadSettings();
-      if (!mounted) return;
-      setState(() {
-        _copyShortcut = terminalClipboardShortcutFromValue(
-          values[terminalCopyShortcutSettingKey],
-        );
-        _pasteShortcut = terminalClipboardShortcutFromValue(
-          values[terminalPasteShortcutSettingKey],
-        );
-      });
+      values = await _settingsRepository.loadSettings();
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _copyShortcut = TerminalClipboardShortcut.shiftCtrl;
-        _pasteShortcut = TerminalClipboardShortcut.ctrl;
-      });
+      return;
     }
-  }
-
-  Future<void> _loadTerminalAppearanceSettings() async {
-    try {
-      final values = await _settingsRepository.loadSettings();
-      if (!mounted) return;
-      setState(() {
-        _terminalThemeName = values[terminalThemeSettingKey];
-        _terminalTextColor = terminalTextColorFromValue(
-          values[terminalTextColorSettingKey],
-        );
-        _terminalBackgroundColor = terminalBackgroundColorFromValue(
-          values[terminalBackgroundColorSettingKey],
-        );
-        _terminalFontFamily = terminalFontFamilyFromValue(
-          values[terminalFontSettingKey],
-        );
-        _terminalFontSize = terminalFontSizeFromValue(
-          values[terminalFontSizeSettingKey],
-        ).toDouble();
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _terminalThemeName = null;
-        _terminalTextColor = AppColors.text;
-        _terminalBackgroundColor = AppColors.terminal;
-        _terminalFontFamily = 'monospace';
-        _terminalFontSize = 13;
-      });
-    }
+    if (!mounted) return;
+    setState(() {
+      _copyShortcut = terminalClipboardShortcutFromValue(
+        values[terminalCopyShortcutSettingKey],
+      );
+      _pasteShortcut = terminalClipboardShortcutFromValue(
+        values[terminalPasteShortcutSettingKey],
+      );
+      _terminalThemeName = values[terminalThemeSettingKey];
+      _terminalTextColor = terminalTextColorFromValue(
+        values[terminalTextColorSettingKey],
+      );
+      _terminalBackgroundColor = terminalBackgroundColorFromValue(
+        values[terminalBackgroundColorSettingKey],
+      );
+      _terminalFontFamily = terminalFontFamilyFromValue(
+        values[terminalFontSettingKey],
+      );
+      _terminalFontSize = terminalFontSizeFromValue(
+        values[terminalFontSizeSettingKey],
+      ).toDouble();
+    });
   }
 
   void _notifyActiveSessionChanged(String? sessionId) {
@@ -680,9 +645,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
   void _disposeSessionUi(String sessionId) {
     _isFollowingOutput.remove(sessionId);
     _scrollListenersRegistered.remove(sessionId);
-    _suggestionHelpTimers.remove(sessionId)?.cancel();
-    _suggestionHelpRequests.remove(sessionId);
-    _suggestions.clearSession(sessionId);
     _terminalUi.disposeSession(sessionId);
   }
 
@@ -759,377 +721,15 @@ class _TerminalPanelState extends State<TerminalPanel> {
     // terminal behaviour (the prompt lives at the bottom).
     _scrollTerminalToBottom(targetSessionId);
 
-    if (_isAcceptSuggestionInput(data) && _acceptSuggestion(targetSessionId)) {
-      return;
-    }
-    if (_isSelectNextSuggestionInput(data) &&
-        _selectSuggestion(targetSessionId, 1)) {
-      return;
-    }
-    if (_isSelectPreviousSuggestionInput(data) &&
-        _selectSuggestion(targetSessionId, -1)) {
-      return;
-    }
     if (_broadcastTyping && _visibleSessionIds.contains(targetSessionId)) {
-      var suggestionChanged = false;
       for (final visibleSessionId in _visibleSessionIds) {
         if (!_isSessionConnected(visibleSessionId)) continue;
-        suggestionChanged =
-            _suggestions.handleInput(visibleSessionId, data) ||
-            suggestionChanged;
-        _scheduleRemoteHelpSuggestions(visibleSessionId);
         unawaited(_connectionManager.sendTerminalInput(visibleSessionId, data));
       }
-      if (suggestionChanged && mounted) setState(() {});
       return;
     }
-    final suggestionChanged = _suggestions.handleInput(targetSessionId, data);
-    _scheduleRemoteHelpSuggestions(targetSessionId);
-    if (suggestionChanged && mounted) setState(() {});
     unawaited(_connectionManager.sendTerminalInput(targetSessionId, data));
   }
-
-  bool _isAcceptSuggestionInput(String data) {
-    // Only Tab accepts a suggestion inline.
-    // Arrow-right (\x1b[C), End (\x1b[F / \x1b[4~) are normal cursor-movement
-    // keys and must not consume the suggestion.
-    return data == '\t';
-  }
-
-  bool _isSelectNextSuggestionInput(String data) {
-    return data == '\x1b[B';
-  }
-
-  bool _isSelectPreviousSuggestionInput(String data) {
-    return data == '\x1b[A';
-  }
-
-  bool _acceptSuggestion(String sessionId) {
-    if (!_isSessionConnected(sessionId)) return false;
-    final suffix = _suggestions.acceptSuggestion(sessionId);
-    if (suffix == null) return false;
-    _suggestionHelpTimers.remove(sessionId)?.cancel();
-    unawaited(_connectionManager.sendTerminalInput(sessionId, suffix));
-    if (mounted) setState(() {});
-    return true;
-  }
-
-  bool _selectSuggestion(String sessionId, int delta) {
-    if (!_isSessionConnected(sessionId)) return false;
-    final changed = _suggestions.moveSelection(sessionId, delta);
-    if (changed && mounted) setState(() {});
-    return changed;
-  }
-
-  void _scheduleRemoteHelpSuggestions(String sessionId) {
-    final input = _suggestions.inputFor(sessionId);
-    _suggestionHelpTimers.remove(sessionId)?.cancel();
-    if (input.length < 2 || !_isSessionConnected(sessionId)) return;
-    _suggestionHelpTimers[sessionId] = Timer(
-      const Duration(milliseconds: 180),
-      () => unawaited(_loadRemoteHelpSuggestions(sessionId, input)),
-    );
-  }
-
-  Future<void> _loadRemoteHelpSuggestions(
-    String sessionId,
-    String requestInput,
-  ) async {
-    if (!_isSessionConnected(sessionId)) return;
-    _suggestionHelpRequests[sessionId] = requestInput;
-    final result = await _connectionManager.terminalComplete(
-      session_models.TerminalCompleteRequest(
-        buffer: requestInput,
-        cursor: requestInput.length,
-        cwd: _autocompleteCwdForSession(sessionId),
-        shell: _autocompleteShell(),
-        env: _autocompleteEnv(),
-        maxItems: 12,
-        sessionId: sessionId,
-      ),
-    );
-    if (!mounted) return;
-    if (_suggestionHelpRequests[sessionId] != requestInput) return;
-
-    var completions = <session_models.TerminalCompletionCandidate>[];
-    var loadedFromTerminalComplete = false;
-    result.fold((_) {}, (response) {
-      loadedFromTerminalComplete = true;
-      completions = _completionCandidatesFromResponse(requestInput, response);
-    });
-
-    if (completions.isEmpty) {
-      completions = _localOptionFallback(requestInput);
-    }
-
-    if (!loadedFromTerminalComplete &&
-        (completions.isEmpty || _shouldMergeDynamicCommandHelp(requestInput))) {
-      final fallback = await _connectionManager.commandCompletions(
-        sessionId,
-        requestInput,
-      );
-      if (!mounted) return;
-      if (_suggestionHelpRequests[sessionId] != requestInput) return;
-      fallback.fold((_) {}, (items) {
-        completions = _mergeCompletionCandidates(completions, items);
-      });
-    }
-
-    final changed = _suggestions.setRemoteCompletions(sessionId, completions);
-    if (changed && mounted) setState(() {});
-  }
-
-  List<session_models.TerminalCompletionCandidate> _localOptionFallback(
-    String input,
-  ) {
-    final trimmed = input.trimLeft();
-    if (!trimmed.contains(' ')) return const [];
-    final parts = trimmed.split(RegExp(r'\s+'));
-    if (parts.length < 2) return const [];
-    final command = parts.first;
-    final token = parts.last;
-    // Show options when token starts with '-' OR when it's the command itself
-    // (means user typed 'ls ' with trailing space — parts = ['ls', ''])
-    final isEmptyToken = trimmed.endsWith(' ') || token == command;
-    if (!token.startsWith('-') && !isEmptyToken) return const [];
-    final options = _fallbackOptions[command] ?? const [];
-    final filterToken = isEmptyToken ? '-' : token;
-    return options
-        .where((option) => option.$1.startsWith(filterToken))
-        .map(
-          (option) => session_models.TerminalCompletionCandidate(
-            replacement: isEmptyToken
-                ? '$trimmed${option.$1}'
-                : _replaceCurrentToken(trimmed, option.$1),
-            display: option.$1,
-            description: option.$2,
-            source: 'fallback',
-            kind: session_models.CompletionKind.command,
-          ),
-        )
-        .toList(growable: false);
-  }
-
-  String _replaceCurrentToken(String input, String token) {
-    if (input.isEmpty || input.codeUnitAt(input.length - 1) <= 32) {
-      return '$input$token';
-    }
-    final index = _lastTokenStart(input.trimRight());
-    return '${input.substring(0, index)}$token';
-  }
-
-  bool _shouldMergeDynamicCommandHelp(String input) {
-    final trimmed = input.trimLeft();
-    if (trimmed.length < 2) return false;
-    if (RegExp(r'[;&|`$<>\n\r]').hasMatch(trimmed)) return false;
-    final parts = trimmed.split(RegExp(r'\s+'));
-    if (parts.isEmpty) return false;
-    if (!_isSafeAutocompleteCommand(parts.first)) return false;
-    if (parts.length == 1) return true;
-    if (input.isNotEmpty && input.codeUnitAt(input.length - 1) <= 32) {
-      return parts.length >= 1;
-    }
-    return parts.length > 1;
-  }
-
-  bool _isSafeAutocompleteCommand(String command) {
-    if (command.isEmpty || command.length > 64 || command.contains('/')) {
-      return false;
-    }
-    return RegExp(r'^[A-Za-z0-9_.+-]+$').hasMatch(command);
-  }
-
-  List<session_models.TerminalCompletionCandidate> _mergeCompletionCandidates(
-    List<session_models.TerminalCompletionCandidate> first,
-    List<session_models.TerminalCompletionCandidate> second,
-  ) {
-    final unique = <String, session_models.TerminalCompletionCandidate>{};
-    for (final candidate in [...second, ...first]) {
-      unique.putIfAbsent(candidate.replacement, () => candidate);
-    }
-    return unique.values.toList(growable: false);
-  }
-
-  List<session_models.TerminalCompletionCandidate>
-  _completionCandidatesFromResponse(
-    String input,
-    session_models.TerminalCompleteResponse response,
-  ) {
-    final candidates = <session_models.TerminalCompletionCandidate>[];
-    final suggestion = response.suggestion?.trim();
-    if (input.trim().isNotEmpty &&
-        suggestion != null &&
-        suggestion.isNotEmpty) {
-      candidates.add(
-        session_models.TerminalCompletionCandidate(
-          replacement: '$input$suggestion',
-          display: '$input$suggestion',
-          description: 'option',
-          source: 'option',
-          kind: session_models.CompletionKind.command,
-        ),
-      );
-    }
-
-    for (final item in response.items) {
-      final replacement = _replacementForCompletion(input, item);
-      if (replacement.trim().isEmpty) continue;
-      candidates.add(
-        session_models.TerminalCompletionCandidate(
-          replacement: replacement,
-          display: item.label.trim().isEmpty ? item.insertText : item.label,
-          description: item.description ?? _completionKindLabel(item.kind),
-          source: _completionKindLabel(item.kind),
-          kind: item.kind,
-        ),
-      );
-    }
-    final unique = <String, session_models.TerminalCompletionCandidate>{};
-    for (final candidate in candidates) {
-      unique.putIfAbsent(candidate.replacement, () => candidate);
-    }
-    return unique.values.toList(growable: false);
-  }
-
-  String _replacementForCompletion(
-    String input,
-    session_models.TerminalCompletionItem item,
-  ) {
-    final insertText = item.insertText.trim();
-    if (insertText.isEmpty) return '';
-    if (item.kind == session_models.CompletionKind.history &&
-        insertText.toLowerCase().startsWith(input.toLowerCase())) {
-      return insertText;
-    }
-    if (input.isEmpty) return insertText;
-    final lastCodeUnit = input.codeUnitAt(input.length - 1);
-    if (lastCodeUnit <= 32) return '$input$insertText';
-
-    final trimmed = input.trimRight();
-    final tokenStart = _lastTokenStart(trimmed);
-    return '${trimmed.substring(0, tokenStart)}$insertText';
-  }
-
-  int _lastTokenStart(String input) {
-    for (var index = input.length - 1; index >= 0; index -= 1) {
-      if (input.codeUnitAt(index) <= 32) return index + 1;
-    }
-    return 0;
-  }
-
-  String _completionKindLabel(session_models.CompletionKind kind) {
-    return switch (kind) {
-      session_models.CompletionKind.command => 'command',
-      session_models.CompletionKind.path => 'path',
-      session_models.CompletionKind.directory => 'directory',
-      session_models.CompletionKind.file => 'file',
-      session_models.CompletionKind.env => 'env',
-      session_models.CompletionKind.git => 'git',
-      session_models.CompletionKind.history => 'history',
-    };
-  }
-
-  String _autocompleteCwdForSession(String sessionId) {
-    final profile = _profileForSession(sessionId);
-    if (profile == null) return _localHomePath();
-    final startup = profile.startupCommand.trim();
-    final cdMatch = RegExp(r'^cd\s+(.+)$').firstMatch(startup);
-    final profilePath = cdMatch?.group(1)?.trim() ?? profile.defaultPath.trim();
-    if (profilePath.isEmpty || profilePath == '~') return _localHomePath();
-    return profilePath;
-  }
-
-  String _localHomePath() {
-    final home = Platform.environment['HOME']?.trim();
-    if (home != null && home.isNotEmpty) return home;
-    final userProfile = Platform.environment['USERPROFILE']?.trim();
-    if (userProfile != null && userProfile.isNotEmpty) return userProfile;
-    return Directory.current.path;
-  }
-
-  String? _autocompleteShell() {
-    // Unix/macOS: check $SHELL environment variable (e.g. /bin/bash, /bin/zsh,
-    // /usr/bin/fish).
-    if (!Platform.isWindows) {
-      final shell = Platform.environment['SHELL']?.trim();
-      if (shell != null && shell.isNotEmpty) return shell;
-      // Fallback: probe common shell paths.
-      const unixShells = ['/bin/zsh', '/bin/bash', '/usr/bin/fish'];
-      for (final path in unixShells) {
-        if (File(path).existsSync()) return path;
-      }
-      return '/bin/sh';
-    }
-
-    // Windows: detect the active shell.
-    // Check COMSPEC for cmd.exe, but prefer PowerShell/pwsh if available.
-    final comspec = Platform.environment['COMSPEC']?.trim();
-
-    // Prefer modern PowerShell Core (pwsh) if installed.
-    final pwshPaths = [
-      '${Platform.environment['ProgramFiles'] ?? r'C:\Program Files'}\\PowerShell\\7\\pwsh.exe',
-      '${Platform.environment['LOCALAPPDATA'] ?? ''}\\Microsoft\\WindowsApps\\pwsh.exe',
-    ];
-    for (final p in pwshPaths) {
-      if (p.isNotEmpty && File(p).existsSync()) return 'pwsh';
-    }
-
-    // Windows PowerShell (5.x) is always available on modern Windows.
-    const windowsPowerShell =
-        r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe';
-    if (File(windowsPowerShell).existsSync()) return 'powershell';
-
-    // Fallback to COMSPEC (cmd.exe).
-    if (comspec != null && comspec.isNotEmpty) return comspec;
-    return 'cmd';
-  }
-
-  Map<String, String> _autocompleteEnv() {
-    const allowedKeys = [
-      'PATH',
-      'HOME',
-      'USER',
-      'SHELL',
-      'PWD',
-      'LANG',
-      'TERM',
-    ];
-    return {
-      for (final key in allowedKeys)
-        if ((Platform.environment[key] ?? '').trim().isNotEmpty)
-          key: Platform.environment[key]!,
-    };
-  }
-
-  static const Map<String, List<(String, String)>> _fallbackOptions = {
-    'rm': [
-      ('-f', 'ignore nonexistent files, never prompt'),
-      ('-i', 'prompt before every removal'),
-      ('-r', 'remove directories and contents recursively'),
-      ('-R', 'remove directories and contents recursively'),
-      ('-v', 'explain what is being done'),
-    ],
-    'ls': [
-      ('-a', 'show hidden entries'),
-      ('-A', 'show almost all entries'),
-      ('-h', 'human readable sizes'),
-      ('-l', 'long listing format'),
-      ('-R', 'list subdirectories recursively'),
-    ],
-    'cp': [
-      ('-a', 'archive mode'),
-      ('-f', 'force overwrite'),
-      ('-i', 'prompt before overwrite'),
-      ('-r', 'copy directories recursively'),
-      ('-v', 'explain what is being done'),
-    ],
-    'mv': [
-      ('-f', 'force overwrite'),
-      ('-i', 'prompt before overwrite'),
-      ('-n', 'do not overwrite existing file'),
-      ('-v', 'explain what is being done'),
-    ],
-  };
 
   void _handleTerminalResize(int cols, int rows, String? sessionId) {
     _cols = cols;
@@ -2432,8 +2032,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
           previous.activeView != current.activeView &&
           current.activeView == WorkspaceView.remoteFolder,
       listener: (context, state) {
-        unawaited(_loadTerminalClipboardSettings());
-        unawaited(_loadTerminalAppearanceSettings());
+        unawaited(_loadTerminalSettings());
       },
       child: Focus(
         autofocus: false,
@@ -2453,32 +2052,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
             return KeyEventResult.handled;
           }
 
-          // When a TUI app (less, vim, htop, etc.) is running in the active
-          // terminal it uses the alternate screen buffer.  In that state we
-          // must not intercept navigation keys — they belong to the TUI app.
-          final sessionId = _sessionId;
-          final activeTerminalIsAltBuffer =
-              sessionId != null &&
-              _terminalForSession(sessionId).isUsingAltBuffer;
-
-          if (!activeTerminalIsAltBuffer) {
-            if (!isModifierPressed &&
-                event.logicalKey == LogicalKeyboardKey.tab) {
-              if (sessionId != null && _acceptSuggestion(sessionId)) {
-                return KeyEventResult.handled;
-              }
-            }
-            if (!isModifierPressed &&
-                (event.logicalKey == LogicalKeyboardKey.arrowDown ||
-                    event.logicalKey == LogicalKeyboardKey.arrowUp)) {
-              final delta = event.logicalKey == LogicalKeyboardKey.arrowDown
-                  ? 1
-                  : -1;
-              if (sessionId != null && _selectSuggestion(sessionId, delta)) {
-                return KeyEventResult.handled;
-              }
-            }
-          }
           return KeyEventResult.ignored;
         },
         child: Container(
@@ -2678,11 +2251,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
                         terminalForSession: _terminalForSession,
                         statusForSession: _statusForSession,
                         profileForSession: _profileForSession,
-                        suggestionForSession: _suggestions.suggestionFor,
-                        suggestionCandidatesForSession:
-                            _suggestions.candidatesFor,
-                        suggestionSuffixForSession:
-                            _suggestions.completionSuffixFor,
                         idleTerminal: _idleTerminal,
                         controllerForSession: _controllerForSession,
                         scrollControllerForSession: _scrollControllerForSession,

@@ -106,37 +106,6 @@ class RustBridgeBackend implements ConnectionBackend {
   }
 
   @override
-  Future<List<String>> commandHelpSuggestions(String sessionId, String input) {
-    return rust_api.commandHelpSuggestions(sessionId: sessionId, input: input);
-  }
-
-  @override
-  Future<List<TerminalCompletionCandidate>> commandCompletions(
-    String sessionId,
-    String input,
-  ) async {
-    final suggestions = await commandHelpSuggestions(sessionId, input);
-    return suggestions
-        .map(TerminalCompletionCandidate.fromWire)
-        .where((candidate) => candidate.replacement.isNotEmpty)
-        .toList(growable: false);
-  }
-
-  @override
-  Future<TerminalCompleteResponse> terminalComplete(
-    TerminalCompleteRequest request,
-  ) async {
-    final response = await rust_api.terminalComplete(
-      reqJson: jsonEncode(request.toJson()),
-    );
-    final decoded = jsonDecode(response);
-    if (decoded is! Map) {
-      return const TerminalCompleteResponse();
-    }
-    return TerminalCompleteResponse.fromJson(decoded.cast<String, Object?>());
-  }
-
-  @override
   Future<String> resolveRemoteDirectory(String sessionId, String path) {
     return rust_api.resolveRemoteDirectory(sessionId: sessionId, path: path);
   }
