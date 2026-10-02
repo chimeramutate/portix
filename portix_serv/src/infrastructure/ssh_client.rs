@@ -44,6 +44,9 @@ pub(crate) struct Client {
     host: String,
     port: u16,
     known_hosts: PathBuf,
+    /// Jump host session the connection is tunnelled through; owned here so
+    /// it lives exactly as long as this session.
+    _jump: Option<Arc<client::Handle<Client>>>,
 }
 
 type ExecRequest = (String, oneshot::Sender<Result<String>>);
@@ -364,10 +367,17 @@ pub(crate) async fn connect_and_authenticate_profile(
     profile: &SshProfile,
 ) -> Result<client::Handle<Client>> {
     forget_pending_host_key(&profile.host, profile.port);
+    let jump = match profile.jump_host.as_deref() {
+        Some(jump) => Some(Arc::new(
+            Box::pin(connect_and_authenticate_profile(jump)).await?,
+        )),
+        None => None,
+    };
     let handler = Client {
         host: profile.host.clone(),
         port: profile.port,
         known_hosts: default_known_hosts_path(home_dir())?,
+        _jump: jump.clone(),
     };
     let config = Arc::new(client::Config {
         // If the TCP connection goes silent for longer than this, russh closes
@@ -376,12 +386,27 @@ pub(crate) async fn connect_and_authenticate_profile(
         inactivity_timeout: Some(Duration::from_secs(30)),
         ..Default::default()
     });
-    let mut session = timeout(
-        CONNECT_TIMEOUT,
-        client::connect(config, profile.socket_addr(), handler),
-    )
-    .await
-    .map_err(|_| PortixError::ConnectionTimeout)??;
+    let connecting = async {
+        match &jump {
+            // The target's host key is still checked against known_hosts as
+            // usual; the jump host only carries the bytes.
+            Some(jump) => {
+                let channel = jump
+                    .channel_open_direct_tcpip(
+                        profile.host.clone(),
+                        profile.port.into(),
+                        "127.0.0.1",
+                        0,
+                    )
+                    .await?;
+                client::connect_stream(config, channel.into_stream(), handler).await
+            }
+            None => client::connect(config, profile.socket_addr(), handler).await,
+        }
+    };
+    let mut session = timeout(CONNECT_TIMEOUT, connecting)
+        .await
+        .map_err(|_| PortixError::ConnectionTimeout)??;
 
     let key_pair = match profile.private_key_path.as_deref() {
         Some(path) => Some(load_private_key(

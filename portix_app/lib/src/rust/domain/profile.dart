@@ -18,6 +18,9 @@ class SshProfile {
   /// Passphrase for an encrypted private key.
   final String? keyPassphrase;
 
+  /// Server to tunnel through first (`ssh -J`); may itself have a jump host.
+  final SshProfile? jumpHost;
+
   const SshProfile({
     required this.id,
     required this.name,
@@ -27,6 +30,7 @@ class SshProfile {
     this.password,
     this.privateKeyPath,
     this.keyPassphrase,
+    this.jumpHost,
   });
 
   @override
@@ -38,7 +42,8 @@ class SshProfile {
       username.hashCode ^
       password.hashCode ^
       privateKeyPath.hashCode ^
-      keyPassphrase.hashCode;
+      keyPassphrase.hashCode ^
+      jumpHost.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -52,5 +57,6 @@ class SshProfile {
           username == other.username &&
           password == other.password &&
           privateKeyPath == other.privateKeyPath &&
-          keyPassphrase == other.keyPassphrase;
+          keyPassphrase == other.keyPassphrase &&
+          jumpHost == other.jumpHost;
 }

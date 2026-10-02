@@ -13,6 +13,8 @@ pub struct SshProfile {
     pub private_key_path: Option<String>,
     /// Passphrase for an encrypted private key.
     pub key_passphrase: Option<String>,
+    /// Server to tunnel through first (`ssh -J`); may itself have a jump host.
+    pub jump_host: Option<Box<SshProfile>>,
 }
 
 impl SshProfile {
@@ -70,6 +72,7 @@ mod tests {
             password: Some("secret".to_owned()),
             private_key_path: None,
             key_passphrase: None,
+            jump_host: None,
         }
     }
 

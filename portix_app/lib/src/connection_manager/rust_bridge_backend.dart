@@ -171,10 +171,7 @@ class RustBridgeBackend implements ConnectionBackend {
 
   @override
   Future<String> execRemoteCommand(String sessionId, String command) {
-    return rust_api.execRemoteCommand(
-      sessionId: sessionId,
-      command: command,
-    );
+    return rust_api.execRemoteCommand(sessionId: sessionId, command: command);
   }
 
   void dispose() {
@@ -240,6 +237,7 @@ extension on SshProfile {
       password: _blankToNull(password),
       privateKeyPath: _blankToNull(privateKeyPath),
       keyPassphrase: _blankToNull(keyPassphrase),
+      jumpHost: jumpHost?.toRustProfile(),
     );
   }
 }

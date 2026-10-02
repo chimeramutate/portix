@@ -129,6 +129,7 @@ mod tests {
             password: Some("x".into()),
             private_key_path: None,
             key_passphrase: None,
+            jump_host: None,
         }
     }
 

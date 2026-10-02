@@ -44,6 +44,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_box_autoadd_u_32(dynamic raw);
 
   @protected
+  SshProfile dco_decode_box_ssh_profile(dynamic raw);
+
+  @protected
   ConnectionStatus dco_decode_connection_status(dynamic raw);
 
   @protected
@@ -81,6 +84,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
+
+  @protected
+  SshProfile? dco_decode_opt_box_ssh_profile(dynamic raw);
 
   @protected
   RemoteFileEntry dco_decode_remote_file_entry(dynamic raw);
@@ -135,6 +141,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
+  SshProfile sse_decode_box_ssh_profile(SseDeserializer deserializer);
+
+  @protected
   ConnectionStatus sse_decode_connection_status(SseDeserializer deserializer);
 
   @protected
@@ -176,6 +185,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
+  SshProfile? sse_decode_opt_box_ssh_profile(SseDeserializer deserializer);
 
   @protected
   RemoteFileEntry sse_decode_remote_file_entry(SseDeserializer deserializer);
@@ -240,6 +252,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_ssh_profile(SshProfile self, SseSerializer serializer);
+
+  @protected
   void sse_encode_connection_status(
     ConnectionStatus self,
     SseSerializer serializer,
@@ -292,6 +307,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_ssh_profile(
+    SshProfile? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_remote_file_entry(

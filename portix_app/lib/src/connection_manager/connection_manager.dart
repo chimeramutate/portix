@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/result/either.dart';
+import '../domain/entities/ssh/ssh_profile.dart' as domain;
 import 'connection_backend.dart';
 import 'mock_backend.dart';
 import 'profile_secret_store.dart';
@@ -26,8 +27,10 @@ class ConnectionManager extends ChangeNotifier {
   ConnectionManager({
     ConnectionBackend? backend,
     ProfileSecretStore? secretStore,
+    Future<List<domain.SshProfile>> Function()? savedProfiles,
   }) : _backend = backend ?? MockConnectionBackend(),
-       _secretStore = secretStore ?? const ProfileSecretStore() {
+       _secretStore = secretStore ?? const ProfileSecretStore(),
+       _savedProfiles = savedProfiles ?? (() async => const []) {
     _statusSub = _backend.connectionStatusStream.listen(_handleStatus);
     _outputSub = _backend.terminalOutputStream.listen(_handleTerminalOutput);
     _errorSub = _backend.errorEventStream.listen(_handleError);
@@ -39,6 +42,8 @@ class ConnectionManager extends ChangeNotifier {
 
   final ConnectionBackend _backend;
   final ProfileSecretStore _secretStore;
+  // Looks up jump host profiles by id.
+  final Future<List<domain.SshProfile>> Function() _savedProfiles;
   final _uuid = const Uuid();
   late final StreamSubscription<ConnectionStatusEvent> _statusSub;
   late final StreamSubscription<TerminalOutputEvent> _outputSub;
@@ -73,9 +78,16 @@ class ConnectionManager extends ChangeNotifier {
   /// session before the backend reports the disconnect.
   Stream<String> get sessionLostStream => _sessionLost.stream;
 
-  /// Lightweight TCP probe, used to wait for the network to come back
-  /// (e.g. after wake from sleep) before spending a full SSH handshake.
-  Future<bool> isHostReachable(String host, int port) async {
+  /// Lightweight TCP probe of the session's first hop (the jump host, if
+  /// any), used to wait for the network to come back (e.g. after wake from
+  /// sleep) before spending a full SSH handshake.
+  Future<bool> isSessionHostReachable(String sessionId) async {
+    final endpoint = _sessionEndpoints[sessionId];
+    return endpoint != null &&
+        await _isHostReachable(endpoint.host, endpoint.port);
+  }
+
+  Future<bool> _isHostReachable(String host, int port) async {
     try {
       final socket = await Socket.connect(
         host,
@@ -136,7 +148,14 @@ class ConnectionManager extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final connectProfile = await _profileWithResolvedPassword(profile);
+      final connectProfile = await _resolveForConnect(profile);
+      final entry = connectProfile.entryPoint;
+      if (_sessionEndpoints.containsKey(uiSessionId)) {
+        _sessionEndpoints[uiSessionId] = (
+          host: entry.host.trim(),
+          port: entry.port,
+        );
+      }
       // Rust enforces CONNECT_TIMEOUT (15s) + AUTH_TIMEOUT (15s) = ~30s.
       // Add a Flutter-side safety net slightly above that so the UI never
       // hangs indefinitely when the remote host is unreachable.
@@ -178,7 +197,7 @@ class ConnectionManager extends ChangeNotifier {
   }) async {
     try {
       final forward = await _backend.startLocalForward(
-        await _profileWithResolvedPassword(profile),
+        await _resolveForConnect(profile),
         localPort,
         remoteHost,
         remotePort,
@@ -630,6 +649,38 @@ class ConnectionManager extends ChangeNotifier {
       if (entry.value == uiSessionId) return entry.key;
     }
     return null;
+  }
+
+  /// [profile] preceded by its jump hosts, outermost first.
+  Future<List<SshProfile>> connectionChain(SshProfile profile) async {
+    final chain = [profile];
+    var jumpId = profile.jumpProfileId;
+    if (jumpId == null) return chain;
+    final saved = await _savedProfiles();
+    while (jumpId != null) {
+      final jump = saved.where((p) => p.id == jumpId).firstOrNull;
+      if (jump == null) {
+        throw StateError('Jump host profile for ${profile.name} not found.');
+      }
+      if (chain.any((hop) => hop.id == jump.id)) {
+        throw StateError('Jump hosts of ${profile.name} form a loop.');
+      }
+      final hop = SshProfile.fromDomain(jump);
+      chain.insert(0, hop);
+      jumpId = hop.jumpProfileId;
+    }
+    return chain;
+  }
+
+  /// [profile] with its secrets and its jump host chain filled in.
+  Future<SshProfile> _resolveForConnect(SshProfile profile) async {
+    SshProfile? resolved;
+    for (final hop in await connectionChain(profile)) {
+      resolved = (await _profileWithResolvedPassword(
+        hop,
+      )).copyWith(jumpHost: resolved);
+    }
+    return resolved!;
   }
 
   Future<SshProfile> _profileWithResolvedPassword(SshProfile profile) async {

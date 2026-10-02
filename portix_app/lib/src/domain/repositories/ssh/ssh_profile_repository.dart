@@ -154,6 +154,7 @@ class SshProfileRepository {
       'terminalFontSize': profile.terminalFontSize,
       'lastUsedLabel': profile.lastUsedLabel,
       'osIconAsset': profile.osIconAsset,
+      'jumpProfileId': profile.jumpProfileId,
     };
   }
 
@@ -193,6 +194,7 @@ class SshProfileRepository {
           int.tryParse(json['terminalFontSize']?.toString() ?? '') ?? 14,
       lastUsedLabel: json['lastUsedLabel']?.toString() ?? 'recently',
       osIconAsset: json['osIconAsset']?.toString() ?? '',
+      jumpProfileId: json['jumpProfileId']?.toString() ?? '',
     );
   }
 }

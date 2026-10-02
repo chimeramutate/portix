@@ -15,7 +15,19 @@ Future<bool?> resolveRefusedHostKey(
   ConnectionManager manager,
   SshProfile profile,
 ) async {
-  final info = await manager.pendingHostKey(profile);
+  // The refused key may belong to a jump host rather than the target.
+  HostKeyInfo? found;
+  final chain = await manager
+      .connectionChain(profile)
+      .catchError((Object _) => [profile]);
+  for (final hop in chain) {
+    found = await manager.pendingHostKey(hop);
+    if (found != null) {
+      profile = hop;
+      break;
+    }
+  }
+  final info = found;
   if (info == null) return null;
   if (!context.mounted) return false;
   final target = profile.port == 22
