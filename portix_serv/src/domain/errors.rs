@@ -18,6 +18,25 @@ pub enum PortixError {
     AuthenticationTimeout,
     #[error("remote command timed out")]
     CommandTimeout,
+    #[error(
+        "host key for {host}:{port} does not match known_hosts line {line} ({fingerprint}); \
+         possible man-in-the-middle attack. If the server key changed legitimately, \
+         remove the old entry with `ssh-keygen -R {host}`"
+    )]
+    HostKeyChanged {
+        host: String,
+        port: u16,
+        line: usize,
+        fingerprint: String,
+    },
+    #[error("host key for {host}:{port} is not in known_hosts ({fingerprint})")]
+    HostKeyUnknown {
+        host: String,
+        port: u16,
+        fingerprint: String,
+    },
+    #[error("cannot use known_hosts file: {0}")]
+    KnownHosts(String),
     #[error(transparent)]
     Russh(#[from] russh::Error),
     #[error(transparent)]
