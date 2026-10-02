@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../domain/entities/ssh/ssh_profile.dart' as domain;
+
 @immutable
 class SshProfile {
   const SshProfile({
@@ -26,6 +28,31 @@ class SshProfile {
 
   final String? group;
   final List<String> tags;
+
+  /// Connection view of a saved profile. The domain stores either the key
+  /// path or the password in `credentialLabel`, depending on `authMethod`;
+  /// 'Saved password' is a placeholder meaning "read it from the keychain".
+  factory SshProfile.fromDomain(domain.SshProfile profile) {
+    final credential = profile.credentialLabel.trim();
+    final usesPassword = profile.authMethod == domain.AuthMethod.password;
+    return SshProfile(
+      id: profile.id,
+      name: profile.name,
+      host: profile.host,
+      port: profile.port,
+      username: profile.username,
+      password:
+          usesPassword &&
+              credential.isNotEmpty &&
+              credential != 'Saved password'
+          ? credential
+          : null,
+      hasPassword: usesPassword,
+      privateKeyPath: usesPassword ? null : credential,
+      group: profile.group,
+      tags: profile.tags,
+    );
+  }
 
   SshProfile copyWith({
     String? id,

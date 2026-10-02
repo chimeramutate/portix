@@ -841,7 +841,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final existingSessionIds = _sshSessions.map((s) => s.id).toSet();
     final prevSessionId = _sessionId;
 
-    final result = await _connectionManager.connect(_toManagerProfile(profile));
+    final result = await _connectionManager.connect(manager_profile.SshProfile.fromDomain(profile));
     final failure = result.fold<Object?>((f) => f, (_) => null);
     if (failure != null || !mounted) {
       if (mounted) unawaited(_showConnectionFailedDialog(profile, failure!));
@@ -951,7 +951,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     }
     _scheduleSessionUiDisposal(sessionId);
 
-    final result = await _connectionManager.connect(_toManagerProfile(profile));
+    final result = await _connectionManager.connect(manager_profile.SshProfile.fromDomain(profile));
     final failure = result.fold<Object?>((failure) => failure, (_) => null);
     if (failure != null || !mounted) {
       _workspaceReconnectInProgress = false;
@@ -1014,7 +1014,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
     try {
       final result = await _connectionManager.connect(
-        _toManagerProfile(profile),
+        manager_profile.SshProfile.fromDomain(profile),
       );
       result.fold((failure) {
         throw failure;
@@ -1289,19 +1289,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
     // Save password to secure storage for next time.
     unawaited(_connectionManager.saveProfilePassword(profile.id, password));
 
-    // Build a profile with the password directly set.
-    final managerProfile = manager_profile.SshProfile(
-      id: profile.id,
-      name: profile.name,
-      host: profile.host,
-      port: profile.port,
-      username: profile.username,
-      password: password,
-      hasPassword: true,
-      privateKeyPath: null,
-      group: profile.group,
-      tags: profile.tags,
-    );
+    final managerProfile = manager_profile.SshProfile.fromDomain(profile)
+        .copyWith(
+          password: password,
+          hasPassword: true,
+          clearPrivateKeyPath: true,
+        );
 
     // Close the failed session and reconnect in its place (same tab).
     final failedSessionId = _sessionId;
@@ -1670,7 +1663,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         await _connectionManager.closeSession(oldId);
         _scheduleSessionUiDisposal(oldId);
         final result = await _connectionManager.connect(
-          _toManagerProfile(profile),
+          manager_profile.SshProfile.fromDomain(profile),
         );
         final connected = result.fold<bool>((_) => false, (_) => true);
         if (!connected) continue;
@@ -1947,30 +1940,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
         );
       }
     }
-  }
-
-  manager_profile.SshProfile _toManagerProfile(domain.SshProfile profile) {
-    final credential = profile.credentialLabel.trim();
-    final password =
-        profile.authMethod == domain.AuthMethod.password &&
-            credential.isNotEmpty &&
-            credential != 'Saved password'
-        ? credential
-        : null;
-    return manager_profile.SshProfile(
-      id: profile.id,
-      name: profile.name,
-      host: profile.host,
-      port: profile.port,
-      username: profile.username,
-      password: password,
-      hasPassword: profile.authMethod == domain.AuthMethod.password,
-      privateKeyPath: profile.authMethod == domain.AuthMethod.sshKey
-          ? credential
-          : null,
-      group: profile.group,
-      tags: profile.tags,
-    );
   }
 
   /// Builds a combined ordered list of tab items (workspaces + single sessions)
