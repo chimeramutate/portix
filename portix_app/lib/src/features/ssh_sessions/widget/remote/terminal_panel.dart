@@ -21,6 +21,7 @@ import 'package:xterm/xterm.dart';
 import '../../controller/index.dart';
 import 'terminal_settings.dart';
 import 'terminal_shortcuts.dart';
+import 'terminal_profile_picker_dialog.dart';
 import 'terminal_snippets.dart';
 import 'terminal_status_footer.dart';
 import 'terminal_workspace_view.dart';
@@ -63,6 +64,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   /// Guards one-time registration of scroll listeners per session.
   final Set<String> _scrollListenersRegistered = {};
   late final ConnectionManager _connectionManager;
+  late final TerminalTelemetryController _telemetry;
   late final SettingsRepository _settingsRepository;
   final TerminalSplitController _splitController =
       const TerminalSplitController();
@@ -84,9 +86,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   // Serializes reconnects: after wake from sleep every tab drops at once, and
   // _reconnectSession shares _workspaceReconnectInProgress across calls.
   Future<void> _reconnectQueue = Future.value();
-  Timer? _telemetryTimer;
   String? _sessionId;
-  String? _telemetrySessionId;
   String? _connectedProfileId;
   bool _connectInProgress = false;
   TerminalClipboardShortcut _copyShortcut = TerminalClipboardShortcut.shiftCtrl;
@@ -97,14 +97,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
   double _terminalFontSize = 13;
   String? _terminalThemeName;
   bool _passwordPromptActive = false;
-  session_models.RemoteSystemSnapshot? _remoteSnapshot;
-  String? _telemetryError;
-  final List<RemoteMetricSample> _metricSamples = [];
-  bool _telemetryLoading = false;
-  // Consecutive telemetry failures — when this reaches the threshold the
-  // session is proactively closed so the disconnect overlay appears
-  // immediately without waiting for the Rust keepalive timeout.
-  final Map<String, int> _telemetryFailCount = {};
   bool _activeTabClosed = false;
   int _cols = 80;
   int _rows = 24;
@@ -117,6 +109,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
     super.initState();
     _connectionManager = sl<ConnectionManager>();
     _settingsRepository = sl<SettingsRepository>();
+    _telemetry = TerminalTelemetryController(
+      connectionManager: _connectionManager,
+      onOsDetected: _handleOsDetected,
+    );
     _terminalUi = TerminalSessionUiController(
       onInput: _handleTerminalInput,
       onResize: _handleTerminalResize,
@@ -164,9 +160,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
     unawaited(_outputSubscription?.cancel());
     unawaited(_errorSubscription?.cancel());
     unawaited(_sessionLostSubscription?.cancel());
-    _telemetryTimer?.cancel();
     _pendingDisposedSessionIds.clear();
     _terminalUi.dispose();
+    _telemetry.dispose();
 
     super.dispose();
   }
@@ -206,7 +202,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
   void _notifyActiveSessionChanged(String? sessionId) {
     widget.onActiveSessionChanged?.call(sessionId);
-    _syncTelemetrySession(sessionId);
+    _telemetry.track(sessionId);
     if (!mounted) return;
 
     if (sessionId == null) {
@@ -446,10 +442,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
       final activeSession = _sessionById(_sessionId!);
       widget.onSessionChanged?.call(activeSession != null);
       _notifyActiveSessionChanged(_sessionId);
-      if (_isSessionConnected(_sessionId!) && _remoteSnapshot == null) {
-        unawaited(_loadRemoteTelemetry(_sessionId!));
+      if (_isSessionConnected(_sessionId!) && _telemetry.snapshot == null) {
+        unawaited(_telemetry.refresh());
       } else if (!_isSessionConnected(_sessionId!)) {
-        _clearRemoteTelemetry(
+        _telemetry.clear(
           error:
               _statusForSession(_sessionId!) ==
                   session_models.ConnectionStatus.connecting
@@ -462,117 +458,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
     setState(() {});
   }
 
-  void _clearRemoteTelemetry({String? error}) {
-    _telemetryLoading = false;
-    _remoteSnapshot = null;
-    _telemetryError = error;
-    _metricSamples.clear();
-  }
-
-  void _syncTelemetrySession(String? sessionId) {
-    if (_telemetrySessionId == sessionId) return;
-    _telemetryTimer?.cancel();
-    _telemetrySessionId = sessionId;
-    _clearRemoteTelemetry();
-    if (sessionId != null) _telemetryFailCount.remove(sessionId);
-    if (sessionId == null) return;
-    unawaited(_loadRemoteTelemetry(sessionId));
-    _telemetryTimer = Timer.periodic(
-      const Duration(seconds: 4),
-      (_) => unawaited(_loadRemoteTelemetry(sessionId)),
+  void _handleOsDetected(String sessionId, String osIconAsset) {
+    final profileId = _sessionById(sessionId)?.profileId;
+    if (profileId == null || !mounted) return;
+    context.read<SshWorkspaceBloc>().add(
+      ProfileOsDetected(profileId: profileId, osIconAsset: osIconAsset),
     );
-  }
-
-  Future<void> _loadRemoteTelemetry(String sessionId) async {
-    if (!_isSessionConnected(sessionId)) return;
-    if (_telemetryLoading) return;
-    _telemetryLoading = true;
-    final result = await _connectionManager.remoteSystemSnapshot(sessionId);
-    _telemetryLoading = false;
-    if (!mounted || _telemetrySessionId != sessionId) return;
-    result.fold(
-      (failure) {
-        setState(() => _telemetryError = failure.message);
-        // Count consecutive failures. After 2 failures the remote is almost
-        // certainly unreachable — force-close the session immediately so the
-        // disconnect overlay appears right away instead of waiting for the
-        // Rust keepalive timeout (~17 s).
-        final fails = (_telemetryFailCount[sessionId] ?? 0) + 1;
-        _telemetryFailCount[sessionId] = fails;
-        if (fails >= 2 && _isSessionConnected(sessionId)) {
-          _telemetryFailCount.remove(sessionId);
-          unawaited(_connectionManager.closeSession(sessionId));
-        }
-      },
-      (snapshot) {
-        // Reset failure counter on success.
-        _telemetryFailCount.remove(sessionId);
-        final session = _sessionById(sessionId);
-        final profileId = session?.profileId;
-        if (profileId != null) {
-          context.read<SshWorkspaceBloc>().add(
-            ProfileOsDetected(
-              profileId: profileId,
-              osIconAsset: _osAssetPath(snapshot.os),
-            ),
-          );
-        }
-        final memoryPercent = _capacityPercent(
-          snapshot.memoryUsedBytes,
-          snapshot.memoryTotalBytes,
-        );
-        final diskPercent = _capacityPercent(
-          snapshot.diskUsedBytes,
-          snapshot.diskTotalBytes,
-        );
-        setState(() {
-          _remoteSnapshot = snapshot;
-          _telemetryError = null;
-          _metricSamples.add(
-            RemoteMetricSample(
-              createdAt: DateTime.now(),
-              memoryPercent: memoryPercent,
-              diskPercent: diskPercent,
-            ),
-          );
-          if (_metricSamples.length > 36) {
-            _metricSamples.removeRange(0, _metricSamples.length - 36);
-          }
-        });
-      },
-    );
-  }
-
-  double _capacityPercent(int used, int total) {
-    if (total <= 0) return 0;
-    return (used / total * 100).clamp(0, 100);
-  }
-
-  String _osAssetPath(String os) {
-    final normalized = os.toLowerCase();
-    if (normalized.contains('ubuntu')) {
-      return 'assets/icons/os/ubuntu-linux.svg';
-    }
-    if (normalized.contains('debian')) {
-      return 'assets/icons/os/debian-linux.svg';
-    }
-    if (normalized.contains('fedora')) {
-      return 'assets/icons/os/fedora-linux.svg';
-    }
-    if (normalized.contains('centos')) {
-      return 'assets/icons/os/centos-linux.svg';
-    }
-    if (normalized.contains('red hat') || normalized.contains('redhat')) {
-      return 'assets/icons/os/redhat-linux.svg';
-    }
-    if (normalized.contains('arch')) return 'assets/icons/os/arch-linux.svg';
-    if (normalized.contains('windows')) return 'assets/icons/os/windows.svg';
-    if (normalized.contains('darwin') ||
-        normalized.contains('mac') ||
-        normalized.contains('apple')) {
-      return 'assets/icons/os/apple.svg';
-    }
-    return 'assets/icons/os/linux.svg';
   }
 
   void _bootTerminal() {
@@ -995,7 +886,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
     return showDialog<domain.SshProfile>(
       context: context,
-      builder: (context) => _SessionProfilePickerDialog(
+      builder: (context) => SessionProfilePickerDialog(
         profiles: profiles,
         activeProfileId: _connectedProfileId ?? widget.profile?.id,
       ),
@@ -2262,238 +2153,21 @@ class _TerminalPanelState extends State<TerminalPanel> {
                   border: Border(top: BorderSide(color: AppColors.border)),
                 ),
                 child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    return TerminalStatusFooter(
-                      snapshot: _remoteSnapshot,
-                      samples: _metricSamples,
-                      error: _telemetryError,
+                  builder: (context, constraints) => ListenableBuilder(
+                    listenable: _telemetry,
+                    builder: (context, _) => TerminalStatusFooter(
+                      snapshot: _telemetry.snapshot,
+                      samples: _telemetry.samples,
+                      error: _telemetry.error,
                       canUngroupWorkspace:
                           constraints.maxWidth >= 360 &&
                           _activeWorkspace != null,
                       onUngroupWorkspace: _activeWorkspace == null
                           ? null
                           : _ungroupActiveWorkspace,
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SessionProfilePickerDialog extends StatefulWidget {
-  const _SessionProfilePickerDialog({
-    required this.profiles,
-    required this.activeProfileId,
-  });
-
-  final List<domain.SshProfile> profiles;
-  final String? activeProfileId;
-
-  @override
-  State<_SessionProfilePickerDialog> createState() =>
-      _SessionProfilePickerDialogState();
-}
-
-class _SessionProfilePickerDialogState
-    extends State<_SessionProfilePickerDialog> {
-  late final TextEditingController _searchController;
-  late final ScrollController _listController;
-
-  @override
-  void initState() {
-    super.initState();
-    _searchController = TextEditingController();
-    _listController = ScrollController();
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _listController.dispose();
-    super.dispose();
-  }
-
-  List<domain.SshProfile> get _filteredProfiles {
-    final normalized = _searchController.text.trim().toLowerCase();
-    if (normalized.isEmpty) return widget.profiles;
-    return widget.profiles
-        .where((profile) {
-          final text = [
-            profile.name,
-            profile.host,
-            profile.username,
-            profile.group,
-            ...profile.tags,
-          ].join(' ').toLowerCase();
-          return text.contains(normalized);
-        })
-        .toList(growable: false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.sizeOf(context).height;
-    final maxListHeight = (screenHeight * 0.55).clamp(260.0, 520.0);
-    final filteredProfiles = _filteredProfiles;
-    final hasSearch = _searchController.text.trim().isNotEmpty;
-
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(24),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560),
-        child: AppPanel(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.add_rounded, color: AppColors.cyan),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('New SSH session', style: portixTitle(18)),
-                        const SizedBox(height: 2),
-                        Text(
-                          hasSearch
-                              ? '${filteredProfiles.length} of ${widget.profiles.length} profiles match your search'
-                              : '${widget.profiles.length} connectable profiles available',
-                          style: portixMuted(11),
-                        ),
-                      ],
                     ),
                   ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(
-                      Icons.close_rounded,
-                      color: AppColors.muted,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 40,
-                child: TextField(
-                  controller: _searchController,
-                  autofocus: true,
-                  onChanged: (_) {
-                    if (_listController.hasClients) {
-                      _listController.jumpTo(0);
-                    }
-                    setState(() {});
-                  },
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    color: AppColors.text,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: 'Search profile, host, username, tag, or group',
-                    prefixIcon: const Icon(
-                      Icons.search_rounded,
-                      color: AppColors.muted,
-                      size: 19,
-                    ),
-                    suffixIcon: hasSearch
-                        ? IconButton(
-                            tooltip: 'Clear search',
-                            onPressed: () {
-                              _searchController.clear();
-                              if (_listController.hasClients) {
-                                _listController.jumpTo(0);
-                              }
-                              setState(() {});
-                            },
-                            icon: const Icon(
-                              Icons.close_rounded,
-                              color: AppColors.muted,
-                              size: 18,
-                            ),
-                          )
-                        : null,
-                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              if (widget.activeProfileId != null && !hasSearch)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: AppPill(
-                    label: 'Current session profile highlighted below',
-                    color: AppColors.cyan,
-                    icon: Icons.radio_button_checked_rounded,
-                  ),
-                ),
-              ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: maxListHeight),
-                child: filteredProfiles.isEmpty
-                    ? Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(18),
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceDark,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.search_off_rounded,
-                              color: AppColors.muted,
-                              size: 22,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'No matching profiles found',
-                              style: portixTitle(13),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Try another keyword for host, username, group, or tag.',
-                              textAlign: TextAlign.center,
-                              style: portixMuted(11),
-                            ),
-                          ],
-                        ),
-                      )
-                    : Scrollbar(
-                        controller: _listController,
-                        interactive: false,
-                        thumbVisibility: filteredProfiles.length > 5,
-                        child: ListView.separated(
-                          controller: _listController,
-                          shrinkWrap: true,
-                          itemCount: filteredProfiles.length,
-                          separatorBuilder: (_, _) => const SizedBox(height: 8),
-                          itemBuilder: (context, index) {
-                            final profile = filteredProfiles[index];
-                            final isActiveProfile =
-                                profile.id == widget.activeProfileId;
-                            return SessionProfileOption(
-                              profile: profile,
-                              highlighted: isActiveProfile,
-                              subtitleLabel: isActiveProfile
-                                  ? 'Current profile'
-                                  : null,
-                              onSelected: () =>
-                                  Navigator.of(context).pop(profile),
-                            );
-                          },
-                        ),
-                      ),
               ),
             ],
           ),

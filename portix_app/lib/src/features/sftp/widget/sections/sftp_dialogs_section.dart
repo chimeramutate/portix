@@ -373,3 +373,247 @@ class _PermCheck extends StatelessWidget {
     );
   }
 }
+
+class _RemoteFolderPickerDialog extends StatefulWidget {
+  const _RemoteFolderPickerDialog({
+    required this.title,
+    required this.initialPath,
+    required this.connectionManager,
+  });
+
+  final String title;
+  final String initialPath;
+  final SftpWorkspaceController connectionManager;
+
+  @override
+  State<_RemoteFolderPickerDialog> createState() =>
+      _RemoteFolderPickerDialogState();
+}
+
+class _RemoteFolderPickerDialogState extends State<_RemoteFolderPickerDialog> {
+  late String _currentPath;
+  List<SftpFileEntry> _entries = const [];
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentPath = widget.initialPath;
+    _loadFolders();
+  }
+
+  Future<void> _loadFolders() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      // Use the controller's connection to list remote directories.
+      final entries = await widget.connectionManager.listRemoteDirectoryRaw(
+        _currentPath,
+      );
+      if (!mounted) return;
+      setState(() {
+        _entries = entries.where((e) => e.name != '..').toList(growable: false)
+          ..sort((a, b) {
+            if (a.folder != b.folder) return a.folder ? -1 : 1;
+            return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+          });
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = '$e';
+        _loading = false;
+      });
+    }
+  }
+
+  void _navigateInto(String folderName) {
+    setState(() {
+      _currentPath = _currentPath.endsWith('/')
+          ? '$_currentPath$folderName'
+          : '$_currentPath/$folderName';
+    });
+    _loadFolders();
+  }
+
+  void _navigateUp() {
+    final parts = _currentPath.split('/')..removeWhere((p) => p.isEmpty);
+    if (parts.length <= 1) {
+      setState(() => _currentPath = '/');
+    } else {
+      parts.removeLast();
+      setState(() => _currentPath = '/${parts.join('/')}');
+    }
+    _loadFolders();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AppColors.surface,
+      insetPadding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 520),
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.drive_file_move_rounded,
+                    color: AppColors.cyan,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(widget.title, style: portixTitle(16))),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // Current path bar
+              Container(
+                height: 36,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceDark,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.folder_rounded,
+                      size: 16,
+                      color: AppColors.cyan,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _currentPath,
+                        overflow: TextOverflow.ellipsis,
+                        style: portixTitle(12),
+                      ),
+                    ),
+                    if (_currentPath != '/')
+                      IconButton(
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 28,
+                          height: 28,
+                        ),
+                        onPressed: _navigateUp,
+                        icon: const Icon(
+                          Icons.arrow_upward_rounded,
+                          size: 16,
+                          color: AppColors.muted,
+                        ),
+                        tooltip: 'Go up',
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              // Folder list
+              Expanded(
+                child: _loading
+                    ? const Center(
+                        child: SizedBox.square(
+                          dimension: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : _error != null
+                    ? Center(
+                        child: Text(
+                          _error!,
+                          style: portixMuted(12),
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    : _entries.isEmpty
+                    ? Center(
+                        child: Text('Empty directory', style: portixMuted(12)),
+                      )
+                    : ListView.builder(
+                        itemCount: _entries.length,
+                        itemBuilder: (context, index) {
+                          final entry = _entries[index];
+                          final isFolder = entry.folder;
+                          return InkWell(
+                            onTap: isFolder
+                                ? () => _navigateInto(entry.name)
+                                : null,
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 6,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    isFolder
+                                        ? Icons.folder_rounded
+                                        : Icons.insert_drive_file_outlined,
+                                    color: isFolder
+                                        ? AppColors.amber
+                                        : AppColors.muted,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      entry.name,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: isFolder
+                                          ? portixTitle(13)
+                                          : portixMuted(12),
+                                    ),
+                                  ),
+                                  if (isFolder)
+                                    const Icon(
+                                      Icons.chevron_right_rounded,
+                                      color: AppColors.muted,
+                                      size: 18,
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              const SizedBox(height: 14),
+              // Action buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 10),
+                  FilledButton.icon(
+                    onPressed: () => Navigator.of(context).pop(_currentPath),
+                    icon: const Icon(Icons.check_rounded, size: 16),
+                    label: const Text('Move here'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
