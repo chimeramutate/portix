@@ -142,7 +142,9 @@ const _solarizedDark = TerminalTheme(
   magenta: Color(0xFFD33682),
   cyan: Color(0xFF2AA198),
   white: Color(0xFFEEE8D5),
-  brightBlack: Color(0xFF002B36),
+  // Canonical base03 equals the background, which hides dim/ghost text
+  // (e.g. zsh-autosuggestions) — use base01 so it stays visible.
+  brightBlack: Color(0xFF586E75),
   brightRed: Color(0xFFCB4B16),
   brightGreen: Color(0xFF586E75),
   brightYellow: Color(0xFF657B83),

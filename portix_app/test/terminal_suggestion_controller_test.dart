@@ -10,21 +10,18 @@ import 'package:xterm/xterm.dart';
 void main() {
   const sessionId = 'ssh-session';
 
-  test('allows Enter to accept history suggestions', () {
+  test('never suggests previously typed commands', () {
     final controller = TerminalSuggestionController();
 
     controller.handleInput(sessionId, 'git status');
     controller.handleInput(sessionId, '\r');
     controller.handleInput(sessionId, 'gi');
 
-    expect(controller.canAcceptSuggestionWithEnter(sessionId), isTrue);
-    expect(
-      controller.suggestionFor(sessionId)?.source,
-      TerminalSuggestionSource.history,
-    );
+    expect(controller.candidatesFor(sessionId), isEmpty);
+    expect(controller.suggestionFor(sessionId), isNull);
   });
 
-  test('does not allow Enter to accept remote completion suggestions', () {
+  test('arrow right dismisses the suggestion instead of accepting it', () {
     final controller = TerminalSuggestionController();
 
     controller.handleInput(sessionId, 'fo');
@@ -37,13 +34,21 @@ void main() {
         kind: CompletionKind.directory,
       ),
     ]);
+    expect(controller.completionSuffixFor(sessionId), 'lder');
 
-    expect(controller.candidatesFor(sessionId), isNotEmpty);
-    expect(
-      controller.suggestionFor(sessionId)?.source,
-      TerminalSuggestionSource.remoteHelp,
-    );
-    expect(controller.canAcceptSuggestionWithEnter(sessionId), isFalse);
+    controller.handleInput(sessionId, '\x1b[C');
+
+    expect(controller.suggestionFor(sessionId), isNull);
+    expect(controller.acceptSuggestion(sessionId), isNull);
+  });
+
+  test('disabled controller never consumes keys', () {
+    final controller = TerminalSuggestionController()..setEnabled(false);
+
+    expect(controller.handleInput(sessionId, 'git st'), isFalse);
+    expect(controller.inputFor(sessionId), isEmpty);
+    expect(controller.moveSelection(sessionId, 1), isFalse);
+    expect(controller.acceptSuggestion(sessionId), isNull);
   });
 
   test('parses terminal clipboard shortcut settings', () {

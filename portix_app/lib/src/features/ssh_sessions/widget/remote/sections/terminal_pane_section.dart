@@ -504,10 +504,7 @@ class _TerminalCompletionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = switch (suggestion.source) {
-      TerminalSuggestionSource.history => AppColors.green,
-      TerminalSuggestionSource.remoteHelp => AppColors.cyan,
-    };
+    const color = AppColors.cyan;
     final description = suggestion.description.trim();
 
     return Container(

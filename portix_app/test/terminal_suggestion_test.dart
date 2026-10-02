@@ -51,10 +51,12 @@ void main() {
       expect(controller.inputFor('s'), equals('a'));
     });
 
-    test('mixed printable text and escapes buffer only the text', () {
+    test('cursor movement resets the buffer to text typed after it', () {
+      // After ← the shell cursor is mid-line, so the buffered prefix no
+      // longer matches the real line; only text typed afterwards is kept.
       controller.handleInput('s', 'kubectl\x1b[Dlogs');
 
-      expect(controller.inputFor('s'), equals('kubectllogs'));
+      expect(controller.inputFor('s'), equals('logs'));
     });
 
     test('completion suffix is correctly calculated', () {

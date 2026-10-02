@@ -22,15 +22,13 @@ class TerminalSuggestion {
   int get hashCode => command.hashCode;
 }
 
-enum TerminalSuggestionSource { history, remoteHelp }
+enum TerminalSuggestionSource { remoteHelp }
 
 class TerminalSuggestionController {
   static const settingsKey = 'general.terminal_suggestions';
   static const _maxCommandLength = 240;
-  static const _maxHistoryItems = 80;
 
   final Map<String, String> _buffers = {};
-  final Map<String, List<String>> _historyBySession = {};
   final Map<String, List<TerminalSuggestion>> _remoteHelpBySession = {};
   final Map<String, List<TerminalSuggestion>> _candidatesBySession = {};
   final Map<String, TerminalSuggestion> _suggestions = {};
@@ -55,12 +53,6 @@ class TerminalSuggestionController {
     return _candidatesBySession[sessionId] ?? const [];
   }
 
-  bool canAcceptSuggestionWithEnter(String sessionId) {
-    if (!_enabled) return false;
-    if (candidatesFor(sessionId).isEmpty) return false;
-    return _suggestions[sessionId]?.source == TerminalSuggestionSource.history;
-  }
-
   bool handleInput(String sessionId, String data) {
     if (!_enabled) return false;
     if (data.isEmpty) return false;
@@ -79,7 +71,15 @@ class TerminalSuggestionController {
       // shell-side handling (cursor movement, up-history on Enter, etc.) is
       // unaffected.
       if (unit == 0x1b /* ESC */) {
-        i = _skipAnsiEscapeSequence(units, i + 1);
+        final end = _skipAnsiEscapeSequence(units, i + 1);
+        // Cursor keys (arrows, Home/End) move the shell's cursor or recall
+        // shell history, so the buffer no longer matches the line: dismiss
+        // the suggestion instead of letting it linger (and never accept it).
+        if (end > i + 2 && 'ABCDHF'.codeUnits.contains(units[end - 1])) {
+          _buffers.remove(sessionId);
+          changed = _refreshSuggestion(sessionId) || changed;
+        }
+        i = end;
         continue;
       }
 
@@ -239,7 +239,6 @@ class TerminalSuggestionController {
 
   void clearSession(String sessionId) {
     _buffers.remove(sessionId);
-    _historyBySession.remove(sessionId);
     _remoteHelpBySession.remove(sessionId);
     _candidatesBySession.remove(sessionId);
     _suggestions.remove(sessionId);
@@ -248,7 +247,6 @@ class TerminalSuggestionController {
 
   void clear() {
     _buffers.clear();
-    _historyBySession.clear();
     _remoteHelpBySession.clear();
     _candidatesBySession.clear();
     _suggestions.clear();
@@ -256,12 +254,12 @@ class TerminalSuggestionController {
   }
 
   bool _handleCodeUnit(String sessionId, int codeUnit) {
-    if (codeUnit == 13 || codeUnit == 10) {
-      _commitBuffer(sessionId);
-      return _refreshSuggestion(sessionId);
-    }
-
-    if (codeUnit == 3 || codeUnit == 4 || codeUnit == 21) {
+    // Enter submits the line as typed; typed commands are never recorded.
+    if (codeUnit == 13 ||
+        codeUnit == 10 ||
+        codeUnit == 3 ||
+        codeUnit == 4 ||
+        codeUnit == 21) {
       _buffers.remove(sessionId);
       return _refreshSuggestion(sessionId);
     }
@@ -282,20 +280,6 @@ class TerminalSuggestionController {
     return _refreshSuggestion(sessionId);
   }
 
-  void _commitBuffer(String sessionId) {
-    final command = (_buffers.remove(sessionId) ?? '').trim();
-    if (command.length < 2) return;
-    if (command.length > _maxCommandLength) return;
-    if (_isSensitiveCommand(command)) return;
-
-    final history = _historyBySession.putIfAbsent(sessionId, () => []);
-    history.remove(command);
-    history.add(command);
-    if (history.length > _maxHistoryItems) {
-      history.removeRange(0, history.length - _maxHistoryItems);
-    }
-  }
-
   bool _refreshSuggestion(String sessionId) {
     final previous = _suggestions[sessionId]?.command;
     final previousCandidates = (_candidatesBySession[sessionId] ?? const [])
@@ -305,21 +289,6 @@ class TerminalSuggestionController {
     final candidates = <TerminalSuggestion>[];
 
     if (prefix.length >= 2 && !_isSensitiveCommand(prefix)) {
-      final history = _historyBySession[sessionId] ?? const <String>[];
-      for (final command in history.reversed) {
-        if (command == prefix) continue;
-        if (command.startsWith(prefix) && !_isSensitiveCommand(command)) {
-          _addCandidate(
-            candidates,
-            TerminalSuggestion(
-              command: command,
-              source: TerminalSuggestionSource.history,
-            ),
-          );
-        }
-        if (candidates.length >= 4) break;
-      }
-
       for (final suggestion in _remoteHelpSuggestions(sessionId, prefix)) {
         _addCandidate(candidates, suggestion);
       }
