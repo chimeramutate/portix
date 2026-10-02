@@ -6,15 +6,18 @@ import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart';
 
 class SshProfileRepository {
+  /// [storeFile] defaults to `~/.portix/profiles.json`; tests pass a temp file.
   SshProfileRepository({
     ProfileSecretStore secretStore = const ProfileSecretStore(),
+    File? storeFile,
   }) : _secretStore = secretStore,
-       _profiles = _loadProfiles();
+       _storeFile = storeFile ?? _defaultStoreFile;
 
   final ProfileSecretStore _secretStore;
-  final List<SshProfile> _profiles;
+  final File _storeFile;
+  late final List<SshProfile> _profiles = _loadProfiles(_storeFile);
 
-  static File get _storeFile {
+  static File get _defaultStoreFile {
     final home =
         Platform.environment['HOME'] ??
         Platform.environment['USERPROFILE'] ??
@@ -22,8 +25,7 @@ class SshProfileRepository {
     return File('$home${Platform.pathSeparator}.portix/profiles.json');
   }
 
-  static List<SshProfile> _loadProfiles() {
-    final file = _storeFile;
+  static List<SshProfile> _loadProfiles(File file) {
     if (!file.existsSync()) return [];
     try {
       final source = jsonDecode(file.readAsStringSync());
