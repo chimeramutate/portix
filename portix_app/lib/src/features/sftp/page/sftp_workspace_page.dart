@@ -19,6 +19,8 @@ import 'package:portix/src/features/sftp/controller/index.dart';
 import 'package:portix/src/features/sftp/window/index.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/host_key_dialog.dart';
+import 'package:portix/src/features/ssh_sessions/widget/remote/key_passphrase_dialog.dart';
+import 'package:portix/src/sftp_client/sftp_manager.dart';
 import 'package:skeletonizer/skeletonizer.dart';
 
 part '../widget/sections/sftp_dialogs_section.dart';
@@ -179,11 +181,24 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   }
 
   SftpWorkspaceController _newController() {
-    final connectionManager = sl<ConnectionManager>();
+    final sftpManager = sl<SftpManager>();
     return SftpWorkspaceController(
-      connectionManager: connectionManager,
-      resolveRefusedHostKey: (profile) =>
-          resolveRefusedHostKey(context, connectionManager, profile),
+      sftpManager: sftpManager,
+      resolveConnectFailure: (profile, error) async {
+        final hostKey = await resolveRefusedHostKey(
+          context,
+          sl<ConnectionManager>(),
+          profile,
+        );
+        if (hostKey != null) return hostKey;
+        if (!mounted) return false;
+        return resolveKeyPassphrase(
+          context,
+          sftpManager.credentials,
+          profile,
+          error,
+        );
+      },
     )..addListener(_handleControllerChanged);
   }
 
@@ -460,7 +475,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     if (profile.authMethod == AuthMethod.password &&
         (profile.credentialLabel.trim().isEmpty ||
             profile.credentialLabel == 'Saved password')) {
-      final saved = await _controller.connectionManager.readProfilePassword(
+      final saved = await _controller.sftpManager.credentials.readPassword(
         profile.id,
       );
       if (saved != null && saved.trim().isNotEmpty) {
@@ -1330,7 +1345,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         });
         // Klik profil di picker kiri: hanya buka SFTP ke pane kiri.
         // Koneksi SFTP dilakukan oleh SftpWorkspaceController melalui
-        // _scheduleLeftSync -> attachRemoteProfile -> connectSftp.
+        // _scheduleLeftSync -> attachRemoteProfile -> SftpManager.connect.
         // Jangan membuka sesi SSH terminal (remoteFolder) karena picker
         // ini khusus SFTP, bukan terminal.
       },
@@ -1519,7 +1534,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                     // Klik profil di picker: hanya buka SFTP ke pane yang
                     // bersangkutan. Koneksi SFTP dilakukan oleh
                     // SftpWorkspaceController melalui _scheduleRemoteSync /
-                    // _scheduleLeftSync -> attachRemoteProfile -> connectSftp.
+                    // _scheduleLeftSync -> attachRemoteProfile -> SftpManager.connect.
                     // Jangan membuka sesi SSH terminal (remoteFolder) karena
                     // picker ini khusus SFTP, bukan terminal.
                   },

@@ -17,7 +17,7 @@ Future<bool?> resolveRefusedHostKey(
 ) async {
   // The refused key may belong to a jump host rather than the target.
   HostKeyInfo? found;
-  final chain = await manager
+  final chain = await manager.credentials
       .connectionChain(profile)
       .catchError((Object _) => [profile]);
   for (final hop in chain) {

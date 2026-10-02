@@ -13,26 +13,6 @@ abstract interface class ConnectionBackend {
   Future<void> sendTerminalInput(String sessionId, String data);
   Future<void> resizeTerminal(String sessionId, int cols, int rows);
   Future<RemoteSystemSnapshot> remoteSystemSnapshot(String sessionId);
-  Future<String> resolveRemoteDirectory(String sessionId, String path);
-  Future<List<RemoteFileEntry>> listRemoteDirectory(
-    String sessionId,
-    String path,
-  );
-  Future<String> readRemoteFile(String sessionId, String path);
-  Future<List<int>> readRemoteFileBytes(String sessionId, String path);
-  Future<void> writeRemoteFile(String sessionId, String path, String content);
-  Future<void> uploadRemoteFile(String sessionId, String path, List<int> data);
-  Future<void> createRemoteDirectory(String sessionId, String path);
-  Future<void> createRemoteFile(String sessionId, String path);
-  Future<void> chmodRemotePath(String sessionId, String path, String mode);
-
-  /// Execute an arbitrary remote command on the session's *dedicated exec*
-  /// channel (a separate SSH channel, not the interactive shell). The raw
-  /// stdout is returned; a non-zero exit status is surfaced as an exception.
-  /// Used for SFTP/file-manager file-management operations so they never reach
-  /// the interactive shell and therefore never pollute the remote shell
-  /// history or the visible terminal.
-  Future<String> execRemoteCommand(String sessionId, String command);
 
   /// Forwards 127.0.0.1:[localPort] (0 = any free port) to [remoteHost]:
   /// [remotePort] over a dedicated SSH connection to [profile].

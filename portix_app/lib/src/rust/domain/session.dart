@@ -8,41 +8,6 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 enum ConnectionStatus { disconnected, connecting, connected, error }
 
-class RemoteFileEntry {
-  final String name;
-  final String path;
-  final bool isDirectory;
-  final BigInt sizeBytes;
-  final PlatformInt64 modifiedUnixSeconds;
-
-  const RemoteFileEntry({
-    required this.name,
-    required this.path,
-    required this.isDirectory,
-    required this.sizeBytes,
-    required this.modifiedUnixSeconds,
-  });
-
-  @override
-  int get hashCode =>
-      name.hashCode ^
-      path.hashCode ^
-      isDirectory.hashCode ^
-      sizeBytes.hashCode ^
-      modifiedUnixSeconds.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is RemoteFileEntry &&
-          runtimeType == other.runtimeType &&
-          name == other.name &&
-          path == other.path &&
-          isDirectory == other.isDirectory &&
-          sizeBytes == other.sizeBytes &&
-          modifiedUnixSeconds == other.modifiedUnixSeconds;
-}
-
 class RemoteSystemSnapshot {
   final String os;
   final String hostname;

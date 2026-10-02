@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
+import 'package:portix/src/connection_manager/profile_credentials.dart';
 import 'package:portix/src/connection_manager/mock_backend.dart';
 import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/connection_manager/ssh_profile.dart';
@@ -61,7 +62,9 @@ void main() {
       final backend = _JumpBackend();
       final manager = ConnectionManager(
         backend: backend,
-        savedProfiles: () async => [_saved('bastion', port: bastion.port)],
+        credentials: ProfileCredentials(
+          savedProfiles: () async => [_saved('bastion', port: bastion.port)],
+        ),
       );
       addTearDown(manager.dispose);
 
@@ -86,10 +89,12 @@ void main() {
     final backend = _JumpBackend();
     final manager = ConnectionManager(
       backend: backend,
-      savedProfiles: () async => [
-        _saved('a', jump: 'b'),
-        _saved('b', jump: 'a'),
-      ],
+      credentials: ProfileCredentials(
+        savedProfiles: () async => [
+          _saved('a', jump: 'b'),
+          _saved('b', jump: 'a'),
+        ],
+      ),
     );
     addTearDown(manager.dispose);
 
@@ -110,7 +115,9 @@ void main() {
     final backend = _JumpBackend();
     final manager = ConnectionManager(
       backend: backend,
-      savedProfiles: () async => [_saved('bastion', port: 2200)],
+      credentials: ProfileCredentials(
+        savedProfiles: () async => [_saved('bastion', port: 2200)],
+      ),
     );
     final target = SshProfile.fromDomain(
       _saved('db', host: 'db.invalid', jump: 'bastion'),

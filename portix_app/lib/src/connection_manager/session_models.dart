@@ -1,7 +1,5 @@
 enum ConnectionStatus { disconnected, connecting, connected, error }
 
-enum SessionKind { ssh, sftp }
-
 /// An active local port forward: 127.0.0.1:[localPort] reaches
 /// [remoteHost]:[remotePort] as seen from the SSH server.
 class PortForward {
@@ -45,28 +43,21 @@ class TerminalSession {
     required this.profileId,
     required this.title,
     required this.status,
-    this.kind = SessionKind.ssh,
   });
 
   final String id;
   final String profileId;
   final String title;
   final ConnectionStatus status;
-  final SessionKind kind;
 
   String get remoteSessionId => id;
 
-  TerminalSession copyWith({
-    ConnectionStatus? status,
-    String? title,
-    SessionKind? kind,
-  }) {
+  TerminalSession copyWith({ConnectionStatus? status, String? title}) {
     return TerminalSession(
       id: id,
       profileId: profileId,
       title: title ?? this.title,
       status: status ?? this.status,
-      kind: kind ?? this.kind,
     );
   }
 }
@@ -123,22 +114,6 @@ class RemoteSystemSnapshot {
   final int diskUsedBytes;
   final int diskFreeBytes;
   final int diskTotalBytes;
-}
-
-class RemoteFileEntry {
-  const RemoteFileEntry({
-    required this.name,
-    required this.path,
-    required this.isDirectory,
-    required this.sizeBytes,
-    this.modifiedUnixSeconds = 0,
-  });
-
-  final String name;
-  final String path;
-  final bool isDirectory;
-  final int sizeBytes;
-  final int modifiedUnixSeconds;
 }
 
 /// Which passphrase problem a connect failure reports, matched on the Rust

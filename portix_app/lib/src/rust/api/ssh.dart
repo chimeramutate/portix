@@ -3,9 +3,9 @@
 
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
-import 'domain/profile.dart';
-import 'domain/session.dart';
-import 'frb_generated.dart';
+import '../domain/profile.dart';
+import '../domain/session.dart';
+import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `forward_json_stream`
@@ -15,19 +15,19 @@ Future<SessionInfo> connect({
   required SshProfile profile,
   required int cols,
   required int rows,
-}) => RustLib.instance.api.crateApiConnect(
+}) => RustLib.instance.api.crateApiSshConnect(
   profile: profile,
   cols: cols,
   rows: rows,
 );
 
 Future<void> disconnect({required String sessionId}) =>
-    RustLib.instance.api.crateApiDisconnect(sessionId: sessionId);
+    RustLib.instance.api.crateApiSshDisconnect(sessionId: sessionId);
 
 Future<void> sendTerminalInput({
   required String sessionId,
   required List<int> data,
-}) => RustLib.instance.api.crateApiSendTerminalInput(
+}) => RustLib.instance.api.crateApiSshSendTerminalInput(
   sessionId: sessionId,
   data: data,
 );
@@ -36,7 +36,7 @@ Future<void> resizeTerminal({
   required String sessionId,
   required int cols,
   required int rows,
-}) => RustLib.instance.api.crateApiResizeTerminal(
+}) => RustLib.instance.api.crateApiSshResizeTerminal(
   sessionId: sessionId,
   cols: cols,
   rows: rows,
@@ -44,114 +44,19 @@ Future<void> resizeTerminal({
 
 Future<RemoteSystemSnapshot> remoteSystemSnapshot({
   required String sessionId,
-}) => RustLib.instance.api.crateApiRemoteSystemSnapshot(sessionId: sessionId);
+}) =>
+    RustLib.instance.api.crateApiSshRemoteSystemSnapshot(sessionId: sessionId);
 
 Future<List<String>> commandHelpSuggestions({
   required String sessionId,
   required String input,
-}) => RustLib.instance.api.crateApiCommandHelpSuggestions(
+}) => RustLib.instance.api.crateApiSshCommandHelpSuggestions(
   sessionId: sessionId,
   input: input,
 );
 
 Future<String> terminalComplete({required String reqJson}) =>
-    RustLib.instance.api.crateApiTerminalComplete(reqJson: reqJson);
-
-Future<List<RemoteFileEntry>> listRemoteDirectory({
-  required String sessionId,
-  required String path,
-}) => RustLib.instance.api.crateApiListRemoteDirectory(
-  sessionId: sessionId,
-  path: path,
-);
-
-Future<String> resolveRemoteDirectory({
-  required String sessionId,
-  required String path,
-}) => RustLib.instance.api.crateApiResolveRemoteDirectory(
-  sessionId: sessionId,
-  path: path,
-);
-
-Future<String> readRemoteFile({
-  required String sessionId,
-  required String path,
-}) => RustLib.instance.api.crateApiReadRemoteFile(
-  sessionId: sessionId,
-  path: path,
-);
-
-Future<Uint8List> readRemoteFileBytes({
-  required String sessionId,
-  required String path,
-}) => RustLib.instance.api.crateApiReadRemoteFileBytes(
-  sessionId: sessionId,
-  path: path,
-);
-
-Future<void> writeRemoteFile({
-  required String sessionId,
-  required String path,
-  required String content,
-}) => RustLib.instance.api.crateApiWriteRemoteFile(
-  sessionId: sessionId,
-  path: path,
-  content: content,
-);
-
-Future<void> uploadRemoteFile({
-  required String sessionId,
-  required String path,
-  required List<int> data,
-}) => RustLib.instance.api.crateApiUploadRemoteFile(
-  sessionId: sessionId,
-  path: path,
-  data: data,
-);
-
-Future<void> createRemoteDirectory({
-  required String sessionId,
-  required String path,
-}) => RustLib.instance.api.crateApiCreateRemoteDirectory(
-  sessionId: sessionId,
-  path: path,
-);
-
-Future<void> createRemoteFile({
-  required String sessionId,
-  required String path,
-}) => RustLib.instance.api.crateApiCreateRemoteFile(
-  sessionId: sessionId,
-  path: path,
-);
-
-Future<void> chmodRemotePath({
-  required String sessionId,
-  required String path,
-  required String mode,
-}) => RustLib.instance.api.crateApiChmodRemotePath(
-  sessionId: sessionId,
-  path: path,
-  mode: mode,
-);
-
-/// Run an arbitrary remote command on the session's *dedicated exec channel*.
-///
-/// This is intentionally separate from `send_terminal_input` (the interactive
-/// shell channel). File-management operations performed by the SFTP/file
-/// manager (rename, move, delete, duplicate) used to be sent through the
-/// interactive shell, which caused them to be recorded in the remote user's
-/// shell history (`HISTFILE`) and to echo marker/printf noise into the visible
-/// terminal. Running them through here opens a fresh SSH `exec` channel, so the
-/// command never touches the user's interactive shell, its history, or the
-/// terminal UI — the captured output (and exit status) is returned directly.
-Future<String> execRemoteCommand({
-  required String sessionId,
-  required String command,
-}) => RustLib.instance.api.crateApiExecRemoteCommand(
-  sessionId: sessionId,
-  command: command,
-);
+    RustLib.instance.api.crateApiSshTerminalComplete(reqJson: reqJson);
 
 /// Generates an unencrypted ed25519 keypair: the private key at `path` (0600
 /// on unix) and the public key at `path.pub`. Refuses to overwrite either
@@ -163,7 +68,7 @@ Future<String> generateEd25519Key({
   required String path,
   required String comment,
   String? passphrase,
-}) => RustLib.instance.api.crateApiGenerateEd25519Key(
+}) => RustLib.instance.api.crateApiSshGenerateEd25519Key(
   path: path,
   comment: comment,
   passphrase: passphrase,
@@ -174,7 +79,7 @@ Future<String> generateEd25519Key({
 Future<HostKeyInfo?> pendingHostKey({
   required String host,
   required int port,
-}) => RustLib.instance.api.crateApiPendingHostKey(host: host, port: port);
+}) => RustLib.instance.api.crateApiSshPendingHostKey(host: host, port: port);
 
 /// Records the refused key of an unknown host in ~/.ssh/known_hosts after the
 /// user confirmed `fingerprint`. Fails for a changed key or a stale fingerprint.
@@ -182,7 +87,7 @@ Future<void> trustHostKey({
   required String host,
   required int port,
   required String fingerprint,
-}) => RustLib.instance.api.crateApiTrustHostKey(
+}) => RustLib.instance.api.crateApiSshTrustHostKey(
   host: host,
   port: port,
   fingerprint: fingerprint,
@@ -196,7 +101,7 @@ Future<ForwardInfo> startLocalForward({
   required int localPort,
   required String remoteHost,
   required int remotePort,
-}) => RustLib.instance.api.crateApiStartLocalForward(
+}) => RustLib.instance.api.crateApiSshStartLocalForward(
   profile: profile,
   localPort: localPort,
   remoteHost: remoteHost,
@@ -204,20 +109,20 @@ Future<ForwardInfo> startLocalForward({
 );
 
 Future<void> stopLocalForward({required String id}) =>
-    RustLib.instance.api.crateApiStopLocalForward(id: id);
+    RustLib.instance.api.crateApiSshStopLocalForward(id: id);
 
 /// Tunnels still running (one ends on its own when its SSH connection drops).
 Future<List<ForwardInfo>> listLocalForwards() =>
-    RustLib.instance.api.crateApiListLocalForwards();
+    RustLib.instance.api.crateApiSshListLocalForwards();
 
 Stream<String> terminalOutputStream() =>
-    RustLib.instance.api.crateApiTerminalOutputStream();
+    RustLib.instance.api.crateApiSshTerminalOutputStream();
 
 Stream<String> connectionStatusStream() =>
-    RustLib.instance.api.crateApiConnectionStatusStream();
+    RustLib.instance.api.crateApiSshConnectionStatusStream();
 
 Stream<String> errorEventStream() =>
-    RustLib.instance.api.crateApiErrorEventStream();
+    RustLib.instance.api.crateApiSshErrorEventStream();
 
 /// An active local port forward (`ssh -L local_port:remote_host:remote_port`).
 class ForwardInfo {

@@ -8,9 +8,9 @@ use crate::application::session_manager::SessionManager;
 use crate::domain::autocomplete::TerminalCompleteRequest;
 use crate::domain::errors::PortixError;
 use crate::domain::profile::SshProfile;
-use crate::domain::session::{RemoteFileEntry, RemoteSystemSnapshot, SessionInfo};
-use crate::infrastructure::{host_keys, port_forward, ssh_client};
+use crate::domain::session::{RemoteSystemSnapshot, SessionInfo};
 use crate::frb_generated::StreamSink;
+use crate::infrastructure::{host_keys, port_forward, ssh_client};
 
 static SESSION_MANAGER: Lazy<SessionManager> = Lazy::new(SessionManager::new);
 static AUTOCOMPLETE_SERVICE: Lazy<AutocompleteService> = Lazy::new(AutocompleteService::new);
@@ -95,87 +95,6 @@ pub async fn terminal_complete(req_json: String) -> anyhow::Result<String> {
         })?)
 }
 
-pub async fn list_remote_directory(
-    session_id: String,
-    path: String,
-) -> anyhow::Result<Vec<RemoteFileEntry>> {
-    Ok(SESSION_MANAGER
-        .list_remote_directory(session_id, path)
-        .await?)
-}
-
-pub async fn resolve_remote_directory(session_id: String, path: String) -> anyhow::Result<String> {
-    Ok(SESSION_MANAGER
-        .resolve_remote_directory(session_id, path)
-        .await?)
-}
-
-pub async fn read_remote_file(session_id: String, path: String) -> anyhow::Result<String> {
-    Ok(SESSION_MANAGER.read_remote_file(session_id, path).await?)
-}
-
-pub async fn read_remote_file_bytes(session_id: String, path: String) -> anyhow::Result<Vec<u8>> {
-    Ok(SESSION_MANAGER
-        .read_remote_file_bytes(session_id, path)
-        .await?)
-}
-
-pub async fn write_remote_file(
-    session_id: String,
-    path: String,
-    content: String,
-) -> anyhow::Result<()> {
-    Ok(SESSION_MANAGER
-        .write_remote_file(session_id, path, content)
-        .await?)
-}
-
-pub async fn upload_remote_file(
-    session_id: String,
-    path: String,
-    data: Vec<u8>,
-) -> anyhow::Result<()> {
-    Ok(SESSION_MANAGER
-        .upload_remote_file(session_id, path, data)
-        .await?)
-}
-
-pub async fn create_remote_directory(session_id: String, path: String) -> anyhow::Result<()> {
-    Ok(SESSION_MANAGER
-        .create_remote_directory(session_id, path)
-        .await?)
-}
-
-pub async fn create_remote_file(session_id: String, path: String) -> anyhow::Result<()> {
-    Ok(SESSION_MANAGER.create_remote_file(session_id, path).await?)
-}
-
-pub async fn chmod_remote_path(
-    session_id: String,
-    path: String,
-    mode: String,
-) -> anyhow::Result<()> {
-    Ok(SESSION_MANAGER
-        .chmod_remote_path(session_id, path, mode)
-        .await?)
-}
-
-/// Run an arbitrary remote command on the session's *dedicated exec channel*.
-///
-/// This is intentionally separate from `send_terminal_input` (the interactive
-/// shell channel). File-management operations performed by the SFTP/file
-/// manager (rename, move, delete, duplicate) used to be sent through the
-/// interactive shell, which caused them to be recorded in the remote user's
-/// shell history (`HISTFILE`) and to echo marker/printf noise into the visible
-/// terminal. Running them through here opens a fresh SSH `exec` channel, so the
-/// command never touches the user's interactive shell, its history, or the
-/// terminal UI — the captured output (and exit status) is returned directly.
-pub async fn exec_remote_command(session_id: String, command: String) -> anyhow::Result<String> {
-    Ok(SESSION_MANAGER
-        .exec_remote_command(session_id, command)
-        .await?)
-}
-
 /// Generates an unencrypted ed25519 keypair: the private key at `path` (0600
 /// on unix) and the public key at `path.pub`. Refuses to overwrite either
 /// file. Returns the OpenSSH public key line (for `authorized_keys`).
@@ -232,7 +151,12 @@ pub fn pending_host_key(host: String, port: u16) -> Option<HostKeyInfo> {
 /// user confirmed `fingerprint`. Fails for a changed key or a stale fingerprint.
 pub fn trust_host_key(host: String, port: u16, fingerprint: String) -> anyhow::Result<()> {
     let path = host_keys::default_known_hosts_path(ssh_client::home_dir())?;
-    Ok(host_keys::trust_pending_host_key(&host, port, &fingerprint, &path)?)
+    Ok(host_keys::trust_pending_host_key(
+        &host,
+        port,
+        &fingerprint,
+        &path,
+    )?)
 }
 
 /// An active local port forward (`ssh -L local_port:remote_host:remote_port`).
@@ -266,9 +190,11 @@ pub async fn start_local_forward(
     remote_port: u16,
 ) -> anyhow::Result<ForwardInfo> {
     profile.validate()?;
-    Ok(port_forward::start_local_forward(profile, local_port, remote_host, remote_port)
-        .await?
-        .into())
+    Ok(
+        port_forward::start_local_forward(profile, local_port, remote_host, remote_port)
+            .await?
+            .into(),
+    )
 }
 
 pub fn stop_local_forward(id: String) {
@@ -341,7 +267,9 @@ mod tests {
         assert!(public_key.ends_with(" me@portix"));
         assert!(russh::keys::load_secret_key(&path, None).is_ok());
         assert_eq!(
-            std::fs::read_to_string(format!("{path}.pub")).unwrap().trim(),
+            std::fs::read_to_string(format!("{path}.pub"))
+                .unwrap()
+                .trim(),
             public_key
         );
         #[cfg(unix)]

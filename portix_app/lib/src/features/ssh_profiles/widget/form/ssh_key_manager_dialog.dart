@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
-import 'package:portix/src/rust/api.dart' as rust_api;
+import 'package:portix/src/rust/api/ssh.dart' as rust_api;
 
 String get _sshDir {
   final home =

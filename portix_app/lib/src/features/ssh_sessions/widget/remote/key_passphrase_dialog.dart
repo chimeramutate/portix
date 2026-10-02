@@ -1,7 +1,36 @@
 import 'package:flutter/material.dart';
+import 'package:portix/src/connection_manager/profile_credentials.dart';
 import 'package:portix/src/connection_manager/session_models.dart';
+import 'package:portix/src/connection_manager/ssh_profile.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
+
+/// Handles a connect [error] caused by an encrypted key: reuses the saved
+/// passphrase or asks for one. True when connecting again makes sense.
+Future<bool> resolveKeyPassphrase(
+  BuildContext context,
+  ProfileCredentials credentials,
+  SshProfile profile,
+  Object error,
+) async {
+  final problem = keyPassphraseProblemOf(error);
+  if (problem == null) return false;
+  credentials.useSavedKeyPassphrase(profile.id);
+  if (problem == KeyPassphraseProblem.required &&
+      await credentials.hasSavedPassword(profile.id)) {
+    // The keychain already has it; that connect just didn't send it.
+    return true;
+  }
+  if (!context.mounted) return false;
+  final passphrase = await askKeyPassphrase(
+    context,
+    keyPath: profile.privateKeyPath ?? '',
+    problem: problem,
+  );
+  if (passphrase == null) return false;
+  await credentials.savePassword(profile.id, passphrase);
+  return true;
+}
 
 /// Asks for an encrypted key's passphrase. Returns null when cancelled.
 Future<String?> askKeyPassphrase(
