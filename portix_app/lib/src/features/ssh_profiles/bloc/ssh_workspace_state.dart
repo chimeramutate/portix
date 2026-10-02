@@ -92,7 +92,9 @@ class SshWorkspaceState extends Equatable {
   bool get isAuthComplete {
     final profile = formProfile;
     if (profile == null) return false;
-    return profile.credentialLabel.trim().isNotEmpty;
+    // A key profile without a path authenticates through ssh-agent.
+    return profile.authMethod == AuthMethod.sshKey ||
+        profile.credentialLabel.trim().isNotEmpty;
   }
 
   bool get isProfileTested => formProfile?.status == ConnectionStatus.online;

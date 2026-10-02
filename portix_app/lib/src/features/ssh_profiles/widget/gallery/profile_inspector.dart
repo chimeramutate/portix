@@ -87,10 +87,12 @@ class ProfileInspector extends StatelessWidget {
                   ? Icons.key_rounded
                   : Icons.lock_outline_rounded,
               label: 'Auth method',
-              value: profile.credentialLabel.isEmpty
+              value: profile.authMethod == AuthMethod.sshKey
+                  ? (profile.credentialLabel.isEmpty
+                        ? 'ssh-agent'
+                        : 'SSH key configured')
+                  : profile.credentialLabel.isEmpty
                   ? 'Not configured'
-                  : profile.authMethod == AuthMethod.sshKey
-                  ? 'SSH key configured'
                   : 'Password saved securely',
             ),
             _DetailBox(

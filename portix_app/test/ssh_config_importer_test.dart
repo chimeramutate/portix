@@ -56,7 +56,7 @@ void main() {
     expect(db.credentialLabel, '/home/me/.ssh/db.internal_key');
   });
 
-  test('falls back to a default key, then to password auth', () {
+  test('falls back to a default key, then to ssh-agent', () {
     const config = 'Host a\n  HostName a.example\n';
     final withKey = parseSshConfig(
       config,
@@ -73,7 +73,8 @@ void main() {
       defaultUser: 'me',
       fileExists: (_) => false,
     ).single;
-    expect(noKey.authMethod, AuthMethod.password);
+    expect(noKey.authMethod, AuthMethod.sshKey);
+    expect(noKey.credentialLabel, isEmpty);
   });
 
   test('negated pattern excludes a host', () {

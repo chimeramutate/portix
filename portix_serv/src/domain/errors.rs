@@ -10,8 +10,8 @@ pub enum PortixError {
     SessionNotFound(String),
     #[error("authentication failed")]
     AuthenticationFailed,
-    #[error("missing authentication method")]
-    MissingAuthentication,
+    #[error("SSH agent: {0}")]
+    SshAgent(String),
     #[error("SSH key {0} is encrypted; a passphrase is required")]
     KeyPassphraseRequired(String),
     #[error("wrong passphrase for SSH key {0}")]

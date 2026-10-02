@@ -734,7 +734,9 @@ class _ProfileList extends StatelessWidget {
                                     ? 'Key auth'
                                     : 'Password',
                                 subtitle: profile.credentialLabel.isEmpty
-                                    ? 'No credential'
+                                    ? (profile.authMethod == AuthMethod.sshKey
+                                          ? 'ssh-agent'
+                                          : 'No credential')
                                     : profile.credentialLabel,
                               ),
                             ),

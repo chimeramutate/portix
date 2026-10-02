@@ -421,10 +421,10 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
       return 'Port must be between 1 and 65535.';
     }
     if (profile.username.trim().isEmpty) return 'Username is required.';
-    if (profile.credentialLabel.trim().isEmpty) {
-      return profile.authMethod == AuthMethod.password
-          ? 'Password is required.'
-          : 'SSH key path or label is required.';
+    // An empty key path means ssh-agent.
+    if (profile.authMethod == AuthMethod.password &&
+        profile.credentialLabel.trim().isEmpty) {
+      return 'Password is required.';
     }
     return null;
   }
