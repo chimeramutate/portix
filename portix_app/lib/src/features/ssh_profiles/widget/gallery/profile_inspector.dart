@@ -224,6 +224,9 @@ class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
   Future<void> _measureLatency() async {
     final profile = widget.profile;
     if (profile.host.trim().isEmpty) return;
+    // The panel only renders for online profiles; don't open a socket to a
+    // host whose latency would never be shown.
+    if (effectiveProfileStatus(profile) != ConnectionStatus.online) return;
     final start = DateTime.now();
     try {
       final socket = await RawSocket.connect(

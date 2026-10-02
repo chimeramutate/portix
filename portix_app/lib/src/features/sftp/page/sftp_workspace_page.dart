@@ -285,7 +285,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     // This handles the "silent stale" case where the SSH/SFTP channel has
     // died but TCP port-22 is still reachable (so ConnectionStatus stays
     // "connected" and no disconnect event is ever fired).
-    final forceSync = _controller.needsRevalidation;
+    // Without a profile there is no session to revalidate; forcing a sync
+    // would clear the session, notify, rebuild and reschedule every frame.
+    final forceSync = profile != null && _controller.needsRevalidation;
     if (!forceSync && _remoteSyncKey == key) return;
     _remoteSyncKey = key;
     // When a session is already active, re-attach to the directory the user
@@ -305,7 +307,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     // Mirrors [_scheduleRemoteSync] for the independent left controller so the
     // left pane can browse its own server.
     final key = profile == null ? 'none' : '${profile.id}|$remotePath';
-    final forceSync = _leftController.needsRevalidation;
+    final forceSync = profile != null && _leftController.needsRevalidation;
     if (!forceSync && _leftSyncKey == key) return;
     _leftSyncKey = key;
     final targetPath = _leftController.hasRemoteSession
