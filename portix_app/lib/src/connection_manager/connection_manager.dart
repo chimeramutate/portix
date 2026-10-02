@@ -600,7 +600,15 @@ class ConnectionManager extends ChangeNotifier {
   }
 
   Future<SshProfile> _profileWithResolvedPassword(SshProfile profile) async {
-    if ((profile.privateKeyPath ?? '').trim().isNotEmpty) return profile;
+    if ((profile.privateKeyPath ?? '').trim().isNotEmpty) {
+      // Key profiles keep an encrypted key's passphrase in the same keychain
+      // slot a password profile uses for its password.
+      if (profile.keyPassphrase != null) return profile;
+      final passphrase = await _secretStore.readPassword(profile.id);
+      return (passphrase ?? '').isEmpty
+          ? profile
+          : profile.copyWith(keyPassphrase: passphrase);
+    }
     if ((profile.password ?? '').trim().isNotEmpty) return profile;
     if (!profile.hasPassword) return profile;
     final password = await _secretStore.readPassword(profile.id);

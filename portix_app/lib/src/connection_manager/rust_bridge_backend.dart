@@ -239,6 +239,7 @@ extension on SshProfile {
       username: username,
       password: _blankToNull(password),
       privateKeyPath: _blankToNull(privateKeyPath),
+      keyPassphrase: _blankToNull(keyPassphrase),
     );
   }
 }

@@ -78,6 +78,7 @@ class _SshKeyManagerDialogState extends State<_SshKeyManagerDialog> {
     final comment = TextEditingController(
       text: '${Platform.environment['USER'] ?? 'portix'}@portix',
     );
+    final passphrase = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -92,9 +93,16 @@ class _SshKeyManagerDialogState extends State<_SshKeyManagerDialog> {
               AppTextField(controller: name, label: 'File name in ~/.ssh'),
               const SizedBox(height: 12),
               AppTextField(controller: comment, label: 'Comment'),
+              const SizedBox(height: 12),
+              AppTextField(
+                controller: passphrase,
+                label: 'Passphrase (optional)',
+                obscureText: true,
+              ),
               const SizedBox(height: 8),
               Text(
-                'The key is saved without a passphrase (mode 0600).',
+                'Saved with mode 0600. With a passphrase, Portix asks for it '
+                'on first connect and keeps it in the system keychain.',
                 style: portixMuted(11),
               ),
             ],
@@ -114,8 +122,10 @@ class _SshKeyManagerDialogState extends State<_SshKeyManagerDialog> {
     );
     final fileName = name.text.trim();
     final keyComment = comment.text.trim();
+    final keyPassphrase = passphrase.text;
     name.dispose();
     comment.dispose();
+    passphrase.dispose();
     if (confirmed != true) return;
     if (fileName.isEmpty || fileName.contains(RegExp(r'[/\\]'))) {
       _toast('File name must not be empty or contain path separators.');
@@ -126,6 +136,7 @@ class _SshKeyManagerDialogState extends State<_SshKeyManagerDialog> {
       final publicKey = await rust_api.generateEd25519Key(
         path: path,
         comment: keyComment,
+        passphrase: keyPassphrase.isEmpty ? null : keyPassphrase,
       );
       await _copyPublicKey(publicKey);
       if (mounted) Navigator.of(context).pop(path);

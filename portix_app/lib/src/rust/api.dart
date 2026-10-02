@@ -157,14 +157,16 @@ Future<String> execRemoteCommand({
 /// on unix) and the public key at `path.pub`. Refuses to overwrite either
 /// file. Returns the OpenSSH public key line (for `authorized_keys`).
 ///
-/// Unencrypted because the connect path loads keys without a passphrase
-/// (`load_secret_key(path, None)` in ssh_client.rs).
+/// A non-empty `passphrase` encrypts the private key (the connect path asks
+/// for it when needed).
 Future<String> generateEd25519Key({
   required String path,
   required String comment,
+  String? passphrase,
 }) => RustLib.instance.api.crateApiGenerateEd25519Key(
   path: path,
   comment: comment,
+  passphrase: passphrase,
 );
 
 /// The host key refused during the last connect to `host:port`, so the UI can

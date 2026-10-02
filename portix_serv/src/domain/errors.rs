@@ -12,6 +12,10 @@ pub enum PortixError {
     AuthenticationFailed,
     #[error("missing authentication method")]
     MissingAuthentication,
+    #[error("SSH key {0} is encrypted; a passphrase is required")]
+    KeyPassphraseRequired(String),
+    #[error("wrong passphrase for SSH key {0}")]
+    KeyPassphraseIncorrect(String),
     #[error("connection timed out")]
     ConnectionTimeout,
     #[error("authentication timed out")]
