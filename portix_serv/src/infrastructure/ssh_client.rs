@@ -12,6 +12,7 @@ use crate::domain::errors::{PortixError, Result};
 use crate::domain::events::{ConnectionStatusEvent, ErrorEvent, TerminalOutputEvent};
 use crate::domain::profile::SshProfile;
 use crate::domain::session::ConnectionStatus;
+use crate::infrastructure::host_keys::{HostKeyPolicy, default_known_hosts_path, verify_host_key};
 
 pub enum SshCommand {
     Input(Vec<u8>),
@@ -34,7 +35,12 @@ pub struct SshRuntime {
     error_tx: broadcast::Sender<ErrorEvent>,
 }
 
-struct Client;
+struct Client {
+    host: String,
+    port: u16,
+    known_hosts: PathBuf,
+    policy: HostKeyPolicy,
+}
 
 type ExecRequest = (String, oneshot::Sender<Result<String>>);
 
@@ -56,12 +62,21 @@ const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
 const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(1);
 
 impl client::Handler for Client {
-    type Error = russh::Error;
+    // PortixError (not russh::Error) so host key failures reach the caller of
+    // `client::connect` with their details instead of a generic UnknownKey.
+    type Error = PortixError;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::ssh_key::PublicKey,
+        server_public_key: &russh::keys::ssh_key::PublicKey,
     ) -> std::result::Result<bool, Self::Error> {
+        verify_host_key(
+            &self.host,
+            self.port,
+            server_public_key,
+            &self.known_hosts,
+            self.policy,
+        )?;
         Ok(true)
     }
 }
@@ -179,7 +194,7 @@ impl SshRuntime {
     }
 
     async fn connect_and_authenticate(&self) -> Result<client::Handle<Client>> {
-        connect_and_authenticate_profile(&self.profile).await
+        connect_and_authenticate_profile(&self.profile, HostKeyPolicy::AcceptNew).await
     }
 
     fn emit_status(&self, status: ConnectionStatus, message: Option<&str>) {
@@ -239,7 +254,11 @@ async fn run_exec(session: &client::Handle<Client>, command: String) -> Result<S
 }
 
 async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest>) {
-    let mut session = connect_and_authenticate_profile(&profile).await.ok();
+    // KnownOnly: the interactive session has already recorded the host key, and
+    // this worker reconnects silently in the background, so a key that is not
+    // already trusted must never be accepted here.
+    let connect = || connect_and_authenticate_profile(&profile, HostKeyPolicy::KnownOnly);
+    let mut session = connect().await.ok();
 
     // This dedicated exec connection is used only for SFTP/remote-file
     // commands, so — unlike the interactive terminal session — it carries no
@@ -265,12 +284,16 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
 
                 // Establish the connection if we don't have one yet (with one
                 // retry), preserving the original behaviour.
+                let mut connect_error = None;
                 if session.is_none() {
-                    session = connect_and_authenticate_profile(&profile).await.ok();
+                    session = connect().await.ok();
                     if session.is_none() {
                         // Retry once after a brief delay.
                         tokio::time::sleep(Duration::from_millis(500)).await;
-                        session = connect_and_authenticate_profile(&profile).await.ok();
+                        match connect().await {
+                            Ok(handle) => session = Some(handle),
+                            Err(err) => connect_error = Some(err),
+                        }
                     }
                 }
 
@@ -283,18 +306,21 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
                         // transient failure — this is what makes the first
                         // transfer succeed instead of needing a second attempt.
                         session = None;
-                        match connect_and_authenticate_profile(&profile).await {
+                        match connect().await {
                             Ok(new_handle) => {
                                 session = Some(new_handle);
                                 run_exec(session.as_ref().unwrap(), command).await
                             }
+                            // A host key failure is the more important error to report.
+                            Err(err @ (PortixError::HostKeyChanged { .. }
+                            | PortixError::HostKeyUnknown { .. })) => Err(err),
                             Err(_) => result,
                         }
                     } else {
                         result
                     }
                 } else {
-                    Err(PortixError::ConnectionTimeout)
+                    Err(connect_error.unwrap_or(PortixError::ConnectionTimeout))
                 };
                 let _ = response_tx.send(result);
             }
@@ -336,7 +362,16 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
     }
 }
 
-async fn connect_and_authenticate_profile(profile: &SshProfile) -> Result<client::Handle<Client>> {
+async fn connect_and_authenticate_profile(
+    profile: &SshProfile,
+    policy: HostKeyPolicy,
+) -> Result<client::Handle<Client>> {
+    let handler = Client {
+        host: profile.host.clone(),
+        port: profile.port,
+        known_hosts: default_known_hosts_path(home_dir())?,
+        policy,
+    };
     let config = Arc::new(client::Config {
         // If the TCP connection goes silent for longer than this, russh closes
         // the session automatically. This catches dead VPN / network drops where
@@ -346,7 +381,7 @@ async fn connect_and_authenticate_profile(profile: &SshProfile) -> Result<client
     });
     let mut session = timeout(
         CONNECT_TIMEOUT,
-        client::connect(config, profile.socket_addr(), Client),
+        client::connect(config, profile.socket_addr(), handler),
     )
     .await
     .map_err(|_| PortixError::ConnectionTimeout)??;
