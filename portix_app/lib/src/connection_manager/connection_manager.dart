@@ -55,6 +55,8 @@ class ConnectionManager extends ChangeNotifier {
   final _terminalOutput = StreamController<TerminalOutputEvent>.broadcast();
   final _errors = StreamController<ConnectionErrorEvent>.broadcast();
   final _sessionLost = StreamController<String>.broadcast();
+  // Open session logs, keyed by UI session id.
+  final Map<String, ({String path, IOSink sink})> _recordings = {};
 
   final List<TerminalSession> _sessions = [];
 
@@ -235,12 +237,35 @@ class ConnectionManager extends ChangeNotifier {
     return _secretStore.readPassword(profileId);
   }
 
+  /// Log file the session's output is being appended to, if recording.
+  String? recordingPath(String sessionId) => _recordings[sessionId]?.path;
+
+  /// Appends the session's terminal output, without escape sequences, to
+  /// [path] until [stopRecording] or the session closes.
+  void startRecording(String sessionId, String path) {
+    if (_recordings.containsKey(sessionId)) return;
+    final file = File(path)..parent.createSync(recursive: true);
+    _recordings[sessionId] = (
+      path: path,
+      sink: file.openWrite(mode: FileMode.append),
+    );
+    notifyListeners();
+  }
+
+  Future<void> stopRecording(String sessionId) async {
+    final recording = _recordings.remove(sessionId);
+    if (recording == null) return;
+    notifyListeners();
+    await recording.sink.close();
+  }
+
   Future<Result<void>> closeSession(String sessionId) async {
     final index = _sessions.indexWhere((session) => session.id == sessionId);
     if (index == -1) {
       return const Left(AppFailure('Session not found'));
     }
 
+    unawaited(_recordings.remove(sessionId)?.sink.close());
     _sessions.removeAt(index);
     _sessionEndpoints.remove(sessionId);
     final backendSessionId = _backendSessionIdForUiSession(sessionId);
@@ -580,11 +605,11 @@ class ConnectionManager extends ChangeNotifier {
     // terminal output to detect a command marker. All SSH terminal output is
     // forwarded straight to the UI, with backend session IDs remapped to the
     // UI session IDs the terminal panel subscribes to.
+    final sessionId =
+        _backendToUiSessionIds[event.sessionId] ?? event.sessionId;
+    _recordings[sessionId]?.sink.write(stripTerminalEscapes(event.data));
     _terminalOutput.add(
-      TerminalOutputEvent(
-        sessionId: _backendToUiSessionIds[event.sessionId] ?? event.sessionId,
-        data: event.data,
-      ),
+      TerminalOutputEvent(sessionId: sessionId, data: event.data),
     );
   }
 
@@ -794,6 +819,10 @@ class ConnectionManager extends ChangeNotifier {
     _statusSub.cancel();
     _outputSub.cancel();
     _errorSub.cancel();
+    for (final recording in _recordings.values) {
+      unawaited(recording.sink.close());
+    }
+    _recordings.clear();
     _terminalOutput.close();
     _errors.close();
     _sessionLost.close();
@@ -806,6 +835,21 @@ class ConnectionManager extends ChangeNotifier {
     super.dispose();
   }
 }
+
+final _terminalEscape = RegExp(
+  // OSC (title etc.), CSI (colors, cursor), charset selection, then any
+  // other two-byte escape.
+  r'\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]'
+  r'|\x1b[()][0-9A-Za-z]|\x1b[@-_=>78]',
+);
+
+/// Terminal output as plain text for log files: escape sequences and
+/// carriage returns removed.
+///
+/// ponytail: a sequence split across two output chunks leaks its tail into
+/// the log; buffer partial escapes per session if that shows up in practice.
+String stripTerminalEscapes(String data) =>
+    data.replaceAll(_terminalEscape, '').replaceAll('\r', '');
 
 class _RemoteSearchDirectory {
   const _RemoteSearchDirectory(this.path, this.depth);
