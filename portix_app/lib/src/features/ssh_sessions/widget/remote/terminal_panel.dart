@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -58,12 +59,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
   late final TerminalController _idleController;
   late final FocusNode _idleFocusNode;
   late final TerminalSessionUiController _terminalUi;
+
   /// Tracks, per session, whether the terminal is currently "following"
   /// output (i.e. the viewport is at or near the bottom).  This is updated
   /// by a persistent scroll-listener so that the check remains accurate
   /// even across layout cycles where `maxScrollExtent` has not yet been
   /// refreshed after new text blocks are written.
   final Map<String, bool> _isFollowingOutput = {};
+
   /// Guards one-time registration of scroll listeners per session.
   final Set<String> _scrollListenersRegistered = {};
   late final ConnectionManager _connectionManager;
@@ -279,7 +282,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
         // causing the auto-scroll to be skipped at the upper/lower scroll
         // boundaries ("batas atas/bawah") when a full text block has just
         // been added.
-        final wasFollowing = _isFollowingOutput[sessionId] ?? _isScrollAtBottom(sessionId);
+        final wasFollowing =
+            _isFollowingOutput[sessionId] ?? _isScrollAtBottom(sessionId);
         _ensureScrollListenerRegistered(sessionId);
         _terminalForSession(sessionId).write(event.data);
         // Auto-scroll to follow the text block (terminal output) when the
@@ -440,11 +444,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         SnackBar(
           content: Row(
             children: [
-              Icon(
-                Icons.cloud_off_rounded,
-                color: AppColors.danger,
-                size: 18,
-              ),
+              Icon(Icons.cloud_off_rounded, color: AppColors.danger, size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -788,7 +788,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final existingSessionIds = _sshSessions.map((s) => s.id).toSet();
     final prevSessionId = _sessionId;
 
-    final result = await _connectionManager.connect(manager_profile.SshProfile.fromDomain(profile));
+    final result = await _connectionManager.connect(
+      manager_profile.SshProfile.fromDomain(profile),
+    );
     final failure = result.fold<Object?>((f) => f, (_) => null);
     if (failure != null || !mounted) {
       if (mounted) unawaited(_showConnectionFailedDialog(profile, failure!));
@@ -855,6 +857,24 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
   bool _snippetPaletteOpen = false;
 
+  Widget _buildRecordButton() {
+    final sessionId = _sessionId;
+    final recording =
+        sessionId != null &&
+        _connectionManager.recordingPath(sessionId) != null;
+    return Tooltip(
+      message: recording ? 'Stop recording' : 'Record session to a log file',
+      child: AppIconButton(
+        key: const ValueKey('record-session'),
+        icon: recording
+            ? Icons.stop_circle_rounded
+            : Icons.fiber_manual_record_rounded,
+        color: recording ? AppColors.danger : AppColors.cyan,
+        onPressed: sessionId == null ? null : _toggleRecording,
+      ),
+    );
+  }
+
   /// Tunnels go through the active tab's server (or the selected profile).
   Future<void> _openPortForwarding() async {
     final profileId = _sessionId == null
@@ -869,6 +889,49 @@ class _TerminalPanelState extends State<TerminalPanel> {
       _connectionManager,
       manager_profile.SshProfile.fromDomain(profile),
     );
+  }
+
+  /// Starts or stops logging the active tab's output to
+  /// `~/.portix/logs/<profile>-<timestamp>.log`.
+  Future<void> _toggleRecording() async {
+    final sessionId = _sessionId;
+    if (sessionId == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final current = _connectionManager.recordingPath(sessionId);
+    if (current != null) {
+      await _connectionManager.stopRecording(sessionId);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Session log saved: $current')),
+      );
+      return;
+    }
+    final profileId = _sessionById(sessionId)?.profileId;
+    final name =
+        widget.profiles
+            .where((profile) => profile.id == profileId)
+            .firstOrNull
+            ?.name ??
+        'session';
+    final home =
+        Platform.environment['HOME'] ??
+        Platform.environment['USERPROFILE'] ??
+        '.';
+    final stamp = DateTime.now()
+        .toIso8601String()
+        .split('.')
+        .first
+        .replaceAll(RegExp('[-:]'), '')
+        .replaceFirst('T', '-');
+    final safeName = name.replaceAll(RegExp(r'[^\w.-]+'), '_');
+    final path = '$home/.portix/logs/$safeName-$stamp.log';
+    try {
+      _connectionManager.startRecording(sessionId, path);
+      messenger.showSnackBar(SnackBar(content: Text('Recording to $path')));
+    } on FileSystemException catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Cannot record session: ${error.message}')),
+      );
+    }
   }
 
   Future<void> _openSnippetPalette() async {
@@ -908,6 +971,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
     _workspaceReconnectInProgress = true;
     final orderIndex = _sessionOrder.indexOf(sessionId);
+    final recordingPath = _connectionManager.recordingPath(sessionId);
     await _connectionManager.closeSession(sessionId);
     _sessionOrder.remove(sessionId);
     _syncSplitTreeWithSessions(_sshSessions);
@@ -917,7 +981,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
     }
     _scheduleSessionUiDisposal(sessionId);
 
-    final result = await _connectionManager.connect(manager_profile.SshProfile.fromDomain(profile));
+    final result = await _connectionManager.connect(
+      manager_profile.SshProfile.fromDomain(profile),
+    );
     final failure = result.fold<Object?>((failure) => failure, (_) => null);
     if (failure != null || !mounted) {
       _workspaceReconnectInProgress = false;
@@ -935,6 +1001,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
           session.profileId == profile.id,
     );
     _terminalForSession(newSession.id).write('\x1b[2J\x1b[H');
+    if (recordingPath != null) {
+      // Keep logging into the same file across the reconnect.
+      _connectionManager.startRecording(newSession.id, recordingPath);
+    }
     _workspaceReconnectInProgress = false;
     setState(() {
       _sessionOrder.restoreAtOrPlaceLast(newSession.id, orderIndex);
@@ -2098,6 +2168,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                             onPressed: _openPortForwarding,
                                           ),
                                         ),
+                                        const SizedBox(width: 8),
+                                        _buildRecordButton(),
                                         if (showDropHint) ...[
                                           const SizedBox(width: 8),
                                           const Text(

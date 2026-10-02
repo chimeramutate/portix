@@ -39,10 +39,16 @@ class AppButton extends StatelessWidget {
 }
 
 class AppIconButton extends StatelessWidget {
-  const AppIconButton({required this.icon, required this.onPressed, super.key});
+  const AppIconButton({
+    required this.icon,
+    required this.onPressed,
+    this.color = AppColors.cyan,
+    super.key,
+  });
 
   final IconData icon;
   final VoidCallback? onPressed;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +57,7 @@ class AppIconButton extends StatelessWidget {
       height: 30,
       child: IconButton.outlined(
         onPressed: onPressed,
-        icon: Icon(icon, color: AppColors.cyan, size: 15),
+        icon: Icon(icon, color: color, size: 15),
         style: IconButton.styleFrom(
           side: const BorderSide(color: AppColors.border),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
