@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:portix/src/features/ssh_sessions/widget/remote/key_passphrase_dialog.dart';
+import 'package:portix/src/connection_manager/session_models.dart';
 
 void main() {
   // Messages produced by Rust PortixError (see ssh_client.rs key_loading_tests).

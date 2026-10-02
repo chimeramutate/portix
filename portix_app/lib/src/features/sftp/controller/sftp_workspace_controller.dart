@@ -430,23 +430,13 @@ class SftpWorkspaceController extends ChangeNotifier {
     notifyListeners();
 
     _connectInProgress = true;
-    final managerProfile = manager_profile.SshProfile.fromDomain(profile);
-    final result = await _connectionManager.connectSftp(managerProfile);
+    _attachedProfile = profile;
+    final result = await _connectionManager.connectSftp(
+      manager_profile.SshProfile.fromDomain(profile),
+    );
     _connectInProgress = false;
     if (result.isLeft) {
       final failureStr = result.fold<String?>((f) => f.toString(), (_) => null);
-
-      final hostKeyTrusted = await resolveRefusedHostKey?.call(managerProfile);
-      if (hostKeyTrusted == true) {
-        return attachRemoteProfile(profile, initialPath);
-      }
-      if (hostKeyTrusted == false) {
-        _loadingRemote = false;
-        _remoteStatus = 'failed';
-        _remoteError = 'Host key not trusted';
-        notifyListeners();
-        return;
-      }
 
       // If the profile is password-based and the error is auth-related,
       // re-enter the 'authenticating' state so the inline form can collect
@@ -1188,6 +1178,7 @@ class SftpWorkspaceController extends ChangeNotifier {
         _remoteStatus = 'disconnected';
         _remoteDisconnectNotified = true;
         notifyListeners();
+        unawaited(_resolveRefusedHostKey());
       }
     } else {
       // Session is connecting/connected — only re-arm the notification
@@ -1196,6 +1187,34 @@ class SftpWorkspaceController extends ChangeNotifier {
       if (session.status == ConnectionStatus.connected) {
         _remoteDisconnectNotified = false;
       }
+    }
+  }
+
+  domain.SshProfile? _attachedProfile;
+  bool _resolvingHostKey = false;
+
+  /// Connects fail asynchronously, so a refused host key shows up as the
+  /// session dropping. If that was the cause, let the UI explain it and, when
+  /// the key is trusted, attach again.
+  Future<void> _resolveRefusedHostKey() async {
+    final profile = _attachedProfile;
+    final resolve = resolveRefusedHostKey;
+    if (profile == null || resolve == null || _resolvingHostKey) return;
+    _resolvingHostKey = true;
+    try {
+      final trusted = await resolve(
+        manager_profile.SshProfile.fromDomain(profile),
+      );
+      if (trusted == true) {
+        final path = _remotePath;
+        await clearRemoteSession();
+        await attachRemoteProfile(profile, path);
+      } else if (trusted == false) {
+        _remoteError = 'Host key not trusted';
+        notifyListeners();
+      }
+    } finally {
+      _resolvingHostKey = false;
     }
   }
 

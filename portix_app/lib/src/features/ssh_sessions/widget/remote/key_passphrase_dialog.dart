@@ -1,21 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
-
-/// Which passphrase problem a connect failure reports, matched on the Rust
-/// `PortixError` messages (`KeyPassphraseRequired` / `KeyPassphraseIncorrect`).
-enum KeyPassphraseProblem { required, incorrect }
-
-KeyPassphraseProblem? keyPassphraseProblemOf(Object error) {
-  final message = '$error';
-  if (message.contains('a passphrase is required')) {
-    return KeyPassphraseProblem.required;
-  }
-  if (message.contains('wrong passphrase for SSH key')) {
-    return KeyPassphraseProblem.incorrect;
-  }
-  return null;
-}
 
 /// Asks for an encrypted key's passphrase. Returns null when cancelled.
 Future<String?> askKeyPassphrase(

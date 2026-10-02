@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -6,10 +7,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:portix/main.dart';
 import 'package:portix/src/connection_manager/connection_backend.dart';
+import 'package:portix/src/connection_manager/connection_manager.dart';
+import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/connection_manager/mock_backend.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/domain/repositories/ssh/index.dart';
 import 'package:portix/src/features/ssh_profiles/bloc/index.dart';
+import 'support/refusing_host_key_backend.dart';
 
 const _seedProfiles = [
   {
@@ -36,7 +40,9 @@ const _seedProfiles = [
 
 /// Real DI, but with the mock SSH backend and a seeded temp profiles file so
 /// tests never read or write the developer's ~/.portix/profiles.json.
-Future<void> _configureTestDependencies() async {
+Future<void> _configureTestDependencies({
+  ConnectionBackend Function()? backend,
+}) async {
   await GetIt.instance.reset();
   await configureDependencies();
   final dir = await Directory.systemTemp.createTemp('portix_test');
@@ -44,7 +50,9 @@ Future<void> _configureTestDependencies() async {
     ..writeAsStringSync(jsonEncode(_seedProfiles));
   sl
     ..unregister<ConnectionBackend>()
-    ..registerLazySingleton<ConnectionBackend>(MockConnectionBackend.new)
+    ..registerLazySingleton<ConnectionBackend>(
+      backend ?? MockConnectionBackend.new,
+    )
     ..unregister<SshProfileRepository>()
     ..registerLazySingleton<SshProfileRepository>(
       () => SshProfileRepository(secretStore: sl(), storeFile: file),
@@ -61,11 +69,15 @@ void _appTest(String description, WidgetTesterCallback body) {
   });
 }
 
-Future<void> _pumpPortixApp(WidgetTester tester, Size size) async {
+Future<void> _pumpPortixApp(
+  WidgetTester tester,
+  Size size, {
+  ConnectionBackend Function()? backend,
+}) async {
   await tester.binding.setSurfaceSize(size);
   // Native (FFI) library init is real async work that never completes inside
   // testWidgets' fake-async zone, so it must run in a real zone.
-  await tester.runAsync(_configureTestDependencies);
+  await tester.runAsync(() => _configureTestDependencies(backend: backend));
 
   await tester.pumpWidget(const PortixApp());
   await tester.pump();
@@ -172,6 +184,34 @@ void main() {
     expect(find.byKey(const ValueKey('close-tab-prod-api-01')), findsOneWidget);
     expect(find.byKey(const ValueKey('close-tab-prod-api-01 2')), findsNothing);
     expect(find.byTooltip('Close remote folder'), findsOneWidget);
+  });
+
+  _appTest('async host key refusal prompts, trusts, and reconnects', (
+    tester,
+  ) async {
+    final backend = RefusingHostKeyBackend();
+    await _pumpPortixApp(
+      tester,
+      const Size(1600, 900),
+      backend: () => backend,
+    );
+
+    await tester.tap(find.text('Open SSH').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Verify host key'), findsOneWidget);
+    expect(find.textContaining('SHA256:abc'), findsOneWidget);
+    await tester.tap(find.text('Trust and connect'));
+    await tester.pumpAndSettle();
+
+    expect(backend.trusted, ['SHA256:abc']);
+    expect(find.text('Verify host key'), findsNothing);
+    final sessions = sl<ConnectionManager>().sessions;
+    expect(sessions.single.status, ConnectionStatus.connected);
+
+    // The now-connected session is heartbeat-probed over real TCP; let that
+    // probe's 4 s timeout run out before the test ends.
+    await tester.pump(const Duration(seconds: 5));
   });
 
   _appTest(
