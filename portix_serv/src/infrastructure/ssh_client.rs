@@ -392,6 +392,10 @@ async fn connect_with_known_hosts(
         // the session automatically. This catches dead VPN / network drops where
         // the TCP stack never sends a RST/FIN.
         inactivity_timeout: Some(Duration::from_secs(30)),
+        // Keepalives count as activity, so an idle but healthy connection
+        // (an SFTP browser, a quiet tunnel) is never closed by the timeout
+        // above; a dead peer still is, after 3 unanswered probes.
+        keepalive_interval: Some(KEEPALIVE_INTERVAL),
         ..Default::default()
     });
     let connecting = async {
@@ -702,7 +706,7 @@ mod key_loading_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("id_enc");
         let path_str = path.to_string_lossy().into_owned();
-        crate::api::generate_ed25519_key(path_str, String::new(), Some("right".into())).unwrap();
+        crate::api::ssh::generate_ed25519_key(path_str, String::new(), Some("right".into())).unwrap();
 
         let missing = load_private_key(&path, None).unwrap_err();
         assert!(matches!(missing, PortixError::KeyPassphraseRequired(_)));

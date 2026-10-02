@@ -10,6 +10,10 @@ pub enum PortixError {
     SessionNotFound(String),
     #[error("authentication failed")]
     AuthenticationFailed,
+    #[error("SFTP: {0}")]
+    Sftp(String),
+    #[error("transfer cancelled")]
+    TransferCancelled,
     #[error("SSH agent: {0}")]
     SshAgent(String),
     #[error("SSH key {0} is encrypted; a passphrase is required")]

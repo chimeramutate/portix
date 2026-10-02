@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
+import 'package:portix/src/connection_manager/profile_credentials.dart';
 import 'package:portix/src/connection_manager/session_models.dart'
     as session_models;
 import 'package:portix/src/connection_manager/ssh_profile.dart'
@@ -402,24 +403,13 @@ class _TerminalPanelState extends State<TerminalPanel> {
       if (hostKey == true && mounted) return _reconnectSession(sessionId);
       if (hostKey != null || !mounted) return;
 
-      final problem = session_models.keyPassphraseProblemOf(message);
-      if (problem == null) return;
-      _connectionManager.useSavedKeyPassphrase(profile.id);
-      final hasSaved = await _connectionManager.hasSavedPassword(profile.id);
-      if (problem == session_models.KeyPassphraseProblem.required && hasSaved) {
-        // The keychain already has it; this connect just didn't send it.
-        if (mounted) await _reconnectSession(sessionId);
-        return;
-      }
-      if (!mounted) return;
-      final passphrase = await askKeyPassphrase(
+      final retry = await resolveKeyPassphrase(
         context,
-        keyPath: profile.credentialLabel,
-        problem: problem,
+        _connectionManager.credentials,
+        managerProfile,
+        message,
       );
-      if (passphrase == null || !mounted) return;
-      await _connectionManager.saveProfilePassword(profile.id, passphrase);
-      if (mounted) await _reconnectSession(sessionId);
+      if (retry && mounted) await _reconnectSession(sessionId);
     } finally {
       _resolvingFailures.remove(sessionId);
     }
@@ -709,10 +699,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _focusNodeForSession(sessionId).requestFocus();
   }
 
-  List<session_models.TerminalSession> get _sshSessions => _connectionManager
-      .sessions
-      .where((session) => session.kind == session_models.SessionKind.ssh)
-      .toList(growable: false);
+  List<session_models.TerminalSession> get _sshSessions =>
+      _connectionManager.sessions;
 
   session_models.TerminalSession? _lastSessionForProfile(String profileId) {
     final sessions = _sshSessions;
@@ -797,9 +785,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final newSession = _connectionManager.sessions
         .where(
           (s) =>
-              s.profileId == profile.id &&
-              s.kind == session_models.SessionKind.ssh &&
-              !existingSessionIds.contains(s.id),
+              s.profileId == profile.id && !existingSessionIds.contains(s.id),
         )
         .lastOrNull;
 
@@ -993,9 +979,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     }
 
     final newSession = _connectionManager.sessions.lastWhere(
-      (session) =>
-          session.kind == session_models.SessionKind.ssh &&
-          session.profileId == profile.id,
+      (session) => session.profileId == profile.id,
     );
     _terminalForSession(newSession.id).write('\x1b[2J\x1b[H');
     if (recordingPath != null) {
@@ -1102,7 +1086,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
         .where(
           (item) =>
               item.profileId == profileId &&
-              item.kind == session_models.SessionKind.ssh &&
               !existingSessionIds.contains(item.id),
         )
         .lastOrNull;
@@ -1322,7 +1305,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
     String password,
   ) async {
     // Save password to secure storage for next time.
-    unawaited(_connectionManager.saveProfilePassword(profile.id, password));
+    unawaited(
+      _connectionManager.credentials.savePassword(profile.id, password),
+    );
 
     final managerProfile = manager_profile.SshProfile.fromDomain(profile)
         .copyWith(
@@ -1703,9 +1688,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         final connected = result.fold<bool>((_) => false, (_) => true);
         if (!connected) continue;
         final newSession = _connectionManager.sessions.lastWhere(
-          (session) =>
-              session.kind == session_models.SessionKind.ssh &&
-              session.profileId == profile.id,
+          (session) => session.profileId == profile.id,
         );
         replacements[oldId] = newSession.id;
         final terminal = _terminalForSession(newSession.id);

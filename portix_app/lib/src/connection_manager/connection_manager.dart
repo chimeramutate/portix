@@ -1,15 +1,13 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/result/either.dart';
-import '../domain/entities/ssh/ssh_profile.dart' as domain;
 import 'connection_backend.dart';
 import 'mock_backend.dart';
-import 'profile_secret_store.dart';
+import 'profile_credentials.dart';
 import 'rust_bridge_backend.dart';
 import 'session_models.dart';
 import 'ssh_profile.dart';
@@ -26,11 +24,9 @@ const Duration _heartbeatTimeout = Duration(seconds: 4);
 class ConnectionManager extends ChangeNotifier {
   ConnectionManager({
     ConnectionBackend? backend,
-    ProfileSecretStore? secretStore,
-    Future<List<domain.SshProfile>> Function()? savedProfiles,
+    ProfileCredentials? credentials,
   }) : _backend = backend ?? MockConnectionBackend(),
-       _secretStore = secretStore ?? const ProfileSecretStore(),
-       _savedProfiles = savedProfiles ?? (() async => const []) {
+       credentials = credentials ?? ProfileCredentials() {
     _statusSub = _backend.connectionStatusStream.listen(_handleStatus);
     _outputSub = _backend.terminalOutputStream.listen(_handleTerminalOutput);
     _errorSub = _backend.errorEventStream.listen(_handleError);
@@ -41,9 +37,9 @@ class ConnectionManager extends ChangeNotifier {
   }
 
   final ConnectionBackend _backend;
-  final ProfileSecretStore _secretStore;
-  // Looks up jump host profiles by id.
-  final Future<List<domain.SshProfile>> Function() _savedProfiles;
+
+  /// Saved secrets and jump hosts, shared with SFTP connections.
+  final ProfileCredentials credentials;
   final _uuid = const Uuid();
   late final StreamSubscription<ConnectionStatusEvent> _statusSub;
   late final StreamSubscription<TerminalOutputEvent> _outputSub;
@@ -54,9 +50,6 @@ class ConnectionManager extends ChangeNotifier {
   final Map<String, String> _backendToUiSessionIds = {};
   // Host/port of each UI session, so the heartbeat knows what to probe.
   final Map<String, ({String host, int port})> _sessionEndpoints = {};
-  // Key profiles whose key turned out to be encrypted; only these read the
-  // passphrase from the keychain, so unencrypted keys never touch it.
-  final Set<String> _keyPassphraseProfiles = {};
   final _terminalOutput = StreamController<TerminalOutputEvent>.broadcast();
   final _errors = StreamController<ConnectionErrorEvent>.broadcast();
   final _sessionLost = StreamController<String>.broadcast();
@@ -102,22 +95,6 @@ class ConnectionManager extends ChangeNotifier {
   }
 
   Future<Result<void>> connect(SshProfile profile) async {
-    return _connect(profile, kind: SessionKind.ssh);
-  }
-
-  Future<Result<void>> connectSftp(SshProfile profile) async {
-    return _connect(
-      profile,
-      kind: SessionKind.sftp,
-      title: 'SFTP ${profile.name}',
-    );
-  }
-
-  Future<Result<void>> _connect(
-    SshProfile profile, {
-    required SessionKind kind,
-    String? title,
-  }) async {
     if (profile.host.trim().isEmpty || profile.username.trim().isEmpty) {
       return const Left(
         AppFailure('Host and username are required before connecting.'),
@@ -128,11 +105,9 @@ class ConnectionManager extends ChangeNotifier {
       host: profile.host.trim(),
       port: profile.port,
     );
-    final baseTitle = title ?? profile.name;
+    final baseTitle = profile.name;
     final duplicateCount = _sessions
-        .where(
-          (session) => session.profileId == profile.id && session.kind == kind,
-        )
+        .where((session) => session.profileId == profile.id)
         .length;
     _sessions.add(
       TerminalSession(
@@ -142,13 +117,12 @@ class ConnectionManager extends ChangeNotifier {
             ? baseTitle
             : '$baseTitle ${duplicateCount + 1}',
         status: ConnectionStatus.connecting,
-        kind: kind,
       ),
     );
     notifyListeners();
 
     try {
-      final connectProfile = await _resolveForConnect(profile);
+      final connectProfile = await credentials.resolve(profile);
       final entry = connectProfile.entryPoint;
       if (_sessionEndpoints.containsKey(uiSessionId)) {
         _sessionEndpoints[uiSessionId] = (
@@ -197,7 +171,7 @@ class ConnectionManager extends ChangeNotifier {
   }) async {
     try {
       final forward = await _backend.startLocalForward(
-        await _resolveForConnect(profile),
+        await credentials.resolve(profile),
         localPort,
         remoteHost,
         remotePort,
@@ -230,30 +204,6 @@ class ConnectionManager extends ChangeNotifier {
     } catch (error) {
       return Left(AppFailure('Failed to trust host key', cause: error));
     }
-  }
-
-  /// Marks [profileId]'s key as encrypted, so connects send the passphrase
-  /// saved in the keychain (the slot a password profile uses).
-  void useSavedKeyPassphrase(String profileId) =>
-      _keyPassphraseProfiles.add(profileId);
-
-  /// Save a password to secure storage so future connections can use it.
-  Future<void> saveProfilePassword(String profileId, String password) async {
-    await _secretStore.savePassword(profileId, password);
-  }
-
-  /// Returns true when a usable password for the given profile is already
-  /// stored in the local secure keychain / secret store.
-  Future<bool> hasSavedPassword(String profileId) async {
-    final password = await _secretStore.readPassword(profileId);
-    return (password ?? '').trim().isNotEmpty;
-  }
-
-  /// Reads the saved password for the given profile from secure storage.
-  /// Used when duplicating a connected session to a new window so the
-  /// child window can reconnect without re-prompting for a password.
-  Future<String?> readProfilePassword(String profileId) async {
-    return _secretStore.readPassword(profileId);
   }
 
   /// Log file the session's output is being appended to, if recording.
@@ -308,79 +258,6 @@ class ConnectionManager extends ChangeNotifier {
         (id) => _backend.sendTerminalInput(id, data),
       );
 
-  Future<Result<void>> executeRemoteCommand(
-    String sessionId,
-    String command, {
-    String action = 'remote command',
-    Duration timeout = const Duration(seconds: 20),
-  }) async {
-    final backendSessionId = _backendId(sessionId);
-
-    Result<void> result;
-    try {
-      // Run the command on the session's DEDICATED exec channel (a separate SSH
-      // channel, not the interactive shell). This used to send the command
-      // through `sendTerminalInput` (the interactive shell), which:
-      //   - recorded SFTP file-management commands (rename/move/delete/duplicate)
-      //     in the remote shell's shared history file (HISTFILE), so they showed
-      //     up when pressing ⬆ in the SSH terminal ("masuk ke history"), and
-      //   - echoed the command plus a `__PORTIX_CMD_..._EXIT` marker line into
-      //     the visible terminal output.
-      // The exec channel opens a fresh SSH `exec` session that never touches the
-      // user's interactive shell, so neither the command nor any marker reaches
-      // the shell history or the terminal. A non-zero exit status is surfaced
-      // directly as an exception by the Rust backend (see `run_exec`).
-      await _backend
-          .execRemoteCommand(backendSessionId, command)
-          .timeout(
-            timeout,
-            onTimeout: () => throw TimeoutException(
-              'Timed out while running $action',
-              timeout,
-            ),
-          );
-      result = const Right(null);
-    } on TimeoutException catch (_) {
-      result = Left(AppFailure('Timed out while running $action'));
-    } catch (error) {
-      result = Left(AppFailure('Failed to run $action', cause: error));
-    }
-
-    // Forward a concise command-result line (green ✓ / red ✗) to the SSH
-    // terminal panel so the user gets feedback that the SFTP/file-manager
-    // operation ran — WITHOUT echoing the underlying command or any marker
-    // into the remote shell history. SFTP sessions have no terminal panel, so
-    // the summary is intentionally only shown for SSH terminal sessions.
-    _forwardRemoteCommandResult(sessionId, action, result);
-    return result;
-  }
-
-  /// Forwards a concise command-result line to the terminal output stream so
-  /// the user can see in the SSH terminal whether a remote file-management
-  /// command (rename/move/delete/duplicate) succeeded or failed.
-  ///
-  /// Only SSH terminal sessions have a terminal panel to display this; SFTP
-  /// sessions do not, so the summary is skipped for them.
-  void _forwardRemoteCommandResult(
-    String uiSessionId,
-    String action,
-    Result<void> result,
-  ) {
-    // Only SSH terminal sessions have a terminal panel to display the result.
-    final index = _sessions.indexWhere((s) => s.id == uiSessionId);
-    if (index == -1 || _sessions[index].kind != SessionKind.ssh) {
-      return;
-    }
-
-    final status = result.isRight ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m';
-    _terminalOutput.add(
-      TerminalOutputEvent(
-        sessionId: uiSessionId,
-        data: '\r\n\x1b[36m[portix] $action\x1b[0m $status\r\n',
-      ),
-    );
-  }
-
   Future<Result<void>> resizeTerminal(String sessionId, int cols, int rows) =>
       _call(
         sessionId,
@@ -394,102 +271,6 @@ class ConnectionManager extends ChangeNotifier {
         'Failed to load remote telemetry',
         _backend.remoteSystemSnapshot,
       );
-
-  Future<Result<String>> resolveRemoteDirectory(
-    String sessionId,
-    String path,
-  ) => _call(
-    sessionId,
-    'Failed to resolve remote folder',
-    (id) => _backend.resolveRemoteDirectory(id, path),
-  );
-
-  Future<Result<List<RemoteFileEntry>>> listRemoteDirectory(
-    String sessionId,
-    String path,
-  ) => _call(
-    sessionId,
-    'Failed to load remote folder',
-    (id) => _backend.listRemoteDirectory(id, path),
-  );
-
-  Future<Result<List<RemoteFileEntry>>> findRemoteEntries(
-    String sessionId,
-    String basePath,
-    String query, {
-    int maxResults = 120,
-  }) async {
-    final normalizedQuery = query.trim().toLowerCase();
-    if (normalizedQuery.isEmpty) return const Right([]);
-    return _call(
-      sessionId,
-      'Failed to find remote entries',
-      (id) => _findRemoteEntriesBreadthFirst(
-        backendSessionId: id,
-        basePath: basePath,
-        query: normalizedQuery,
-        maxResults: maxResults,
-      ),
-    );
-  }
-
-  Future<Result<String>> readRemoteFile(String sessionId, String path) => _call(
-    sessionId,
-    'Failed to read remote file',
-    (id) => _backend.readRemoteFile(id, path),
-  );
-
-  Future<Result<List<int>>> readRemoteFileBytes(
-    String sessionId,
-    String path,
-  ) => _call(
-    sessionId,
-    'Failed to download remote file',
-    (id) => _backend.readRemoteFileBytes(id, path),
-  );
-
-  Future<Result<void>> writeRemoteFile(
-    String sessionId,
-    String path,
-    String content,
-  ) => _call(
-    sessionId,
-    'Failed to save remote file',
-    (id) => _backend.writeRemoteFile(id, path, content),
-  );
-
-  Future<Result<void>> uploadRemoteFile(
-    String sessionId,
-    String path,
-    List<int> data,
-  ) => _call(
-    sessionId,
-    'Failed to upload file',
-    (id) => _backend.uploadRemoteFile(id, path, data),
-  );
-
-  Future<Result<void>> createRemoteDirectory(String sessionId, String path) =>
-      _call(
-        sessionId,
-        'Failed to create remote folder',
-        (id) => _backend.createRemoteDirectory(id, path),
-      );
-
-  Future<Result<void>> createRemoteFile(String sessionId, String path) => _call(
-    sessionId,
-    'Failed to create remote file',
-    (id) => _backend.createRemoteFile(id, path),
-  );
-
-  Future<Result<void>> chmodRemotePath(
-    String sessionId,
-    String path,
-    String mode,
-  ) => _call(
-    sessionId,
-    'Failed to update permissions',
-    (id) => _backend.chmodRemotePath(id, path, mode),
-  );
 
   /// Runs [operation] against the backend session behind UI [sessionId],
   /// turning any thrown error into a [Left] carrying [failureMessage].
@@ -508,30 +289,14 @@ class ConnectionManager extends ChangeNotifier {
   String _backendId(String uiSessionId) =>
       _backendSessionIdForUiSession(uiSessionId) ?? uiSessionId;
 
-  /// Flutter-side heartbeat: probe every connected *SSH terminal* session by
+  /// Flutter-side heartbeat: probe every connected terminal session by
   /// attempting a lightweight TCP socket connect to the SSH port. This runs
   /// independently of the Rust keepalive so UI reflects a lost connection
   /// within [_heartbeatInterval] + [_heartbeatTimeout] (~9 s worst-case)
   /// instead of waiting for the Rust keepalive cycle (~17 s).
-  ///
-  /// SFTP sessions are intentionally EXCLUDED from this TCP probe. SFTP
-  /// sessions ride on the same Rust-managed SSH connection whose keepalive is
-  /// already driven server-side (see `ssh_client.rs`). Spinning up a *new*
-  /// TCP socket to host:port gives false "connection lost" positives whenever
-  /// the remote blocks new TCP connections, enforces per-host connection
-  /// limits, or briefly rejects new sockets — even though the existing SSH/SFTP
-  /// channel is perfectly alive. SFTP disconnects are detected instead through
-  /// the Rust keepalive and by consecutive SFTP-operation failures
-  /// (see `SftpWorkspaceController._recordRemoteFailure`).
   Future<void> _runHeartbeat() async {
-    // Collect all currently-connected SSH terminal sessions with a known profile.
-    // SFTP sessions are skipped — see the doc above.
     final candidates = _sessions
-        .where(
-          (s) =>
-              s.status == ConnectionStatus.connected &&
-              s.kind == SessionKind.ssh,
-        )
+        .where((s) => s.status == ConnectionStatus.connected)
         .toList(growable: false);
 
     for (final session in candidates) {
@@ -619,11 +384,8 @@ class ConnectionManager extends ChangeNotifier {
   }
 
   void _handleTerminalOutput(TerminalOutputEvent event) {
-    // Remote file-management commands now run on a dedicated exec channel
-    // (see `executeRemoteCommand`), so this listener never needs to intercept
-    // terminal output to detect a command marker. All SSH terminal output is
-    // forwarded straight to the UI, with backend session IDs remapped to the
-    // UI session IDs the terminal panel subscribes to.
+    // Forwarded straight to the UI, with backend session ids remapped to the
+    // UI session ids the terminal panel subscribes to.
     final sessionId =
         _backendToUiSessionIds[event.sessionId] ?? event.sessionId;
     _recordings[sessionId]?.sink.write(stripTerminalEscapes(event.data));
@@ -649,219 +411,6 @@ class ConnectionManager extends ChangeNotifier {
       if (entry.value == uiSessionId) return entry.key;
     }
     return null;
-  }
-
-  /// [profile] preceded by its jump hosts, outermost first.
-  Future<List<SshProfile>> connectionChain(SshProfile profile) async {
-    final chain = [profile];
-    var jumpId = profile.jumpProfileId;
-    if (jumpId == null) return chain;
-    final saved = await _savedProfiles();
-    while (jumpId != null) {
-      final jump = saved.where((p) => p.id == jumpId).firstOrNull;
-      if (jump == null) {
-        throw StateError('Jump host profile for ${profile.name} not found.');
-      }
-      if (chain.any((hop) => hop.id == jump.id)) {
-        throw StateError('Jump hosts of ${profile.name} form a loop.');
-      }
-      final hop = SshProfile.fromDomain(jump);
-      chain.insert(0, hop);
-      jumpId = hop.jumpProfileId;
-    }
-    return chain;
-  }
-
-  /// [profile] with its secrets and its jump host chain filled in.
-  Future<SshProfile> _resolveForConnect(SshProfile profile) async {
-    SshProfile? resolved;
-    for (final hop in await connectionChain(profile)) {
-      resolved = (await _profileWithResolvedPassword(
-        hop,
-      )).copyWith(jumpHost: resolved);
-    }
-    return resolved!;
-  }
-
-  Future<SshProfile> _profileWithResolvedPassword(SshProfile profile) async {
-    if ((profile.privateKeyPath ?? '').trim().isNotEmpty) {
-      if (!_keyPassphraseProfiles.contains(profile.id)) return profile;
-      final passphrase = await _secretStore
-          .readPassword(profile.id)
-          .catchError((Object _) => null);
-      return (passphrase ?? '').isEmpty
-          ? profile
-          : profile.copyWith(keyPassphrase: passphrase);
-    }
-    if ((profile.password ?? '').trim().isNotEmpty) return profile;
-    if (!profile.hasPassword) return profile;
-    final password = await _secretStore.readPassword(profile.id);
-    if ((password ?? '').isEmpty) {
-      throw PasswordUnavailableException(profile.name, profile.id);
-    }
-    return profile.copyWith(password: password);
-  }
-
-  static const int _maxRemoteSearchDepth = 12;
-  static const int _maxRemoteSearchDirectories = 600;
-  static const Set<String> _remoteSearchSkippedDirectories = {
-    '.cache',
-    '.cargo',
-    '.git',
-    '.gradle',
-    '.local',
-    '.npm',
-    '.rustup',
-    '.venv',
-    '.tox',
-    '.m2',
-    '.pub-cache',
-    '__pycache__',
-    'Library',
-    'cache',
-    'dev',
-    'node_modules',
-    'proc',
-    'run',
-    'sys',
-    'tmp',
-    'vendor',
-    'target',
-    'build',
-    'dist',
-    '.next',
-  };
-
-  Future<List<RemoteFileEntry>> _findRemoteEntriesBreadthFirst({
-    required String backendSessionId,
-    required String basePath,
-    required String query,
-    required int maxResults,
-  }) async {
-    final results = <RemoteFileEntry>[];
-    final visited = <String>{};
-    final queue = Queue<_RemoteSearchDirectory>()
-      ..add(_RemoteSearchDirectory(basePath, 0));
-
-    // Process directories in parallel batches for faster searching.
-    const batchSize = 6;
-
-    while (queue.isNotEmpty &&
-        results.length < maxResults &&
-        visited.length < _maxRemoteSearchDirectories) {
-      // Collect a batch of directories to process in parallel.
-      final batch = <_RemoteSearchDirectory>[];
-      while (batch.length < batchSize && queue.isNotEmpty) {
-        final current = queue.removeFirst();
-        if (current.depth > _maxRemoteSearchDepth) continue;
-        final normalizedPath = current.path.trim().isEmpty
-            ? '/'
-            : current.path.trim();
-        if (!visited.add(normalizedPath)) continue;
-        batch.add(_RemoteSearchDirectory(normalizedPath, current.depth));
-      }
-      if (batch.isEmpty) continue;
-
-      // List all directories in the batch concurrently.
-      final futures = batch.map(
-        (dir) => _listRemoteDirectoryForFind(
-          backendSessionId,
-          dir.path,
-          isBasePath: dir.depth == 0,
-        ).then((entries) => (dir, entries)),
-      );
-
-      final batchResults = await Future.wait(futures);
-
-      for (final (dir, entries) in batchResults) {
-        if (results.length >= maxResults) break;
-
-        final childDirectories = <RemoteFileEntry>[];
-        for (final entry in entries) {
-          if (results.length >= maxResults) break;
-          final haystack = '${entry.name}\n${entry.path}'.toLowerCase();
-          if (haystack.contains(query)) {
-            results.add(entry);
-          }
-          if (entry.isDirectory &&
-              !_shouldSkipRemoteSearchDirectory(entry, basePath)) {
-            childDirectories.add(entry);
-          }
-        }
-
-        childDirectories.sort(
-          (a, b) => _remoteSearchPriority(
-            a,
-            query,
-          ).compareTo(_remoteSearchPriority(b, query)),
-        );
-        for (final directory in childDirectories) {
-          if (visited.length + queue.length >= _maxRemoteSearchDirectories) {
-            break;
-          }
-          queue.add(_RemoteSearchDirectory(directory.path, dir.depth + 1));
-        }
-      }
-    }
-
-    return results;
-  }
-
-  Future<List<RemoteFileEntry>> _listRemoteDirectoryForFind(
-    String backendSessionId,
-    String path, {
-    required bool isBasePath,
-  }) async {
-    try {
-      return await _backend.listRemoteDirectory(backendSessionId, path);
-    } catch (error) {
-      if (isBasePath) rethrow;
-      return const [];
-    }
-  }
-
-  int _remoteSearchPriority(RemoteFileEntry entry, String query) {
-    final name = entry.name.toLowerCase();
-    final path = entry.path.toLowerCase();
-    var score = 100;
-    if (path.contains(query) || name.contains(query)) score -= 60;
-    if (_looksLikeMediaQuery(query) &&
-        (name.contains('picture') ||
-            name.contains('photo') ||
-            name.contains('image') ||
-            name.contains('screenshot') ||
-            name.contains('download'))) {
-      score -= 35;
-    }
-    if (!name.startsWith('.')) score -= 10;
-    return score;
-  }
-
-  bool _looksLikeMediaQuery(String query) {
-    return query.endsWith('.jpg') ||
-        query.endsWith('.jpeg') ||
-        query.endsWith('.png') ||
-        query.endsWith('.gif') ||
-        query.endsWith('.webp') ||
-        query.endsWith('.heic') ||
-        query.endsWith('.svg');
-  }
-
-  bool _shouldSkipRemoteSearchDirectory(
-    RemoteFileEntry entry,
-    String basePath,
-  ) {
-    final path = entry.path;
-    if (path == '/' || path == basePath) return false;
-    if (_remoteSearchSkippedDirectories.contains(entry.name)) return true;
-    return path == '/proc' ||
-        path.startsWith('/proc/') ||
-        path == '/sys' ||
-        path.startsWith('/sys/') ||
-        path == '/dev' ||
-        path.startsWith('/dev/') ||
-        path == '/run' ||
-        path.startsWith('/run/');
   }
 
   @override
@@ -901,21 +450,3 @@ final _terminalEscape = RegExp(
 /// the log; buffer partial escapes per session if that shows up in practice.
 String stripTerminalEscapes(String data) =>
     data.replaceAll(_terminalEscape, '').replaceAll('\r', '');
-
-class _RemoteSearchDirectory {
-  const _RemoteSearchDirectory(this.path, this.depth);
-
-  final String path;
-  final int depth;
-}
-
-class PasswordUnavailableException implements Exception {
-  const PasswordUnavailableException(this.profileName, this.profileId);
-
-  final String profileName;
-  final String profileId;
-
-  String toString() =>
-      'Saved password for "$profileName" is not available on this device. '
-      'Please re-enter the password.';
-}
