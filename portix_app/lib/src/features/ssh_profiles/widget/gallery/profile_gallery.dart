@@ -15,7 +15,7 @@ enum _GalleryFilter { all, production, keyAuth, recent }
 
 enum _ProfileViewMode { gallery, list }
 
-enum _ProfileFileAction { importProfiles, exportProfiles }
+enum _ProfileFileAction { importProfiles, importSshConfig, exportProfiles }
 
 class ProfileGallery extends StatefulWidget {
   const ProfileGallery({required this.state, super.key});
@@ -108,6 +108,8 @@ class _ProfileGalleryState extends State<ProfileGallery> {
     switch (action) {
       case _ProfileFileAction.importProfiles:
         await _importProfiles();
+      case _ProfileFileAction.importSshConfig:
+        await _importSshConfig();
       case _ProfileFileAction.exportProfiles:
         await _exportProfiles(visibleProfiles);
     }
@@ -133,40 +135,79 @@ class _ProfileGalleryState extends State<ProfileGallery> {
         existingIds: widget.state.profiles.map((profile) => profile.id).toSet(),
       );
       if (!mounted) return;
-      if (profiles.isEmpty) {
-        _showSnack('No profiles found in that file.');
-        return;
-      }
+      _addImportedProfiles(profiles, emptyMessage: 'No profiles found in that file.');
+    } catch (error) {
+      if (!mounted) return;
+      _showSnack('Import failed: $error');
+    }
+  }
 
-      // Filter out profiles that are already present by fingerprint
-      // (username@host:port) to prevent duplicates even when IDs differ.
-      final existingFingerprints = widget.state.profiles
-          .map((p) => '${p.username}@${p.host}:${p.port}')
-          .toSet();
-      final newProfiles = profiles
-          .where(
-            (p) => !existingFingerprints.contains(
-              '${p.username}@${p.host}:${p.port}',
-            ),
-          )
-          .toList();
-
-      if (newProfiles.isEmpty) {
-        _showSnack('All profiles already exist — nothing to import.');
-        return;
+  Future<void> _importSshConfig() async {
+    final home =
+        Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+    if (home == null) return _showSnack('Home directory not found.');
+    final file = File('$home/.ssh/config');
+    try {
+      if (!await file.exists()) {
+        return _showSnack('No ~/.ssh/config found.');
       }
-      final skipped = profiles.length - newProfiles.length;
-      context.read<SshWorkspaceBloc>().add(ProfilesImported(newProfiles));
-      final skippedNote = skipped > 0
-          ? ' ($skipped duplicate${skipped == 1 ? '' : 's'} skipped)'
-          : '';
-      _showSnack(
-        'Importing ${newProfiles.length} profile${newProfiles.length == 1 ? '' : 's'}$skippedNote...',
+      final profiles = parseSshConfig(
+        await file.readAsString(),
+        home: home,
+        defaultUser:
+            Platform.environment['USER'] ??
+            Platform.environment['USERNAME'] ??
+            '',
+        fileExists: (path) => File(path).existsSync(),
+      );
+      if (!mounted) return;
+      _addImportedProfiles(
+        profiles,
+        emptyMessage: 'No hosts found in ~/.ssh/config.',
       );
     } catch (error) {
       if (!mounted) return;
       _showSnack('Import failed: $error');
     }
+  }
+
+  /// Saves [profiles] that are not already present (same username@host:port).
+  void _addImportedProfiles(
+    List<SshProfile> profiles, {
+    required String emptyMessage,
+  }) {
+    if (profiles.isEmpty) {
+      _showSnack(emptyMessage);
+      return;
+    }
+
+    // Skip profiles already present by fingerprint (username@host:port), or
+    // by id: re-importing an ~/.ssh/config alias the user since edited must
+    // not overwrite their edit.
+    final existingIds = widget.state.profiles.map((p) => p.id).toSet();
+    final existingFingerprints = widget.state.profiles
+        .map((p) => p.address)
+        .toSet();
+    final newProfiles = profiles
+        .where(
+          (p) =>
+              !existingIds.contains(p.id) &&
+              !existingFingerprints.contains(p.address),
+        )
+        .toList();
+
+    if (newProfiles.isEmpty) {
+      _showSnack('All profiles already exist — nothing to import.');
+      return;
+    }
+    final skipped = profiles.length - newProfiles.length;
+    context.read<SshWorkspaceBloc>().add(ProfilesImported(newProfiles));
+    final skippedNote = skipped > 0
+        ? ' ($skipped duplicate${skipped == 1 ? '' : 's'} skipped)'
+        : '';
+    _showSnack(
+      'Importing ${newProfiles.length} profile${newProfiles.length == 1 ? '' : 's'}$skippedNote...',
+    );
   }
 
   Future<void> _exportProfiles(List<SshProfile> visibleProfiles) async {
@@ -386,6 +427,15 @@ class _GalleryToolbar extends StatelessWidget {
               child: _MenuItem(
                 icon: Icons.upload_file_rounded,
                 label: 'Import profiles',
+              ),
+            ),
+            PopupMenuItem(
+              height: 38,
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              value: _ProfileFileAction.importSshConfig,
+              child: _MenuItem(
+                icon: Icons.terminal_rounded,
+                label: 'Import ~/.ssh/config',
               ),
             ),
             PopupMenuItem(
