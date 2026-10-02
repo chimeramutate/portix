@@ -962,25 +962,6 @@ class _FakeConnectionBackend implements ConnectionBackend {
   }
 
   @override
-  Future<List<String>> commandHelpSuggestions(
-    String sessionId,
-    String input,
-  ) async => const [];
-
-  @override
-  Future<List<TerminalCompletionCandidate>> commandCompletions(
-    String sessionId,
-    String input,
-  ) async => const [];
-
-  @override
-  Future<TerminalCompleteResponse> terminalComplete(
-    TerminalCompleteRequest request,
-  ) async {
-    return const TerminalCompleteResponse(items: []);
-  }
-
-  @override
   Future<void> sendTerminalInput(String sessionId, String data) async {}
 
   @override

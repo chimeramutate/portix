@@ -6,5 +6,4 @@ export 'diff_badge.dart';
 export 'disconnected_overlay.dart';
 export 'editor_picker_sheet.dart';
 export 'pane_status.dart';
-export 'path_crumb.dart';
 export 'rewrite_remote_dialog.dart';

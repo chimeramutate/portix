@@ -67,9 +67,6 @@ Future<void> _pumpWorkspaceView(
             terminalForSession: (sessionId) => terminals[sessionId]!,
             statusForSession: (_) => session_models.ConnectionStatus.connected,
             profileForSession: (_) => null,
-            suggestionForSession: (_) => null,
-            suggestionCandidatesForSession: (_) => const [],
-            suggestionSuffixForSession: (_) => null,
             idleTerminal: Terminal(),
             controllerForSession: (sessionId) => controllers[sessionId]!,
             scrollControllerForSession: (sessionId) =>

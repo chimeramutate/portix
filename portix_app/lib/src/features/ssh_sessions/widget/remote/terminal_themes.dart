@@ -33,13 +33,6 @@ TerminalTheme terminalThemeByName(String? name) {
   };
 }
 
-/// The background color for a given theme name — used to paint the terminal
-/// container even before the TerminalView is rendered.
-Color terminalThemeBackground(String? name) => terminalThemeByName(name).background;
-
-/// The foreground color for a given theme name.
-Color terminalThemeForeground(String? name) => terminalThemeByName(name).foreground;
-
 // ── Portix (default) ──────────────────────────────────────────────────────
 
 const portixBuiltinTheme = TerminalTheme(
