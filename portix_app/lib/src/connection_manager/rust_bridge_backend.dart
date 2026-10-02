@@ -195,6 +195,38 @@ class RustBridgeBackend implements ConnectionBackend {
   @override
   Future<void> trustHostKey(String host, int port, String fingerprint) =>
       rust_api.trustHostKey(host: host, port: port, fingerprint: fingerprint);
+
+  @override
+  Future<PortForward> startLocalForward(
+    SshProfile profile,
+    int localPort,
+    String remoteHost,
+    int remotePort,
+  ) async => _toPortForward(
+    await rust_api.startLocalForward(
+      profile: profile.toRustProfile(),
+      localPort: localPort,
+      remoteHost: remoteHost,
+      remotePort: remotePort,
+    ),
+  );
+
+  @override
+  Future<void> stopLocalForward(String id) => rust_api.stopLocalForward(id: id);
+
+  @override
+  Future<List<PortForward>> listLocalForwards() async => [
+    for (final forward in await rust_api.listLocalForwards())
+      _toPortForward(forward),
+  ];
+
+  PortForward _toPortForward(rust_api.ForwardInfo forward) => PortForward(
+    id: forward.id,
+    profileId: forward.profileId,
+    localPort: forward.localPort,
+    remoteHost: forward.remoteHost,
+    remotePort: forward.remotePort,
+  );
 }
 
 extension on SshProfile {

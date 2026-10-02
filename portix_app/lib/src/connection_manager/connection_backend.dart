@@ -34,6 +34,20 @@ abstract interface class ConnectionBackend {
   /// history or the visible terminal.
   Future<String> execRemoteCommand(String sessionId, String command);
 
+  /// Forwards 127.0.0.1:[localPort] (0 = any free port) to [remoteHost]:
+  /// [remotePort] over a dedicated SSH connection to [profile].
+  Future<PortForward> startLocalForward(
+    SshProfile profile,
+    int localPort,
+    String remoteHost,
+    int remotePort,
+  );
+
+  Future<void> stopLocalForward(String id);
+
+  /// Tunnels still running; one ends on its own if its SSH connection drops.
+  Future<List<PortForward>> listLocalForwards();
+
   /// The host key refused during the last connect to [host]:[port], if any.
   Future<HostKeyInfo?> pendingHostKey(String host, int port);
 

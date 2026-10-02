@@ -37,7 +37,7 @@ pub struct SshRuntime {
     error_tx: broadcast::Sender<ErrorEvent>,
 }
 
-struct Client {
+pub(crate) struct Client {
     host: String,
     port: u16,
     known_hosts: PathBuf,
@@ -357,7 +357,9 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
     }
 }
 
-async fn connect_and_authenticate_profile(profile: &SshProfile) -> Result<client::Handle<Client>> {
+pub(crate) async fn connect_and_authenticate_profile(
+    profile: &SshProfile,
+) -> Result<client::Handle<Client>> {
     forget_pending_host_key(&profile.host, profile.port);
     let handler = Client {
         host: profile.host.clone(),

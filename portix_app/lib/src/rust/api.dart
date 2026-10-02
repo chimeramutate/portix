@@ -9,6 +9,7 @@ import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `forward_json_stream`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`
 
 Future<SessionInfo> connect({
   required SshProfile profile,
@@ -185,6 +186,28 @@ Future<void> trustHostKey({
   fingerprint: fingerprint,
 );
 
+/// Starts forwarding 127.0.0.1:`local_port` (0 = any free port) to
+/// `remote_host:remote_port` as seen from the SSH server, over a dedicated
+/// connection. Returns once listening and connected.
+Future<ForwardInfo> startLocalForward({
+  required SshProfile profile,
+  required int localPort,
+  required String remoteHost,
+  required int remotePort,
+}) => RustLib.instance.api.crateApiStartLocalForward(
+  profile: profile,
+  localPort: localPort,
+  remoteHost: remoteHost,
+  remotePort: remotePort,
+);
+
+Future<void> stopLocalForward({required String id}) =>
+    RustLib.instance.api.crateApiStopLocalForward(id: id);
+
+/// Tunnels still running (one ends on its own when its SSH connection drops).
+Future<List<ForwardInfo>> listLocalForwards() =>
+    RustLib.instance.api.crateApiListLocalForwards();
+
 Stream<String> terminalOutputStream() =>
     RustLib.instance.api.crateApiTerminalOutputStream();
 
@@ -193,6 +216,42 @@ Stream<String> connectionStatusStream() =>
 
 Stream<String> errorEventStream() =>
     RustLib.instance.api.crateApiErrorEventStream();
+
+/// An active local port forward (`ssh -L local_port:remote_host:remote_port`).
+class ForwardInfo {
+  final String id;
+  final String profileId;
+  final int localPort;
+  final String remoteHost;
+  final int remotePort;
+
+  const ForwardInfo({
+    required this.id,
+    required this.profileId,
+    required this.localPort,
+    required this.remoteHost,
+    required this.remotePort,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      profileId.hashCode ^
+      localPort.hashCode ^
+      remoteHost.hashCode ^
+      remotePort.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ForwardInfo &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          profileId == other.profileId &&
+          localPort == other.localPort &&
+          remoteHost == other.remoteHost &&
+          remotePort == other.remotePort;
+}
 
 /// A server host key that was refused: unknown (`changed_line` is None) or
 /// different from the key recorded on `changed_line` of known_hosts.

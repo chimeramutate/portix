@@ -102,4 +102,18 @@ class UnavailableConnectionBackend implements ConnectionBackend {
 
   @override
   Future<void> trustHostKey(String host, int port, String fingerprint) async {}
+
+  @override
+  Future<PortForward> startLocalForward(
+    SshProfile profile,
+    int localPort,
+    String remoteHost,
+    int remotePort,
+  ) async => _unavailable();
+
+  @override
+  Future<void> stopLocalForward(String id) async {}
+
+  @override
+  Future<List<PortForward>> listLocalForwards() async => const [];
 }
