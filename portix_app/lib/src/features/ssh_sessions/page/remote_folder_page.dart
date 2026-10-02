@@ -1046,7 +1046,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     final shouldRewrite = await showDialog<bool>(
       context: context,
       builder: (context) =>
-          _RewriteRemoteDialog(fileName: entry.name, diff: diff),
+          RewriteRemoteDialog(fileName: entry.name, diff: diff),
     );
     if (shouldRewrite == true) {
       await _rewriteEditedRemoteFile(sessionId, entry, localPath);
