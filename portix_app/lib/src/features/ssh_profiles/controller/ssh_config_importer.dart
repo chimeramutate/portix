@@ -109,6 +109,7 @@ SshProfile _profileFor(
           .firstOrNull,
   };
 
+  // Without any key file, authenticate through ssh-agent (empty path).
   return SshProfile(
     id: 'ssh-config-$alias',
     name: alias,
@@ -117,7 +118,7 @@ SshProfile _profileFor(
     username: user,
     group: 'SSH config',
     tags: const [],
-    authMethod: identity == null ? AuthMethod.password : AuthMethod.sshKey,
+    authMethod: AuthMethod.sshKey,
     credentialLabel: identity ?? '',
     defaultPath: '~',
     status: ConnectionStatus.offline,

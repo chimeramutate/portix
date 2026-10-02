@@ -1548,6 +1548,7 @@ dependencies = [
  "anyhow",
  "base64",
  "flutter_rust_bridge",
+ "futures",
  "once_cell",
  "rand 0.10.1",
  "russh",

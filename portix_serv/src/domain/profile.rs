@@ -41,19 +41,7 @@ impl SshProfile {
                 "port must be greater than 0".to_owned(),
             ));
         }
-
-        let has_password = self
-            .password
-            .as_deref()
-            .is_some_and(|password| !password.is_empty());
-        let has_key = self
-            .private_key_path
-            .as_deref()
-            .is_some_and(|path| !path.trim().is_empty());
-        if !has_password && !has_key {
-            return Err(PortixError::MissingAuthentication);
-        }
-
+        // No password and no key path means ssh-agent authentication.
         Ok(())
     }
 }
@@ -90,10 +78,10 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_missing_authentication() {
+    fn validate_allows_agent_auth_without_password_or_key() {
         let mut profile = valid_profile();
         profile.password = None;
 
-        assert!(profile.validate().is_err());
+        assert!(profile.validate().is_ok());
     }
 }

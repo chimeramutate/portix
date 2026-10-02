@@ -6,6 +6,7 @@ use std::{
 };
 
 use russh::client;
+use russh::keys::agent::client::AgentClient;
 use russh::keys::{PrivateKey, PrivateKeyWithHashAlg, load_secret_key};
 use russh::{ChannelMsg, Disconnect};
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -366,17 +367,24 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
 pub(crate) async fn connect_and_authenticate_profile(
     profile: &SshProfile,
 ) -> Result<client::Handle<Client>> {
+    connect_with_known_hosts(profile, &default_known_hosts_path(home_dir())?).await
+}
+
+async fn connect_with_known_hosts(
+    profile: &SshProfile,
+    known_hosts: &Path,
+) -> Result<client::Handle<Client>> {
     forget_pending_host_key(&profile.host, profile.port);
     let jump = match profile.jump_host.as_deref() {
         Some(jump) => Some(Arc::new(
-            Box::pin(connect_and_authenticate_profile(jump)).await?,
+            Box::pin(connect_with_known_hosts(jump, known_hosts)).await?,
         )),
         None => None,
     };
     let handler = Client {
         host: profile.host.clone(),
         port: profile.port,
-        known_hosts: default_known_hosts_path(home_dir())?,
+        known_hosts: known_hosts.to_path_buf(),
         _jump: jump.clone(),
     };
     let config = Arc::new(client::Config {
@@ -415,8 +423,8 @@ pub(crate) async fn connect_and_authenticate_profile(
         )?),
         None => None,
     };
-    let auth_result = timeout(AUTH_TIMEOUT, async {
-        if let Some(key_pair) = key_pair {
+    let authenticated = timeout(AUTH_TIMEOUT, async {
+        let result = if let Some(key_pair) = key_pair {
             session
                 .authenticate_publickey(
                     profile.username.clone(),
@@ -425,22 +433,75 @@ pub(crate) async fn connect_and_authenticate_profile(
                         session.best_supported_rsa_hash().await?.flatten(),
                     ),
                 )
-                .await
+                .await?
         } else if let Some(password) = profile.password.clone() {
             session
                 .authenticate_password(profile.username.clone(), password)
-                .await
+                .await?
         } else {
-            Err(russh::Error::NotAuthenticated)
-        }
+            let mut agent = connect_agent().await?;
+            return authenticate_with_agent(&mut session, &profile.username, &mut agent).await;
+        };
+        Ok(result.success())
     })
     .await
     .map_err(|_| PortixError::AuthenticationTimeout)??;
 
-    if !auth_result.success() {
+    if !authenticated {
         return Err(PortixError::AuthenticationFailed);
     }
     Ok(session)
+}
+
+fn agent_error(error: russh::keys::Error) -> PortixError {
+    PortixError::SshAgent(error.to_string())
+}
+
+/// The running ssh-agent: `SSH_AUTH_SOCK` on Unix, OpenSSH's named pipe on
+/// Windows.
+#[cfg(unix)]
+async fn connect_agent() -> Result<AgentClient<tokio::net::UnixStream>> {
+    AgentClient::connect_env().await.map_err(agent_error)
+}
+
+#[cfg(windows)]
+async fn connect_agent() -> Result<AgentClient<tokio::net::windows::named_pipe::NamedPipeClient>> {
+    AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent")
+        .await
+        .map_err(agent_error)
+}
+
+/// Tries each key [agent] offers until the server accepts one.
+async fn authenticate_with_agent<S>(
+    session: &mut client::Handle<Client>,
+    username: &str,
+    agent: &mut AgentClient<S>,
+) -> Result<bool>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let identities = agent.request_identities().await.map_err(agent_error)?;
+    if identities.is_empty() {
+        return Err(PortixError::SshAgent(
+            "no keys loaded (add one with ssh-add)".to_owned(),
+        ));
+    }
+    for identity in identities {
+        let hash_alg = session.best_supported_rsa_hash().await?.flatten();
+        let result = session
+            .authenticate_publickey_with(
+                username,
+                identity.public_key().into_owned(),
+                hash_alg,
+                agent,
+            )
+            .await
+            .map_err(|error| PortixError::SshAgent(error.to_string()))?;
+        if result.success() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn normalize_terminal_size(cols: u32, rows: u32) -> (u32, u32) {
@@ -641,8 +702,7 @@ mod key_loading_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("id_enc");
         let path_str = path.to_string_lossy().into_owned();
-        crate::api::generate_ed25519_key(path_str, String::new(), Some("right".into()))
-            .unwrap();
+        crate::api::generate_ed25519_key(path_str, String::new(), Some("right".into())).unwrap();
 
         let missing = load_private_key(&path, None).unwrap_err();
         assert!(matches!(missing, PortixError::KeyPassphraseRequired(_)));
@@ -655,3 +715,8 @@ mod key_loading_tests {
         assert!(load_private_key(&path, Some("right")).is_ok());
     }
 }
+
+// Unix only: the agent test serves the agent on a Unix socket.
+#[cfg(all(test, unix))]
+#[path = "ssh_client_e2e_tests.rs"]
+mod e2e_tests;

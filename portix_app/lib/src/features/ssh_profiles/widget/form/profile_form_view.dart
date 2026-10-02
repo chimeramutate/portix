@@ -191,7 +191,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                 else ...[
                   AppTextField(
                     controller: _credential,
-                    label: 'SSH key label / path',
+                    label: 'SSH key path (empty = ssh-agent)',
                     icon: Icons.key_rounded,
                     onChanged: (_) => _changed(context),
                   ),
