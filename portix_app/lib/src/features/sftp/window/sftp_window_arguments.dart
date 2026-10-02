@@ -80,6 +80,7 @@ class SftpWindowArguments {
           int.tryParse(map['terminalFontSize']?.toString() ?? '14') ?? 14,
       lastUsedLabel: map['lastUsedLabel']?.toString() ?? 'recently',
       osIconAsset: map['osIconAsset']?.toString() ?? '',
+      jumpProfileId: map['jumpProfileId']?.toString() ?? '',
     );
   }
 
@@ -101,6 +102,7 @@ class SftpWindowArguments {
       'terminalFontSize': profile.terminalFontSize,
       'lastUsedLabel': profile.lastUsedLabel,
       'osIconAsset': profile.osIconAsset,
+      'jumpProfileId': profile.jumpProfileId,
     };
   }
 }

@@ -14,6 +14,8 @@ class SshProfile {
     this.hasPassword = false,
     this.privateKeyPath,
     this.keyPassphrase,
+    this.jumpProfileId,
+    this.jumpHost,
     this.group,
     this.tags = const <String>[],
   });
@@ -30,6 +32,14 @@ class SshProfile {
   /// Passphrase for an encrypted [privateKeyPath]; read from the keychain at
   /// connect time, never persisted with the profile.
   final String? keyPassphrase;
+
+  /// Saved profile to tunnel through; [ConnectionManager] resolves it into
+  /// [jumpHost] (with credentials) at connect time.
+  final String? jumpProfileId;
+  final SshProfile? jumpHost;
+
+  /// Where the TCP connection actually goes: the outermost jump host.
+  SshProfile get entryPoint => jumpHost?.entryPoint ?? this;
 
   final String? group;
   final List<String> tags;
@@ -54,6 +64,9 @@ class SshProfile {
           : null,
       hasPassword: usesPassword,
       privateKeyPath: usesPassword ? null : credential,
+      jumpProfileId: profile.jumpProfileId.isEmpty
+          ? null
+          : profile.jumpProfileId,
       group: profile.group,
       tags: profile.tags,
     );
@@ -71,6 +84,7 @@ class SshProfile {
     String? privateKeyPath,
     bool clearPrivateKeyPath = false,
     String? keyPassphrase,
+    SshProfile? jumpHost,
     String? group,
     List<String>? tags,
   }) {
@@ -86,6 +100,8 @@ class SshProfile {
           ? null
           : privateKeyPath ?? this.privateKeyPath,
       keyPassphrase: keyPassphrase ?? this.keyPassphrase,
+      jumpProfileId: jumpProfileId,
+      jumpHost: jumpHost ?? this.jumpHost,
       group: group ?? this.group,
       tags: tags ?? this.tags,
     );

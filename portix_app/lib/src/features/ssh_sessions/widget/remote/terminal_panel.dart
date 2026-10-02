@@ -335,10 +335,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
             _isSessionReusable(sessionId)) {
           return;
         }
-        if (await _connectionManager.isHostReachable(
-          profile.host,
-          profile.port,
-        )) {
+        if (await _connectionManager.isSessionHostReachable(sessionId)) {
           final reconnect = _reconnectQueue.then(
             (_) => _reconnectSession(sessionId),
           );

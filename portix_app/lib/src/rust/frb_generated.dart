@@ -1161,6 +1161,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SshProfile dco_decode_box_ssh_profile(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_ssh_profile(raw);
+  }
+
+  @protected
   ConnectionStatus dco_decode_connection_status(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return ConnectionStatus.values[raw as int];
@@ -1255,6 +1261,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SshProfile? dco_decode_opt_box_ssh_profile(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_ssh_profile(raw);
+  }
+
+  @protected
   RemoteFileEntry dco_decode_remote_file_entry(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -1307,8 +1319,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SshProfile dco_decode_ssh_profile(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 8)
-      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
     return SshProfile(
       id: dco_decode_String(arr[0]),
       name: dco_decode_String(arr[1]),
@@ -1318,6 +1330,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       password: dco_decode_opt_String(arr[5]),
       privateKeyPath: dco_decode_opt_String(arr[6]),
       keyPassphrase: dco_decode_opt_String(arr[7]),
+      jumpHost: dco_decode_opt_box_ssh_profile(arr[8]),
     );
   }
 
@@ -1397,6 +1410,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_u_32(deserializer));
+  }
+
+  @protected
+  SshProfile sse_decode_box_ssh_profile(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_ssh_profile(deserializer));
   }
 
   @protected
@@ -1536,6 +1555,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SshProfile? sse_decode_opt_box_ssh_profile(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_ssh_profile(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   RemoteFileEntry sse_decode_remote_file_entry(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_name = sse_decode_String(deserializer);
@@ -1607,6 +1637,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_password = sse_decode_opt_String(deserializer);
     var var_privateKeyPath = sse_decode_opt_String(deserializer);
     var var_keyPassphrase = sse_decode_opt_String(deserializer);
+    var var_jumpHost = sse_decode_opt_box_ssh_profile(deserializer);
     return SshProfile(
       id: var_id,
       name: var_name,
@@ -1616,6 +1647,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       password: var_password,
       privateKeyPath: var_privateKeyPath,
       keyPassphrase: var_keyPassphrase,
+      jumpHost: var_jumpHost,
     );
   }
 
@@ -1708,6 +1740,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_32(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_ssh_profile(SshProfile self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_ssh_profile(self, serializer);
   }
 
   @protected
@@ -1838,6 +1876,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_ssh_profile(
+    SshProfile? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_ssh_profile(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_remote_file_entry(
     RemoteFileEntry self,
     SseSerializer serializer,
@@ -1888,6 +1939,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.password, serializer);
     sse_encode_opt_String(self.privateKeyPath, serializer);
     sse_encode_opt_String(self.keyPassphrase, serializer);
+    sse_encode_opt_box_ssh_profile(self.jumpHost, serializer);
   }
 
   @protected

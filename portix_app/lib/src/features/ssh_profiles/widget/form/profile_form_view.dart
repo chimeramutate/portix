@@ -225,6 +225,13 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                   icon: Icons.text_fields_rounded,
                   onChanged: (_) => _changed(context),
                 ),
+                _JumpHostPicker(
+                  selectedId: profile?.jumpProfileId ?? '',
+                  candidates: [
+                    for (final other in state.profiles)
+                      if (other.id != profile?.id) other,
+                  ],
+                ),
               ],
             );
 
@@ -983,6 +990,73 @@ class _ProfileColorPicker extends StatelessWidget {
               if (value == null) return;
               context.read<SshWorkspaceBloc>().add(ProfileColorChanged(value));
             },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Saved profile to connect through (`ssh -J`).
+class _JumpHostPicker extends StatelessWidget {
+  const _JumpHostPicker({required this.selectedId, required this.candidates});
+
+  final String selectedId;
+  final List<SshProfile> candidates;
+
+  @override
+  Widget build(BuildContext context) {
+    // A deleted jump profile shows as "direct" until the form is saved.
+    final selected = candidates.any((p) => p.id == selectedId)
+        ? selectedId
+        : '';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(
+              Icons.alt_route_rounded,
+              color: AppColors.muted,
+              size: 15,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Jump host (ProxyJump)',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: portixLabel(),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        SizedBox(
+          height: 40,
+          child: DropdownButtonFormField<String>(
+            key: ValueKey(selected),
+            initialValue: selected,
+            isExpanded: true,
+            dropdownColor: AppColors.surface,
+            decoration: const InputDecoration(
+              contentPadding: EdgeInsets.symmetric(horizontal: 12),
+            ),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('None (direct)')),
+              for (final candidate in candidates)
+                DropdownMenuItem(
+                  value: candidate.id,
+                  child: Text(
+                    '${candidate.name} (${candidate.address})',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (value) => context.read<SshWorkspaceBloc>().add(
+              JumpProfileChanged(value ?? ''),
+            ),
           ),
         ),
       ],

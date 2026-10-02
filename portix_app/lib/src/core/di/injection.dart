@@ -43,7 +43,15 @@ Future<void> configureDependencies() async {
     )
     ..registerLazySingleton<ConnectionBackend>(() => backend)
     ..registerLazySingleton<ConnectionManager>(
-      () => ConnectionManager(backend: sl(), secretStore: sl()),
+      () => ConnectionManager(
+        backend: sl(),
+        secretStore: sl(),
+        savedProfiles: () async =>
+            (await sl<SshProfileRepository>().getProfiles()).fold(
+              (_) => const [],
+              (profiles) => profiles,
+            ),
+      ),
       dispose: (manager) => manager.dispose(),
     )
     ..registerLazySingleton<SshProfileRepository>(

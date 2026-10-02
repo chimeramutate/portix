@@ -25,6 +25,7 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
     on<ProfileFormChanged>(_onProfileFormChanged);
     on<AuthMethodChanged>(_onAuthMethodChanged);
     on<ProfileColorChanged>(_onProfileColorChanged);
+    on<JumpProfileChanged>(_onJumpProfileChanged);
     on<ProfileTestRequested>(_onProfileTestRequested);
     on<ProfileSaved>(_onProfileSaved);
     on<ProfilesImported>(_onProfilesImported);
@@ -222,6 +223,20 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
           authMethod: event.method,
           credentialLabel: '',
         ),
+      ),
+    );
+  }
+
+  void _onJumpProfileChanged(
+    JumpProfileChanged event,
+    Emitter<SshWorkspaceState> emit,
+  ) {
+    final current = state.editingProfile;
+    if (current == null) return;
+    emit(
+      state.copyWith(
+        editingProfile: current.copyWith(jumpProfileId: event.jumpProfileId),
+        message: '',
       ),
     );
   }

@@ -1105,6 +1105,15 @@ impl SseDecode for bool {
     }
 }
 
+impl SseDecode for Box<crate::domain::profile::SshProfile> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        return Box::new(<crate::domain::profile::SshProfile>::sse_decode(
+            deserializer,
+        ));
+    }
+}
+
 impl SseDecode for crate::domain::session::ConnectionStatus {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1248,6 +1257,19 @@ impl SseDecode for Option<u32> {
     }
 }
 
+impl SseDecode for Option<Box<crate::domain::profile::SshProfile>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<Box<crate::domain::profile::SshProfile>>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for crate::domain::session::RemoteFileEntry {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1321,6 +1343,8 @@ impl SseDecode for crate::domain::profile::SshProfile {
         let mut var_password = <Option<String>>::sse_decode(deserializer);
         let mut var_privateKeyPath = <Option<String>>::sse_decode(deserializer);
         let mut var_keyPassphrase = <Option<String>>::sse_decode(deserializer);
+        let mut var_jumpHost =
+            <Option<Box<crate::domain::profile::SshProfile>>>::sse_decode(deserializer);
         return crate::domain::profile::SshProfile {
             id: var_id,
             name: var_name,
@@ -1330,6 +1354,7 @@ impl SseDecode for crate::domain::profile::SshProfile {
             password: var_password,
             private_key_path: var_privateKeyPath,
             key_passphrase: var_keyPassphrase,
+            jump_host: var_jumpHost,
         };
     }
 }
@@ -1568,6 +1593,7 @@ impl flutter_rust_bridge::IntoDart for crate::domain::profile::SshProfile {
             self.password.into_into_dart().into_dart(),
             self.private_key_path.into_into_dart().into_dart(),
             self.key_passphrase.into_into_dart().into_dart(),
+            self.jump_host.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1609,6 +1635,13 @@ impl SseEncode for bool {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         serializer.cursor.write_u8(self as _).unwrap();
+    }
+}
+
+impl SseEncode for Box<crate::domain::profile::SshProfile> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <crate::domain::profile::SshProfile>::sse_encode(*self, serializer);
     }
 }
 
@@ -1734,6 +1767,16 @@ impl SseEncode for Option<u32> {
     }
 }
 
+impl SseEncode for Option<Box<crate::domain::profile::SshProfile>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <Box<crate::domain::profile::SshProfile>>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for crate::domain::session::RemoteFileEntry {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1782,6 +1825,7 @@ impl SseEncode for crate::domain::profile::SshProfile {
         <Option<String>>::sse_encode(self.password, serializer);
         <Option<String>>::sse_encode(self.private_key_path, serializer);
         <Option<String>>::sse_encode(self.key_passphrase, serializer);
+        <Option<Box<crate::domain::profile::SshProfile>>>::sse_encode(self.jump_host, serializer);
     }
 }
 
