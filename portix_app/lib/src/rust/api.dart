@@ -152,6 +152,20 @@ Future<String> execRemoteCommand({
   command: command,
 );
 
+/// Generates an unencrypted ed25519 keypair: the private key at `path` (0600
+/// on unix) and the public key at `path.pub`. Refuses to overwrite either
+/// file. Returns the OpenSSH public key line (for `authorized_keys`).
+///
+/// Unencrypted because the connect path loads keys without a passphrase
+/// (`load_secret_key(path, None)` in ssh_client.rs).
+Future<String> generateEd25519Key({
+  required String path,
+  required String comment,
+}) => RustLib.instance.api.crateApiGenerateEd25519Key(
+  path: path,
+  comment: comment,
+);
+
 Stream<String> terminalOutputStream() =>
     RustLib.instance.api.crateApiTerminalOutputStream();
 

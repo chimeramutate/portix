@@ -7,6 +7,7 @@ import 'package:portix/src/domain/entities/ssh/index.dart';
 import '../../bloc/index.dart';
 import 'form_steps.dart';
 import 'profile_preview.dart';
+import 'ssh_key_manager_dialog.dart';
 
 class ProfileFormView extends StatefulWidget {
   const ProfileFormView({super.key});
@@ -195,8 +196,10 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                     onChanged: (_) => _changed(context),
                   ),
                   _UploadBox(
-                    onTap: () {
-                      _credential.text = 'id_prod_ed25519';
+                    onTap: () async {
+                      final path = await showSshKeyManager(context);
+                      if (path == null || !context.mounted) return;
+                      _credential.text = path;
                       _changed(context);
                     },
                   ),
@@ -1184,14 +1187,14 @@ class _UploadBoxText extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Drop SSH key here or select from vault',
+          'Select or generate an SSH key',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: portixTitle(14),
         ),
         const SizedBox(height: 4),
         Text(
-          'Supported: ed25519, rsa, pem. You can type the key label above or choose a vault key.',
+          'Pick a key from ~/.ssh, browse for a file, or generate a new ed25519 keypair.',
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: portixMuted(),
