@@ -372,12 +372,65 @@ class _TerminalPanelState extends State<TerminalPanel> {
     });
   }
 
+  // Sessions whose failure is being resolved (one failure can arrive as
+  // both a backend error and a status event).
+  final Set<String> _resolvingFailures = {};
+
+  /// Connects fail asynchronously (Rust returns the session id first), so a
+  /// refused host key or an encrypted key surfaces here as an error event.
+  /// Resolve it with the user, then reconnect the same tab.
+  Future<void> _resolveSessionFailure(String sessionId, String message) async {
+    final session = _sessionById(sessionId);
+    if (session == null ||
+        session.status == session_models.ConnectionStatus.connected ||
+        !_resolvingFailures.add(sessionId)) {
+      return;
+    }
+    try {
+      final profile = widget.profiles
+          .where((p) => p.id == session.profileId)
+          .firstOrNull;
+      if (profile == null) return;
+      final managerProfile = manager_profile.SshProfile.fromDomain(profile);
+
+      final hostKey = await resolveRefusedHostKey(
+        context,
+        _connectionManager,
+        managerProfile,
+      );
+      if (hostKey == true && mounted) return _reconnectSession(sessionId);
+      if (hostKey != null || !mounted) return;
+
+      final problem = session_models.keyPassphraseProblemOf(message);
+      if (problem == null) return;
+      _connectionManager.useSavedKeyPassphrase(profile.id);
+      final hasSaved = await _connectionManager.hasSavedPassword(profile.id);
+      if (problem == session_models.KeyPassphraseProblem.required && hasSaved) {
+        // The keychain already has it; this connect just didn't send it.
+        if (mounted) await _reconnectSession(sessionId);
+        return;
+      }
+      if (!mounted) return;
+      final passphrase = await askKeyPassphrase(
+        context,
+        keyPath: profile.credentialLabel,
+        problem: problem,
+      );
+      if (passphrase == null || !mounted) return;
+      await _connectionManager.saveProfilePassword(profile.id, passphrase);
+      if (mounted) await _reconnectSession(sessionId);
+    } finally {
+      _resolvingFailures.remove(sessionId);
+    }
+  }
+
   void _handleBackendError(session_models.ConnectionErrorEvent error) {
     final sessionId = error.sessionId;
     if (sessionId != null && _sessionById(sessionId) != null) {
       _terminalForSession(
         sessionId,
       ).write('\r\n\x1b[31m${error.message}\x1b[0m\r\n');
+      unawaited(_resolveSessionFailure(sessionId, error.message));
       return;
     }
     if (!mounted) return;
@@ -991,24 +1044,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
   ) async {
     // A refused host key gets its own dialog (trust a new host, or a blocking
     // warning for a changed key) instead of the generic failure.
-    final hostKey = await resolveRefusedHostKey(
-      context,
-      _connectionManager,
-      manager_profile.SshProfile.fromDomain(profile),
-    );
-    if (!mounted || hostKey == false) return;
-    if (hostKey == true) return _connectNewSession(profile);
-    final passphraseProblem = keyPassphraseProblemOf(error);
-    if (passphraseProblem != null) {
-      final passphrase = await askKeyPassphrase(
-        context,
-        keyPath: profile.credentialLabel,
-        problem: passphraseProblem,
-      );
-      if (passphrase == null || !mounted) return;
-      await _connectionManager.saveProfilePassword(profile.id, passphrase);
-      return _connectNewSession(profile);
-    }
     final passwordUnavailable = _extractPasswordUnavailable(error);
     if (passwordUnavailable != null) {
       return _showPasswordPromptDialog(profile);

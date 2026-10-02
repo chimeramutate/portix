@@ -49,6 +49,9 @@ class ConnectionManager extends ChangeNotifier {
   final Map<String, String> _backendToUiSessionIds = {};
   // Host/port of each UI session, so the heartbeat knows what to probe.
   final Map<String, ({String host, int port})> _sessionEndpoints = {};
+  // Key profiles whose key turned out to be encrypted; only these read the
+  // passphrase from the keychain, so unencrypted keys never touch it.
+  final Set<String> _keyPassphraseProfiles = {};
   final _terminalOutput = StreamController<TerminalOutputEvent>.broadcast();
   final _errors = StreamController<ConnectionErrorEvent>.broadcast();
   final _sessionLost = StreamController<String>.broadcast();
@@ -207,6 +210,11 @@ class ConnectionManager extends ChangeNotifier {
       return Left(AppFailure('Failed to trust host key', cause: error));
     }
   }
+
+  /// Marks [profileId]'s key as encrypted, so connects send the passphrase
+  /// saved in the keychain (the slot a password profile uses).
+  void useSavedKeyPassphrase(String profileId) =>
+      _keyPassphraseProfiles.add(profileId);
 
   /// Save a password to secure storage so future connections can use it.
   Future<void> saveProfilePassword(String profileId, String password) async {
@@ -601,10 +609,10 @@ class ConnectionManager extends ChangeNotifier {
 
   Future<SshProfile> _profileWithResolvedPassword(SshProfile profile) async {
     if ((profile.privateKeyPath ?? '').trim().isNotEmpty) {
-      // Key profiles keep an encrypted key's passphrase in the same keychain
-      // slot a password profile uses for its password.
-      if (profile.keyPassphrase != null) return profile;
-      final passphrase = await _secretStore.readPassword(profile.id);
+      if (!_keyPassphraseProfiles.contains(profile.id)) return profile;
+      final passphrase = await _secretStore
+          .readPassword(profile.id)
+          .catchError((Object _) => null);
       return (passphrase ?? '').isEmpty
           ? profile
           : profile.copyWith(keyPassphrase: passphrase);
