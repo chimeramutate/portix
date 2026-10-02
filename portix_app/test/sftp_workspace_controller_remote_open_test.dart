@@ -305,8 +305,8 @@ void main() {
 
     test('SFTP sessions are excluded from the heartbeat TCP probe', () async {
       // Use a profile with an unreachable host (127.0.0.1:1 is a closed port
-      // that refuses TCP immediately) and UPSERT it so the heartbeat can find
-      // the profile. An SSH session to this host should be marked as dead by
+      // that refuses TCP immediately). connect() records the host/port the
+      // heartbeat probes. An SSH session to this host should be marked as dead by
       // the heartbeat, but an SFTP session must remain connected because SFTP
       // sessions are excluded from the TCP probe (they ride on the Rust-managed
       // keepalive).
@@ -321,7 +321,6 @@ void main() {
       // SSH session — should be probed and killed by heartbeat.
       final sshResult = await connectionManager.connect(unreachableProfile);
       expect(sshResult, isA<Right>());
-      connectionManager.upsertProfile(unreachableProfile);
 
       // Give the deferred status event time to propagate.
       await Future.delayed(Duration.zero);
