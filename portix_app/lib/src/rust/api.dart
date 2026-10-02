@@ -166,6 +166,25 @@ Future<String> generateEd25519Key({
   comment: comment,
 );
 
+/// The host key refused during the last connect to `host:port`, so the UI can
+/// ask the user to confirm it (unknown host) or explain the risk (changed key).
+Future<HostKeyInfo?> pendingHostKey({
+  required String host,
+  required int port,
+}) => RustLib.instance.api.crateApiPendingHostKey(host: host, port: port);
+
+/// Records the refused key of an unknown host in ~/.ssh/known_hosts after the
+/// user confirmed `fingerprint`. Fails for a changed key or a stale fingerprint.
+Future<void> trustHostKey({
+  required String host,
+  required int port,
+  required String fingerprint,
+}) => RustLib.instance.api.crateApiTrustHostKey(
+  host: host,
+  port: port,
+  fingerprint: fingerprint,
+);
+
 Stream<String> terminalOutputStream() =>
     RustLib.instance.api.crateApiTerminalOutputStream();
 
@@ -174,3 +193,30 @@ Stream<String> connectionStatusStream() =>
 
 Stream<String> errorEventStream() =>
     RustLib.instance.api.crateApiErrorEventStream();
+
+/// A server host key that was refused: unknown (`changed_line` is None) or
+/// different from the key recorded on `changed_line` of known_hosts.
+class HostKeyInfo {
+  final String algorithm;
+  final String fingerprint;
+  final int? changedLine;
+
+  const HostKeyInfo({
+    required this.algorithm,
+    required this.fingerprint,
+    this.changedLine,
+  });
+
+  @override
+  int get hashCode =>
+      algorithm.hashCode ^ fingerprint.hashCode ^ changedLine.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is HostKeyInfo &&
+          runtimeType == other.runtimeType &&
+          algorithm == other.algorithm &&
+          fingerprint == other.fingerprint &&
+          changedLine == other.changedLine;
+}

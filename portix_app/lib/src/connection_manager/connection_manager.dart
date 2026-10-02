@@ -165,6 +165,25 @@ class ConnectionManager extends ChangeNotifier {
 
   Future<void> disconnect(String sessionId) => _backend.disconnect(sessionId);
 
+  /// The host key refused during the last connect to [profile], if any.
+  /// Lookup failures read as "no pending key" so the caller falls back to
+  /// its generic connection error.
+  Future<HostKeyInfo?> pendingHostKey(SshProfile profile) => _backend
+      .pendingHostKey(profile.host, profile.port)
+      .then<HostKeyInfo?>((info) => info, onError: (Object _) => null);
+
+  Future<Result<void>> trustHostKey(
+    SshProfile profile,
+    String fingerprint,
+  ) async {
+    try {
+      await _backend.trustHostKey(profile.host, profile.port, fingerprint);
+      return const Right(null);
+    } catch (error) {
+      return Left(AppFailure('Failed to trust host key', cause: error));
+    }
+  }
+
   /// Save a password to secure storage so future connections can use it.
   Future<void> saveProfilePassword(String profileId, String password) async {
     await _secretStore.savePassword(profileId, password);

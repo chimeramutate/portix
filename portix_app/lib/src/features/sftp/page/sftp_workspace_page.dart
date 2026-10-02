@@ -18,6 +18,7 @@ import 'package:portix/src/features/sftp/bloc/index.dart';
 import 'package:portix/src/features/sftp/controller/index.dart';
 import 'package:portix/src/features/sftp/window/index.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+import 'package:portix/src/features/ssh_sessions/widget/remote/host_key_dialog.dart';
 import 'package:skeletonizer/skeletonizer.dart';
 
 part '../widget/sections/sftp_dialogs_section.dart';
@@ -141,12 +142,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   @override
   void initState() {
     super.initState();
-    _controller = SftpWorkspaceController(
-      connectionManager: sl<ConnectionManager>(),
-    )..addListener(_handleControllerChanged);
-    _leftController = SftpWorkspaceController(
-      connectionManager: sl<ConnectionManager>(),
-    )..addListener(_handleControllerChanged);
+    _controller = _newController();
+    _leftController = _newController();
     _tabs.add(_SftpTab(controller: _controller, label: 'SFTP 1'));
 
     // When opened as a detached window (duplicate as new window),
@@ -179,6 +176,15 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       ..removeListener(_handleControllerChanged)
       ..dispose();
     super.dispose();
+  }
+
+  SftpWorkspaceController _newController() {
+    final connectionManager = sl<ConnectionManager>();
+    return SftpWorkspaceController(
+      connectionManager: connectionManager,
+      resolveRefusedHostKey: (profile) =>
+          resolveRefusedHostKey(context, connectionManager, profile),
+    )..addListener(_handleControllerChanged);
   }
 
   void _handleControllerChanged() {
@@ -321,9 +327,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   }
 
   void _addSftpTab() {
-    final newController = SftpWorkspaceController(
-      connectionManager: sl<ConnectionManager>(),
-    )..addListener(_handleControllerChanged);
+    final newController = _newController();
     setState(() {
       _tabs.add(
         _SftpTab(controller: newController, label: 'SFTP ${_tabs.length + 1}'),
@@ -349,9 +353,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       if (_tabs.isEmpty) {
         // When the last tab is closed, create a fresh blank tab so the
         // user always has at least one tab to work with.
-        final newController = SftpWorkspaceController(
-          connectionManager: sl<ConnectionManager>(),
-        )..addListener(_handleControllerChanged);
+        final newController = _newController();
         _tabs.add(_SftpTab(controller: newController, label: 'SFTP 1'));
       }
       if (_activeTabIndex >= _tabs.length) {
@@ -410,9 +412,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   void _duplicateSftpTab(int index) {
     if (index < 0 || index >= _tabs.length) return;
     final sourceTab = _tabs[index];
-    final newController = SftpWorkspaceController(
-      connectionManager: sl<ConnectionManager>(),
-    )..addListener(_handleControllerChanged);
+    final newController = _newController();
     setState(() {
       _tabs.insert(
         index + 1,

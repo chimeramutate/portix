@@ -2,6 +2,25 @@ enum ConnectionStatus { disconnected, connecting, connected, error }
 
 enum SessionKind { ssh, sftp }
 
+/// A server host key the backend refused during the last connect.
+class HostKeyInfo {
+  const HostKeyInfo({
+    required this.algorithm,
+    required this.fingerprint,
+    this.changedLine,
+  });
+
+  final String algorithm;
+
+  /// SHA-256 fingerprint, same format as `ssh-keygen -l`.
+  final String fingerprint;
+
+  /// known_hosts line of the previously recorded key, when the key *changed*.
+  final int? changedLine;
+
+  bool get changed => changedLine != null;
+}
+
 class TerminalSession {
   const TerminalSession({
     required this.id,

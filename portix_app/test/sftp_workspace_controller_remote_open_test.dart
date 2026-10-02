@@ -982,6 +982,12 @@ class _FakeConnectionBackend implements ConnectionBackend {
     if (sessionId == null) return;
     _status.add(ConnectionStatusEvent(sessionId: sessionId, status: status));
   }
+
+  @override
+  Future<HostKeyInfo?> pendingHostKey(String host, int port) async => null;
+
+  @override
+  Future<void> trustHostKey(String host, int port, String fingerprint) async {}
 }
 
 /// Variant of [_FakeConnectionBackend] whose directory listing can be toggled

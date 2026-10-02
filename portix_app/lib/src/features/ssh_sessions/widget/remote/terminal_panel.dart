@@ -21,6 +21,7 @@ import 'package:xterm/xterm.dart';
 import '../../controller/index.dart';
 import 'terminal_settings.dart';
 import 'terminal_shortcuts.dart';
+import 'host_key_dialog.dart';
 import 'terminal_profile_picker_dialog.dart';
 import 'terminal_snippets.dart';
 import 'terminal_status_footer.dart';
@@ -969,7 +970,16 @@ class _TerminalPanelState extends State<TerminalPanel> {
   Future<void> _showConnectionFailedDialog(
     domain.SshProfile profile,
     Object error,
-  ) {
+  ) async {
+    // A refused host key gets its own dialog (trust a new host, or a blocking
+    // warning for a changed key) instead of the generic failure.
+    final hostKey = await resolveRefusedHostKey(
+      context,
+      _connectionManager,
+      manager_profile.SshProfile.fromDomain(profile),
+    );
+    if (!mounted || hostKey == false) return;
+    if (hostKey == true) return _connectNewSession(profile);
     final passwordUnavailable = _extractPasswordUnavailable(error);
     if (passwordUnavailable != null) {
       return _showPasswordPromptDialog(profile);

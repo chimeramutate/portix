@@ -180,6 +180,21 @@ class RustBridgeBackend implements ConnectionBackend {
   void dispose() {
     RustLib.dispose();
   }
+
+  @override
+  Future<HostKeyInfo?> pendingHostKey(String host, int port) async {
+    final info = await rust_api.pendingHostKey(host: host, port: port);
+    if (info == null) return null;
+    return HostKeyInfo(
+      algorithm: info.algorithm,
+      fingerprint: info.fingerprint,
+      changedLine: info.changedLine,
+    );
+  }
+
+  @override
+  Future<void> trustHostKey(String host, int port, String fingerprint) =>
+      rust_api.trustHostKey(host: host, port: port, fingerprint: fingerprint);
 }
 
 extension on SshProfile {
