@@ -218,38 +218,13 @@ impl SessionManager {
             Err(PortixError::CommandTimeout) => Vec::new(),
             Err(error) => return Err(error),
         };
-        let suggestion = self
-            .remote_history_suggestion(session_id, input)
-            .await
-            .unwrap_or(None);
         let mut items = suggestions
             .into_iter()
             .filter_map(|wire| completion_item_from_wire(&wire))
             .take(max_items)
             .collect::<Vec<_>>();
         items.truncate(max_items);
-        Ok(TerminalCompleteResponse { suggestion, items })
-    }
-
-    async fn remote_history_suggestion(
-        &self,
-        session_id: String,
-        prefix: String,
-    ) -> Result<Option<String>> {
-        let prefix = prefix.trim_start().to_owned();
-        if prefix.len() < 3 || contains_shell_control(&prefix) || is_sensitive_autocomplete(&prefix)
-        {
-            return Ok(None);
-        }
-        let command = remote_history_suggestion_command(&prefix);
-        let output = timeout(COMPLETION_TIMEOUT, self.exec(session_id, command))
-            .await
-            .map_err(|_| PortixError::CommandTimeout)??;
-        let suffix = output.trim();
-        if suffix.is_empty() || is_sensitive_autocomplete(suffix) {
-            return Ok(None);
-        }
-        Ok(Some(suffix.to_owned()))
+        Ok(TerminalCompleteResponse { suggestion: None, items })
     }
 
     pub async fn list_remote_directory(
@@ -959,27 +934,6 @@ fi
     )
 }
 
-fn remote_history_suggestion_command(prefix: &str) -> String {
-    let quoted_prefix = shell_quote(prefix);
-    format!(
-        r#"PORTIX_HISTORY_PREFIX={quoted_prefix}
-PORTIX_HISTORY_FILE="${{HISTFILE:-$HOME/.zsh_history}}"
-if [ -r "$PORTIX_HISTORY_FILE" ]; then
-  tail -n 500 "$PORTIX_HISTORY_FILE" 2>/dev/null | awk -v p="$PORTIX_HISTORY_PREFIX" '
-    {{
-      line=$0
-      sub(/^: [0-9]+:[0-9]+;/, "", line)
-      if (index(line, p) == 1 && length(line) > length(p)) match_line=line
-    }}
-    END {{
-      if (match_line != "") print substr(match_line, length(p) + 1)
-    }}
-  ' | head -n 1
-fi
-"#
-    )
-}
-
 fn shell_quote(value: &str) -> String {
     if value.trim().is_empty() || value == "~" {
         return "\"$HOME\"".to_owned();
@@ -1061,24 +1015,6 @@ fn is_allowed_help_command(command: &str) -> bool {
         "ruby", "scp", "sh", "sftp", "socat", "ssh", "sshpass", "sudo", "su", "zsh",
     ];
     !BLOCKED.contains(&command)
-}
-
-fn is_sensitive_autocomplete(value: &str) -> bool {
-    let lower = value.to_lowercase();
-    lower.contains("password")
-        || lower.contains("passphrase")
-        || lower.contains("passwd")
-        || lower.contains("token")
-        || lower.contains("secret")
-        || lower.contains("api_key")
-        || lower.contains("apikey")
-        || lower.contains("private_key")
-        || lower.contains("sshpass")
-        || lower.contains("sudo -s")
-        || lower.contains("sudo -S")
-        || lower.contains("--password")
-        || lower.contains("--token")
-        || lower.contains("--secret")
 }
 
 fn parse_help_suggestions(
@@ -1730,30 +1666,6 @@ mod tests {
         assert!(is_allowed_help_command("git"));
         assert!(is_allowed_help_command("kubectl"));
         assert!(is_allowed_help_command("docker"));
-    }
-
-    // ── is_sensitive_autocomplete ─────────────────────────────────────────────
-
-    #[test]
-    fn sensitive_autocomplete_detects_password() {
-        assert!(is_sensitive_autocomplete("mysql --password=secret"));
-    }
-
-    #[test]
-    fn sensitive_autocomplete_detects_token() {
-        assert!(is_sensitive_autocomplete("export TOKEN=abc"));
-    }
-
-    #[test]
-    fn sensitive_autocomplete_safe_for_normal_commands() {
-        assert!(!is_sensitive_autocomplete("git status --verbose"));
-        assert!(!is_sensitive_autocomplete("ls -la /etc"));
-    }
-
-    #[test]
-    fn sensitive_autocomplete_case_insensitive() {
-        assert!(is_sensitive_autocomplete("--PASSWORD=x"));
-        assert!(is_sensitive_autocomplete("--SECRET=y"));
     }
 
     // ── HelpSuggestionRequest::parse ─────────────────────────────────────────

@@ -35,12 +35,6 @@ impl AutocompleteService {
         let max_items = request.max_items();
         let mut items = Vec::new();
 
-        let suggestion = self
-            .providers
-            .history
-            .autosuggestion(&context.prefix, &request.env)
-            .await?;
-
         if context.current_token.starts_with('$') {
             items.extend(EnvProvider::complete(
                 &context.current_token,
@@ -92,21 +86,11 @@ impl AutocompleteService {
             );
         }
 
-        if items.len() < max_items {
-            items.extend(
-                self.providers
-                    .history
-                    .complete(&context.prefix, &request.env, max_items - items.len())
-                    .await?,
-            );
-        }
-
         let items = ranked_dedup(items, max_items);
 
-        // If no history suggestion, try option inline suggestion (e.g. "-lr" → "th")
-        let final_suggestion = if suggestion.is_some() {
-            suggestion
-        } else if should_complete_option(&context) {
+        // Inline option suggestion (e.g. "-lr" → "th"). Shell history is never
+        // used: typed commands must not resurface as suggestions.
+        let final_suggestion = if should_complete_option(&context) {
             context.command.as_deref().and_then(|cmd| {
                 OptionProvider::inline_suggestion(cmd, &context.current_token)
             })
@@ -241,7 +225,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn history_autosuggestion_returns_suffix() {
+    async fn shell_history_is_never_suggested() {
         let service = AutocompleteService::new();
         let mut env = HashMap::new();
         env.insert(
@@ -254,9 +238,12 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(
-            response.suggestion,
-            Some("sh --force-with-lease origin main".to_owned())
+        assert_eq!(response.suggestion, None);
+        assert!(
+            response
+                .items
+                .iter()
+                .all(|item| item.kind != CompletionKind::History)
         );
     }
 
