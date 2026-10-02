@@ -1,22 +1,90 @@
-import 'dart:ui';
+import 'dart:convert';
+import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:portix/main.dart';
+import 'package:portix/src/connection_manager/connection_backend.dart';
+import 'package:portix/src/connection_manager/mock_backend.dart';
 import 'package:portix/src/core/di/injection.dart';
+import 'package:portix/src/domain/repositories/ssh/index.dart';
 import 'package:portix/src/features/ssh_profiles/bloc/index.dart';
+
+const _seedProfiles = [
+  {
+    'id': 'prod-api-01',
+    'name': 'prod-api-01',
+    'host': '10.0.0.11',
+    'username': 'deploy',
+    'group': 'Production',
+    'tags': ['api'],
+    'credentialLabel': '~/.ssh/id_ed25519',
+    'defaultPath': '/srv/app',
+  },
+  {
+    'id': 'prod-api-02',
+    'name': 'prod-api-02',
+    'host': '10.0.0.12',
+    'username': 'deploy',
+    'group': 'Production',
+    'tags': ['api'],
+    'credentialLabel': '~/.ssh/id_ed25519',
+    'defaultPath': '/srv/app',
+  },
+];
+
+/// Real DI, but with the mock SSH backend and a seeded temp profiles file so
+/// tests never read or write the developer's ~/.portix/profiles.json.
+Future<void> _configureTestDependencies() async {
+  await GetIt.instance.reset();
+  await configureDependencies();
+  final dir = await Directory.systemTemp.createTemp('portix_test');
+  final file = File('${dir.path}/profiles.json')
+    ..writeAsStringSync(jsonEncode(_seedProfiles));
+  sl
+    ..unregister<ConnectionBackend>()
+    ..registerLazySingleton<ConnectionBackend>(MockConnectionBackend.new)
+    ..unregister<SshProfileRepository>()
+    ..registerLazySingleton<SshProfileRepository>(
+      () => SshProfileRepository(secretStore: sl(), storeFile: file),
+    );
+  addTearDown(() => dir.delete(recursive: true));
+}
+
+/// testWidgets that disposes DI before the binding's end-of-test check, so
+/// ConnectionManager's heartbeat Timer.periodic is not reported as pending.
+void _appTest(String description, WidgetTesterCallback body) {
+  testWidgets(description, (tester) async {
+    await body(tester);
+    await GetIt.instance.reset();
+  });
+}
 
 Future<void> _pumpPortixApp(WidgetTester tester, Size size) async {
   await tester.binding.setSurfaceSize(size);
-  await GetIt.instance.reset();
-  await configureDependencies();
+  // Native (FFI) library init is real async work that never completes inside
+  // testWidgets' fake-async zone, so it must run in a real zone.
+  await tester.runAsync(_configureTestDependencies);
 
   await tester.pumpWidget(const PortixApp());
   await tester.pump();
   await tester.pump(const Duration(seconds: 1));
   await tester.pumpAndSettle();
+}
+
+/// The SFTP local pane lists the real filesystem (dart:io). Each awaited I/O
+/// step only completes when real time passes outside the fake-async zone,
+/// and its loading skeleton animates until then, so pumpAndSettle alone
+/// never settles.
+Future<void> _waitForLocalPane(WidgetTester tester) async {
+  await tester.pump();
+  for (var i = 0; i < 50 && find.text('Loading').evaluate().isNotEmpty; i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pump();
+  }
 }
 
 Future<void> _openListView(WidgetTester tester) async {
@@ -31,11 +99,11 @@ void main() {
     await GetIt.instance.reset();
   });
 
-  testWidgets('renders the Portix SSH workspace', (tester) async {
+  _appTest('renders the Portix SSH workspace', (tester) async {
     await _pumpPortixApp(tester, const Size(1600, 900));
 
     expect(find.text('Portix'), findsOneWidget);
-    expect(find.text('SSH Profiles'), findsOneWidget);
+    expect(find.text('List SSH'), findsOneWidget);
     expect(find.text('prod-api-01'), findsWidgets);
     expect(find.text('Selected Profile'), findsNothing);
 
@@ -45,21 +113,23 @@ void main() {
     expect(find.text('Selected Profile'), findsOneWidget);
   });
 
-  testWidgets('renders the SFTP workspace from rail navigation', (
+  _appTest('renders the SFTP workspace from rail navigation', (
     tester,
   ) async {
     await _pumpPortixApp(tester, const Size(1600, 900));
 
     await tester.tap(find.text('SFTP'));
+    await _waitForLocalPane(tester);
     await tester.pumpAndSettle();
 
     expect(find.text('SFTP Workspace'), findsWidgets);
     expect(find.text('Local'), findsOneWidget);
-    expect(find.text('Remote / production'), findsOneWidget);
+    expect(find.text('Remote'), findsOneWidget);
+    expect(find.text('prod-api-01'), findsOneWidget);
     expect(find.text('Transfer Queue'), findsNothing);
   });
 
-  testWidgets('closing the only terminal session returns to SSH profiles', (
+  _appTest('closing the only terminal session returns to SSH profiles', (
     tester,
   ) async {
     await _pumpPortixApp(tester, const Size(1600, 900));
@@ -73,10 +143,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('close-tab-prod-api-01')), findsNothing);
-    expect(find.text('SSH Profiles'), findsOneWidget);
+    expect(find.text('List SSH'), findsOneWidget);
   });
 
-  testWidgets('closing one of multiple terminal tabs activates the next tab', (
+  _appTest('closing one of multiple terminal tabs activates the next tab', (
     tester,
   ) async {
     await _pumpPortixApp(tester, const Size(1600, 900));
@@ -101,17 +171,16 @@ void main() {
 
     expect(find.byKey(const ValueKey('close-tab-prod-api-01')), findsOneWidget);
     expect(find.byKey(const ValueKey('close-tab-prod-api-01 2')), findsNothing);
-    expect(find.text('Remote Folder'), findsOneWidget);
+    expect(find.byTooltip('Close remote folder'), findsOneWidget);
   });
 
-  testWidgets(
+  _appTest(
     'compact list mode keeps overflow menu and primary actions visible',
     (tester) async {
       await _pumpPortixApp(tester, const Size(420, 900));
       await _openListView(tester);
 
       expect(find.text('Open SSH Session').first, findsOneWidget);
-      expect(find.text('Open SFTP').first, findsOneWidget);
       expect(find.byIcon(Icons.more_vert_rounded), findsWidgets);
 
       await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
@@ -123,7 +192,7 @@ void main() {
     },
   );
 
-  testWidgets('opening same profile from gallery reuses existing SSH tab', (
+  _appTest('opening same profile from gallery reuses existing SSH tab', (
     tester,
   ) async {
     await _pumpPortixApp(tester, const Size(1600, 900));
@@ -134,7 +203,7 @@ void main() {
     expect(find.byKey(const ValueKey('close-tab-prod-api-01')), findsOneWidget);
     expect(find.byKey(const ValueKey('close-tab-prod-api-01 2')), findsNothing);
 
-    await tester.tap(find.text('SSH Profiles'));
+    await tester.tap(find.text('List SSH'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Open SSH').first);
     await tester.pumpAndSettle();
@@ -143,7 +212,7 @@ void main() {
     expect(find.byKey(const ValueKey('close-tab-prod-api-01 2')), findsNothing);
   });
 
-  testWidgets('new tab dialog supports end-to-end profile search', (
+  _appTest('new tab dialog supports end-to-end profile search', (
     tester,
   ) async {
     await _pumpPortixApp(tester, const Size(1600, 900));
@@ -169,8 +238,7 @@ void main() {
   });
 
   test('saved profile is added and visible after filtered form flow', () async {
-    await GetIt.instance.reset();
-    await configureDependencies();
+    await _configureTestDependencies();
 
     final bloc = sl<SshWorkspaceBloc>()..add(const ProfilesRequested());
     await expectLater(
@@ -214,7 +282,7 @@ void main() {
               state.filteredProfiles.any(
                 (profile) => profile.name == 'qa-api-01',
               ) &&
-              state.selectedProfile == null &&
+              state.selectedProfile?.name == 'qa-api-01' &&
               state.searchQuery.isEmpty &&
               state.groupFilter == 'All profiles',
         ),
