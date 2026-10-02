@@ -36,6 +36,82 @@ Future<void> saveTerminalSnippets(
   await repository.saveSettings(values);
 }
 
+final _variablePattern = RegExp(r'\{\{\s*([A-Za-z_][\w-]*)\s*\}\}');
+
+/// Distinct `{{name}}` placeholders in [command], in order of appearance.
+List<String> snippetVariables(String command) => _variablePattern
+    .allMatches(command)
+    .map((match) => match.group(1)!)
+    .toSet()
+    .toList(growable: false);
+
+/// Replaces every `{{name}}` in [command] with `values[name]`.
+String fillSnippet(String command, Map<String, String> values) =>
+    command.replaceAllMapped(
+      _variablePattern,
+      (match) => values[match.group(1)] ?? match.group(0)!,
+    );
+
+/// Asks for each placeholder of [command] and returns the filled command,
+/// [command] itself when it has none, or null when cancelled.
+Future<String?> resolveSnippetVariables(
+  BuildContext context,
+  String command,
+) async {
+  final names = snippetVariables(command);
+  if (names.isEmpty) return command;
+  final controllers = {for (final name in names) name: TextEditingController()};
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: AppColors.surfaceCard,
+      title: Text('Fill in snippet', style: portixTitle(16)),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              command,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 12,
+                color: AppColors.muted,
+              ),
+            ),
+            for (final (index, name) in names.indexed) ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: controllers[name],
+                autofocus: index == 0,
+                decoration: InputDecoration(labelText: name),
+                onSubmitted: (_) => Navigator.of(context).pop(true),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Run'),
+        ),
+      ],
+    ),
+  );
+  final values = {
+    for (final entry in controllers.entries) entry.key: entry.value.text,
+  };
+  for (final controller in controllers.values) {
+    controller.dispose();
+  }
+  return confirmed == true ? fillSnippet(command, values) : null;
+}
+
 /// Searchable snippet palette. Returns the command to send, or null.
 Future<String?> showTerminalSnippetPalette(
   BuildContext context,
@@ -78,9 +154,7 @@ class _SnippetPaletteDialogState extends State<_SnippetPaletteDialog> {
     final query = _search.text.trim().toLowerCase();
     if (query.isEmpty) return _snippets;
     return _snippets
-        .where(
-          (s) => '${s.name} ${s.command}'.toLowerCase().contains(query),
-        )
+        .where((s) => '${s.name} ${s.command}'.toLowerCase().contains(query))
         .toList(growable: false);
   }
 
@@ -108,7 +182,11 @@ class _SnippetPaletteDialogState extends State<_SnippetPaletteDialog> {
             children: [
               AppTextField(controller: name, label: 'Name'),
               const SizedBox(height: 12),
-              AppTextField(controller: command, label: 'Command'),
+              AppTextField(
+                controller: command,
+                label: 'Command',
+                hint: 'e.g. tail -f {{logfile}} (asked when run)',
+              ),
             ],
           ),
         ),

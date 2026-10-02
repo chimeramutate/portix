@@ -874,9 +874,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
   Future<void> _openSnippetPalette() async {
     if (_snippetPaletteOpen) return;
     _snippetPaletteOpen = true;
-    final String? command;
+    String? command;
     try {
       command = await showTerminalSnippetPalette(context, _settingsRepository);
+      if (command != null && mounted) {
+        command = await resolveSnippetVariables(context, command);
+      }
     } finally {
       _snippetPaletteOpen = false;
     }
