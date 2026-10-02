@@ -292,9 +292,10 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
             isBusy: false,
             profiles: profiles,
             selectedId: saved.id,
+            // Clear every filter so the just-saved profile is always visible.
             searchQuery: '',
-            groupFilter: state.groupFilter,
-            tagFilter: state.tagFilter,
+            groupFilter: 'All profiles',
+            tagFilter: '',
             editingProfile: null,
             clearEditingProfile: true,
             activeView: WorkspaceView.gallery,
