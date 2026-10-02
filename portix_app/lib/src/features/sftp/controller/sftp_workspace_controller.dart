@@ -424,7 +424,7 @@ class SftpWorkspaceController extends ChangeNotifier {
 
     _connectInProgress = true;
     final result = await _connectionManager.connectSftp(
-      _toManagerProfile(profile),
+      manager_profile.SshProfile.fromDomain(profile),
     );
     _connectInProgress = false;
     if (result.isLeft) {
@@ -1447,30 +1447,6 @@ class SftpWorkspaceController extends ChangeNotifier {
       type: entry.isDirectory ? 'dir' : 'file',
       folder: entry.isDirectory,
       chmodMode: _remoteChmodModes[entry.path],
-    );
-  }
-
-  manager_profile.SshProfile _toManagerProfile(domain.SshProfile profile) {
-    final credential = profile.credentialLabel.trim();
-    final password =
-        profile.authMethod == domain.AuthMethod.password &&
-            credential.isNotEmpty &&
-            credential != 'Saved password'
-        ? credential
-        : null;
-    return manager_profile.SshProfile(
-      id: profile.id,
-      name: profile.name,
-      host: profile.host,
-      port: profile.port,
-      username: profile.username,
-      password: password,
-      hasPassword: profile.authMethod == domain.AuthMethod.password,
-      privateKeyPath: profile.authMethod == domain.AuthMethod.sshKey
-          ? credential
-          : null,
-      group: profile.group,
-      tags: profile.tags,
     );
   }
 }

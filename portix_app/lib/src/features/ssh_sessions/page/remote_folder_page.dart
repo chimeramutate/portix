@@ -13,6 +13,7 @@ import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
+import 'package:portix/src/core/utils/text_diff.dart';
 import 'package:portix/src/data/services/sftp/local_editor_service.dart';
 import 'package:portix/src/domain/entities/sftp/index.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart'
@@ -230,7 +231,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
                             onClose: _closeRemotePanel,
                           ),
                           const SizedBox(height: 10),
-                          _PathCrumb(
+                          PathBar(
                             path: _remotePath,
                             onSubmit: (path) => _loadRemoteDirectory(path),
                             onListPath: _activeSessionId != null
@@ -244,7 +245,13 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
                                         .listRemoteDirectory(sessionId, dir);
                                     return result.fold(
                                       (_) => const [],
-                                      (entries) => entries,
+                                      (entries) => [
+                                        for (final entry in entries)
+                                          (
+                                            name: entry.name,
+                                            isDirectory: entry.isDirectory,
+                                          ),
+                                      ],
                                     );
                                   }
                                 : null,
@@ -1035,7 +1042,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     if (!mounted) return;
     final currentText = await _readFileTextIfPossible(localPath);
     if (!mounted) return;
-    final diff = _buildTextDiff(originalText, currentText);
+    final diff = buildTextDiff(originalText, currentText);
     final shouldRewrite = await showDialog<bool>(
       context: context,
       builder: (context) =>
@@ -1054,72 +1061,6 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     } catch (_) {
       return null;
     }
-  }
-
-  _TextDiff _buildTextDiff(String? before, String? after) {
-    if (before == null || after == null) {
-      return const _TextDiff(
-        added: 0,
-        removed: 0,
-        lines: ['Binary or non-text diff preview is not available.'],
-      );
-    }
-    final beforeLines = before.split('\n');
-    final afterLines = after.split('\n');
-    final maxLength = beforeLines.length > afterLines.length
-        ? beforeLines.length
-        : afterLines.length;
-    var added = 0;
-    var removed = 0;
-    final preview = <String>[];
-
-    // Build unified diff with context lines around changes.
-    const contextSize = 2;
-    final changedIndices = <int>{};
-    for (var index = 0; index < maxLength; index += 1) {
-      final oldLine = index < beforeLines.length ? beforeLines[index] : null;
-      final newLine = index < afterLines.length ? afterLines[index] : null;
-      if (oldLine != newLine) changedIndices.add(index);
-    }
-
-    final visibleIndices = <int>{};
-    for (final changed in changedIndices) {
-      for (var offset = -contextSize; offset <= contextSize; offset += 1) {
-        final idx = changed + offset;
-        if (idx >= 0 && idx < maxLength) visibleIndices.add(idx);
-      }
-    }
-
-    final sorted = visibleIndices.toList()..sort();
-    var lastIndex = -2;
-    for (final index in sorted) {
-      if (preview.length >= 120) break;
-      if (index > lastIndex + 1 && preview.isNotEmpty) {
-        preview.add('  ···');
-      }
-      lastIndex = index;
-      final oldLine = index < beforeLines.length ? beforeLines[index] : null;
-      final newLine = index < afterLines.length ? afterLines[index] : null;
-      if (oldLine == newLine) {
-        // Context (unchanged) line.
-        preview.add('  ${oldLine ?? ''}');
-      } else {
-        if (oldLine != null) {
-          removed += 1;
-          preview.add('- $oldLine');
-        }
-        if (newLine != null) {
-          added += 1;
-          preview.add('+ $newLine');
-        }
-      }
-    }
-
-    return _TextDiff(
-      added: added,
-      removed: removed,
-      lines: preview.isEmpty ? const ['No textual diff detected.'] : preview,
-    );
   }
 
   Future<void> _rewriteEditedRemoteFile(

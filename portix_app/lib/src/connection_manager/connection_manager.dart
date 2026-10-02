@@ -254,17 +254,12 @@ class ConnectionManager extends ChangeNotifier {
     }
   }
 
-  Future<Result<void>> sendTerminalInput(String sessionId, String data) async {
-    try {
-      await _backend.sendTerminalInput(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        data,
+  Future<Result<void>> sendTerminalInput(String sessionId, String data) =>
+      _call(
+        sessionId,
+        'Failed to send terminal input',
+        (id) => _backend.sendTerminalInput(id, data),
       );
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to send terminal input', cause: error));
-    }
-  }
 
   Future<Result<void>> executeRemoteCommand(
     String sessionId,
@@ -272,8 +267,7 @@ class ConnectionManager extends ChangeNotifier {
     String action = 'remote command',
     Duration timeout = const Duration(seconds: 20),
   }) async {
-    final backendSessionId =
-        _backendSessionIdForUiSession(sessionId) ?? sessionId;
+    final backendSessionId = _backendId(sessionId);
 
     Result<void> result;
     try {
@@ -340,65 +334,37 @@ class ConnectionManager extends ChangeNotifier {
     );
   }
 
-  Future<Result<void>> resizeTerminal(
-    String sessionId,
-    int cols,
-    int rows,
-  ) async {
-    try {
-      await _backend.resizeTerminal(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        cols,
-        rows,
+  Future<Result<void>> resizeTerminal(String sessionId, int cols, int rows) =>
+      _call(
+        sessionId,
+        'Failed to resize terminal',
+        (id) => _backend.resizeTerminal(id, cols, rows),
       );
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to resize terminal', cause: error));
-    }
-  }
 
-  Future<Result<RemoteSystemSnapshot>> remoteSystemSnapshot(
-    String sessionId,
-  ) async {
-    try {
-      final snapshot = await _backend.remoteSystemSnapshot(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
+  Future<Result<RemoteSystemSnapshot>> remoteSystemSnapshot(String sessionId) =>
+      _call(
+        sessionId,
+        'Failed to load remote telemetry',
+        _backend.remoteSystemSnapshot,
       );
-      return Right(snapshot);
-    } catch (error) {
-      return Left(AppFailure('Failed to load remote telemetry', cause: error));
-    }
-  }
 
   Future<Result<String>> resolveRemoteDirectory(
     String sessionId,
     String path,
-  ) async {
-    try {
-      final resolvedPath = await _backend.resolveRemoteDirectory(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-      );
-      return Right(resolvedPath);
-    } catch (error) {
-      return Left(AppFailure('Failed to resolve remote folder', cause: error));
-    }
-  }
+  ) => _call(
+    sessionId,
+    'Failed to resolve remote folder',
+    (id) => _backend.resolveRemoteDirectory(id, path),
+  );
 
   Future<Result<List<RemoteFileEntry>>> listRemoteDirectory(
     String sessionId,
     String path,
-  ) async {
-    try {
-      final entries = await _backend.listRemoteDirectory(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-      );
-      return Right(entries);
-    } catch (error) {
-      return Left(AppFailure('Failed to load remote folder', cause: error));
-    }
-  }
+  ) => _call(
+    sessionId,
+    'Failed to load remote folder',
+    (id) => _backend.listRemoteDirectory(id, path),
+  );
 
   Future<Result<List<RemoteFileEntry>>> findRemoteEntries(
     String sessionId,
@@ -408,123 +374,92 @@ class ConnectionManager extends ChangeNotifier {
   }) async {
     final normalizedQuery = query.trim().toLowerCase();
     if (normalizedQuery.isEmpty) return const Right([]);
-    try {
-      final entries = await _findRemoteEntriesBreadthFirst(
-        backendSessionId: _backendSessionIdForUiSession(sessionId) ?? sessionId,
+    return _call(
+      sessionId,
+      'Failed to find remote entries',
+      (id) => _findRemoteEntriesBreadthFirst(
+        backendSessionId: id,
         basePath: basePath,
         query: normalizedQuery,
         maxResults: maxResults,
-      );
-      return Right(entries);
-    } catch (error) {
-      return Left(AppFailure('Failed to find remote entries', cause: error));
-    }
+      ),
+    );
   }
 
-  Future<Result<String>> readRemoteFile(String sessionId, String path) async {
-    try {
-      final content = await _backend.readRemoteFile(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-      );
-      return Right(content);
-    } catch (error) {
-      return Left(AppFailure('Failed to read remote file', cause: error));
-    }
-  }
+  Future<Result<String>> readRemoteFile(String sessionId, String path) => _call(
+    sessionId,
+    'Failed to read remote file',
+    (id) => _backend.readRemoteFile(id, path),
+  );
 
   Future<Result<List<int>>> readRemoteFileBytes(
     String sessionId,
     String path,
-  ) async {
-    try {
-      final content = await _backend.readRemoteFileBytes(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-      );
-      return Right(content);
-    } catch (error) {
-      return Left(AppFailure('Failed to download remote file', cause: error));
-    }
-  }
+  ) => _call(
+    sessionId,
+    'Failed to download remote file',
+    (id) => _backend.readRemoteFileBytes(id, path),
+  );
 
   Future<Result<void>> writeRemoteFile(
     String sessionId,
     String path,
     String content,
-  ) async {
-    try {
-      await _backend.writeRemoteFile(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-        content,
-      );
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to save remote file', cause: error));
-    }
-  }
+  ) => _call(
+    sessionId,
+    'Failed to save remote file',
+    (id) => _backend.writeRemoteFile(id, path, content),
+  );
 
   Future<Result<void>> uploadRemoteFile(
     String sessionId,
     String path,
     List<int> data,
-  ) async {
-    try {
-      await _backend.uploadRemoteFile(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-        data,
-      );
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to upload file', cause: error));
-    }
-  }
+  ) => _call(
+    sessionId,
+    'Failed to upload file',
+    (id) => _backend.uploadRemoteFile(id, path, data),
+  );
 
-  Future<Result<void>> createRemoteDirectory(
-    String sessionId,
-    String path,
-  ) async {
-    try {
-      await _backend.createRemoteDirectory(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
+  Future<Result<void>> createRemoteDirectory(String sessionId, String path) =>
+      _call(
+        sessionId,
+        'Failed to create remote folder',
+        (id) => _backend.createRemoteDirectory(id, path),
       );
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to create remote folder', cause: error));
-    }
-  }
 
-  Future<Result<void>> createRemoteFile(String sessionId, String path) async {
-    try {
-      await _backend.createRemoteFile(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-      );
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to create remote file', cause: error));
-    }
-  }
+  Future<Result<void>> createRemoteFile(String sessionId, String path) => _call(
+    sessionId,
+    'Failed to create remote file',
+    (id) => _backend.createRemoteFile(id, path),
+  );
 
   Future<Result<void>> chmodRemotePath(
     String sessionId,
     String path,
     String mode,
+  ) => _call(
+    sessionId,
+    'Failed to update permissions',
+    (id) => _backend.chmodRemotePath(id, path, mode),
+  );
+
+  /// Runs [operation] against the backend session behind UI [sessionId],
+  /// turning any thrown error into a [Left] carrying [failureMessage].
+  Future<Result<T>> _call<T>(
+    String sessionId,
+    String failureMessage,
+    Future<T> Function(String backendSessionId) operation,
   ) async {
     try {
-      await _backend.chmodRemotePath(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-        mode,
-      );
-      return const Right(null);
+      return Right(await operation(_backendId(sessionId)));
     } catch (error) {
-      return Left(AppFailure('Failed to update permissions', cause: error));
+      return Left(AppFailure(failureMessage, cause: error));
     }
   }
+
+  String _backendId(String uiSessionId) =>
+      _backendSessionIdForUiSession(uiSessionId) ?? uiSessionId;
 
   /// Flutter-side heartbeat: probe every connected *SSH terminal* session by
   /// attempting a lightweight TCP socket connect to the SSH port. This runs
@@ -608,7 +543,7 @@ class ConnectionManager extends ChangeNotifier {
     _sessionLost.add(uiSessionId);
 
     // Tell Rust to clean up the session too (best-effort).
-    final backendId = _backendSessionIdForUiSession(uiSessionId) ?? uiSessionId;
+    final backendId = _backendId(uiSessionId);
     unawaited(_backend.disconnect(backendId).catchError((_) {}));
   }
 
