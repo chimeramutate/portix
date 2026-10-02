@@ -11,6 +11,8 @@ pub struct SshProfile {
     pub username: String,
     pub password: Option<String>,
     pub private_key_path: Option<String>,
+    /// Passphrase for an encrypted private key.
+    pub key_passphrase: Option<String>,
 }
 
 impl SshProfile {
@@ -67,6 +69,7 @@ mod tests {
             username: "deploy".to_owned(),
             password: Some("secret".to_owned()),
             private_key_path: None,
+            key_passphrase: None,
         }
     }
 

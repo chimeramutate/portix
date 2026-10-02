@@ -180,9 +180,13 @@ pub async fn exec_remote_command(session_id: String, command: String) -> anyhow:
 /// on unix) and the public key at `path.pub`. Refuses to overwrite either
 /// file. Returns the OpenSSH public key line (for `authorized_keys`).
 ///
-/// Unencrypted because the connect path loads keys without a passphrase
-/// (`load_secret_key(path, None)` in ssh_client.rs).
-pub fn generate_ed25519_key(path: String, comment: String) -> anyhow::Result<String> {
+/// A non-empty `passphrase` encrypts the private key (the connect path asks
+/// for it when needed).
+pub fn generate_ed25519_key(
+    path: String,
+    comment: String,
+    passphrase: Option<String>,
+) -> anyhow::Result<String> {
     use russh::keys::ssh_key::{Algorithm, LineEnding, PrivateKey};
 
     let private_path = std::path::PathBuf::from(&path);
@@ -197,6 +201,9 @@ pub fn generate_ed25519_key(path: String, comment: String) -> anyhow::Result<Str
     }
     let mut key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519)?;
     key.set_comment(comment);
+    if let Some(passphrase) = passphrase.filter(|p| !p.is_empty()) {
+        key = key.encrypt(&mut rand::rng(), passphrase)?;
+    }
     key.write_openssh_file(&private_path, LineEnding::LF)?;
     let public_key = key.public_key().to_openssh()?;
     std::fs::write(&public_path, format!("{public_key}\n"))?;
@@ -329,7 +336,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("id_test").to_string_lossy().into_owned();
 
-        let public_key = generate_ed25519_key(path.clone(), "me@portix".into()).unwrap();
+        let public_key = generate_ed25519_key(path.clone(), "me@portix".into(), None).unwrap();
         assert!(public_key.starts_with("ssh-ed25519 "));
         assert!(public_key.ends_with(" me@portix"));
         assert!(russh::keys::load_secret_key(&path, None).is_ok());
@@ -344,6 +351,19 @@ mod tests {
             assert_eq!(mode & 0o777, 0o600);
         }
 
-        assert!(generate_ed25519_key(path, String::new()).is_err());
+        assert!(generate_ed25519_key(path, String::new(), None).is_err());
+    }
+
+    #[test]
+    fn generate_ed25519_key_with_passphrase_needs_it_to_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("id_enc").to_string_lossy().into_owned();
+        generate_ed25519_key(path.clone(), String::new(), Some("s3cret".into())).unwrap();
+
+        assert!(matches!(
+            russh::keys::load_secret_key(&path, None),
+            Err(russh::keys::Error::KeyIsEncrypted)
+        ));
+        assert!(russh::keys::load_secret_key(&path, Some("s3cret")).is_ok());
     }
 }

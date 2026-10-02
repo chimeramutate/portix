@@ -416,11 +416,16 @@ fn wire__crate__api__generate_ed25519_key_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_path = <String>::sse_decode(&mut deserializer);
             let api_comment = <String>::sse_decode(&mut deserializer);
+            let api_passphrase = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
-                        let output_ok = crate::api::generate_ed25519_key(api_path, api_comment)?;
+                        let output_ok = crate::api::generate_ed25519_key(
+                            api_path,
+                            api_comment,
+                            api_passphrase,
+                        )?;
                         std::result::Result::Ok(output_ok)
                     })(),
                 )
@@ -1315,6 +1320,7 @@ impl SseDecode for crate::domain::profile::SshProfile {
         let mut var_username = <String>::sse_decode(deserializer);
         let mut var_password = <Option<String>>::sse_decode(deserializer);
         let mut var_privateKeyPath = <Option<String>>::sse_decode(deserializer);
+        let mut var_keyPassphrase = <Option<String>>::sse_decode(deserializer);
         return crate::domain::profile::SshProfile {
             id: var_id,
             name: var_name,
@@ -1323,6 +1329,7 @@ impl SseDecode for crate::domain::profile::SshProfile {
             username: var_username,
             password: var_password,
             private_key_path: var_privateKeyPath,
+            key_passphrase: var_keyPassphrase,
         };
     }
 }
@@ -1560,6 +1567,7 @@ impl flutter_rust_bridge::IntoDart for crate::domain::profile::SshProfile {
             self.username.into_into_dart().into_dart(),
             self.password.into_into_dart().into_dart(),
             self.private_key_path.into_into_dart().into_dart(),
+            self.key_passphrase.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1773,6 +1781,7 @@ impl SseEncode for crate::domain::profile::SshProfile {
         <String>::sse_encode(self.username, serializer);
         <Option<String>>::sse_encode(self.password, serializer);
         <Option<String>>::sse_encode(self.private_key_path, serializer);
+        <Option<String>>::sse_encode(self.key_passphrase, serializer);
     }
 }
 

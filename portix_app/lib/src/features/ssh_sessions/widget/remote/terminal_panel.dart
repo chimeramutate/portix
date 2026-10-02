@@ -22,6 +22,7 @@ import '../../controller/index.dart';
 import 'terminal_settings.dart';
 import 'terminal_shortcuts.dart';
 import 'host_key_dialog.dart';
+import 'key_passphrase_dialog.dart';
 import 'port_forward_dialog.dart';
 import 'terminal_profile_picker_dialog.dart';
 import 'terminal_snippets.dart';
@@ -997,6 +998,17 @@ class _TerminalPanelState extends State<TerminalPanel> {
     );
     if (!mounted || hostKey == false) return;
     if (hostKey == true) return _connectNewSession(profile);
+    final passphraseProblem = keyPassphraseProblemOf(error);
+    if (passphraseProblem != null) {
+      final passphrase = await askKeyPassphrase(
+        context,
+        keyPath: profile.credentialLabel,
+        problem: passphraseProblem,
+      );
+      if (passphrase == null || !mounted) return;
+      await _connectionManager.saveProfilePassword(profile.id, passphrase);
+      return _connectNewSession(profile);
+    }
     final passwordUnavailable = _extractPasswordUnavailable(error);
     if (passwordUnavailable != null) {
       return _showPasswordPromptDialog(profile);

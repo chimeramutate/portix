@@ -128,6 +128,7 @@ mod tests {
             username: "u".into(),
             password: Some("x".into()),
             private_key_path: None,
+            key_passphrase: None,
         }
     }
 

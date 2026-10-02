@@ -15,6 +15,9 @@ class SshProfile {
   final String? password;
   final String? privateKeyPath;
 
+  /// Passphrase for an encrypted private key.
+  final String? keyPassphrase;
+
   const SshProfile({
     required this.id,
     required this.name,
@@ -23,6 +26,7 @@ class SshProfile {
     required this.username,
     this.password,
     this.privateKeyPath,
+    this.keyPassphrase,
   });
 
   @override
@@ -33,7 +37,8 @@ class SshProfile {
       port.hashCode ^
       username.hashCode ^
       password.hashCode ^
-      privateKeyPath.hashCode;
+      privateKeyPath.hashCode ^
+      keyPassphrase.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -46,5 +51,6 @@ class SshProfile {
           port == other.port &&
           username == other.username &&
           password == other.password &&
-          privateKeyPath == other.privateKeyPath;
+          privateKeyPath == other.privateKeyPath &&
+          keyPassphrase == other.keyPassphrase;
 }

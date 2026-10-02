@@ -13,6 +13,7 @@ class SshProfile {
     this.password,
     this.hasPassword = false,
     this.privateKeyPath,
+    this.keyPassphrase,
     this.group,
     this.tags = const <String>[],
   });
@@ -25,6 +26,10 @@ class SshProfile {
   final String? password;
   final bool hasPassword;
   final String? privateKeyPath;
+
+  /// Passphrase for an encrypted [privateKeyPath]; read from the keychain at
+  /// connect time, never persisted with the profile.
+  final String? keyPassphrase;
 
   final String? group;
   final List<String> tags;
@@ -65,6 +70,7 @@ class SshProfile {
     bool clearPassword = false,
     String? privateKeyPath,
     bool clearPrivateKeyPath = false,
+    String? keyPassphrase,
     String? group,
     List<String>? tags,
   }) {
@@ -79,6 +85,7 @@ class SshProfile {
       privateKeyPath: clearPrivateKeyPath
           ? null
           : privateKeyPath ?? this.privateKeyPath,
+      keyPassphrase: keyPassphrase ?? this.keyPassphrase,
       group: group ?? this.group,
       tags: tags ?? this.tags,
     );

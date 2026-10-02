@@ -121,6 +121,7 @@ abstract class RustLibApi extends BaseApi {
   Future<String> crateApiGenerateEd25519Key({
     required String path,
     required String comment,
+    String? passphrase,
   });
 
   Future<void> crateApiInitApp();
@@ -516,6 +517,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Future<String> crateApiGenerateEd25519Key({
     required String path,
     required String comment,
+    String? passphrase,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -523,6 +525,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(path, serializer);
           sse_encode_String(comment, serializer);
+          sse_encode_opt_String(passphrase, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -535,7 +538,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiGenerateEd25519KeyConstMeta,
-        argValues: [path, comment],
+        argValues: [path, comment, passphrase],
         apiImpl: this,
       ),
     );
@@ -543,7 +546,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiGenerateEd25519KeyConstMeta => const TaskConstMeta(
     debugName: "generate_ed25519_key",
-    argNames: ["path", "comment"],
+    argNames: ["path", "comment", "passphrase"],
   );
 
   @override
@@ -1304,8 +1307,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SshProfile dco_decode_ssh_profile(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return SshProfile(
       id: dco_decode_String(arr[0]),
       name: dco_decode_String(arr[1]),
@@ -1314,6 +1317,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       username: dco_decode_String(arr[4]),
       password: dco_decode_opt_String(arr[5]),
       privateKeyPath: dco_decode_opt_String(arr[6]),
+      keyPassphrase: dco_decode_opt_String(arr[7]),
     );
   }
 
@@ -1602,6 +1606,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_username = sse_decode_String(deserializer);
     var var_password = sse_decode_opt_String(deserializer);
     var var_privateKeyPath = sse_decode_opt_String(deserializer);
+    var var_keyPassphrase = sse_decode_opt_String(deserializer);
     return SshProfile(
       id: var_id,
       name: var_name,
@@ -1610,6 +1615,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       username: var_username,
       password: var_password,
       privateKeyPath: var_privateKeyPath,
+      keyPassphrase: var_keyPassphrase,
     );
   }
 
@@ -1881,6 +1887,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.username, serializer);
     sse_encode_opt_String(self.password, serializer);
     sse_encode_opt_String(self.privateKeyPath, serializer);
+    sse_encode_opt_String(self.keyPassphrase, serializer);
   }
 
   @protected

@@ -1,9 +1,12 @@
 use std::sync::Arc;
 use std::time::Duration;
-use std::{env, path::PathBuf};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 
 use russh::client;
-use russh::keys::{PrivateKeyWithHashAlg, load_secret_key};
+use russh::keys::{PrivateKey, PrivateKeyWithHashAlg, load_secret_key};
 use russh::{ChannelMsg, Disconnect};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::time::{interval, timeout};
@@ -380,10 +383,15 @@ pub(crate) async fn connect_and_authenticate_profile(
     .await
     .map_err(|_| PortixError::ConnectionTimeout)??;
 
+    let key_pair = match profile.private_key_path.as_deref() {
+        Some(path) => Some(load_private_key(
+            &expand_user_path(path),
+            profile.key_passphrase.as_deref(),
+        )?),
+        None => None,
+    };
     let auth_result = timeout(AUTH_TIMEOUT, async {
-        if let Some(path) = profile.private_key_path.as_deref() {
-            let key_path = expand_user_path(path);
-            let key_pair = load_secret_key(key_path, None)?;
+        if let Some(key_pair) = key_pair {
             session
                 .authenticate_publickey(
                     profile.username.clone(),
@@ -415,6 +423,19 @@ fn normalize_terminal_size(cols: u32, rows: u32) -> (u32, u32) {
         cols.clamp(MIN_COLS, MAX_COLS),
         rows.clamp(MIN_ROWS, MAX_ROWS),
     )
+}
+
+/// Loads a private key, turning "encrypted" and "wrong passphrase" into
+/// errors the UI can act on (ask for the passphrase, or ask again).
+fn load_private_key(path: &Path, passphrase: Option<&str>) -> Result<PrivateKey> {
+    let shown = path.display().to_string();
+    load_secret_key(path, passphrase).map_err(|error| match error {
+        russh::keys::Error::KeyIsEncrypted => PortixError::KeyPassphraseRequired(shown),
+        russh::keys::Error::SshKey(russh::keys::ssh_key::Error::Crypto) => {
+            PortixError::KeyPassphraseIncorrect(shown)
+        }
+        other => PortixError::Russh(other.into()),
+    })
 }
 
 /// Returns the user's home directory, supporting both Unix (HOME) and Windows (USERPROFILE).
@@ -582,5 +603,30 @@ mod tests {
                 env::remove_var("HOME");
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod key_loading_tests {
+    use super::*;
+
+    // Portix's Flutter app matches these messages (key_passphrase_dialog.dart).
+    #[test]
+    fn encrypted_key_errors_carry_the_messages_the_ui_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("id_enc");
+        let path_str = path.to_string_lossy().into_owned();
+        crate::api::generate_ed25519_key(path_str, String::new(), Some("right".into()))
+            .unwrap();
+
+        let missing = load_private_key(&path, None).unwrap_err();
+        assert!(matches!(missing, PortixError::KeyPassphraseRequired(_)));
+        assert!(missing.to_string().contains("a passphrase is required"));
+
+        let wrong = load_private_key(&path, Some("wrong")).unwrap_err();
+        assert!(matches!(wrong, PortixError::KeyPassphraseIncorrect(_)));
+        assert!(wrong.to_string().contains("wrong passphrase for SSH key"));
+
+        assert!(load_private_key(&path, Some("right")).is_ok());
     }
 }
