@@ -51,6 +51,7 @@ class ConnectionManager extends ChangeNotifier {
   final Map<String, Object> _secretWriteErrors = {};
   final _terminalOutput = StreamController<TerminalOutputEvent>.broadcast();
   final _errors = StreamController<ConnectionErrorEvent>.broadcast();
+  final _sessionLost = StreamController<String>.broadcast();
 
   final List<SshProfile> _profiles = [];
 
@@ -64,6 +65,28 @@ class ConnectionManager extends ChangeNotifier {
       _terminalOutput.stream;
 
   Stream<ConnectionErrorEvent> get errorEventStream => _errors.stream;
+
+  /// UI session ids whose established connection dropped unexpectedly
+  /// (heartbeat failure or backend error/disconnect while connected).
+  /// User-initiated closes never fire this — [closeSession] removes the
+  /// session before the backend reports the disconnect.
+  Stream<String> get sessionLostStream => _sessionLost.stream;
+
+  /// Lightweight TCP probe, used to wait for the network to come back
+  /// (e.g. after wake from sleep) before spending a full SSH handshake.
+  Future<bool> isHostReachable(String host, int port) async {
+    try {
+      final socket = await Socket.connect(
+        host,
+        port,
+        timeout: _heartbeatTimeout,
+      );
+      await socket.close();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   Result<void> upsertProfile(SshProfile profile) {
     try {
@@ -635,6 +658,7 @@ class ConnectionManager extends ChangeNotifier {
     _sessions[index] = session.copyWith(status: ConnectionStatus.error);
     notifyListeners();
     _errors.add(ConnectionErrorEvent(message: message, sessionId: uiSessionId));
+    _sessionLost.add(uiSessionId);
 
     // Tell Rust to clean up the session too (best-effort).
     final backendId = _backendSessionIdForUiSession(uiSessionId) ?? uiSessionId;
@@ -664,6 +688,9 @@ class ConnectionManager extends ChangeNotifier {
           ? event.message!
           : 'Connection lost. Check your network or VPN, then reconnect.';
       _errors.add(ConnectionErrorEvent(message: message, sessionId: sessionId));
+      if (previous.status == ConnectionStatus.connected) {
+        _sessionLost.add(sessionId);
+      }
     }
   }
 
@@ -904,6 +931,7 @@ class ConnectionManager extends ChangeNotifier {
     _errorSub.cancel();
     _terminalOutput.close();
     _errors.close();
+    _sessionLost.close();
     if (_backend case MockConnectionBackend mock) {
       mock.dispose();
     }

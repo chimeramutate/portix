@@ -22,6 +22,7 @@ import 'package:xterm/xterm.dart';
 import '../../controller/index.dart';
 import 'terminal_settings.dart';
 import 'terminal_shortcuts.dart';
+import 'terminal_snippets.dart';
 import 'terminal_status_footer.dart';
 import 'terminal_workspace_view.dart';
 
@@ -80,6 +81,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
   bool _broadcastTyping = false;
   StreamSubscription<session_models.TerminalOutputEvent>? _outputSubscription;
   StreamSubscription<session_models.ConnectionErrorEvent>? _errorSubscription;
+  StreamSubscription<String>? _sessionLostSubscription;
+  // Sessions with an auto-reconnect loop running.
+  final Set<String> _autoReconnecting = {};
+  // Serializes reconnects: after wake from sleep every tab drops at once, and
+  // _reconnectSession shares _workspaceReconnectInProgress across calls.
+  Future<void> _reconnectQueue = Future.value();
   Timer? _telemetryTimer;
   final Map<String, Timer> _suggestionHelpTimers = {};
   final Map<String, String> _suggestionHelpRequests = {};
@@ -124,9 +131,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _idleTerminal = _terminalUi.idleTerminal;
     _listenToConnectionManager();
     _connectionManager.addListener(_handleConnectionManagerChanged);
+    HardwareKeyboard.instance.addHandler(_handleSnippetShortcut);
     _bootTerminal();
     _tabScrollController.addListener(_handleTabScrollChanged);
-    unawaited(_loadTerminalSuggestionSetting());
+    // Suggestion UI (inline ghost + menu) was removed in 9da016f. Keeping the
+    // controller on made suggestions invisible but live: ↑/↓ were swallowed
+    // to move a hidden selection and Tab inserted text nobody could see, so
+    // keystrokes now always reach the shell untouched.
+    _suggestions.setEnabled(false);
     unawaited(_loadTerminalClipboardSettings());
     unawaited(_loadTerminalAppearanceSettings());
     WidgetsBinding.instance.addPostFrameCallback((_) => _connect());
@@ -150,6 +162,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   @override
   void dispose() {
     _connectionManager.removeListener(_handleConnectionManagerChanged);
+    HardwareKeyboard.instance.removeHandler(_handleSnippetShortcut);
     _tabScrollController.dispose();
 
     // Jangan close session di sini.
@@ -161,6 +174,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
     unawaited(_outputSubscription?.cancel());
     unawaited(_errorSubscription?.cancel());
+    unawaited(_sessionLostSubscription?.cancel());
     _telemetryTimer?.cancel();
     for (final timer in _suggestionHelpTimers.values) {
       timer.cancel();
@@ -171,19 +185,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _terminalUi.dispose();
 
     super.dispose();
-  }
-
-  Future<void> _loadTerminalSuggestionSetting() async {
-    try {
-      final values = await _settingsRepository.loadSettings();
-      final setting = values[TerminalSuggestionController.settingsKey]
-          ?.toUpperCase();
-      final enabled = setting != 'OFF';
-      if (!mounted) return;
-      setState(() => _suggestions.setEnabled(enabled));
-    } catch (_) {
-      _suggestions.setEnabled(true);
-    }
   }
 
   Future<void> _loadTerminalClipboardSettings() async {
@@ -334,6 +335,59 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _errorSubscription ??= _connectionManager.errorEventStream.listen(
       _handleBackendError,
     );
+    _sessionLostSubscription ??= _connectionManager.sessionLostStream.listen(
+      (sessionId) => unawaited(_autoReconnect(sessionId)),
+    );
+  }
+
+  static const List<int> _autoReconnectDelaysSeconds = [2, 4, 8, 16, 30, 30];
+
+  /// Retries a dropped session with exponential backoff. Each attempt first
+  /// waits for the host's SSH port to accept TCP again, then runs the normal
+  /// [_reconnectSession] once. Aborts as soon as the user closes or
+  /// reconnects the tab themselves.
+  Future<void> _autoReconnect(String sessionId) async {
+    if (!_autoReconnecting.add(sessionId)) return;
+    try {
+      final profileId = _sessionById(sessionId)?.profileId;
+      final profile = widget.profiles
+          .where((profile) => profile.id == profileId)
+          .firstOrNull;
+      if (profile == null) return;
+      final total = _autoReconnectDelaysSeconds.length;
+      for (var attempt = 0; attempt < total; attempt++) {
+        final delay = _autoReconnectDelaysSeconds[attempt];
+        _terminalForSession(sessionId).write(
+          '\r\n\x1b[33m[portix] Reconnecting in ${delay}s '
+          '(attempt ${attempt + 1}/$total)...\x1b[0m\r\n',
+        );
+        await Future<void>.delayed(Duration(seconds: delay));
+        if (!mounted ||
+            _sessionById(sessionId) == null ||
+            _isSessionReusable(sessionId)) {
+          return;
+        }
+        if (await _connectionManager.isHostReachable(
+          profile.host,
+          profile.port,
+        )) {
+          final reconnect = _reconnectQueue.then(
+            (_) => _reconnectSession(sessionId),
+          );
+          _reconnectQueue = reconnect.catchError((_) {});
+          await reconnect;
+          return;
+        }
+      }
+      if (mounted && _sessionById(sessionId) != null) {
+        _terminalForSession(sessionId).write(
+          '\r\n\x1b[31m[portix] Host still unreachable. '
+          'Use Reconnect to try again.\x1b[0m\r\n',
+        );
+      }
+    } finally {
+      _autoReconnecting.remove(sessionId);
+    }
   }
 
   /// Registers a scroll-listener on the session's [ScrollController] that
@@ -705,15 +759,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
     // terminal behaviour (the prompt lives at the bottom).
     _scrollTerminalToBottom(targetSessionId);
 
-    // Enter should only accept full command history suggestions. Remote/path
-    // completions can match ordinary names, so accepting them on Enter makes
-    // normal command execution surprisingly mutate the input.
-    if (data == '\r' &&
-        _suggestions.canAcceptSuggestionWithEnter(targetSessionId) &&
-        _acceptSuggestion(targetSessionId)) {
-      return;
-    }
-
     if (_isAcceptSuggestionInput(data) && _acceptSuggestion(targetSessionId)) {
       return;
     }
@@ -919,9 +964,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
         session_models.TerminalCompletionCandidate(
           replacement: '$input$suggestion',
           display: '$input$suggestion',
-          description: 'history',
-          source: 'history',
-          kind: session_models.CompletionKind.history,
+          description: 'option',
+          source: 'option',
+          kind: session_models.CompletionKind.command,
         ),
       );
     }
@@ -1242,6 +1287,40 @@ class _TerminalPanelState extends State<TerminalPanel> {
         );
       }
     });
+  }
+
+  /// Ctrl/Cmd+Shift+P. Registered on [HardwareKeyboard] because xterm's
+  /// focused view would otherwise consume it and send ^P to the shell.
+  bool _handleSnippetShortcut(KeyEvent event) {
+    final keyboard = HardwareKeyboard.instance;
+    if (!mounted ||
+        !widget.keyboardEnabled ||
+        _snippetPaletteOpen ||
+        event is! KeyDownEvent ||
+        event.logicalKey != LogicalKeyboardKey.keyP ||
+        !keyboard.isShiftPressed ||
+        !(keyboard.isControlPressed || keyboard.isMetaPressed)) {
+      return false;
+    }
+    unawaited(_openSnippetPalette());
+    return true;
+  }
+
+  bool _snippetPaletteOpen = false;
+
+  Future<void> _openSnippetPalette() async {
+    if (_snippetPaletteOpen) return;
+    _snippetPaletteOpen = true;
+    final String? command;
+    try {
+      command = await showTerminalSnippetPalette(context, _settingsRepository);
+    } finally {
+      _snippetPaletteOpen = false;
+    }
+    final sessionId = _sessionId;
+    if (command == null || sessionId == null) return;
+    if (!_isSessionConnected(sessionId)) return;
+    unawaited(_connectionManager.sendTerminalInput(sessionId, '$command\r'));
   }
 
   Future<void> _openNewSessionForCurrentProfile() async {
@@ -2353,7 +2432,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
           previous.activeView != current.activeView &&
           current.activeView == WorkspaceView.remoteFolder,
       listener: (context, state) {
-        unawaited(_loadTerminalSuggestionSetting());
         unawaited(_loadTerminalClipboardSettings());
         unawaited(_loadTerminalAppearanceSettings());
       },
@@ -2493,6 +2571,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                           icon: Icons.add_rounded,
                                           onPressed:
                                               _openNewSessionForCurrentProfile,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Tooltip(
+                                          message: 'Snippets (Ctrl+Shift+P)',
+                                          child: AppIconButton(
+                                            icon: Icons.bolt_rounded,
+                                            onPressed: _openSnippetPalette,
+                                          ),
                                         ),
                                         if (showDropHint) ...[
                                           const SizedBox(width: 8),
