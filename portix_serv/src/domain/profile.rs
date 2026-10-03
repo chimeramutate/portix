@@ -11,6 +11,10 @@ pub struct SshProfile {
     pub username: String,
     pub password: Option<String>,
     pub private_key_path: Option<String>,
+    /// Passphrase for an encrypted private key.
+    pub key_passphrase: Option<String>,
+    /// Server to tunnel through first (`ssh -J`); may itself have a jump host.
+    pub jump_host: Option<Box<SshProfile>>,
 }
 
 impl SshProfile {
@@ -37,19 +41,7 @@ impl SshProfile {
                 "port must be greater than 0".to_owned(),
             ));
         }
-
-        let has_password = self
-            .password
-            .as_deref()
-            .is_some_and(|password| !password.is_empty());
-        let has_key = self
-            .private_key_path
-            .as_deref()
-            .is_some_and(|path| !path.trim().is_empty());
-        if !has_password && !has_key {
-            return Err(PortixError::MissingAuthentication);
-        }
-
+        // No password and no key path means ssh-agent authentication.
         Ok(())
     }
 }
@@ -67,6 +59,8 @@ mod tests {
             username: "deploy".to_owned(),
             password: Some("secret".to_owned()),
             private_key_path: None,
+            key_passphrase: None,
+            jump_host: None,
         }
     }
 
@@ -84,10 +78,10 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_missing_authentication() {
+    fn validate_allows_agent_auth_without_password_or_key() {
         let mut profile = valid_profile();
         profile.password = None;
 
-        assert!(profile.validate().is_err());
+        assert!(profile.validate().is_ok());
     }
 }

@@ -3,29 +3,42 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:portix/src/connection_manager/connection_backend.dart';
-import 'package:portix/src/connection_manager/connection_manager.dart';
-import 'package:portix/src/connection_manager/session_models.dart';
-import 'package:portix/src/connection_manager/ssh_profile.dart';
+import 'package:portix/src/connection_manager/profile_credentials.dart';
 import 'package:portix/src/connection_manager/profile_secret_store.dart';
-import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/data/services/sftp/local_editor_service.dart';
 import 'package:portix/src/data/services/sftp/local_file_browser.dart';
 import 'package:portix/src/domain/entities/sftp/sftp_file_entry.dart';
 import 'package:portix/src/domain/entities/ssh/ssh_profile.dart' as domain;
 import 'package:portix/src/features/sftp/controller/sftp_workspace_controller.dart';
+import 'package:portix/src/sftp_client/sftp_manager.dart';
+import 'package:portix/src/sftp_client/sftp_models.dart';
+
+import 'support/fake_sftp_backend.dart';
+
+SftpManager _manager(FakeSftpBackend backend, {ProfileSecretStore? store}) =>
+    SftpManager(
+      backend: backend,
+      credentials: ProfileCredentials(
+        secretStore: store ?? _MemorySecretStore(),
+      ),
+      livenessInterval: const Duration(milliseconds: 5),
+    );
+
+/// Lets the manager's liveness check notice a dropped connection.
+Future<void> _waitForLivenessCheck() =>
+    Future<void>.delayed(const Duration(milliseconds: 30));
 
 void main() {
   group('SftpWorkspaceController remote open regression', () {
-    late _FakeConnectionBackend backend;
-    late ConnectionManager connectionManager;
+    late FakeSftpBackend backend;
+    late SftpManager sftpManager;
     late SftpWorkspaceController controller;
 
     setUp(() {
-      backend = _FakeConnectionBackend();
-      connectionManager = ConnectionManager(backend: backend);
+      backend = FakeSftpBackend();
+      sftpManager = _manager(backend);
       controller = SftpWorkspaceController(
-        connectionManager: connectionManager,
+        sftpManager: sftpManager,
         localFileBrowser: _FakeLocalFileBrowser(),
         localEditorService: _FakeLocalEditorService(),
       );
@@ -33,8 +46,7 @@ void main() {
 
     tearDown(() {
       controller.dispose();
-      connectionManager.dispose();
-      backend.dispose();
+      sftpManager.dispose();
     });
 
     test(
@@ -70,7 +82,7 @@ void main() {
         expect(secondContent, '{"version":2}');
         expect(await File(firstLocalPath).exists(), isTrue);
         expect(await File(secondLocalPath).exists(), isTrue);
-        expect(backend.readRemoteFileBytesCalls, [remotePath, remotePath]);
+        expect(backend.downloadCalls, [remotePath, remotePath]);
       },
     );
 
@@ -112,10 +124,7 @@ void main() {
           pathBasename(firstLocalPath),
           isNot(pathBasename(secondLocalPath)),
         );
-        expect(backend.readRemoteFileBytesCalls, [
-          firstRemotePath,
-          secondRemotePath,
-        ]);
+        expect(backend.downloadCalls, [firstRemotePath, secondRemotePath]);
         expect(controller.hasRemoteSession, isTrue);
       },
     );
@@ -140,7 +149,7 @@ void main() {
         );
 
         expect(resolvedPath, localFile.path);
-        expect(backend.readRemoteFileBytesCalls, isEmpty);
+        expect(backend.downloadCalls, isEmpty);
         await localFile.delete();
       },
     );
@@ -163,7 +172,7 @@ void main() {
           ),
         ),
       );
-      expect(backend.readRemoteFileBytesCalls, isEmpty);
+      expect(backend.downloadCalls, isEmpty);
     });
 
     test(
@@ -189,7 +198,7 @@ void main() {
             ),
           ),
         );
-        expect(backend.readRemoteFileBytesCalls, [remotePath]);
+        expect(backend.downloadCalls, [remotePath]);
       },
     );
 
@@ -252,14 +261,10 @@ void main() {
         await _attachRemoteProfile(controller);
         expect(controller.shouldNotifyDisconnection, isFalse);
 
-        // Simulate the Rust backend losing the SSH/SFTP channel (keepalive
-        // timeout or remote-side disconnect).
-        backend.emitStatus(
-          controller.remoteSessionId,
-          ConnectionStatus.disconnected,
-        );
-        await Future.delayed(Duration.zero);
-        await Future.delayed(Duration.zero);
+        // Simulate the SFTP connection dropping (keepalive timeout or
+        // remote-side disconnect).
+        backend.drop(controller.remoteSessionId);
+        await _waitForLivenessCheck();
 
         expect(controller.shouldNotifyDisconnection, isTrue);
       },
@@ -269,12 +274,8 @@ void main() {
       'clearDisconnectionNotification resets the flag so reconnect is clean',
       () async {
         await _attachRemoteProfile(controller);
-        backend.emitStatus(
-          controller.remoteSessionId,
-          ConnectionStatus.disconnected,
-        );
-        await Future.delayed(Duration.zero);
-        await Future.delayed(Duration.zero);
+        backend.drop(controller.remoteSessionId);
+        await _waitForLivenessCheck();
         expect(controller.shouldNotifyDisconnection, isTrue);
 
         controller.clearDisconnectionNotification();
@@ -282,103 +283,24 @@ void main() {
       },
     );
 
-    test(
-      'clearRemoteSession removes the SFTP session from the connection manager',
-      () async {
-        await _attachRemoteProfile(controller);
-        final sessionId = controller.remoteSessionId;
-        expect(sessionId, isNotNull);
-        expect(connectionManager.sessions, isNotEmpty);
+    test('clearRemoteSession closes the SFTP session', () async {
+      await _attachRemoteProfile(controller);
+      final sessionId = controller.remoteSessionId;
+      expect(sessionId, isNotNull);
+      expect(sftpManager.session(sessionId!), isNotNull);
 
-        await controller.clearRemoteSession();
-        await Future.delayed(Duration.zero);
-        await Future.delayed(Duration.zero);
+      await controller.clearRemoteSession();
 
-        expect(
-          connectionManager.sessions.any((s) => s.id == sessionId),
-          isFalse,
-        );
-        expect(controller.hasRemoteSession, isFalse);
-        expect(controller.shouldNotifyDisconnection, isFalse);
-      },
-    );
-
-    test('SFTP sessions are excluded from the heartbeat TCP probe', () async {
-      // Use a profile with an unreachable host (127.0.0.1:1 is a closed port
-      // that refuses TCP immediately) and UPSERT it so the heartbeat can find
-      // the profile. An SSH session to this host should be marked as dead by
-      // the heartbeat, but an SFTP session must remain connected because SFTP
-      // sessions are excluded from the TCP probe (they ride on the Rust-managed
-      // keepalive).
-      final unreachableProfile = SshProfile(
-        id: 'p-unreachable',
-        name: 'unreachable',
-        host: '127.0.0.1',
-        port: 1,
-        username: 'deploy',
-      );
-
-      // SSH session — should be probed and killed by heartbeat.
-      final sshResult = await connectionManager.connect(unreachableProfile);
-      expect(sshResult, isA<Right>());
-      connectionManager.upsertProfile(unreachableProfile);
-
-      // Give the deferred status event time to propagate.
-      await Future.delayed(Duration.zero);
-      await Future.delayed(Duration.zero);
-
-      final sshSession = connectionManager.sessions
-          .where((s) => s.kind == SessionKind.ssh)
-          .first;
-      expect(sshSession.status, equals(ConnectionStatus.connected));
-
-      // SFTP session — should NOT be probed by heartbeat.
-      final sftpResult = await connectionManager.connectSftp(
-        unreachableProfile,
-      );
-      expect(sftpResult, isA<Right>());
-
-      await Future.delayed(Duration.zero);
-      await Future.delayed(Duration.zero);
-
-      final sftpSession = connectionManager.sessions
-          .where((s) => s.kind == SessionKind.sftp)
-          .first;
-      expect(sftpSession.status, equals(ConnectionStatus.connected));
-
-      // Wait for the heartbeat timer to fire (5 s interval) and the TCP
-      // probe to complete. With 127.0.0.1:1 the connection-refused error is
-      // immediate, so 7 s is plenty.
-      await Future.delayed(const Duration(seconds: 7));
-
-      // SSH session: the heartbeat TCP probe to the unreachable host should
-      // have killed it — _markSessionDead first sets it to "error" and then
-      // calls _backend.disconnect(), which the fake backend turns into a
-      // "disconnected" status event. The net final status is therefore
-      // "disconnected" (no longer connected).
-      final updatedSshSession = connectionManager.sessions.firstWhere(
-        (s) => s.id == sshSession.id,
-      );
-      expect(
-        updatedSshSession.status,
-        isNot(equals(ConnectionStatus.connected)),
-        reason: 'SSH session should have been killed by the heartbeat probe',
-      );
-
-      // SFTP session: must remain connected because SFTP sessions are
-      // excluded from the heartbeat candidate list.
-      final updatedSftpSession = connectionManager.sessions.firstWhere(
-        (s) => s.id == sftpSession.id,
-      );
-      expect(updatedSftpSession.status, equals(ConnectionStatus.connected));
+      expect(sftpManager.session(sessionId), isNull);
+      expect(await backend.isAlive(sessionId), isFalse);
+      expect(controller.hasRemoteSession, isFalse);
+      expect(controller.shouldNotifyDisconnection, isFalse);
     });
 
     test('per-tab tabId is unique and defaults to a non-empty UUID', () async {
-      final firstController = SftpWorkspaceController(
-        connectionManager: connectionManager,
-      );
+      final firstController = SftpWorkspaceController(sftpManager: sftpManager);
       final secondController = SftpWorkspaceController(
-        connectionManager: connectionManager,
+        sftpManager: sftpManager,
       );
 
       expect(firstController.tabId, isNotEmpty);
@@ -389,92 +311,88 @@ void main() {
       secondController.dispose();
     });
 
-    test(
-      'two controllers on one ConnectionManager are session-isolated',
-      () async {
-        // Proves the foundation for an independent left-pane SSH session:
-        // two controllers sharing the singleton ConnectionManager must each
-        // own a distinct SFTP session that the other cannot clear or corrupt.
-        // The controller's connection-change listener (`_handleConnectionManager
-        // Changed`) early-returns when its own `_remoteSessionId` is null and
-        // otherwise only inspects the session matching that id, so a status
-        // event on A's session never bleeds into B (and vice-versa).
-        final controllerA = SftpWorkspaceController(
-          connectionManager: connectionManager,
-          localFileBrowser: _FakeLocalFileBrowser(),
-          localEditorService: _FakeLocalEditorService(),
-        );
-        final controllerB = SftpWorkspaceController(
-          connectionManager: connectionManager,
-          localFileBrowser: _FakeLocalFileBrowser(),
-          localEditorService: _FakeLocalEditorService(),
-        );
+    test('two controllers on one SftpManager are session-isolated', () async {
+      // Proves the foundation for an independent left-pane SSH session:
+      // two controllers sharing the singleton SftpManager must each own a
+      // distinct SFTP session that the other cannot clear or corrupt. The
+      // controller's change listener (`_handleSftpChanged`) early-returns
+      // when its own `_remoteSessionId` is null and otherwise only inspects
+      // the session matching that id.
+      final controllerA = SftpWorkspaceController(
+        sftpManager: sftpManager,
+        localFileBrowser: _FakeLocalFileBrowser(),
+        localEditorService: _FakeLocalEditorService(),
+      );
+      final controllerB = SftpWorkspaceController(
+        sftpManager: sftpManager,
+        localFileBrowser: _FakeLocalFileBrowser(),
+        localEditorService: _FakeLocalEditorService(),
+      );
 
-        final profileA = domain.SshProfile(
-          id: 'profile-a',
-          name: 'Host A',
-          host: 'a.example.com',
-          port: 22,
-          username: 'deploy',
-          group: 'Production',
-          tags: [],
-          authMethod: domain.AuthMethod.sshKey,
-          credentialLabel: '~/.ssh/id_ed25519',
-          defaultPath: '/srv/app',
-          status: domain.ConnectionStatus.online,
-          color: domain.ProfileColor.blue,
-        );
-        final profileB = domain.SshProfile(
-          id: 'profile-b',
-          name: 'Host B',
-          host: 'b.example.com',
-          port: 22,
-          username: 'deploy',
-          group: 'Production',
-          tags: [],
-          authMethod: domain.AuthMethod.sshKey,
-          credentialLabel: '~/.ssh/id_ed25519',
-          defaultPath: '/opt/data',
-          status: domain.ConnectionStatus.online,
-          color: domain.ProfileColor.green,
-        );
+      final profileA = domain.SshProfile(
+        id: 'profile-a',
+        name: 'Host A',
+        host: 'a.example.com',
+        port: 22,
+        username: 'deploy',
+        group: 'Production',
+        tags: [],
+        authMethod: domain.AuthMethod.sshKey,
+        credentialLabel: '~/.ssh/id_ed25519',
+        defaultPath: '/srv/app',
+        status: domain.ConnectionStatus.online,
+        color: domain.ProfileColor.blue,
+      );
+      final profileB = domain.SshProfile(
+        id: 'profile-b',
+        name: 'Host B',
+        host: 'b.example.com',
+        port: 22,
+        username: 'deploy',
+        group: 'Production',
+        tags: [],
+        authMethod: domain.AuthMethod.sshKey,
+        credentialLabel: '~/.ssh/id_ed25519',
+        defaultPath: '/opt/data',
+        status: domain.ConnectionStatus.online,
+        color: domain.ProfileColor.green,
+      );
 
-        await controllerA.attachRemoteProfile(profileA, '/srv/app');
-        await controllerB.attachRemoteProfile(profileB, '/opt/data');
-        await Future.delayed(Duration.zero);
-        await Future.delayed(Duration.zero);
+      await controllerA.attachRemoteProfile(profileA, '/srv/app');
+      await controllerB.attachRemoteProfile(profileB, '/opt/data');
+      await Future.delayed(Duration.zero);
+      await Future.delayed(Duration.zero);
 
-        // Both sessions are live and distinct.
-        expect(controllerA.hasRemoteSession, isTrue);
-        expect(controllerB.hasRemoteSession, isTrue);
-        expect(controllerA.remoteSessionId, isNotNull);
-        expect(controllerB.remoteSessionId, isNotNull);
-        expect(
-          controllerA.remoteSessionId,
-          isNot(equals(controllerB.remoteSessionId)),
-        );
-        expect(controllerA.remotePath, '/srv/app');
-        expect(controllerB.remotePath, '/opt/data');
-        expect(controllerA.isRemoteConnected, isTrue);
-        expect(controllerB.isRemoteConnected, isTrue);
+      // Both sessions are live and distinct.
+      expect(controllerA.hasRemoteSession, isTrue);
+      expect(controllerB.hasRemoteSession, isTrue);
+      expect(controllerA.remoteSessionId, isNotNull);
+      expect(controllerB.remoteSessionId, isNotNull);
+      expect(
+        controllerA.remoteSessionId,
+        isNot(equals(controllerB.remoteSessionId)),
+      );
+      expect(controllerA.remotePath, '/srv/app');
+      expect(controllerB.remotePath, '/opt/data');
+      expect(controllerA.isRemoteConnected, isTrue);
+      expect(controllerB.isRemoteConnected, isTrue);
 
-        // Clearing A leaves B fully intact (true session isolation).
-        await controllerA.clearRemoteSession();
-        await Future.delayed(Duration.zero);
-        await Future.delayed(Duration.zero);
+      // Clearing A leaves B fully intact (true session isolation).
+      await controllerA.clearRemoteSession();
+      await Future.delayed(Duration.zero);
+      await Future.delayed(Duration.zero);
 
-        expect(controllerA.hasRemoteSession, isFalse);
-        expect(controllerA.remoteSessionId, isNull);
-        expect(controllerA.shouldNotifyDisconnection, isFalse);
-        expect(controllerB.hasRemoteSession, isTrue);
-        expect(controllerB.isRemoteConnected, isTrue);
-        expect(controllerB.remoteSessionId, isNotNull);
-        expect(controllerB.remotePath, '/opt/data');
+      expect(controllerA.hasRemoteSession, isFalse);
+      expect(controllerA.remoteSessionId, isNull);
+      expect(controllerA.shouldNotifyDisconnection, isFalse);
+      expect(controllerB.hasRemoteSession, isTrue);
+      expect(controllerB.isRemoteConnected, isTrue);
+      expect(controllerB.remoteSessionId, isNotNull);
+      expect(controllerB.remotePath, '/opt/data');
 
-        controllerA.dispose();
-        controllerB.dispose();
-      },
-    );
+      controllerA.dispose();
+      controllerB.dispose();
+    });
 
     test('beginLoading sets step-indicator state so file-pane controls are '
         'hidden during the pre-connection frame', () {
@@ -555,7 +473,7 @@ void main() {
       // old loading guard (`_loadingRemote && _remoteStatus == 'connecting'`)
       // and returned early — the reconnect silently never started.
       // With the _connectInProgress-based guard, beginLoading's pre-emptive
-      // 'connecting' state does NOT block, and connectSftp proceeds.
+      // 'connecting' state does NOT block, and the connect proceeds.
       const reconnectProfile = domain.SshProfile(
         id: 'profile-1',
         name: 'Remote host',
@@ -571,11 +489,6 @@ void main() {
         color: domain.ProfileColor.blue,
       );
       await controller.reconnect(reconnectProfile);
-      // Flush the deferred status event that _FakeConnectionBackend.connect
-      // schedules via Future.delayed so it doesn't fire during tearDown
-      // (which closes the stream) and trip a "sent after close" error.
-      await Future.delayed(Duration.zero);
-      await Future.delayed(Duration.zero);
 
       expect(controller.remoteStatus, equals('connected'));
       expect(controller.loadingRemote, isFalse);
@@ -589,14 +502,14 @@ void main() {
     test('left-pane profile re-select returns to the file table instead of '
         'staying on the profile gate / step indicator', () async {
       // Mirrors the page's independent LEFT controller — a second controller
-      // on the shared ConnectionManager. Re-selecting the already-connected
+      // on the shared SftpManager. Re-selecting the already-connected
       // profile must reset showConnectionSteps (via the session-reuse path in
       // attachRemoteProfile) so the pane's `_leftConnecting` is false, the
       // profile-gate `contentOverride` is dropped, and the file table renders
       // — never a stuck step indicator or gate. Saved-password resolution is
       // a no-op for this sshKey profile, so no password prompt is involved.
       final leftController = SftpWorkspaceController(
-        connectionManager: connectionManager,
+        sftpManager: sftpManager,
         localFileBrowser: _FakeLocalFileBrowser(),
         localEditorService: _FakeLocalEditorService(),
       );
@@ -646,10 +559,9 @@ void main() {
   });
 
   test('notifyListeners after dispose is a no-op (tab/page close safety)', () {
-    final backend = _FakeConnectionBackend();
-    final connectionManager = ConnectionManager(backend: backend);
+    final sftpManager = _manager(FakeSftpBackend());
     final controller = SftpWorkspaceController(
-      connectionManager: connectionManager,
+      sftpManager: sftpManager,
       localFileBrowser: _FakeLocalFileBrowser(),
       localEditorService: _FakeLocalEditorService(),
     );
@@ -659,16 +571,15 @@ void main() {
     // "used after being disposed" ChangeNotifier assert.
     controller.dispose();
     expect(() => controller.notifyListeners(), returnsNormally);
-    connectionManager.dispose();
-    backend.dispose();
+    sftpManager.dispose();
   });
 
   test('failed remote listing keeps the SFTP session alive but sets an error, '
       'so the file-pane controls are hidden', () async {
     final failingBackend = _ListingFailBackend();
-    final manager = ConnectionManager(backend: failingBackend);
+    final manager = _manager(failingBackend);
     final ctrl = SftpWorkspaceController(
-      connectionManager: manager,
+      sftpManager: manager,
       localFileBrowser: _FakeLocalFileBrowser(),
       localEditorService: _FakeLocalEditorService(),
     );
@@ -703,19 +614,14 @@ void main() {
 
     ctrl.dispose();
     manager.dispose();
-    failingBackend.dispose();
   });
 
   test('submitPassword suppresses a racing duplicate attachRemoteProfile so '
       'the password form is not re-shown', () async {
-    final secretStore = _ControllableSecretStore();
-    final backend = _FakeConnectionBackend();
-    final manager = ConnectionManager(
-      backend: backend,
-      secretStore: secretStore,
-    );
+    final secretStore = _MemorySecretStore();
+    final manager = _manager(FakeSftpBackend(), store: secretStore);
     final ctrl = SftpWorkspaceController(
-      connectionManager: manager,
+      sftpManager: manager,
       localFileBrowser: _FakeLocalFileBrowser(),
       localEditorService: _FakeLocalEditorService(),
     );
@@ -795,7 +701,6 @@ void main() {
 
     ctrl.dispose();
     manager.dispose();
-    backend.dispose();
   });
 }
 
@@ -815,10 +720,6 @@ Future<String> _attachRemoteProfile(SftpWorkspaceController controller) async {
     color: domain.ProfileColor.blue,
   );
   await controller.attachRemoteProfile(profile, '/');
-  // Flush the event/microtask queue so the backend's deferred status event
-  // is processed by ConnectionManager and the session reaches "connected".
-  await Future.delayed(Duration.zero);
-  await Future.delayed(Duration.zero);
   expect(controller.hasRemoteSession, isTrue);
   expect(controller.remotePath, '/');
   return controller.remotePath;
@@ -838,184 +739,15 @@ class _FakeLocalFileBrowser extends LocalFileBrowser {
   }
 }
 
-class _FakeConnectionBackend implements ConnectionBackend {
-  final _output = StreamController<TerminalOutputEvent>.broadcast();
-  final _status = StreamController<ConnectionStatusEvent>.broadcast();
-  final _errors = StreamController<ConnectionErrorEvent>.broadcast();
-  final Map<String, List<int>> remoteFiles = {};
-  final List<String> readRemoteFileBytesCalls = [];
-  final Set<String> readErrorPaths = {};
-  int _sessionCounter = 0;
-
-  @override
-  Stream<TerminalOutputEvent> get terminalOutputStream => _output.stream;
-
-  @override
-  Stream<ConnectionStatusEvent> get connectionStatusStream => _status.stream;
-
-  @override
-  Stream<ConnectionErrorEvent> get errorEventStream => _errors.stream;
-
-  @override
-  Future<String> connect(SshProfile profile) async {
-    _sessionCounter += 1;
-    final sessionId = 'fake-sftp-$_sessionCounter';
-    // Defer status delivery so the ConnectionManager has already registered
-    // the backend-to-UI session ID mapping before _handleStatus runs.
-    // Without this, _handleStatus can't resolve the backend session ID to a
-    // UI session ID and the "connected" status is silently dropped.
-    Future.delayed(Duration.zero, () {
-      _status.add(
-        ConnectionStatusEvent(
-          sessionId: sessionId,
-          status: ConnectionStatus.connected,
-        ),
-      );
-    });
-    return sessionId;
-  }
-
-  @override
-  Future<void> disconnect(String sessionId) async {
-    _status.add(
-      ConnectionStatusEvent(
-        sessionId: sessionId,
-        status: ConnectionStatus.disconnected,
-      ),
-    );
-  }
-
-  @override
-  Future<List<int>> readRemoteFileBytes(String sessionId, String path) async {
-    readRemoteFileBytesCalls.add(path);
-    if (readErrorPaths.contains(path)) {
-      throw StateError('simulated remote read failure for $path');
-    }
-    final data = remoteFiles[path];
-    if (data == null) {
-      throw StateError('remote file missing: $path');
-    }
-    return List<int>.from(data);
-  }
-
-  @override
-  Future<String> resolveRemoteDirectory(String sessionId, String path) async =>
-      path;
-
-  @override
-  Future<List<RemoteFileEntry>> listRemoteDirectory(
-    String sessionId,
-    String path,
-  ) async => const [];
-
-  @override
-  Future<String> readRemoteFile(String sessionId, String path) async {
-    final bytes = await readRemoteFileBytes(sessionId, path);
-    return utf8.decode(bytes);
-  }
-
-  @override
-  Future<void> writeRemoteFile(
-    String sessionId,
-    String path,
-    String content,
-  ) async {
-    remoteFiles[path] = utf8.encode(content);
-  }
-
-  @override
-  Future<void> uploadRemoteFile(
-    String sessionId,
-    String path,
-    List<int> data,
-  ) async {
-    remoteFiles[path] = List<int>.from(data);
-  }
-
-  @override
-  Future<void> createRemoteDirectory(String sessionId, String path) async {}
-
-  @override
-  Future<void> createRemoteFile(String sessionId, String path) async {
-    remoteFiles.putIfAbsent(path, () => <int>[]);
-  }
-
-  @override
-  Future<void> chmodRemotePath(
-    String sessionId,
-    String path,
-    String mode,
-  ) async {}
-
-  @override
-  Future<void> resizeTerminal(String sessionId, int cols, int rows) async {}
-
-  @override
-  Future<RemoteSystemSnapshot> remoteSystemSnapshot(String sessionId) async {
-    return const RemoteSystemSnapshot(
-      os: 'linux',
-      hostname: 'fake-host',
-      uptime: '1 day',
-      memory: '1 GB',
-      disk: '10 GB',
-    );
-  }
-
-  @override
-  Future<List<String>> commandHelpSuggestions(
-    String sessionId,
-    String input,
-  ) async => const [];
-
-  @override
-  Future<List<TerminalCompletionCandidate>> commandCompletions(
-    String sessionId,
-    String input,
-  ) async => const [];
-
-  @override
-  Future<TerminalCompleteResponse> terminalComplete(
-    TerminalCompleteRequest request,
-  ) async {
-    return const TerminalCompleteResponse(items: []);
-  }
-
-  @override
-  Future<void> sendTerminalInput(String sessionId, String data) async {}
-
-  @override
-  Future<String> execRemoteCommand(String sessionId, String command) async {
-    // Default: no-op success with empty output. Tests that need to observe or
-    // fail specific commands can override this.
-    return '';
-  }
-
-  void dispose() {
-    _output.close();
-    _status.close();
-    _errors.close();
-  }
-
-  /// Simulates the backend emitting a connection-status update for the given
-  /// backend session ID (as returned by [connect]).
-  void emitStatus(String? sessionId, ConnectionStatus status) {
-    if (sessionId == null) return;
-    _status.add(ConnectionStatusEvent(sessionId: sessionId, status: status));
-  }
-}
-
-/// Variant of [_FakeConnectionBackend] whose directory listing can be toggled
+/// Variant of [FakeSftpBackend] whose directory listing can be toggled
 /// to throw, to exercise the controller's listing-failure path — the scenario
 /// where the SFTP channel is alive but unreadable, which is what the
 /// file-pane control-hiding guard must react to.
-class _ListingFailBackend extends _FakeConnectionBackend {
+class _ListingFailBackend extends FakeSftpBackend {
   bool failListing = false;
 
   @override
-  Future<List<RemoteFileEntry>> listRemoteDirectory(
-    String sessionId,
-    String path,
-  ) async {
+  Future<List<RemoteFileEntry>> list(String sessionId, String path) async {
     if (failListing) {
       throw StateError('simulated listing failure');
     }
@@ -1025,10 +757,10 @@ class _ListingFailBackend extends _FakeConnectionBackend {
 
 /// In-memory [ProfileSecretStore] replacement whose `savePassword` can be
 /// delayed via [saveDelay], enabling controller tests to reproduce the race
-/// between `submitPassword`'s `saveProfilePassword` await and a scheduled-sync
+/// between `submitPassword`'s `savePassword` await and a scheduled-sync
 /// `attachRemoteProfile(originalProfile)` callback.
-class _ControllableSecretStore extends ProfileSecretStore {
-  _ControllableSecretStore() : super();
+class _MemorySecretStore extends ProfileSecretStore {
+  _MemorySecretStore() : super();
 
   final Map<String, String> _passwords = {};
 

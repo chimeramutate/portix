@@ -89,6 +89,8 @@ ironrdp-rdpdr = "0.7"
 
 # RDP clipboard redirection
 ironrdp-cliprdr = "0.7"
+# OS clipboard for cliprdr text sync
+arboard = "3.6"
 
 # ============================================================================
 # Logging
@@ -98,10 +100,6 @@ tracing = "0.1"
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 
 ironrdp-rdpdr-native = "0.7"
-ironrdp-cliprdr-native = { version = "0.7", optional = true }
-
-# Clipboard access for native platforms
-arboard = "3.6"
 
 nix = {
     version = "0.31",
@@ -117,8 +115,6 @@ tracing-subscriber = {
 }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-
-ironrdp-cliprdr-native = { version = "0.7", optional = false }
 
 # ============================================================================
 # Desktop / image support

@@ -1578,6 +1578,21 @@ jobs:
           Get-Item $required |
             Format-Table Name,Length,FullName
 
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis --no-progress -y
+
+      # Steps, texts and uninstall options live in packaging/windows/portix.nsi.
+      # The script also bundles the VC++ runtime into the release folder, so
+      # it runs before the ZIP is made.
+      - name: Build Windows EXE installer
+        shell: pwsh
+        run: |
+          ./packaging/windows/build-installer.ps1 `
+            -Version "${{ steps.version.outputs.version }}" `
+            -ReleaseName "${{ steps.version.outputs.release_name }}"
+
       - name: Package Windows ZIP
         shell: pwsh
         run: |
@@ -1593,99 +1608,6 @@ jobs:
 
           Get-Item $destination |
             Format-List Name,Length,FullName
-
-      - name: Install NSIS
-        shell: pwsh
-        run: |
-          choco install nsis --no-progress -y
-
-      - name: Create NSIS installer script
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          $version     = "${{ steps.version.outputs.version }}"
-          $releaseName = "${{ steps.version.outputs.release_name }}"
-
-          # Absolute path to the Flutter release directory.
-          # Use backslashes for the NSIS File command; NSIS !define is fine with
-          # forward slashes but File /r requires backslashes on Windows.
-          $releaseDirAbs = (Resolve-Path "portix_app\build\windows\x64\runner\Release").Path
-          # Backslash form for File /r glob pattern
-          $releaseDirBS  = $releaseDirAbs
-          # Forward slash form for !define (avoids NSIS escape confusion)
-          $releaseDirFS  = $releaseDirAbs.Replace('\', '/')
-
-          $outFile = "portix-windows-${releaseName}.exe"
-
-          # Write each line individually so PowerShell string expansion only
-          # affects tokens we explicitly interpolate, and NSIS-syntax tokens
-          # like $INSTDIR / ${APP_NAME} are written verbatim.
-          $lines = @(
-            'Unicode true',
-            '',
-            '!define APP_NAME    "Portix"',
-            "!define APP_VERSION `"$version`"",
-            '!define APP_EXE     "portix.exe"',
-            "!define OUT_FILE    `"$outFile`"",
-            '',
-            'Name            "${APP_NAME} ${APP_VERSION}"',
-            'OutFile         "${OUT_FILE}"',
-            'InstallDir      "$PROGRAMFILES64\Portix"',
-            'InstallDirRegKey HKCU "Software\Portix" ""',
-            'RequestExecutionLevel admin',
-            'SetCompressor    /SOLID lzma',
-            '',
-            'Page directory',
-            'Page instfiles',
-            '',
-            'Section "Portix (required)"',
-            '  SectionIn RO',
-            '  SetOutPath "$INSTDIR"',
-            # Use the resolved absolute path directly in File /r so NSIS can
-            # find the files regardless of the working directory makensis uses.
-            "  File /r `"$releaseDirBS\*.*`"",
-            '  WriteRegStr HKCU "Software\Portix" "" "$INSTDIR"',
-            '  WriteUninstaller "$INSTDIR\Uninstall.exe"',
-            '  CreateShortcut  "$DESKTOP\Portix.lnk" "$INSTDIR\${APP_EXE}"',
-            '  CreateDirectory "$SMPROGRAMS\Portix"',
-            '  CreateShortcut  "$SMPROGRAMS\Portix\Portix.lnk"    "$INSTDIR\${APP_EXE}"',
-            '  CreateShortcut  "$SMPROGRAMS\Portix\Uninstall.lnk" "$INSTDIR\Uninstall.exe"',
-            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "DisplayName"     "Portix"',
-            "  WriteRegStr HKLM `"Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix`" `"DisplayVersion`"  `"$version`"",
-            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "UninstallString" "$INSTDIR\Uninstall.exe"',
-            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "InstallLocation" "$INSTDIR"',
-            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "Publisher"       "Portix"',
-            'SectionEnd',
-            '',
-            'Section "Uninstall"',
-            '  Delete "$INSTDIR\Uninstall.exe"',
-            '  RMDir  /r "$INSTDIR"',
-            '  Delete "$DESKTOP\Portix.lnk"',
-            '  RMDir  /r "$SMPROGRAMS\Portix"',
-            '  DeleteRegKey HKCU "Software\Portix"',
-            '  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix"',
-            'SectionEnd'
-          )
-
-          Set-Content -Path "portix_installer.nsi" -Value $lines -Encoding UTF8
-          Write-Host "=== portix_installer.nsi ==="
-          Get-Content "portix_installer.nsi"
-
-      - name: Build Windows EXE installer
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          & "C:\Program Files (x86)\NSIS\makensis.exe" portix_installer.nsi
-
-          $exe = "portix-windows-${{ steps.version.outputs.release_name }}.exe"
-
-          if (-not (Test-Path $exe)) {
-            throw "NSIS installer was not created: $exe"
-          }
-
-          Get-Item $exe | Format-List Name,Length,FullName
 
       - name: Upload Windows desktop
         uses: actions/upload-artifact@v4

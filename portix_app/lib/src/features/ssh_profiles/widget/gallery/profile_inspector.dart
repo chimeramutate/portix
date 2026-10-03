@@ -87,10 +87,12 @@ class ProfileInspector extends StatelessWidget {
                   ? Icons.key_rounded
                   : Icons.lock_outline_rounded,
               label: 'Auth method',
-              value: profile.credentialLabel.isEmpty
+              value: profile.authMethod == AuthMethod.sshKey
+                  ? (profile.credentialLabel.isEmpty
+                        ? 'ssh-agent'
+                        : 'SSH key configured')
+                  : profile.credentialLabel.isEmpty
                   ? 'Not configured'
-                  : profile.authMethod == AuthMethod.sshKey
-                  ? 'SSH key configured'
                   : 'Password saved securely',
             ),
             _DetailBox(
@@ -224,6 +226,9 @@ class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
   Future<void> _measureLatency() async {
     final profile = widget.profile;
     if (profile.host.trim().isEmpty) return;
+    // The panel only renders for online profiles; don't open a socket to a
+    // host whose latency would never be shown.
+    if (effectiveProfileStatus(profile) != ConnectionStatus.online) return;
     final start = DateTime.now();
     try {
       final socket = await RawSocket.connect(
