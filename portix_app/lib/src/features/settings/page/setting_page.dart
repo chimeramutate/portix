@@ -139,35 +139,26 @@ class _SettingsViewState extends State<SettingsView> {
   }
 }
 
+/// Only settings the app reads. Keys are `<item id>.<row label>`, so ids and
+/// labels must not change (saved values would be lost).
 const settingsNavigationGroups = [
   SettingsNavigationGroup(
     label: 'Workspace',
     items: [
       SettingsNavigationItem(
         id: 'general',
-        title: 'General',
-        icon: Icons.tune_rounded,
-        headerTitle: 'Workspace Defaults',
-        headerSubtitle: 'Core workspace behavior',
-        profileTitle: 'Default Workspace Profile',
-        profileSubtitle:
-            'Controls baseline behavior for SSH and terminal sessions',
+        title: 'Terminal',
+        icon: Icons.terminal_rounded,
+        headerTitle: 'Terminal',
+        headerSubtitle: 'Look and shortcuts of SSH terminals',
+        profileTitle: 'Terminal Defaults',
+        profileSubtitle: 'Applies to every SSH terminal tab',
         sections: [
           SettingsDetailSection(
             title: 'Appearance',
             rows: [
-              SettingsDetailRow('Theme density', 'Compact'),
-              SettingsDetailRow('Profile card mode', 'Detailed'),
-              SettingsDetailRow(
-                'Terminal theme',
-                'Portix',
-                terminalThemeNames,
-              ),
-              SettingsDetailRow(
-                'Terminal font',
-                'Monospace',
-                terminalFonts,
-              ),
+              SettingsDetailRow('Terminal theme', 'Portix', terminalThemeNames),
+              SettingsDetailRow('Terminal font', 'Monospace', terminalFonts),
               SettingsDetailRow(
                 'Terminal font scale',
                 '13 px',
@@ -176,148 +167,10 @@ const settingsNavigationGroups = [
             ],
           ),
           SettingsDetailSection(
-            title: 'Terminal Colors',
+            title: 'Shortcuts',
             rows: [
-              SettingsDetailRow(
-                'Terminal text color',
-                'White',
-                terminalTextColors,
-              ),
-              SettingsDetailRow(
-                'Terminal background color',
-                'Black',
-                terminalBackgroundColors,
-              ),
-            ],
-          ),
-          SettingsDetailSection(
-            title: 'Session Defaults',
-            rows: [
-              SettingsDetailRow('Restore last view', 'Enabled'),
-              SettingsDetailRow('Auto focus terminal', 'Enabled'),
-              SettingsDetailRow('Remote folder mount', 'Enabled'),
               SettingsDetailRow('Terminal copy shortcut', 'Shift+Ctrl+C'),
               SettingsDetailRow('Terminal paste shortcut', 'Ctrl+V'),
-            ],
-          ),
-        ],
-      ),
-      SettingsNavigationItem(
-        id: 'editor',
-        title: 'Editor',
-        icon: Icons.code_rounded,
-        headerTitle: 'Code Editor Settings',
-        headerSubtitle: 'Default editor and file associations',
-        profileTitle: 'Editor Profile',
-        profileSubtitle:
-            'Controls which editor opens files from SFTP and remote folder',
-        sections: [
-          SettingsDetailSection(
-            title: 'Default Editor',
-            rows: [
-              SettingsDetailRow('Code files', 'VS Code'),
-              SettingsDetailRow('Documents', 'System default'),
-              SettingsDetailRow('Open behavior', 'Download & open'),
-            ],
-          ),
-          SettingsDetailSection(
-            title: 'File Handling',
-            rows: [
-              SettingsDetailRow('Auto-rewrite prompt', 'Enabled'),
-              SettingsDetailRow('Temp file cleanup', 'After close'),
-              SettingsDetailRow('Binary file action', 'Download only'),
-            ],
-          ),
-        ],
-      ),
-    ],
-  ),
-  SettingsNavigationGroup(
-    label: 'Security',
-    items: [
-      SettingsNavigationItem(
-        id: 'access',
-        title: 'Access',
-        icon: Icons.shield_outlined,
-        headerTitle: 'Access Policy',
-        headerSubtitle: 'Credential and vault behavior',
-        profileTitle: 'Credential Guard Profile',
-        profileSubtitle: 'Protects SSH credentials and session unlock flow',
-        sections: [
-          SettingsDetailSection(
-            title: 'Vault',
-            rows: [
-              SettingsDetailRow('Require unlock before connect', 'ON'),
-              SettingsDetailRow('Password fallback', 'OFF'),
-              SettingsDetailRow('Credential timeout', '20 min'),
-            ],
-          ),
-          SettingsDetailSection(
-            title: 'Host Trust',
-            rows: [
-              SettingsDetailRow('Strict host key checking', 'ON'),
-              SettingsDetailRow('Unknown host action', 'Prompt'),
-              SettingsDetailRow('Fingerprint display', 'SHA-256'),
-            ],
-          ),
-        ],
-      ),
-      SettingsNavigationItem(
-        id: 'audit',
-        title: 'Audit',
-        icon: Icons.content_paste_search_outlined,
-        headerTitle: 'Audit Policy',
-        headerSubtitle: 'Session recording and review',
-        profileTitle: 'Audit Capture Profile',
-        profileSubtitle: 'Defines what actions are tracked for review',
-        sections: [
-          SettingsDetailSection(
-            title: 'Capture',
-            rows: [
-              SettingsDetailRow('Session recording', 'Enabled'),
-              SettingsDetailRow('Command digest', 'Daily'),
-              SettingsDetailRow('Sensitive output redaction', 'ON'),
-            ],
-          ),
-          SettingsDetailSection(
-            title: 'Retention',
-            rows: [
-              SettingsDetailRow('Audit retention', '30 days'),
-              SettingsDetailRow('Export format', 'JSONL'),
-              SettingsDetailRow('Reviewer route', 'Primary'),
-            ],
-          ),
-        ],
-      ),
-    ],
-  ),
-  SettingsNavigationGroup(
-    label: 'Connection',
-    items: [
-      SettingsNavigationItem(
-        id: 'configuration',
-        title: 'Configuration',
-        icon: Icons.adjust_rounded,
-        headerTitle: 'Connection Config',
-        headerSubtitle: 'Session and transfer controls',
-        profileTitle: 'Global Configuration Profile',
-        profileSubtitle:
-            'Controls default behavior for SSH, SFTP, and transfer safety',
-        sections: [
-          SettingsDetailSection(
-            title: 'Session Guardrails',
-            rows: [
-              SettingsDetailRow('Idle timeout', '20 min'),
-              SettingsDetailRow('Max concurrent sessions', '8'),
-              SettingsDetailRow('Session recording', 'Enabled'),
-            ],
-          ),
-          SettingsDetailSection(
-            title: 'Transfer Automation',
-            rows: [
-              SettingsDetailRow('Retry strategy', 'Exponential'),
-              SettingsDetailRow('Auto resume', 'Enabled'),
-              SettingsDetailRow('Integrity verify', 'SHA-256'),
             ],
           ),
         ],

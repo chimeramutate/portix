@@ -5,7 +5,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:portix/src/security/security_policy.dart';
 
 /// The `security -i` line that saves [password]; values are double-quoted
 /// with `\` and `"` escaped, as `security`'s interactive mode reads them.
@@ -25,15 +24,11 @@ String macKeychainAddCommand(
 class ProfileSecretStore {
   const ProfileSecretStore({
     FlutterSecureStorage storage = const FlutterSecureStorage(),
-    SecurityPolicy? policy,
-  }) : _storage = storage,
-       _policy = policy;
+  }) : _storage = storage;
 
   final FlutterSecureStorage _storage;
-  final SecurityPolicy? _policy;
 
   Future<void> savePassword(String profileId, String password) async {
-    _policy?.ensureSecretReadable();
     try {
       await _storage.write(key: _passwordKey(profileId), value: password);
     } on PlatformException catch (error) {
@@ -54,7 +49,6 @@ class ProfileSecretStore {
   }
 
   Future<String?> readPassword(String profileId) async {
-    _policy?.ensureSecretReadable();
     try {
       final password = await _storage.read(key: _passwordKey(profileId));
       if (password != null || !Platform.isMacOS) {
@@ -81,7 +75,6 @@ class ProfileSecretStore {
   }
 
   Future<void> deletePassword(String profileId) async {
-    _policy?.ensureSecretReadable();
     try {
       await _storage.delete(key: _passwordKey(profileId));
       if (Platform.isMacOS) {
