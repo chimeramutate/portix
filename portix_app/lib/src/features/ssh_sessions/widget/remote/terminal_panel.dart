@@ -26,6 +26,7 @@ import 'terminal_shortcuts.dart';
 import 'host_key_dialog.dart';
 import 'key_passphrase_dialog.dart';
 import 'port_forward_dialog.dart';
+import 'session_snapshots_dialog.dart';
 import 'terminal_profile_picker_dialog.dart';
 import 'terminal_search_bar.dart';
 import 'terminal_snippets.dart';
@@ -110,6 +111,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
   int _cols = 80;
   int _rows = 24;
   final ScrollController _tabScrollController = ScrollController();
+  final SessionSnapshotStore _snapshotStore = SessionSnapshotStore();
+  bool _toolsExpanded = false;
   bool _showTabScrollStart = false;
   bool _showTabScrollEnd = false;
 
@@ -208,6 +211,153 @@ class _TerminalPanelState extends State<TerminalPanel> {
         values[terminalFontSizeSettingKey],
       ).toDouble();
     });
+  }
+
+  /// Tools tucked behind one button at the right end of the tab bar.
+  Widget _buildTerminalTools() {
+    final hasSession = _sessionId != null;
+    Widget tool(
+      String message,
+      IconData icon,
+      VoidCallback? onPressed, {
+      Key? key,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: Tooltip(
+          message: message,
+          child: AppIconButton(key: key, icon: icon, onPressed: onPressed),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AnimatedSize(
+          duration: const Duration(milliseconds: 160),
+          child: !_toolsExpanded
+              ? const SizedBox.shrink()
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    tool(
+                      'Snippets (Ctrl+Shift+P)',
+                      Icons.bolt_rounded,
+                      _openSnippetPalette,
+                    ),
+                    tool(
+                      'Port forwarding',
+                      Icons.swap_horiz_rounded,
+                      _openPortForwarding,
+                    ),
+                    tool(
+                      'Terminal theme',
+                      Icons.palette_outlined,
+                      _openThemePicker,
+                      key: const ValueKey('terminal-theme'),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _buildRecordButton(),
+                    ),
+                    tool(
+                      Platform.isMacOS
+                          ? 'Find in terminal (Cmd+F)'
+                          : 'Find in terminal (Ctrl+Shift+F)',
+                      Icons.search_rounded,
+                      hasSession ? _openSearch : null,
+                      key: const ValueKey('terminal-search'),
+                    ),
+                    tool(
+                      'Save session state',
+                      Icons.bookmark_add_outlined,
+                      hasSession ? _saveSnapshot : null,
+                      key: const ValueKey('save-session-state'),
+                    ),
+                    tool(
+                      'Saved sessions',
+                      Icons.history_rounded,
+                      _openSnapshots,
+                      key: const ValueKey('saved-sessions'),
+                    ),
+                  ],
+                ),
+        ),
+        Tooltip(
+          message: _toolsExpanded ? 'Hide tools' : 'Terminal tools',
+          child: AppIconButton(
+            key: const ValueKey('terminal-tools'),
+            icon: _toolsExpanded
+                ? Icons.chevron_right_rounded
+                : Icons.more_horiz_rounded,
+            onPressed: () => setState(() => _toolsExpanded = !_toolsExpanded),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _renameTab(String sessionId) async {
+    final session = _sessionById(sessionId);
+    if (session == null) return;
+    final name = await showNameDialog(
+      context,
+      title: 'Rename tab',
+      initial: session.title,
+      action: 'Rename',
+    );
+    if (name != null) _connectionManager.renameSession(sessionId, name);
+  }
+
+  Future<void> _saveSnapshot() async {
+    final sessionId = _sessionId;
+    final session = sessionId == null ? null : _sessionById(sessionId);
+    if (session == null) return;
+    final name = await showNameDialog(
+      context,
+      title: 'Save session state',
+      initial: session.title,
+      action: 'Save',
+    );
+    if (name == null || !mounted) return;
+    final now = DateTime.now();
+    final snapshot = SessionSnapshot(
+      id: '${now.microsecondsSinceEpoch}',
+      profileId: session.profileId,
+      title: name,
+      savedAt: now,
+      output: terminalSnapshotText(_terminalForSession(session.id)),
+    );
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      await _snapshotStore.save(snapshot);
+      messenger?.showSnackBar(SnackBar(content: Text('Saved "$name"')));
+    } catch (error) {
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Failed to save session: $error')),
+      );
+    }
+  }
+
+  /// Picks a saved snapshot (per profile) and opens it in a new tab.
+  Future<void> _openSnapshots() async {
+    final sessionId = _sessionId;
+    final snapshot = await showSessionSnapshotsDialog(
+      context,
+      store: _snapshotStore,
+      profiles: widget.profiles,
+      initialProfileId:
+          (sessionId == null ? null : _sessionById(sessionId)?.profileId) ??
+          widget.profile?.id,
+    );
+    if (snapshot == null || !mounted) return;
+    final profile = widget.profiles
+        .where((profile) => profile.id == snapshot.profileId)
+        .firstOrNull;
+    if (profile == null) return;
+    _activeTabClosed = false;
+    await _connectNewSession(profile, restore: snapshot);
   }
 
   void _openThemePicker() {
@@ -1064,6 +1214,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
       (session) => session.profileId == profile.id,
     );
     _terminalForSession(newSession.id).write('\x1b[2J\x1b[H');
+    _connectionManager.renameSession(newSession.id, oldSession.title);
     if (recordingPath != null) {
       // Keep logging into the same file across the reconnect.
       _connectionManager.startRecording(newSession.id, recordingPath);
@@ -1101,7 +1252,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
     );
   }
 
-  Future<void> _connectNewSession(domain.SshProfile profile) async {
+  Future<void> _connectNewSession(
+    domain.SshProfile profile, {
+    SessionSnapshot? restore,
+  }) async {
     final existingSessionIds = _sshSessions
         .map((session) => session.id)
         .toSet();
@@ -1124,6 +1278,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
       }
       final terminal = _terminalForSession(session.id);
       terminal.write('\x1b[2J\x1b[H');
+      if (restore != null) {
+        terminal.write(restoredSnapshotText(restore));
+        _connectionManager.renameSession(session.id, restore.title);
+      }
       if (!mounted) return;
       setState(() {
         _sessionId = session.id;
@@ -1963,6 +2121,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
             onClose: () => _closeTab(session.id),
             onReconnect: () => _reconnectSession(session.id),
             onDuplicate: () => _duplicateSession(session.id),
+            onRename: () => _renameTab(session.id),
           ),
         );
       },
@@ -2214,50 +2373,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                           onPressed:
                                               _openNewSessionForCurrentProfile,
                                         ),
-                                        const SizedBox(width: 8),
-                                        Tooltip(
-                                          message: 'Snippets (Ctrl+Shift+P)',
-                                          child: AppIconButton(
-                                            icon: Icons.bolt_rounded,
-                                            onPressed: _openSnippetPalette,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Tooltip(
-                                          message: 'Port forwarding',
-                                          child: AppIconButton(
-                                            icon: Icons.swap_horiz_rounded,
-                                            onPressed: _openPortForwarding,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Tooltip(
-                                          message: 'Terminal theme',
-                                          child: AppIconButton(
-                                            key: const ValueKey(
-                                              'terminal-theme',
-                                            ),
-                                            icon: Icons.palette_outlined,
-                                            onPressed: _openThemePicker,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        _buildRecordButton(),
-                                        const SizedBox(width: 8),
-                                        Tooltip(
-                                          message: Platform.isMacOS
-                                              ? 'Find in terminal (Cmd+F)'
-                                              : 'Find in terminal (Ctrl+Shift+F)',
-                                          child: AppIconButton(
-                                            key: const ValueKey(
-                                              'terminal-search',
-                                            ),
-                                            icon: Icons.search_rounded,
-                                            onPressed: _sessionId == null
-                                                ? null
-                                                : _openSearch,
-                                          ),
-                                        ),
                                         if (showDropHint) ...[
                                           const SizedBox(width: 8),
                                           const Text(
@@ -2296,6 +2411,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
                               ),
                             ),
                           ),
+                        const SizedBox(width: 8),
+                        _buildTerminalTools(),
                       ],
                     );
                   },

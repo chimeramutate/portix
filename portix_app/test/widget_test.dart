@@ -158,6 +158,26 @@ void main() {
     expect(find.text('List SSH'), findsOneWidget);
   });
 
+  _appTest('terminal tools sit behind one button at the right', (
+    tester,
+  ) async {
+    await _pumpPortixApp(tester, const Size(1600, 900));
+    await tester.tap(find.text('Open SSH').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('terminal-theme')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('terminal-tools')));
+    await tester.pumpAndSettle();
+    for (final key in [
+      'terminal-theme',
+      'terminal-search',
+      'save-session-state',
+      'saved-sessions',
+    ]) {
+      expect(find.byKey(ValueKey(key)), findsOneWidget);
+    }
+  });
+
   _appTest('closing one of multiple terminal tabs activates the next tab', (
     tester,
   ) async {

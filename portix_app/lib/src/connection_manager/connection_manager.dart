@@ -163,6 +163,14 @@ class ConnectionManager extends ChangeNotifier {
 
   Future<void> disconnect(String sessionId) => _backend.disconnect(sessionId);
 
+  /// Renames a tab; a blank [title] is ignored.
+  void renameSession(String sessionId, String title) {
+    final index = _sessions.indexWhere((session) => session.id == sessionId);
+    if (index == -1 || title.trim().isEmpty) return;
+    _sessions[index] = _sessions[index].copyWith(title: title.trim());
+    notifyListeners();
+  }
+
   Future<Result<PortForward>> startLocalForward(
     SshProfile profile, {
     required int localPort,

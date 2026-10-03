@@ -3,3 +3,4 @@ export 'terminal_session_ui_controller.dart';
 export 'terminal_split_controller.dart';
 export 'terminal_telemetry_controller.dart';
 export 'terminal_search_controller.dart';
+export 'session_snapshot_store.dart';
