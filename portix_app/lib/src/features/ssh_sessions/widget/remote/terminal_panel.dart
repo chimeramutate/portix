@@ -105,6 +105,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
   Color _terminalBackgroundColor = AppColors.terminal;
   String _terminalFontFamily = 'monospace';
   double _terminalFontSize = 13;
+  // Size from Settings; zoom shortcuts change _terminalFontSize around it.
+  double _baseFontSize = 13;
   String? _terminalThemeName;
   bool _passwordPromptActive = false;
   bool _activeTabClosed = false;
@@ -207,7 +209,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
       _terminalFontFamily = terminalFontFamilyFromValue(
         values[terminalFontSettingKey],
       );
-      _terminalFontSize = terminalFontSizeFromValue(
+      _baseFontSize = _terminalFontSize = terminalFontSizeFromValue(
         values[terminalFontSizeSettingKey],
       ).toDouble();
     });
@@ -1015,6 +1017,21 @@ class _TerminalPanelState extends State<TerminalPanel> {
     if (key == LogicalKeyboardKey.keyP && shift && command) {
       if (_snippetPaletteOpen) return false;
       unawaited(_openSnippetPalette());
+      return true;
+    }
+    final zoomed = terminalZoomFontSize(
+      key,
+      current: _terminalFontSize,
+      base: _baseFontSize,
+      meta: keyboard.isMetaPressed,
+      control: keyboard.isControlPressed,
+      shift: shift,
+      isMacOS: Platform.isMacOS,
+    );
+    if (zoomed != null) {
+      if (zoomed != _terminalFontSize) {
+        setState(() => _terminalFontSize = zoomed);
+      }
       return true;
     }
     final find = Platform.isMacOS
