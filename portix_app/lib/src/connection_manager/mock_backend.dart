@@ -127,6 +127,20 @@ class MockConnectionBackend implements ConnectionBackend {
   }
 
   @override
+  Future<PortForward> startSocksProxy(SshProfile profile, int localPort) async {
+    final forward = PortForward(
+      id: 'forward-${_forwards.length + 1}',
+      profileId: profile.id,
+      localPort: localPort == 0 ? 40000 + _forwards.length : localPort,
+      remoteHost: '',
+      remotePort: 0,
+      socks: true,
+    );
+    _forwards.add(forward);
+    return forward;
+  }
+
+  @override
   Future<void> stopLocalForward(String id) async =>
       _forwards.removeWhere((forward) => forward.id == id);
 

@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -337743501;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1969656338;
 
 // Section: executor
 
@@ -1138,6 +1138,44 @@ fn wire__crate__api__ssh__start_local_forward_impl(
         },
     )
 }
+fn wire__crate__api__ssh__start_socks_proxy_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "start_socks_proxy",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_profile = <crate::domain::profile::SshProfile>::sse_decode(&mut deserializer);
+            let api_local_port = <u16>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::ssh::start_socks_proxy(api_profile, api_local_port).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__ssh__stop_local_forward_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1364,12 +1402,14 @@ impl SseDecode for crate::api::ssh::ForwardInfo {
         let mut var_localPort = <u16>::sse_decode(deserializer);
         let mut var_remoteHost = <String>::sse_decode(deserializer);
         let mut var_remotePort = <u16>::sse_decode(deserializer);
+        let mut var_socks = <bool>::sse_decode(deserializer);
         return crate::api::ssh::ForwardInfo {
             id: var_id,
             profile_id: var_profileId,
             local_port: var_localPort,
             remote_host: var_remoteHost,
             remote_port: var_remotePort,
+            socks: var_socks,
         };
     }
 }
@@ -1675,10 +1715,11 @@ fn pde_ffi_dispatcher_primary_impl(
         26 => wire__crate__api__sftp__sftp_upload_impl(port, ptr, rust_vec_len, data_len),
         27 => wire__crate__api__sftp__sftp_write_impl(port, ptr, rust_vec_len, data_len),
         28 => wire__crate__api__ssh__start_local_forward_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__ssh__stop_local_forward_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__ssh__terminal_complete_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__api__ssh__terminal_output_stream_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__ssh__trust_host_key_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__ssh__start_socks_proxy_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__ssh__stop_local_forward_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__ssh__terminal_complete_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__ssh__terminal_output_stream_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__ssh__trust_host_key_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1729,6 +1770,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::ssh::ForwardInfo {
             self.local_port.into_into_dart().into_dart(),
             self.remote_host.into_into_dart().into_dart(),
             self.remote_port.into_into_dart().into_dart(),
+            self.socks.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1960,6 +2002,7 @@ impl SseEncode for crate::api::ssh::ForwardInfo {
         <u16>::sse_encode(self.local_port, serializer);
         <String>::sse_encode(self.remote_host, serializer);
         <u16>::sse_encode(self.remote_port, serializer);
+        <bool>::sse_encode(self.socks, serializer);
     }
 }
 
