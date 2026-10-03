@@ -87,4 +87,31 @@ void main() {
     expect(forwards.single.socks, isTrue);
     manager.dispose();
   });
+
+  testWidgets('starts a remote forward back to a local port', (tester) async {
+    final manager = ConnectionManager(backend: MockConnectionBackend());
+    await _open(tester, manager);
+
+    await tester.tap(find.text('Remote (-R)'));
+    await tester.pumpAndSettle();
+    expect(find.text('Server port'), findsOneWidget);
+
+    // Local port is required in this mode.
+    await tester.tap(find.text('Start tunnel'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Enter a local host and port'), findsOneWidget);
+
+    await tester.enterText(_field('Local port'), '3000');
+    await tester.tap(find.text('Start tunnel'));
+    await tester.pumpAndSettle();
+
+    final forward = (await manager.listLocalForwards()).single;
+    expect(forward.reverse, isTrue);
+    expect((forward.remoteHost, forward.localPort), ('127.0.0.1', 3000));
+    expect(
+      find.text('server localhost:${forward.remotePort} → 127.0.0.1:3000'),
+      findsOneWidget,
+    );
+    manager.dispose();
+  });
 }

@@ -8,8 +8,9 @@ import 'package:portix/src/core/widgets/index.dart';
 
 import 'host_key_dialog.dart';
 
-/// Lists running tunnels and starts local forwards (`ssh -L`) or SOCKS
-/// proxies (`ssh -D`) through [profile]'s server.
+/// Lists running tunnels and starts local forwards (`ssh -L`), SOCKS
+/// proxies (`ssh -D`) or remote forwards (`ssh -R`) through [profile]'s
+/// server.
 Future<void> showPortForwardDialog(
   BuildContext context,
   ConnectionManager manager,
@@ -20,6 +21,8 @@ Future<void> showPortForwardDialog(
     builder: (_) => _PortForwardDialog(manager: manager, profile: profile),
   );
 }
+
+enum _Mode { local, socks, remote }
 
 class _PortForwardDialog extends StatefulWidget {
   const _PortForwardDialog({required this.manager, required this.profile});
@@ -38,7 +41,9 @@ class _PortForwardDialogState extends State<_PortForwardDialog> {
   List<PortForward> _forwards = const [];
   String? _error;
   bool _starting = false;
-  bool _socks = false;
+  _Mode _mode = _Mode.local;
+
+  bool get _socks => _mode == _Mode.socks;
 
   @override
   void initState() {
@@ -68,18 +73,30 @@ class _PortForwardDialogState extends State<_PortForwardDialog> {
   }
 
   Future<void> _start() async {
-    final localPort = _localPort.text.trim().isEmpty
+    final remote = _mode == _Mode.remote;
+    // -L/-D: the local port may be empty (any free one); -R: the server
+    // port may be, and the local port is the required target.
+    final localPort = !remote && _localPort.text.trim().isEmpty
         ? 0
-        : _port(_localPort.text, allowZero: true);
-    final remotePort = _socks ? 0 : _port(_remotePort.text, allowZero: false);
+        : _port(_localPort.text, allowZero: !remote);
+    final remotePort = switch (_mode) {
+      _Mode.socks => 0,
+      _Mode.remote when _remotePort.text.trim().isEmpty => 0,
+      _ => _port(_remotePort.text, allowZero: remote),
+    };
     final remoteHost = _remoteHost.text.trim();
     if (localPort == null ||
         remotePort == null ||
         (!_socks && remoteHost.isEmpty)) {
       setState(
-        () => _error = _socks
-            ? 'Enter a valid local port (1-65535) or leave it empty.'
-            : 'Enter a remote host and valid ports (1-65535).',
+        () => _error = switch (_mode) {
+          _Mode.socks =>
+            'Enter a valid local port (1-65535) or leave it empty.',
+          _Mode.local => 'Enter a remote host and valid ports (1-65535).',
+          _Mode.remote =>
+            'Enter a local host and port (1-65535); the server port may be '
+                'empty.',
+        },
       );
       return;
     }
@@ -88,17 +105,24 @@ class _PortForwardDialogState extends State<_PortForwardDialog> {
       _error = null;
     });
     Future<String?> attempt() async {
-      final result = _socks
-          ? await widget.manager.startSocksProxy(
-              widget.profile,
-              localPort: localPort,
-            )
-          : await widget.manager.startLocalForward(
-              widget.profile,
-              localPort: localPort,
-              remoteHost: remoteHost,
-              remotePort: remotePort,
-            );
+      final result = switch (_mode) {
+        _Mode.socks => await widget.manager.startSocksProxy(
+          widget.profile,
+          localPort: localPort,
+        ),
+        _Mode.local => await widget.manager.startLocalForward(
+          widget.profile,
+          localPort: localPort,
+          remoteHost: remoteHost,
+          remotePort: remotePort,
+        ),
+        _Mode.remote => await widget.manager.startRemoteForward(
+          widget.profile,
+          remotePort: remotePort,
+          localHost: remoteHost,
+          localPort: localPort,
+        ),
+      };
       return result.fold((failure) => '$failure', (_) => null);
     }
 
@@ -159,29 +183,33 @@ class _PortForwardDialogState extends State<_PortForwardDialog> {
               style: portixTitle(13),
             ),
             const SizedBox(height: 12),
-            SegmentedButton<bool>(
+            SegmentedButton<_Mode>(
               segments: const [
-                ButtonSegment(value: false, label: Text('Port (-L)')),
-                ButtonSegment(value: true, label: Text('SOCKS proxy (-D)')),
+                ButtonSegment(value: _Mode.local, label: Text('Port (-L)')),
+                ButtonSegment(
+                  value: _Mode.socks,
+                  label: Text('SOCKS proxy (-D)'),
+                ),
+                ButtonSegment(value: _Mode.remote, label: Text('Remote (-R)')),
               ],
-              selected: {_socks},
+              selected: {_mode},
               onSelectionChanged: (selection) => setState(() {
-                _socks = selection.single;
+                _mode = selection.single;
                 _error = null;
               }),
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                SizedBox(
-                  width: 110,
-                  child: AppTextField(
-                    controller: _localPort,
-                    label: 'Local port',
-                    hint: _socks ? '1080' : 'auto',
+            if (_mode == _Mode.remote)
+              Row(
+                children: [
+                  SizedBox(
+                    width: 110,
+                    child: AppTextField(
+                      controller: _remotePort,
+                      label: 'Server port',
+                      hint: 'auto',
+                    ),
                   ),
-                ),
-                if (!_socks) ...[
                   const Padding(
                     padding: EdgeInsets.fromLTRB(10, 22, 10, 0),
                     child: Icon(Icons.arrow_forward_rounded, size: 16),
@@ -189,31 +217,68 @@ class _PortForwardDialogState extends State<_PortForwardDialog> {
                   Expanded(
                     child: AppTextField(
                       controller: _remoteHost,
-                      label: 'Remote host',
+                      label: 'Local host',
                     ),
                   ),
                   const SizedBox(width: 10),
                   SizedBox(
                     width: 110,
                     child: AppTextField(
-                      controller: _remotePort,
-                      label: 'Remote port',
-                      hint: '5432',
+                      controller: _localPort,
+                      label: 'Local port',
+                      hint: '3000',
                     ),
                   ),
                 ],
-              ],
-            ),
+              )
+            else
+              Row(
+                children: [
+                  SizedBox(
+                    width: 110,
+                    child: AppTextField(
+                      controller: _localPort,
+                      label: 'Local port',
+                      hint: _socks ? '1080' : 'auto',
+                    ),
+                  ),
+                  if (!_socks) ...[
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(10, 22, 10, 0),
+                      child: Icon(Icons.arrow_forward_rounded, size: 16),
+                    ),
+                    Expanded(
+                      child: AppTextField(
+                        controller: _remoteHost,
+                        label: 'Remote host',
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: 110,
+                      child: AppTextField(
+                        controller: _remotePort,
+                        label: 'Remote port',
+                        hint: '5432',
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             const SizedBox(height: 8),
-            Text(
-              _socks
-                  ? 'Point a browser or tool at socks5h://127.0.0.1:<port>; '
-                        'its connections leave from the server, which also '
-                        'resolves host names. Listens on 127.0.0.1 only.'
-                  : 'Remote host is resolved on the server (127.0.0.1 = the '
-                        'server itself). Local port listens on 127.0.0.1 only.',
-              style: portixMuted(11),
-            ),
+            Text(switch (_mode) {
+              _Mode.socks =>
+                'Point a browser or tool at socks5h://127.0.0.1:<port>; '
+                    'its connections leave from the server, which also '
+                    'resolves host names. Listens on 127.0.0.1 only.',
+              _Mode.local =>
+                'Remote host is resolved on the server (127.0.0.1 = the '
+                    'server itself). Local port listens on 127.0.0.1 only.',
+              _Mode.remote =>
+                'The server listens on its localhost:<server port> and each '
+                    'connection comes back to the local host and port from '
+                    'this machine, e.g. to share a dev server.',
+            }, style: portixMuted(11)),
             if (_error != null) ...[
               const SizedBox(height: 10),
               Text(
@@ -253,14 +318,21 @@ class _ForwardRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final local = '127.0.0.1:${forward.localPort}';
-    final copied = forward.socks ? 'socks5h://$local' : local;
+    final copied = forward.reverse
+        ? 'localhost:${forward.remotePort}'
+        : forward.socks
+        ? 'socks5h://$local'
+        : local;
     return Row(
       children: [
         const Icon(Icons.circle, size: 8, color: AppColors.green),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
-            forward.socks
+            forward.reverse
+                ? 'server localhost:${forward.remotePort} → '
+                      '${forward.remoteHost}:${forward.localPort}'
+                : forward.socks
                 ? '$local → SOCKS5 proxy'
                 : '$local → ${forward.remoteHost}:${forward.remotePort}',
             style: const TextStyle(

@@ -161,7 +161,10 @@ pub fn trust_host_key(host: String, port: u16, fingerprint: String) -> anyhow::R
 
 /// An active tunnel on 127.0.0.1:`local_port`: a local forward
 /// (`ssh -L local_port:remote_host:remote_port`), or a SOCKS5 proxy
-/// (`ssh -D local_port`) when `socks` is set.
+/// (`ssh -D local_port`) when `socks` is set. When `reverse` is set it is a
+/// remote forward (`ssh -R remote_port:remote_host:local_port`): the server
+/// listens on its localhost:`remote_port` and connections come back to
+/// `remote_host:local_port` from this machine.
 pub struct ForwardInfo {
     pub id: String,
     pub profile_id: String,
@@ -169,6 +172,7 @@ pub struct ForwardInfo {
     pub remote_host: String,
     pub remote_port: u16,
     pub socks: bool,
+    pub reverse: bool,
 }
 
 impl From<port_forward::LocalForward> for ForwardInfo {
@@ -180,6 +184,7 @@ impl From<port_forward::LocalForward> for ForwardInfo {
             remote_host: forward.remote_host,
             remote_port: forward.remote_port,
             socks: forward.socks,
+            reverse: forward.reverse,
         }
     }
 }
@@ -206,6 +211,23 @@ pub async fn start_local_forward(
 pub async fn start_socks_proxy(profile: SshProfile, local_port: u16) -> anyhow::Result<ForwardInfo> {
     profile.validate()?;
     Ok(port_forward::start_socks_proxy(profile, local_port).await?.into())
+}
+
+/// Starts a remote forward: the SSH server listens on its
+/// localhost:`remote_port` (0 = a port it picks) and connections come back
+/// to `local_host:local_port` from this machine. Returns once listening.
+pub async fn start_remote_forward(
+    profile: SshProfile,
+    remote_port: u16,
+    local_host: String,
+    local_port: u16,
+) -> anyhow::Result<ForwardInfo> {
+    profile.validate()?;
+    Ok(
+        port_forward::start_remote_forward(profile, remote_port, local_host, local_port)
+            .await?
+            .into(),
+    )
 }
 
 pub fn stop_local_forward(id: String) {

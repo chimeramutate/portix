@@ -214,6 +214,26 @@ class ConnectionManager extends ChangeNotifier {
     }
   }
 
+  /// `ssh -R`, over its own connection; see [PortForward.reverse].
+  Future<Result<PortForward>> startRemoteForward(
+    SshProfile profile, {
+    required int remotePort,
+    required String localHost,
+    required int localPort,
+  }) async {
+    try {
+      final forward = await _backend.startRemoteForward(
+        await credentials.resolve(profile),
+        remotePort,
+        localHost,
+        localPort,
+      );
+      return Right(forward);
+    } catch (error) {
+      return Left(AppFailure('Failed to start remote forward', cause: error));
+    }
+  }
+
   Future<void> stopLocalForward(String id) => _backend.stopLocalForward(id);
 
   Future<List<PortForward>> listLocalForwards() =>

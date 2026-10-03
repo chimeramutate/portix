@@ -101,6 +101,41 @@ impl server::Handler for TestServer {
         });
         Ok(true)
     }
+
+    /// `ssh -R`: listens on loopback and opens a forwarded-tcpip channel
+    /// back to the client for each connection.
+    async fn tcpip_forward(
+        &mut self,
+        address: &str,
+        port: &mut u32,
+        session: &mut Session,
+    ) -> std::result::Result<bool, Self::Error> {
+        let listener = TcpListener::bind(("127.0.0.1", *port as u16)).await?;
+        let bound = listener.local_addr()?.port();
+        *port = bound.into();
+        let handle = session.handle();
+        let address = address.to_owned();
+        tokio::spawn(async move {
+            while let Ok((mut socket, peer)) = listener.accept().await {
+                let Ok(channel) = handle
+                    .channel_open_forwarded_tcpip(
+                        address.clone(),
+                        bound.into(),
+                        peer.ip().to_string(),
+                        peer.port().into(),
+                    )
+                    .await
+                else {
+                    return;
+                };
+                tokio::spawn(async move {
+                    let mut stream = channel.into_stream();
+                    let _ = tokio::io::copy_bidirectional(&mut socket, &mut stream).await;
+                });
+            }
+        });
+        Ok(true)
+    }
 }
 
 const SFTP_SERVER: &str = "/usr/libexec/sftp-server";
@@ -227,6 +262,7 @@ async fn authenticates_with_a_key_held_by_the_agent() {
         port,
         known_hosts: known_hosts.clone(),
         _jump: None,
+        forward_to: None,
     };
     let mut session = client::connect(Arc::default(), ("127.0.0.1", port), handler)
         .await
@@ -454,4 +490,42 @@ async fn socks_proxy_reaches_a_target_through_the_ssh_server() {
     client.read_exact(&mut echoed).await.unwrap();
     assert_eq!(&echoed, b"hello");
     assert_eq!(forwards.load(Ordering::SeqCst), 1, "went through SSH");
+}
+
+#[tokio::test]
+async fn remote_forward_brings_server_connections_back_to_a_local_port() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    // Local service the server side should reach: echoes one message.
+    let local = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let local_port = local.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let (mut socket, _) = local.accept().await.unwrap();
+        let mut buf = [0u8; 5];
+        socket.read_exact(&mut buf).await.unwrap();
+        socket.write_all(&buf).await.unwrap();
+    });
+
+    let dir = tempfile::tempdir().unwrap();
+    let known_hosts = dir.path().join("known_hosts");
+    let (port, key) = start_server(Arc::new(AtomicUsize::new(0))).await;
+    trust(&known_hosts, port, &key);
+    let ssh = connect_forwarding_to(
+        &profile(port),
+        &known_hosts,
+        Some(("127.0.0.1".to_owned(), local_port)),
+    )
+    .await
+    .unwrap();
+    let server_port = ssh.tcpip_forward("localhost", 0).await.unwrap();
+    assert_ne!(server_port, 0, "server reports the port it picked");
+
+    // A client on the server's side connects to the forwarded port.
+    let mut client = TcpStream::connect(("127.0.0.1", server_port as u16))
+        .await
+        .unwrap();
+    client.write_all(b"hello").await.unwrap();
+    let mut echoed = [0u8; 5];
+    client.read_exact(&mut echoed).await.unwrap();
+    assert_eq!(&echoed, b"hello");
 }

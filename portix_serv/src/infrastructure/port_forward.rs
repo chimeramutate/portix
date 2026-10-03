@@ -1,6 +1,6 @@
-//! Port forwarding over SSH: local forwards (`ssh -L`) and a SOCKS5 proxy
-//! (`ssh -D`). Each one owns a dedicated SSH connection, so it keeps running
-//! when the terminal tab is closed.
+//! Port forwarding over SSH: local forwards (`ssh -L`), a SOCKS5 proxy
+//! (`ssh -D`) and remote forwards (`ssh -R`). Each one owns a dedicated SSH
+//! connection, so it keeps running when the terminal tab is closed.
 
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -15,11 +15,17 @@ use uuid::Uuid;
 
 use crate::domain::errors::{PortixError, Result};
 use crate::domain::profile::SshProfile;
-use crate::infrastructure::ssh_client::{Client, connect_and_authenticate_profile};
+use crate::infrastructure::ssh_client::{
+    Client, connect_and_authenticate_profile, connect_for_remote_forward,
+};
 
 /// An active tunnel listening on `127.0.0.1:local_port`: either to
 /// `remote_host:remote_port`, or, when [socks] is set, a SOCKS5 proxy whose
 /// clients pick the destination (remote_host is empty, remote_port 0).
+///
+/// When [reverse] is set it is a remote forward instead: the server listens
+/// on its `localhost:remote_port` and connections come back to
+/// `remote_host:local_port` as reached from this machine.
 #[derive(Clone, Debug)]
 pub struct LocalForward {
     pub id: String,
@@ -28,6 +34,7 @@ pub struct LocalForward {
     pub remote_host: String,
     pub remote_port: u16,
     pub socks: bool,
+    pub reverse: bool,
 }
 
 /// Where a tunnel's connections go.
@@ -92,13 +99,61 @@ async fn start(
         remote_host,
         remote_port,
         socks: matches!(destination, Destination::Socks),
+        reverse: false,
     };
+    register(forward, serve(listener, handle, destination))
+}
+
+/// Asks the server to listen on its `localhost:remote_port` (0 = a port it
+/// picks) and connects whatever arrives there to `local_host:local_port`
+/// from this machine, until [`stop_local_forward`] or the SSH connection
+/// drops. Returns once the server listens.
+pub async fn start_remote_forward(
+    profile: SshProfile,
+    remote_port: u16,
+    local_host: String,
+    local_port: u16,
+) -> Result<LocalForward> {
+    let handle = connect_for_remote_forward(&profile, (local_host.clone(), local_port)).await?;
+    let bound = handle
+        .tcpip_forward("localhost", remote_port.into())
+        .await
+        .map_err(|e| {
+            PortixError::InvalidRequest(format!(
+                "the server refused to listen on port {remote_port}: {e}"
+            ))
+        })?;
+    let forward = LocalForward {
+        id: Uuid::new_v4().to_string(),
+        profile_id: profile.id.clone(),
+        local_port,
+        remote_host: local_host,
+        // The server reports the port only when it picked one.
+        remote_port: if remote_port == 0 { bound as u16 } else { remote_port },
+        socks: false,
+        reverse: true,
+    };
+    register(forward, async move {
+        // Forwarded connections are handled by the client handler; this
+        // task only keeps the connection open and notices when it drops.
+        let mut liveness = tokio::time::interval(LIVENESS_INTERVAL);
+        while !handle.is_closed() {
+            liveness.tick().await;
+        }
+    })
+}
+
+/// Runs `task` as the tunnel `forward`, listed until it ends or is stopped.
+fn register(
+    forward: LocalForward,
+    task: impl std::future::Future<Output = ()> + Send + 'static,
+) -> Result<LocalForward> {
     let id = forward.id.clone();
     // Hold the lock across spawn so the task can't remove itself before it
     // is registered.
     let mut active = ACTIVE.lock().unwrap();
     let task = tokio::spawn(async move {
-        serve(listener, handle, destination).await;
+        task.await;
         ACTIVE.lock().unwrap().remove(&id);
     });
     active.insert(forward.id.clone(), (forward.clone(), task.abort_handle()));

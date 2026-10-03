@@ -48,6 +48,9 @@ pub(crate) struct Client {
     /// Jump host session the connection is tunnelled through; owned here so
     /// it lives exactly as long as this session.
     _jump: Option<Arc<client::Handle<Client>>>,
+    /// Where connections to a remote forward (`ssh -R`) go, as seen from
+    /// this machine. None refuses them.
+    forward_to: Option<(String, u16)>,
 }
 
 type ExecRequest = (String, oneshot::Sender<Result<String>>);
@@ -80,6 +83,29 @@ impl client::Handler for Client {
     ) -> std::result::Result<bool, Self::Error> {
         verify_host_key(&self.host, self.port, server_public_key, &self.known_hosts)?;
         Ok(true)
+    }
+
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<client::Msg>,
+        _connected_address: &str,
+        _connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        _session: &mut client::Session,
+    ) -> std::result::Result<(), Self::Error> {
+        // Without a target the channel is dropped, which closes it.
+        let Some((host, port)) = self.forward_to.clone() else {
+            return Ok(());
+        };
+        tokio::spawn(async move {
+            let Ok(mut target) = tokio::net::TcpStream::connect((host.as_str(), port)).await else {
+                return;
+            };
+            let mut stream = channel.into_stream();
+            let _ = tokio::io::copy_bidirectional(&mut stream, &mut target).await;
+        });
+        Ok(())
     }
 }
 
@@ -370,9 +396,31 @@ pub(crate) async fn connect_and_authenticate_profile(
     connect_with_known_hosts(profile, &default_known_hosts_path(home_dir())?).await
 }
 
+/// Like [`connect_and_authenticate_profile`], for a remote forward: what
+/// the server forwards back is connected to `forward_to` from here.
+pub(crate) async fn connect_for_remote_forward(
+    profile: &SshProfile,
+    forward_to: (String, u16),
+) -> Result<client::Handle<Client>> {
+    connect_forwarding_to(
+        profile,
+        &default_known_hosts_path(home_dir())?,
+        Some(forward_to),
+    )
+    .await
+}
+
 async fn connect_with_known_hosts(
     profile: &SshProfile,
     known_hosts: &Path,
+) -> Result<client::Handle<Client>> {
+    connect_forwarding_to(profile, known_hosts, None).await
+}
+
+async fn connect_forwarding_to(
+    profile: &SshProfile,
+    known_hosts: &Path,
+    forward_to: Option<(String, u16)>,
 ) -> Result<client::Handle<Client>> {
     forget_pending_host_key(&profile.host, profile.port);
     let jump = match profile.jump_host.as_deref() {
@@ -386,6 +434,7 @@ async fn connect_with_known_hosts(
         port: profile.port,
         known_hosts: known_hosts.to_path_buf(),
         _jump: jump.clone(),
+        forward_to,
     };
     let config = Arc::new(client::Config {
         // If the TCP connection goes silent for longer than this, russh closes
