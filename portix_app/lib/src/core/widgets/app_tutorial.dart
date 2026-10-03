@@ -16,11 +16,16 @@ Future<void> showTutorialOnce(
   String id,
   List<TutorialStep> steps,
 ) async {
-  final file = File(
-    '${(await getApplicationSupportDirectory()).path}/tutorials_seen.txt',
-  );
-  final seen = await file.exists() ? await file.readAsLines() : <String>[];
-  if (seen.contains(id) || !context.mounted) return;
+  final File file;
+  try {
+    file = File(
+      '${(await getApplicationSupportDirectory()).path}/tutorials_seen.txt',
+    );
+    if (await file.exists() && (await file.readAsLines()).contains(id)) return;
+  } catch (_) {
+    return; // No storage (tests, sandbox issue): skip rather than nag forever.
+  }
+  if (!context.mounted) return;
 
   final screen = MediaQuery.sizeOf(context);
   final items = <TutorialItem>[];
@@ -43,7 +48,7 @@ Future<void> showTutorialOnce(
         children: [
           Text(
             step.title,
-            style: const TextStyle(
+            style: TextStyle(
               color: AppColors.cyan,
               fontSize: 18,
               fontWeight: FontWeight.w900,
@@ -64,7 +69,7 @@ Future<void> showTutorialOnce(
         ],
         widgetNext: Text(
           last ? 'Selesai' : 'Klik untuk lanjut (${i + 1}/${steps.length})',
-          style: const TextStyle(
+          style: TextStyle(
             color: AppColors.green,
             fontWeight: FontWeight.w800,
             decoration: TextDecoration.none,
@@ -75,6 +80,10 @@ Future<void> showTutorialOnce(
   }
   if (items.isEmpty || !context.mounted) return;
 
-  await file.writeAsString('$id\n', mode: FileMode.append);
+  try {
+    await file.writeAsString('$id\n', mode: FileMode.append);
+  } catch (_) {
+    return;
+  }
   if (context.mounted) Tutorial.showTutorial(context, items);
 }

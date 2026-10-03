@@ -1,6 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:xterm/src/core/buffer/line.dart';
-import 'package:xterm/src/core/cursor.dart';
 import 'package:xterm/xterm.dart';
 
 int cellBytes(Terminal terminal) {
