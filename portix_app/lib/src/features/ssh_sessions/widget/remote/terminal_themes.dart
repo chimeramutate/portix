@@ -5,21 +5,29 @@ import 'package:flutter/widgets.dart';
 /// The first entry is the default (Portix dark).
 const terminalThemeNames = [
   'Portix',
+  'Adwaita',
+  'Adwaita Dark',
+  'Andromeda',
+  'Argonaut',
+  'Catppuccin Mocha',
   'Dracula',
   'Nord',
   'Solarized Dark',
   'Solarized Light',
-  'One Dark',
   'Gruvbox Dark',
-  'Monokai',
   'Tokyo Night',
-  'Catppuccin Mocha',
+  'Monokai',
+  'One Dark',
 ];
 
 /// Returns the [TerminalTheme] for the given [name].
 /// Falls back to [portixBuiltinTheme] for unknown names.
 TerminalTheme terminalThemeByName(String? name) {
   return switch (name?.trim() ?? 'Portix') {
+    'Adwaita' => _adwaita,
+    'Adwaita Dark' => _adwaitaDark,
+    'Andromeda' => _andromeda,
+    'Argonaut' => _argonaut,
     'Dracula' => _dracula,
     'Nord' => _nord,
     'Solarized Dark' => _solarizedDark,
@@ -321,4 +329,117 @@ const _catppuccinMocha = TerminalTheme(
   searchHitBackground: Color(0x66F9E2AF),
   searchHitBackgroundCurrent: Color(0xAAF9E2AF),
   searchHitForeground: Color(0xFF1E1E2E),
+);
+
+// ── Adwaita / Adwaita Dark ────────────────────────────────────────────────
+// GNOME Console palette — https://gitlab.gnome.org/GNOME/console
+
+const _adwaita = TerminalTheme(
+  cursor: Color(0xFF241F31),
+  selection: Color(0x661E78E4),
+  foreground: Color(0xFF241F31),
+  background: Color(0xFFFFFFFF),
+  black: Color(0xFF241F31),
+  red: Color(0xFFC01C28),
+  green: Color(0xFF26A269),
+  yellow: Color(0xFFA2734C),
+  blue: Color(0xFF1E78E4),
+  magenta: Color(0xFF9841BB),
+  cyan: Color(0xFF0AB9DC),
+  white: Color(0xFFC0BFBC),
+  brightBlack: Color(0xFF5E5C64),
+  brightRed: Color(0xFFED333B),
+  brightGreen: Color(0xFF33D17A),
+  brightYellow: Color(0xFFE9AD0C),
+  brightBlue: Color(0xFF2A7BDE),
+  brightMagenta: Color(0xFFC061CB),
+  brightCyan: Color(0xFF33C7DE),
+  brightWhite: Color(0xFFF6F5F4),
+  searchHitBackground: Color(0x66F5C211),
+  searchHitBackgroundCurrent: Color(0xAAF5C211),
+  searchHitForeground: Color(0xFF241F31),
+);
+
+const _adwaitaDark = TerminalTheme(
+  cursor: Color(0xFFFFFFFF),
+  selection: Color(0x661E78E4),
+  foreground: Color(0xFFFFFFFF),
+  background: Color(0xFF1E1E1E),
+  black: Color(0xFF241F31),
+  red: Color(0xFFC01C28),
+  green: Color(0xFF2EC27E),
+  yellow: Color(0xFFF5C211),
+  blue: Color(0xFF1E78E4),
+  magenta: Color(0xFF9841BB),
+  cyan: Color(0xFF0AB9DC),
+  white: Color(0xFFC0BFBC),
+  brightBlack: Color(0xFF5E5C64),
+  brightRed: Color(0xFFED333B),
+  brightGreen: Color(0xFF57E389),
+  brightYellow: Color(0xFFF8E45C),
+  brightBlue: Color(0xFF51A1FF),
+  brightMagenta: Color(0xFFC061CB),
+  brightCyan: Color(0xFF4FD2FD),
+  brightWhite: Color(0xFFF6F5F4),
+  searchHitBackground: Color(0x66F5C211),
+  searchHitBackgroundCurrent: Color(0xAAF5C211),
+  searchHitForeground: Color(0xFF1E1E1E),
+);
+
+// ── Andromeda ─────────────────────────────────────────────────────────────
+// https://github.com/mbadolato/iTerm2-Color-Schemes
+
+const _andromeda = TerminalTheme(
+  cursor: Color(0xFFF8F8F0),
+  selection: Color(0x665A5C62),
+  foreground: Color(0xFFE5E5E5),
+  background: Color(0xFF262A33),
+  black: Color(0xFF000000),
+  red: Color(0xFFCD3131),
+  green: Color(0xFF05BC79),
+  yellow: Color(0xFFE5E512),
+  blue: Color(0xFF2472C8),
+  magenta: Color(0xFFBC3FBC),
+  cyan: Color(0xFF0FA8CD),
+  white: Color(0xFFE5E5E5),
+  brightBlack: Color(0xFF666666),
+  brightRed: Color(0xFFCD3131),
+  brightGreen: Color(0xFF05BC79),
+  brightYellow: Color(0xFFE5E512),
+  brightBlue: Color(0xFF2472C8),
+  brightMagenta: Color(0xFFBC3FBC),
+  brightCyan: Color(0xFF0FA8CD),
+  brightWhite: Color(0xFFE5E5E5),
+  searchHitBackground: Color(0x66E5E512),
+  searchHitBackgroundCurrent: Color(0xAAE5E512),
+  searchHitForeground: Color(0xFF262A33),
+);
+
+// ── Argonaut ──────────────────────────────────────────────────────────────
+// https://github.com/mbadolato/iTerm2-Color-Schemes
+
+const _argonaut = TerminalTheme(
+  cursor: Color(0xFFFF0018),
+  selection: Color(0x66002A3B),
+  foreground: Color(0xFFFFFAF4),
+  background: Color(0xFF0E1019),
+  black: Color(0xFF232323),
+  red: Color(0xFFFF000F),
+  green: Color(0xFF8CE10B),
+  yellow: Color(0xFFFFB900),
+  blue: Color(0xFF008DF8),
+  magenta: Color(0xFF6D43A6),
+  cyan: Color(0xFF00D8EB),
+  white: Color(0xFFFFFFFF),
+  brightBlack: Color(0xFF444444),
+  brightRed: Color(0xFFFF2740),
+  brightGreen: Color(0xFFABE15B),
+  brightYellow: Color(0xFFFFD242),
+  brightBlue: Color(0xFF0092FF),
+  brightMagenta: Color(0xFF9A5FEB),
+  brightCyan: Color(0xFF67FFF0),
+  brightWhite: Color(0xFFFFFFFF),
+  searchHitBackground: Color(0x66FFB900),
+  searchHitBackgroundCurrent: Color(0xAAFFB900),
+  searchHitForeground: Color(0xFF0E1019),
 );

@@ -30,6 +30,7 @@ import 'terminal_profile_picker_dialog.dart';
 import 'terminal_search_bar.dart';
 import 'terminal_snippets.dart';
 import 'terminal_status_footer.dart';
+import 'terminal_theme_picker.dart';
 import 'terminal_workspace_view.dart';
 
 class TerminalPanel extends StatefulWidget {
@@ -207,6 +208,32 @@ class _TerminalPanelState extends State<TerminalPanel> {
         values[terminalFontSizeSettingKey],
       ).toDouble();
     });
+  }
+
+  void _openThemePicker() {
+    unawaited(
+      showTerminalThemePicker(
+        context,
+        current: _terminalThemeName,
+        onSelected: (name) {
+          setState(() => _terminalThemeName = name);
+          unawaited(_saveTerminalTheme(name));
+        },
+      ),
+    );
+  }
+
+  /// Persists [name] so new windows and the Settings page use it too.
+  Future<void> _saveTerminalTheme(String name) async {
+    try {
+      final values = await _settingsRepository.loadSettings();
+      await _settingsRepository.saveSettings({
+        ...values,
+        terminalThemeSettingKey: name,
+      });
+    } catch (_) {
+      // Applied for this session anyway; the next pick retries the save.
+    }
   }
 
   void _notifyActiveSessionChanged(String? sessionId) {
@@ -2201,6 +2228,17 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                           child: AppIconButton(
                                             icon: Icons.swap_horiz_rounded,
                                             onPressed: _openPortForwarding,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Tooltip(
+                                          message: 'Terminal theme',
+                                          child: AppIconButton(
+                                            key: const ValueKey(
+                                              'terminal-theme',
+                                            ),
+                                            icon: Icons.palette_outlined,
+                                            onPressed: _openThemePicker,
                                           ),
                                         ),
                                         const SizedBox(width: 8),
