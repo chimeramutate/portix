@@ -28,12 +28,6 @@ class LocalSettingsRepository implements SettingsRepository {
     await file.writeAsString(encoder.convert(values));
   }
 
-  @override
-  Future<void> clearSettings() async {
-    final file = await _settingsFile();
-    if (await file.exists()) await file.delete();
-  }
-
   Future<File> _settingsFile() async {
     final directory = await getApplicationSupportDirectory();
     return File('${directory.path}${Platform.pathSeparator}settings.json');
