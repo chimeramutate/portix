@@ -151,6 +151,21 @@ class RustBridgeBackend implements ConnectionBackend {
   );
 
   @override
+  Future<PortForward> startRemoteForward(
+    SshProfile profile,
+    int remotePort,
+    String localHost,
+    int localPort,
+  ) async => _toPortForward(
+    await rust_api.startRemoteForward(
+      profile: toRustProfile(profile),
+      remotePort: remotePort,
+      localHost: localHost,
+      localPort: localPort,
+    ),
+  );
+
+  @override
   Future<void> stopLocalForward(String id) => rust_api.stopLocalForward(id: id);
 
   @override
@@ -166,6 +181,7 @@ class RustBridgeBackend implements ConnectionBackend {
     remoteHost: forward.remoteHost,
     remotePort: forward.remotePort,
     socks: forward.socks,
+    reverse: forward.reverse,
   );
 }
 

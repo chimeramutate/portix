@@ -3,6 +3,10 @@ enum ConnectionStatus { disconnected, connecting, connected, error }
 /// An active tunnel on 127.0.0.1:[localPort]: it reaches [remoteHost]:
 /// [remotePort] as seen from the SSH server, or, when [socks] is set, it is
 /// a SOCKS5 proxy whose clients choose the destination.
+///
+/// When [reverse] is set it is a remote forward (`ssh -R`): the server
+/// listens on its localhost:[remotePort] and connections come back to
+/// [remoteHost]:[localPort] as reached from this machine.
 class PortForward {
   const PortForward({
     required this.id,
@@ -11,6 +15,7 @@ class PortForward {
     required this.remoteHost,
     required this.remotePort,
     this.socks = false,
+    this.reverse = false,
   });
 
   final String id;
@@ -19,6 +24,7 @@ class PortForward {
   final String remoteHost;
   final int remotePort;
   final bool socks;
+  final bool reverse;
 }
 
 /// A server host key the backend refused during the last connect.

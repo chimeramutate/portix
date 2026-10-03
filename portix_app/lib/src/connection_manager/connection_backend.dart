@@ -27,6 +27,15 @@ abstract interface class ConnectionBackend {
   /// connections go wherever each client asks, from [profile]'s server.
   Future<PortForward> startSocksProxy(SshProfile profile, int localPort);
 
+  /// `ssh -R`: the server listens on its localhost:[remotePort] (0 = it
+  /// picks) and connections come back to [localHost]:[localPort].
+  Future<PortForward> startRemoteForward(
+    SshProfile profile,
+    int remotePort,
+    String localHost,
+    int localPort,
+  );
+
   Future<void> stopLocalForward(String id);
 
   /// Tunnels still running; one ends on its own if its SSH connection drops.

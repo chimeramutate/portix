@@ -65,6 +65,14 @@ class UnavailableConnectionBackend implements ConnectionBackend {
   ) async => _unavailable();
 
   @override
+  Future<PortForward> startRemoteForward(
+    SshProfile profile,
+    int remotePort,
+    String localHost,
+    int localPort,
+  ) async => _unavailable();
+
+  @override
   Future<void> stopLocalForward(String id) async {}
 
   @override

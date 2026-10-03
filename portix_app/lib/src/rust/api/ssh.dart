@@ -118,6 +118,21 @@ Future<ForwardInfo> startSocksProxy({
   localPort: localPort,
 );
 
+/// Starts a remote forward: the SSH server listens on its
+/// localhost:`remote_port` (0 = a port it picks) and connections come back
+/// to `local_host:local_port` from this machine. Returns once listening.
+Future<ForwardInfo> startRemoteForward({
+  required SshProfile profile,
+  required int remotePort,
+  required String localHost,
+  required int localPort,
+}) => RustLib.instance.api.crateApiSshStartRemoteForward(
+  profile: profile,
+  remotePort: remotePort,
+  localHost: localHost,
+  localPort: localPort,
+);
+
 Future<void> stopLocalForward({required String id}) =>
     RustLib.instance.api.crateApiSshStopLocalForward(id: id);
 
@@ -136,7 +151,10 @@ Stream<String> errorEventStream() =>
 
 /// An active tunnel on 127.0.0.1:`local_port`: a local forward
 /// (`ssh -L local_port:remote_host:remote_port`), or a SOCKS5 proxy
-/// (`ssh -D local_port`) when `socks` is set.
+/// (`ssh -D local_port`) when `socks` is set. When `reverse` is set it is a
+/// remote forward (`ssh -R remote_port:remote_host:local_port`): the server
+/// listens on its localhost:`remote_port` and connections come back to
+/// `remote_host:local_port` from this machine.
 class ForwardInfo {
   final String id;
   final String profileId;
@@ -144,6 +162,7 @@ class ForwardInfo {
   final String remoteHost;
   final int remotePort;
   final bool socks;
+  final bool reverse;
 
   const ForwardInfo({
     required this.id,
@@ -152,6 +171,7 @@ class ForwardInfo {
     required this.remoteHost,
     required this.remotePort,
     required this.socks,
+    required this.reverse,
   });
 
   @override
@@ -161,7 +181,8 @@ class ForwardInfo {
       localPort.hashCode ^
       remoteHost.hashCode ^
       remotePort.hashCode ^
-      socks.hashCode;
+      socks.hashCode ^
+      reverse.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -173,7 +194,8 @@ class ForwardInfo {
           localPort == other.localPort &&
           remoteHost == other.remoteHost &&
           remotePort == other.remotePort &&
-          socks == other.socks;
+          socks == other.socks &&
+          reverse == other.reverse;
 }
 
 /// A server host key that was refused: unknown (`changed_line` is None) or
