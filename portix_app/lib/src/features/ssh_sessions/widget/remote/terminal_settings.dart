@@ -16,16 +16,6 @@ const terminalThemeSettingKey = 'general.terminal_theme';
 bool isTerminalThemePreset(String? value) =>
     value != null && value != 'Custom' && terminalThemeNames.contains(value);
 
-const terminalTextColors = ['White', 'Green', 'Amber', 'Cyan', 'Blue', 'Red'];
-
-const terminalBackgroundColors = [
-  'Black',
-  'Dark Blue',
-  'Dark Gray',
-  'Navy',
-  'Green',
-];
-
 const terminalFonts = [
   'Monospace',
   'Ubuntu Mono',

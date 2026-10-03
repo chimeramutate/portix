@@ -255,51 +255,32 @@ impl RdpRuntime {
                 println!("[portix_rdp] connect_begin completed");
                 result
             }
-            // ── CredSSP enabled, negotiation failed → retry without CredSSP ──
-            Err(RdpError::NegotiationFailed(ref msg)) if self.profile.enable_cred_ssp => {
+            // ── CredSSP enabled, license decode error → retry with stub cache,
+            //    still with CredSSP ──
+            Err(RdpError::NegotiationFailed(ref msg))
+                if self.profile.enable_cred_ssp && is_license_error(msg) =>
+            {
                 println!(
-                    "[portix_rdp] NLA negotiation failed ({}), retrying without CredSSP …",
+                    "[portix_rdp] License exchange decode error ({}), retrying with stub license cache …",
                     msg
                 );
                 self.emit_status(
                     RdpConnectionStatus::Connecting,
-                    Some("NLA failed, retrying with TLS-only"),
+                    Some("License exchange failed, retrying with fallback cache"),
                 );
-                match self
-                    .try_connect(false, pre_emptive_cache.clone(), false, &cancel_token)
-                    .await
-                {
-                    Ok(result) => result,
-                    // ── License decode error → retry with stub license cache ──
-                    Err(RdpError::NegotiationFailed(ref msg2)) if is_license_error(msg2) => {
-                        println!(
-                            "[portix_rdp] License exchange decode error ({}), retrying with stub license cache …",
-                            msg2
-                        );
-                        self.emit_status(
-                            RdpConnectionStatus::Connecting,
-                            Some("License exchange failed, retrying with fallback cache"),
-                        );
-                        self.try_connect(
-                            false,
-                            Some(Arc::new(StubLicenseCache)),
-                            true,  // license_bypass: PDU repair mode
-                            &cancel_token,
-                        )
-                        .await
-                        .map_err(|e| {
-                            eprintln!(
-                                "[portix_rdp] ERROR: All connection retries exhausted. Last error: {:?}",
-                                e
-                            );
-                            e
-                        })?
-                    }
-                    Err(e) => {
-                        eprintln!("[portix_rdp] ERROR: Connection failed: {:?}", e);
-                        return Err(e);
-                    }
-                }
+                self.try_connect(true, Some(Arc::new(StubLicenseCache)), true, &cancel_token)
+                    .await?
+            }
+            // ── CredSSP enabled, any other negotiation failure → stop ──
+            // No silent fallback to TLS-only: someone on the network could
+            // break NLA on purpose to get the credentials sent without it
+            // (and the server certificate is not pinned). The user can turn
+            // NLA off for servers that really lack it.
+            Err(RdpError::NegotiationFailed(msg)) if self.profile.enable_cred_ssp => {
+                eprintln!("[portix_rdp] ERROR: NLA negotiation failed: {}", msg);
+                return Err(RdpError::NegotiationFailed(format!(
+                    "NLA failed: {msg}. If this server does not support NLA, turn off \"Enable CredSSP (NLA)\" in the profile."
+                )));
             }
             // ── CredSSP disabled, license decode error → retry with stub cache ──
             Err(RdpError::NegotiationFailed(ref msg))

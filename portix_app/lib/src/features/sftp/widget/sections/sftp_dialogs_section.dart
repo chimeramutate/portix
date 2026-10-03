@@ -160,11 +160,7 @@ class _SftpDisconnectedOverlay extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
-            Icons.cloud_off_rounded,
-            color: AppColors.danger,
-            size: 32,
-          ),
+          Icon(Icons.cloud_off_rounded, color: AppColors.danger, size: 32),
           const SizedBox(height: 12),
           Text(
             'Connection lost',
@@ -466,7 +462,7 @@ class _RemoteFolderPickerDialogState extends State<_RemoteFolderPickerDialog> {
             children: [
               Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.drive_file_move_rounded,
                     color: AppColors.cyan,
                     size: 20,
@@ -491,11 +487,7 @@ class _RemoteFolderPickerDialogState extends State<_RemoteFolderPickerDialog> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.folder_rounded,
-                      size: 16,
-                      color: AppColors.cyan,
-                    ),
+                    Icon(Icons.folder_rounded, size: 16, color: AppColors.cyan),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -512,7 +504,7 @@ class _RemoteFolderPickerDialogState extends State<_RemoteFolderPickerDialog> {
                           height: 28,
                         ),
                         onPressed: _navigateUp,
-                        icon: const Icon(
+                        icon: Icon(
                           Icons.arrow_upward_rounded,
                           size: 16,
                           color: AppColors.muted,
@@ -581,7 +573,7 @@ class _RemoteFolderPickerDialogState extends State<_RemoteFolderPickerDialog> {
                                     ),
                                   ),
                                   if (isFolder)
-                                    const Icon(
+                                    Icon(
                                       Icons.chevron_right_rounded,
                                       color: AppColors.muted,
                                       size: 18,

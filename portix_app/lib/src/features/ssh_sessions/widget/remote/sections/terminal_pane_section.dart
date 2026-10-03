@@ -16,8 +16,8 @@ class TerminalPane extends StatefulWidget {
     this.keyboardEnabled = true,
     this.copyShortcut = TerminalClipboardShortcut.shiftCtrl,
     this.pasteShortcut = TerminalClipboardShortcut.ctrl,
-    this.textColor = AppColors.text,
-    this.backgroundColor = AppColors.terminal,
+    Color? textColor,
+    Color? backgroundColor,
     this.fontFamily = 'monospace',
     this.fontSize = 13,
     this.themeName,
@@ -27,7 +27,8 @@ class TerminalPane extends StatefulWidget {
     this.onToggleBroadcast,
     this.onToggleSolo,
     this.onSplit,
-  });
+  }) : _textColor = textColor,
+       _backgroundColor = backgroundColor;
 
   final String? sessionId;
   final Terminal terminal;
@@ -43,8 +44,10 @@ class TerminalPane extends StatefulWidget {
   final bool keyboardEnabled;
   final TerminalClipboardShortcut copyShortcut;
   final TerminalClipboardShortcut pasteShortcut;
-  final Color textColor;
-  final Color backgroundColor;
+  final Color? _textColor;
+  Color get textColor => _textColor ?? AppColors.text;
+  final Color? _backgroundColor;
+  Color get backgroundColor => _backgroundColor ?? AppColors.terminal;
   final String fontFamily;
   final double fontSize;
 
@@ -405,7 +408,7 @@ class PaneDragHandle extends StatelessWidget {
               ),
             ],
           ),
-          child: const Row(
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
@@ -440,7 +443,7 @@ class PaneDragHandle extends StatelessWidget {
             borderRadius: BorderRadius.circular(7),
             border: Border.all(color: AppColors.border.withValues(alpha: .55)),
           ),
-          child: const Icon(
+          child: Icon(
             Icons.drag_indicator_rounded,
             color: AppColors.muted,
             size: 16,

@@ -73,7 +73,7 @@ Future<String?> resolveSnippetVariables(
           children: [
             Text(
               command,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'monospace',
                 fontSize: 12,
                 color: AppColors.muted,
@@ -230,20 +230,17 @@ class _SnippetPaletteDialogState extends State<_SnippetPaletteDialog> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.bolt_rounded, color: AppColors.cyan),
+                  Icon(Icons.bolt_rounded, color: AppColors.cyan),
                   const SizedBox(width: 10),
                   Expanded(child: Text('Snippets', style: portixTitle(18))),
                   IconButton(
                     tooltip: 'New snippet',
                     onPressed: () => _edit(),
-                    icon: const Icon(Icons.add_rounded, color: AppColors.cyan),
+                    icon: Icon(Icons.add_rounded, color: AppColors.cyan),
                   ),
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(
-                      Icons.close_rounded,
-                      color: AppColors.muted,
-                    ),
+                    icon: Icon(Icons.close_rounded, color: AppColors.muted),
                   ),
                 ],
               ),
@@ -257,8 +254,8 @@ class _SnippetPaletteDialogState extends State<_SnippetPaletteDialog> {
                     Navigator.of(context).pop(filtered.first.command);
                   }
                 },
-                style: const TextStyle(color: AppColors.text, fontSize: 13),
-                decoration: const InputDecoration(
+                style: TextStyle(color: AppColors.text, fontSize: 13),
+                decoration: InputDecoration(
                   hintText: 'Search snippets — Enter runs the first match',
                   prefixIcon: Icon(
                     Icons.search_rounded,
@@ -293,7 +290,7 @@ class _SnippetPaletteDialogState extends State<_SnippetPaletteDialog> {
                           snippet.command,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'monospace',
                             color: AppColors.muted,
                             fontSize: 12,
@@ -306,7 +303,7 @@ class _SnippetPaletteDialogState extends State<_SnippetPaletteDialog> {
                             IconButton(
                               tooltip: 'Edit',
                               onPressed: () => _edit(index),
-                              icon: const Icon(
+                              icon: Icon(
                                 Icons.edit_rounded,
                                 color: AppColors.muted,
                                 size: 16,
@@ -316,7 +313,7 @@ class _SnippetPaletteDialogState extends State<_SnippetPaletteDialog> {
                               tooltip: 'Delete',
                               onPressed: () =>
                                   _update([..._snippets]..removeAt(index)),
-                              icon: const Icon(
+                              icon: Icon(
                                 Icons.delete_outline_rounded,
                                 color: AppColors.muted,
                                 size: 16,

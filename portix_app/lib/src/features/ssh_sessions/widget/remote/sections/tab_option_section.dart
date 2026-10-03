@@ -42,10 +42,10 @@ class TerminalSessionTab extends StatelessWidget {
         position.dx + 1,
         position.dy + 1,
       ),
-      color: const Color(0xFF1A2535),
+      color: AppColors.menu,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
-        side: const BorderSide(color: AppColors.border),
+        side: BorderSide(color: AppColors.border),
       ),
       items: [
         if (onRename != null)
@@ -54,7 +54,7 @@ class TerminalSessionTab extends StatelessWidget {
             height: 38,
             child: Row(
               children: [
-                const Icon(Icons.edit_rounded, color: AppColors.cyan, size: 16),
+                Icon(Icons.edit_rounded, color: AppColors.cyan, size: 16),
                 const SizedBox(width: 10),
                 Text('Rename', style: portixTitle(13)),
               ],
@@ -65,11 +65,7 @@ class TerminalSessionTab extends StatelessWidget {
           height: 38,
           child: Row(
             children: [
-              const Icon(
-                Icons.copy_all_rounded,
-                color: AppColors.cyan,
-                size: 16,
-              ),
+              Icon(Icons.copy_all_rounded, color: AppColors.cyan, size: 16),
               const SizedBox(width: 10),
               Text('Duplicate', style: portixTitle(13)),
             ],
@@ -81,11 +77,7 @@ class TerminalSessionTab extends StatelessWidget {
             height: 38,
             child: Row(
               children: [
-                const Icon(
-                  Icons.refresh_rounded,
-                  color: AppColors.amber,
-                  size: 16,
-                ),
+                Icon(Icons.refresh_rounded, color: AppColors.amber, size: 16),
                 const SizedBox(width: 10),
                 Text('Reconnect', style: portixTitle(13)),
               ],
@@ -96,7 +88,7 @@ class TerminalSessionTab extends StatelessWidget {
           height: 38,
           child: Row(
             children: [
-              const Icon(Icons.close_rounded, color: AppColors.muted, size: 16),
+              Icon(Icons.close_rounded, color: AppColors.muted, size: 16),
               const SizedBox(width: 10),
               Text('Close', style: portixTitle(13)),
             ],
@@ -136,7 +128,7 @@ class TerminalSessionTab extends StatelessWidget {
         width: 200,
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          color: active ? const Color(0xFF143B63) : AppColors.surface,
+          color: active ? AppColors.selected : AppColors.surface,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: active ? AppColors.primaryBlue : AppColors.border,
@@ -151,7 +143,7 @@ class TerminalSessionTab extends StatelessWidget {
                   tooltip: 'Reconnect $label',
                   onPressed: onReconnect,
                   padding: EdgeInsets.zero,
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.refresh_rounded,
                     color: AppColors.amber,
                     size: 17,
@@ -179,7 +171,7 @@ class TerminalSessionTab extends StatelessWidget {
                   tooltip: 'Reconnect $label',
                   onPressed: onReconnect,
                   padding: EdgeInsets.zero,
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.refresh_rounded,
                     color: AppColors.amber,
                     size: 17,
@@ -195,7 +187,7 @@ class TerminalSessionTab extends StatelessWidget {
                 onPressed: onClose,
                 padding: EdgeInsets.zero,
                 tooltip: 'Close $label',
-                icon: const Icon(
+                icon: Icon(
                   Icons.close_rounded,
                   color: AppColors.muted,
                   size: 17,
@@ -244,7 +236,7 @@ class SessionProfileOption extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: highlighted
-                ? const Color(0xFF123455)
+                ? AppColors.selectedSoft
                 : AppColors.surfaceDark,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
@@ -261,7 +253,7 @@ class SessionProfileOption extends StatelessWidget {
                   borderRadius: BorderRadius.circular(9),
                   border: Border.all(color: AppColors.primaryBlue),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.dns_rounded,
                   color: AppColors.green,
                   size: 19,
@@ -292,7 +284,7 @@ class SessionProfileOption extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
+              Icon(Icons.chevron_right_rounded, color: AppColors.muted),
             ],
           ),
         ),

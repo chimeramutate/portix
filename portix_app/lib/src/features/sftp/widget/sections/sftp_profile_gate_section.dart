@@ -92,7 +92,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.search_rounded,
                         color: AppColors.muted,
                         size: 18,
@@ -124,7 +124,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                               _searchQuery = '';
                             });
                           },
-                          child: const Icon(
+                          child: Icon(
                             Icons.close_rounded,
                             color: AppColors.muted,
                             size: 16,
@@ -177,7 +177,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                     color: AppColors.surfaceDark,
                     child: Row(
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.search_off_rounded,
                           color: AppColors.muted,
                           size: 16,
@@ -223,7 +223,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(
+                                  Icon(
                                     Icons.dns_rounded,
                                     color: AppColors.green,
                                     size: 20,
@@ -242,7 +242,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                                       ],
                                     ),
                                   ),
-                                  const Icon(
+                                  Icon(
                                     Icons.chevron_right_rounded,
                                     color: AppColors.muted,
                                   ),
@@ -349,7 +349,7 @@ class _LocalProfileTile extends StatelessWidget {
                 ),
               ),
               if (selected)
-                const Icon(
+                Icon(
                   Icons.check_rounded,
                   color: AppColors.primaryBlue,
                   size: 18,

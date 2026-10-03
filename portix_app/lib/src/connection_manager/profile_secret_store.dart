@@ -2,22 +2,33 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:portix/src/security/security_policy.dart';
+
+/// The `security -i` line that saves [password]; values are double-quoted
+/// with `\` and `"` escaped, as `security`'s interactive mode reads them.
+@visibleForTesting
+String macKeychainAddCommand(
+  String service,
+  String account,
+  String password, {
+  String? keychain,
+}) {
+  String quoted(String value) =>
+      '"${value.replaceAllMapped(RegExp(r'[\\"]'), (m) => '\\${m[0]}')}"';
+  return 'add-generic-password -U -s ${quoted(service)} -a ${quoted(account)} '
+      '-w ${quoted(password)}${keychain == null ? '' : ' ${quoted(keychain)}'}';
+}
 
 class ProfileSecretStore {
   const ProfileSecretStore({
     FlutterSecureStorage storage = const FlutterSecureStorage(),
-    SecurityPolicy? policy,
-  }) : _storage = storage,
-       _policy = policy;
+  }) : _storage = storage;
 
   final FlutterSecureStorage _storage;
-  final SecurityPolicy? _policy;
 
   Future<void> savePassword(String profileId, String password) async {
-    _policy?.ensureSecretReadable();
     try {
       await _storage.write(key: _passwordKey(profileId), value: password);
     } on PlatformException catch (error) {
@@ -38,7 +49,6 @@ class ProfileSecretStore {
   }
 
   Future<String?> readPassword(String profileId) async {
-    _policy?.ensureSecretReadable();
     try {
       final password = await _storage.read(key: _passwordKey(profileId));
       if (password != null || !Platform.isMacOS) {
@@ -65,7 +75,6 @@ class ProfileSecretStore {
   }
 
   Future<void> deletePassword(String profileId) async {
-    _policy?.ensureSecretReadable();
     try {
       await _storage.delete(key: _passwordKey(profileId));
       if (Platform.isMacOS) {
@@ -109,21 +118,23 @@ class ProfileSecretStore {
     String profileId,
     String password,
   ) async {
+    if (password.contains('\n') || profileId.contains('\n')) {
+      throw StateError('Passwords with line breaks cannot be saved.');
+    }
     await _deleteMacKeychainPassword(profileId);
-    final result = await Process.run('security', [
-      'add-generic-password',
-      '-U',
-      '-s',
-      _macKeychainService,
-      '-a',
-      profileId,
-      '-w',
-      password,
-    ]);
-    if (result.exitCode != 0) {
-      throw StateError(
-        'Unable to save password to macOS Keychain: ${result.stderr}',
-      );
+    // The command goes through stdin (`security -i`), not argv, so the
+    // password never shows up in the process list.
+    final process = await Process.start('security', ['-i']);
+    process.stdin.writeln(
+      macKeychainAddCommand(_macKeychainService, profileId, password),
+    );
+    await process.stdin.close();
+    final stderr = await process.stderr.transform(utf8.decoder).join();
+    await process.stdout.drain<void>();
+    await process.exitCode;
+    // `security -i` exits 0 even when the command fails.
+    if (await _readMacKeychainPassword(profileId) != password) {
+      throw StateError('Unable to save password to macOS Keychain: $stderr');
     }
   }
 

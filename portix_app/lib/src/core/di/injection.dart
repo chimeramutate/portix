@@ -19,7 +19,6 @@ import '../../features/settings/bloc/index.dart';
 import '../../features/sftp/bloc/index.dart';
 import '../../features/ssh_profiles/bloc/index.dart';
 import '../../features/ssh_sessions/bloc/index.dart';
-import '../../security/security_policy.dart';
 import '../../sftp_client/rust_sftp_backend.dart';
 import '../../sftp_client/sftp_backend.dart';
 import '../../sftp_client/sftp_manager.dart';
@@ -42,10 +41,7 @@ Future<void> configureDependencies() async {
   }
 
   sl
-    ..registerLazySingleton<SecurityPolicy>(SecurityPolicy.new)
-    ..registerLazySingleton<ProfileSecretStore>(
-      () => ProfileSecretStore(policy: sl()),
-    )
+    ..registerLazySingleton<ProfileSecretStore>(ProfileSecretStore.new)
     ..registerLazySingleton<ConnectionBackend>(() => backend)
     ..registerLazySingleton<ProfileCredentials>(
       () => ProfileCredentials(
@@ -83,9 +79,7 @@ Future<void> configureDependencies() async {
     ..registerLazySingleton<RdpProfileRepository>(() => RdpProfileRepository())
     ..registerFactory(() => SshWorkspaceBloc(repository: sl()))
     ..registerFactory(() => RdpWorkspaceBloc(repository: sl()))
-    ..registerFactory(
-      () => SettingsBloc(repository: sl(), securityPolicy: sl()),
-    )
+    ..registerFactory(() => SettingsBloc(repository: sl()))
     ..registerFactory(() => SftpWorkspaceBloc(repository: sl()))
     ..registerFactory(SshSessionBloc.new);
 }
