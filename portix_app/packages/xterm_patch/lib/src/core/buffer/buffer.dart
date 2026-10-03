@@ -237,6 +237,7 @@ class Buffer {
       if (_cursorY == _marginBottom) {
         if (marginTop == 0 && !isAltBuffer) {
           lines.insert(absoluteMarginBottom + 1, _newEmptyLine());
+          _compactNewScrollback();
         } else {
           scrollUp(1);
         }
@@ -253,11 +254,19 @@ class Buffer {
         scrollUp(1);
       } else {
         lines.push(_newEmptyLine());
+        _compactNewScrollback();
       }
     } else {
       // there're still lines so we simply move cursor down.
       moveCursorY(1);
     }
+  }
+
+  /// The line that just scrolled out of the viewport is now scrollback:
+  /// drop its trailing empty cells to save memory.
+  void _compactNewScrollback() {
+    final index = lines.length - viewHeight - 1;
+    if (index >= 0) lines[index].compact();
   }
 
   void lineFeed() {

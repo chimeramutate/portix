@@ -37,39 +37,63 @@ class BufferLine with IndexedItem {
 
   List<CellAnchor> get anchors => _anchors;
 
+  /// Word [i] of the cell data; cells past a [compact]ed array are empty
+  /// (all zero).
+  int _at(int i) => i < _data.length ? _data[i] : 0;
+
+  /// Scrollback lines are rarely written again, so [compact] drops their
+  /// trailing empty cells (most lines are far shorter than the terminal is
+  /// wide). Called before any write, it restores the full array.
+  void _ensureCapacity() {
+    final size = _calcCapacity(_length) * _cellSize;
+    if (_data.length >= size) return;
+    final grown = Uint32List(size);
+    grown.setRange(0, _data.length, _data);
+    _data = grown;
+  }
+
+  /// Shrinks the cell array to the cells that hold content. Reads stay
+  /// correct (missing cells read as empty) and the next write grows it back.
+  void compact() {
+    final used = getTrimmedLength() * _cellSize;
+    if (used == _data.length) return;
+    _data = Uint32List.fromList(Uint32List.sublistView(_data, 0, used));
+  }
+
   int getForeground(int index) {
-    return _data[index * _cellSize + _cellForeground];
+    return _at(index * _cellSize + _cellForeground);
   }
 
   int getBackground(int index) {
-    return _data[index * _cellSize + _cellBackground];
+    return _at(index * _cellSize + _cellBackground);
   }
 
   int getAttributes(int index) {
-    return _data[index * _cellSize + _cellAttributes];
+    return _at(index * _cellSize + _cellAttributes);
   }
 
   int getContent(int index) {
-    return _data[index * _cellSize + _cellContent];
+    return _at(index * _cellSize + _cellContent);
   }
 
   int getCodePoint(int index) {
-    return _data[index * _cellSize + _cellContent] & CellContent.codepointMask;
+    return _at(index * _cellSize + _cellContent) & CellContent.codepointMask;
   }
 
   int getWidth(int index) {
-    return _data[index * _cellSize + _cellContent] >> CellContent.widthShift;
+    return _at(index * _cellSize + _cellContent) >> CellContent.widthShift;
   }
 
   void getCellData(int index, CellData cellData) {
     final offset = index * _cellSize;
-    cellData.foreground = _data[offset + _cellForeground];
-    cellData.background = _data[offset + _cellBackground];
-    cellData.flags = _data[offset + _cellAttributes];
-    cellData.content = _data[offset + _cellContent];
+    cellData.foreground = _at(offset + _cellForeground);
+    cellData.background = _at(offset + _cellBackground);
+    cellData.flags = _at(offset + _cellAttributes);
+    cellData.content = _at(offset + _cellContent);
   }
 
   CellData createCellData(int index) {
+    _ensureCapacity();
     final cellData = CellData.empty();
     final offset = index * _cellSize;
     _data[offset + _cellForeground] = cellData.foreground;
@@ -80,18 +104,22 @@ class BufferLine with IndexedItem {
   }
 
   void setForeground(int index, int value) {
+    _ensureCapacity();
     _data[index * _cellSize + _cellForeground] = value;
   }
 
   void setBackground(int index, int value) {
+    _ensureCapacity();
     _data[index * _cellSize + _cellBackground] = value;
   }
 
   void setAttributes(int index, int value) {
+    _ensureCapacity();
     _data[index * _cellSize + _cellAttributes] = value;
   }
 
   void setContent(int index, int value) {
+    _ensureCapacity();
     _data[index * _cellSize + _cellContent] = value;
   }
 
@@ -101,6 +129,7 @@ class BufferLine with IndexedItem {
   }
 
   void setCell(int index, int char, int witdh, CursorStyle style) {
+    _ensureCapacity();
     final offset = index * _cellSize;
     _data[offset + _cellForeground] = style.foreground;
     _data[offset + _cellBackground] = style.background;
@@ -109,6 +138,7 @@ class BufferLine with IndexedItem {
   }
 
   void setCellData(int index, CellData cellData) {
+    _ensureCapacity();
     final offset = index * _cellSize;
     _data[offset + _cellForeground] = cellData.foreground;
     _data[offset + _cellBackground] = cellData.background;
@@ -117,6 +147,7 @@ class BufferLine with IndexedItem {
   }
 
   void eraseCell(int index, CursorStyle style) {
+    _ensureCapacity();
     final offset = index * _cellSize;
     _data[offset + _cellForeground] = style.foreground;
     _data[offset + _cellBackground] = style.background;
@@ -125,6 +156,7 @@ class BufferLine with IndexedItem {
   }
 
   void resetCell(int index) {
+    _ensureCapacity();
     final offset = index * _cellSize;
     _data[offset + _cellForeground] = 0;
     _data[offset + _cellBackground] = 0;
@@ -158,6 +190,7 @@ class BufferLine with IndexedItem {
     assert(count >= 0 && start + count <= _length);
 
     style ??= CursorStyle.empty;
+    _ensureCapacity();
 
     if (start + count < _length) {
       final moveStart = start * _cellSize;
@@ -192,6 +225,7 @@ class BufferLine with IndexedItem {
   /// Inserts [count] cells at [start]. New cells are initialized with [style].
   void insertCells(int start, int count, [CursorStyle? style]) {
     style ??= CursorStyle.empty;
+    _ensureCapacity();
 
     if (start > 0 && getWidth(start - 1) == 2) {
       eraseCell(start - 1, style);
@@ -288,6 +322,7 @@ class BufferLine with IndexedItem {
   /// line.
   void copyFrom(BufferLine src, int srcCol, int dstCol, int len) {
     resize(dstCol + len);
+    _ensureCapacity();
 
     // data.setRange(
     //   dstCol * _cellSize,
@@ -299,7 +334,7 @@ class BufferLine with IndexedItem {
     var dstOffset = dstCol * _cellSize;
 
     for (var i = 0; i < len * _cellSize; i++) {
-      _data[dstOffset++] = src._data[srcOffset++];
+      _data[dstOffset++] = src._at(srcOffset++);
     }
   }
 
