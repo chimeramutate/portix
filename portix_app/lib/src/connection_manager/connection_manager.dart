@@ -144,6 +144,15 @@ class ConnectionManager extends ChangeNotifier {
           );
       _backendToUiSessionIds[backendSessionId] = uiSessionId;
       notifyListeners();
+      final startup = profile.startupCommand;
+      if (startup != null) {
+        // The shell reads it once it is ready, like typed-ahead input.
+        unawaited(
+          _backend
+              .sendTerminalInput(backendSessionId, '$startup\r')
+              .catchError((Object _) {}),
+        );
+      }
       return const Right(null);
     } catch (error) {
       final index = _sessions.indexWhere(

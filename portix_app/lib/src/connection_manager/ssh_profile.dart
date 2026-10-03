@@ -18,6 +18,7 @@ class SshProfile {
     this.jumpHost,
     this.group,
     this.tags = const <String>[],
+    this.startupCommand,
   });
 
   final String id;
@@ -44,6 +45,9 @@ class SshProfile {
   final String? group;
   final List<String> tags;
 
+  /// Typed into the shell once the terminal session is up.
+  final String? startupCommand;
+
   /// Connection view of a saved profile. The domain stores either the key
   /// path or the password in `credentialLabel`, depending on `authMethod`;
   /// 'Saved password' is a placeholder meaning "read it from the keychain".
@@ -69,6 +73,9 @@ class SshProfile {
           : profile.jumpProfileId,
       group: profile.group,
       tags: profile.tags,
+      startupCommand: profile.startupCommand.trim().isEmpty
+          ? null
+          : profile.startupCommand.trim(),
     );
   }
 
@@ -104,6 +111,7 @@ class SshProfile {
       jumpHost: jumpHost ?? this.jumpHost,
       group: group ?? this.group,
       tags: tags ?? this.tags,
+      startupCommand: startupCommand,
     );
   }
 
