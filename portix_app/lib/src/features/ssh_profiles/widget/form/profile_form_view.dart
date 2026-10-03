@@ -603,7 +603,7 @@ class _AdvancedSection extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.settings_outlined,
                     color: AppColors.muted,
                     size: 16,
@@ -626,7 +626,7 @@ class _AdvancedSection extends StatelessWidget {
                   AnimatedRotation(
                     duration: const Duration(milliseconds: 200),
                     turns: expanded ? 0.5 : 0.0,
-                    child: const Icon(
+                    child: Icon(
                       Icons.keyboard_arrow_down_rounded,
                       color: AppColors.muted,
                       size: 20,
@@ -745,12 +745,12 @@ class _AutocompleteTextFieldState extends State<_AutocompleteTextField> {
                 controller: textController,
                 focusNode: focusNode,
                 onChanged: widget.onChanged,
-                style: const TextStyle(
+                style: TextStyle(
                   color: AppColors.text,
                   fontWeight: FontWeight.w800,
                   fontSize: 13,
                 ),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   suffixIcon: Icon(
                     Icons.search_rounded,
                     color: AppColors.muted,
@@ -857,7 +857,7 @@ class _TagSelectorState extends State<_TagSelector> {
       children: [
         Row(
           children: [
-            const Icon(Icons.sell_outlined, color: AppColors.muted, size: 15),
+            Icon(Icons.sell_outlined, color: AppColors.muted, size: 15),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -897,12 +897,12 @@ class _TagSelectorState extends State<_TagSelector> {
                 child: TextField(
                   controller: _input,
                   onSubmitted: _addTag,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.text,
                     fontWeight: FontWeight.w800,
                     fontSize: 13,
                   ),
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: 'Add tag and press Enter',
                     prefixIcon: Icon(
                       Icons.add_rounded,
@@ -936,11 +936,7 @@ class _ProfileColorPicker extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Icon(
-              Icons.palette_outlined,
-              color: AppColors.muted,
-              size: 15,
-            ),
+            Icon(Icons.palette_outlined, color: AppColors.muted, size: 15),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -1015,11 +1011,7 @@ class _JumpHostPicker extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Icon(
-              Icons.alt_route_rounded,
-              color: AppColors.muted,
-              size: 15,
-            ),
+            Icon(Icons.alt_route_rounded, color: AppColors.muted, size: 15),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -1137,7 +1129,7 @@ class _Segment extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       child: Container(
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFF143B63) : AppColors.surfaceDark,
+          color: selected ? AppColors.selected : AppColors.surfaceDark,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: selected ? AppColors.primaryBlue : AppColors.border,
@@ -1246,7 +1238,7 @@ class _UploadIconBox extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.cyan),
       ),
-      child: const Icon(Icons.upload_rounded, color: AppColors.cyan),
+      child: Icon(Icons.upload_rounded, color: AppColors.cyan),
     );
   }
 }

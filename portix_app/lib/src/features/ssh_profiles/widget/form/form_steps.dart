@@ -82,7 +82,7 @@ class FormSteps extends StatelessWidget {
               ],
             ),
           ),
-        const AppPanel(
+        AppPanel(
           padding: EdgeInsets.all(14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

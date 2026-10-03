@@ -269,11 +269,7 @@ class _PathBarState extends State<PathBar> {
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.folder_outlined,
-                color: AppColors.muted,
-                size: 16,
-              ),
+              Icon(Icons.folder_outlined, color: AppColors.muted, size: 16),
               const SizedBox(width: 9),
               Expanded(
                 child: TextField(
@@ -286,7 +282,7 @@ class _PathBarState extends State<PathBar> {
                       widget.onSubmit(value);
                     }
                   },
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.text,
                     fontWeight: FontWeight.w900,
                     fontSize: 13,

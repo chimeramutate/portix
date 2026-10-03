@@ -49,19 +49,24 @@ class PortixRdpWindowApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Portix RDP - ${arguments.profileName}',
-      debugShowCheckedModeBanner: false,
-      theme: appTheme,
-      builder: (context, child) {
-        final media = MediaQuery.of(context);
-        final scale = media.textScaler.scale(1).clamp(0.85, 1.05);
-        return MediaQuery(
-          data: media.copyWith(textScaler: TextScaler.linear(scale)),
-          child: child ?? const SizedBox.shrink(),
-        );
-      },
-      home: RdpSessionWindow(arguments: arguments),
+    return FollowSystemBrightness(
+      child: MaterialApp(
+        title: 'Portix RDP - ${arguments.profileName}',
+        debugShowCheckedModeBanner: false,
+        // Light or dark as the OS is set; there is no in-app switch.
+        theme: appLightTheme,
+        darkTheme: appTheme,
+        themeMode: ThemeMode.system,
+        builder: (context, child) {
+          final media = MediaQuery.of(context);
+          final scale = media.textScaler.scale(1).clamp(0.85, 1.05);
+          return MediaQuery(
+            data: media.copyWith(textScaler: TextScaler.linear(scale)),
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
+        home: RdpSessionWindow(arguments: arguments),
+      ),
     );
   }
 }

@@ -33,11 +33,7 @@ class _FileActionMenu extends StatelessWidget {
     return PopupMenuButton<_FileAction>(
       tooltip: 'Actions',
       color: AppColors.surfaceCard,
-      icon: const Icon(
-        Icons.more_vert_rounded,
-        size: 18,
-        color: AppColors.muted,
-      ),
+      icon: Icon(Icons.more_vert_rounded, size: 18, color: AppColors.muted),
       onSelected: onSelected,
       itemBuilder: (context) => [
         if (file.folder)
@@ -179,7 +175,7 @@ class _FileRow extends StatelessWidget {
                 : 44,
             padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
             decoration: BoxDecoration(
-              color: selected ? const Color(0xFF123B63) : Colors.transparent,
+              color: selected ? AppColors.selected : Colors.transparent,
               border: Border(
                 bottom: BorderSide(
                   color: AppColors.border.withValues(alpha: .65),
@@ -410,7 +406,7 @@ class _PaneFooter extends StatelessWidget {
     return Container(
       height: 30,
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(top: BorderSide(color: AppColors.border)),
       ),
       child: Row(

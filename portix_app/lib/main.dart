@@ -64,33 +64,38 @@ class _PortixAppState extends State<PortixApp> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Portix',
-      debugShowCheckedModeBanner: false,
-      theme: appTheme,
-      builder: (context, child) {
-        final media = MediaQuery.of(context);
-        final scale = media.textScaler
-            .scale(1)
-            .clamp(0.85, media.size.width >= 900 ? 0.95 : 1.05);
-        return MediaQuery(
-          data: media.copyWith(textScaler: TextScaler.linear(scale)),
-          child: child ?? const SizedBox.shrink(),
-        );
-      },
-      home: MultiBlocProvider(
-        providers: [
-          BlocProvider(
-            create: (_) =>
-                sl<SshWorkspaceBloc>()..add(const ProfilesRequested()),
-          ),
-          BlocProvider(create: (_) => sl<SshSessionBloc>()),
-          BlocProvider(
-            create: (_) =>
-                sl<RdpWorkspaceBloc>()..add(const RdpProfilesRequested()),
-          ),
-        ],
-        child: const PortixWorkspacePage(),
+    return FollowSystemBrightness(
+      child: MaterialApp(
+        title: 'Portix',
+        debugShowCheckedModeBanner: false,
+        // Light or dark as the OS is set; there is no in-app switch.
+        theme: appLightTheme,
+        darkTheme: appTheme,
+        themeMode: ThemeMode.system,
+        builder: (context, child) {
+          final media = MediaQuery.of(context);
+          final scale = media.textScaler
+              .scale(1)
+              .clamp(0.85, media.size.width >= 900 ? 0.95 : 1.05);
+          return MediaQuery(
+            data: media.copyWith(textScaler: TextScaler.linear(scale)),
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
+        home: MultiBlocProvider(
+          providers: [
+            BlocProvider(
+              create: (_) =>
+                  sl<SshWorkspaceBloc>()..add(const ProfilesRequested()),
+            ),
+            BlocProvider(create: (_) => sl<SshSessionBloc>()),
+            BlocProvider(
+              create: (_) =>
+                  sl<RdpWorkspaceBloc>()..add(const RdpProfilesRequested()),
+            ),
+          ],
+          child: const PortixWorkspacePage(),
+        ),
       ),
     );
   }

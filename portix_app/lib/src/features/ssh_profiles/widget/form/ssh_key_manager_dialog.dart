@@ -61,7 +61,9 @@ class _SshKeyManagerDialogState extends State<_SshKeyManagerDialog> {
 
   Future<void> _copyPublicKey(String publicKey) async {
     await Clipboard.setData(ClipboardData(text: publicKey));
-    _toast('Public key copied. Add it to ~/.ssh/authorized_keys on the server.');
+    _toast(
+      'Public key copied. Add it to ~/.ssh/authorized_keys on the server.',
+    );
   }
 
   Future<void> _browse() async {
@@ -160,15 +162,12 @@ class _SshKeyManagerDialogState extends State<_SshKeyManagerDialog> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.key_rounded, color: AppColors.cyan),
+                  Icon(Icons.key_rounded, color: AppColors.cyan),
                   const SizedBox(width: 10),
                   Expanded(child: Text('SSH keys', style: portixTitle(18))),
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(
-                      Icons.close_rounded,
-                      color: AppColors.muted,
-                    ),
+                    icon: Icon(Icons.close_rounded, color: AppColors.muted),
                   ),
                 ],
               ),
@@ -200,7 +199,7 @@ class _SshKeyManagerDialogState extends State<_SshKeyManagerDialog> {
                             publicKey,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontFamily: 'monospace',
                               color: AppColors.muted,
                               fontSize: 11,
@@ -210,7 +209,7 @@ class _SshKeyManagerDialogState extends State<_SshKeyManagerDialog> {
                           trailing: IconButton(
                             tooltip: 'Copy public key',
                             onPressed: () => _copyPublicKey(publicKey),
-                            icon: const Icon(
+                            icon: Icon(
                               Icons.copy_rounded,
                               color: AppColors.muted,
                               size: 16,

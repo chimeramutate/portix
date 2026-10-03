@@ -31,7 +31,7 @@ class SettingsActionBar extends StatelessWidget {
           final compact = constraints.maxWidth < 560;
           final titleBlock = Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.dashboard_customize_outlined,
                 color: AppColors.cyan,
                 size: 18,

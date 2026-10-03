@@ -1810,12 +1810,12 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         SnackBar(
           content: Text(
             message,
-            style: const TextStyle(
+            style: TextStyle(
               color: AppColors.text,
               fontWeight: FontWeight.w700,
             ),
           ),
-          backgroundColor: const Color(0xFF1A2E42),
+          backgroundColor: AppColors.selectedSoft,
           behavior: SnackBarBehavior.floating,
         ),
       );

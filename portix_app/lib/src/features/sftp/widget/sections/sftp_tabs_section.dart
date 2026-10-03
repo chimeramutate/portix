@@ -40,7 +40,7 @@ class _SftpTabChip extends StatelessWidget {
         height: 36,
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          color: active ? const Color(0xFF143B63) : AppColors.surface,
+          color: active ? AppColors.selected : AppColors.surface,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: active ? AppColors.primaryBlue : AppColors.border,
@@ -49,11 +49,7 @@ class _SftpTabChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.folder_open_rounded,
-              size: 14,
-              color: AppColors.cyan,
-            ),
+            Icon(Icons.folder_open_rounded, size: 14, color: AppColors.cyan),
             const SizedBox(width: 8),
             Text(
               label,
@@ -68,7 +64,7 @@ class _SftpTabChip extends StatelessWidget {
               const SizedBox(width: 8),
               GestureDetector(
                 onTap: onClose,
-                child: const Icon(
+                child: Icon(
                   Icons.close_rounded,
                   size: 14,
                   color: AppColors.muted,

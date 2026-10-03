@@ -1425,7 +1425,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                               ),
                               child: SelectableText(
                                 details,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   color: AppColors.muted,
                                   fontFamily: 'monospace',
                                   fontSize: 11,
@@ -2309,7 +2309,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
               Container(
                 height: 54,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: AppColors.bg,
                   border: Border(bottom: BorderSide(color: AppColors.border)),
                 ),
@@ -2330,7 +2330,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                 tooltip: 'Scroll tabs left',
                                 padding: EdgeInsets.zero,
                                 onPressed: () => _scrollTabsBy(-220),
-                                icon: const Icon(
+                                icon: Icon(
                                   Icons.chevron_left_rounded,
                                   color: AppColors.muted,
                                   size: 18,
@@ -2395,7 +2395,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                         ),
                                         if (showDropHint) ...[
                                           const SizedBox(width: 8),
-                                          const Text(
+                                          Text(
                                             'Drop here to move this session',
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
@@ -2423,7 +2423,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                 tooltip: 'Scroll tabs right',
                                 padding: EdgeInsets.zero,
                                 onPressed: () => _scrollTabsBy(220),
-                                icon: const Icon(
+                                icon: Icon(
                                   Icons.chevron_right_rounded,
                                   color: AppColors.muted,
                                   size: 18,
@@ -2444,7 +2444,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                           ? Container(
                               color: AppColors.terminal,
                               alignment: Alignment.center,
-                              child: const Column(
+                              child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   SizedBox(
@@ -2512,7 +2512,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
               Container(
                 height: 52,
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: AppColors.bg,
                   border: Border(top: BorderSide(color: AppColors.border)),
                 ),

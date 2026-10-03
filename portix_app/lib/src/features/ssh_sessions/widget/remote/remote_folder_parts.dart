@@ -156,7 +156,7 @@ class _TransferQueuePanel extends StatelessWidget {
                     width: 24,
                     height: 24,
                   ),
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.close_rounded,
                     size: 14,
                     color: AppColors.muted,
@@ -266,7 +266,7 @@ class _RemotePanelShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(right: BorderSide(color: AppColors.border)),
       ),
@@ -285,7 +285,7 @@ class _CollapsedRemoteRail extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 30,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(right: BorderSide(color: AppColors.border)),
       ),
@@ -298,7 +298,7 @@ class _CollapsedRemoteRail extends StatelessWidget {
             onPressed: onPressed,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 28, height: 32),
-            icon: const Icon(
+            icon: Icon(
               Icons.chevron_right_rounded,
               color: AppColors.cyan,
               size: 22,
@@ -321,11 +321,7 @@ class _ConnectionCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
       child: Row(
         children: [
-          const Icon(
-            Icons.cloud_sync_outlined,
-            color: AppColors.green,
-            size: 20,
-          ),
+          Icon(Icons.cloud_sync_outlined, color: AppColors.green, size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -350,7 +346,7 @@ class _ConnectionCard extends StatelessWidget {
             onPressed: onClose,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-            icon: const Icon(
+            icon: Icon(
               Icons.keyboard_double_arrow_left_rounded,
               color: AppColors.muted,
               size: 18,
@@ -465,7 +461,7 @@ class _RemoteItem extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 6),
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
           decoration: BoxDecoration(
-            color: selected ? const Color(0xFF143B63) : Colors.transparent,
+            color: selected ? AppColors.selected : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: selected ? AppColors.primaryBlue : Colors.transparent,
@@ -588,11 +584,7 @@ class _RemoteItemMenu extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: AppColors.border),
         ),
-        child: const Icon(
-          Icons.more_horiz_rounded,
-          size: 17,
-          color: AppColors.muted,
-        ),
+        child: Icon(Icons.more_horiz_rounded, size: 17, color: AppColors.muted),
       ),
     );
   }
@@ -707,7 +699,7 @@ class _OpenWithEditorSheet extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.apps_rounded, color: AppColors.cyan, size: 18),
+                Icon(Icons.apps_rounded, color: AppColors.cyan, size: 18),
                 const SizedBox(width: 10),
                 Text('Open with', style: portixTitle(15)),
               ],
@@ -728,7 +720,7 @@ class _OpenWithEditorSheet extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
-                      side: const BorderSide(color: AppColors.border),
+                      side: BorderSide(color: AppColors.border),
                     ),
                     tileColor: AppColors.surfaceCard.withValues(alpha: .5),
                     leading: editor.svgAsset != null
@@ -780,7 +772,7 @@ class _InlineRenameItem extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0xFF143B63),
+        color: AppColors.selected,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.primaryBlue),
       ),
@@ -826,11 +818,7 @@ class _InlineRenameItem extends StatelessWidget {
             onPressed: onCancel,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 24, height: 24),
-            icon: const Icon(
-              Icons.close_rounded,
-              color: AppColors.muted,
-              size: 15,
-            ),
+            icon: Icon(Icons.close_rounded, color: AppColors.muted, size: 15),
           ),
         ],
       ),
@@ -906,11 +894,7 @@ class _InlineCreateItem extends StatelessWidget {
             onPressed: onCancel,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 24, height: 24),
-            icon: const Icon(
-              Icons.close_rounded,
-              color: AppColors.muted,
-              size: 15,
-            ),
+            icon: Icon(Icons.close_rounded, color: AppColors.muted, size: 15),
           ),
         ],
       ),

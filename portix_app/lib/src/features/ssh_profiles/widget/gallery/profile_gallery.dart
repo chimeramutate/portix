@@ -135,7 +135,10 @@ class _ProfileGalleryState extends State<ProfileGallery> {
         existingIds: widget.state.profiles.map((profile) => profile.id).toSet(),
       );
       if (!mounted) return;
-      _addImportedProfiles(profiles, emptyMessage: 'No profiles found in that file.');
+      _addImportedProfiles(
+        profiles,
+        emptyMessage: 'No profiles found in that file.',
+      );
     } catch (error) {
       if (!mounted) return;
       _showSnack('Import failed: $error');
@@ -701,7 +704,7 @@ class _ProfileList extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
                 child: AppPanel(
                   padding: const EdgeInsets.all(12),
-                  color: selected ? const Color(0xFF123455) : AppColors.surface,
+                  color: selected ? AppColors.selectedSoft : AppColors.surface,
                   borderColor: selected
                       ? AppColors.primaryBlue
                       : AppColors.border,
@@ -908,7 +911,7 @@ class _EmptyProfileGallery extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.dns_outlined, color: AppColors.muted, size: 24),
+            Icon(Icons.dns_outlined, color: AppColors.muted, size: 24),
             const SizedBox(height: 10),
             Text('No profiles found', style: portixTitle(15)),
             const SizedBox(height: 4),
@@ -994,15 +997,13 @@ class _ListProfileMenu extends StatelessWidget {
 }
 
 class _MenuItem extends StatelessWidget {
-  const _MenuItem({
-    required this.icon,
-    required this.label,
-    this.color = AppColors.muted,
-  });
+  const _MenuItem({required this.icon, required this.label, Color? color})
+    : _color = color;
 
   final IconData icon;
   final String label;
-  final Color color;
+  final Color? _color;
+  Color get color => _color ?? AppColors.muted;
 
   @override
   Widget build(BuildContext context) {

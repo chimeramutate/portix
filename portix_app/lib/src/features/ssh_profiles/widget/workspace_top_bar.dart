@@ -34,7 +34,7 @@ class WorkspaceTopBar extends StatelessWidget {
             horizontal: mobile || compactForm ? 12 : 16,
             vertical: mobile || compactForm ? 8 : 0,
           ),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: AppColors.surfaceDark,
             border: Border(bottom: BorderSide(color: AppColors.border)),
           ),
@@ -88,7 +88,7 @@ class _GalleryTopBarState extends State<_GalleryTopBar> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final mobile = constraints.maxWidth < 720;
-        final brand = const Text(
+        final brand = Text(
           'Portix',
           style: TextStyle(
             color: AppColors.text,
@@ -130,10 +130,10 @@ class _GalleryTopBarState extends State<_GalleryTopBar> {
                 children: [
                   brand,
                   const Spacer(),
-                  const AppPill(
+                  AppPill(
                     label: 'Vault unlocked',
                     color: AppColors.green,
-                    background: Color(0xFF0B3A27),
+                    background: AppColors.greenTint,
                   ),
                   const SizedBox(width: 8),
                   newButton,
@@ -160,10 +160,10 @@ class _GalleryTopBarState extends State<_GalleryTopBar> {
             ),
             if (MediaQuery.sizeOf(context).width > 980) ...[
               const SizedBox(width: 12),
-              const AppPill(
+              AppPill(
                 label: 'Vault unlocked',
                 color: AppColors.green,
-                background: Color(0xFF0B3A27),
+                background: AppColors.greenTint,
               ),
             ],
             const SizedBox(width: 12),
@@ -233,10 +233,10 @@ class _FormTopBar extends StatelessWidget {
         final compact = constraints.maxWidth < 1240;
         final veryCompact = constraints.maxWidth < 760;
         final breadcrumb = _FormBreadcrumb(compact: veryCompact);
-        final status = const AppPill(
+        final status = AppPill(
           label: 'Unsaved draft',
           color: AppColors.amber,
-          background: Color(0xFF3C2B10),
+          background: AppColors.amberTint,
         );
         final actions = Wrap(
           spacing: 10,
@@ -312,7 +312,7 @@ class _FormBreadcrumb extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(
+          Icon(
             Icons.format_list_bulleted_rounded,
             color: AppColors.muted,
             size: 16,
@@ -328,11 +328,7 @@ class _FormBreadcrumb extends StatelessWidget {
             ),
           if (!compact) ...[
             const SizedBox(width: 12),
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: AppColors.muted,
-              size: 18,
-            ),
+            Icon(Icons.chevron_right_rounded, color: AppColors.muted, size: 18),
             const SizedBox(width: 12),
           ],
           Expanded(
@@ -391,7 +387,7 @@ class _SftpTopBar extends StatelessWidget {
                     label: hasSession ? 'Ready' : 'No session',
                     color: hasSession ? AppColors.green : AppColors.muted,
                     background: hasSession
-                        ? const Color(0xFF0B3A27)
+                        ? AppColors.greenTint
                         : AppColors.surface,
                   ),
                 ),
@@ -445,8 +441,8 @@ class _ConnectionBadge extends StatelessWidget {
     this.osIconAsset,
     required this.title,
     this.trailing,
-    this.iconColor = AppColors.green,
-  });
+    Color? iconColor,
+  }) : _iconColor = iconColor;
 
   /// Path to an OS-specific SVG icon asset (e.g. 'assets/icons/os/ubuntu-linux.svg').
   /// When non-empty, the badge renders this SVG with its own colors.
@@ -454,7 +450,8 @@ class _ConnectionBadge extends StatelessWidget {
   final String? osIconAsset;
   final String title;
   final Widget? trailing;
-  final Color iconColor;
+  final Color? _iconColor;
+  Color get iconColor => _iconColor ?? AppColors.green;
 
   @override
   Widget build(BuildContext context) {
@@ -502,7 +499,7 @@ class _Brand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Text(
+    return Text(
       'Portix',
       style: TextStyle(
         color: AppColors.text,

@@ -66,7 +66,7 @@ class TerminalStatusFooter extends StatelessWidget {
                   width: 34,
                   height: 34,
                 ),
-                icon: const Icon(
+                icon: Icon(
                   Icons.call_split_rounded,
                   color: AppColors.muted,
                   size: 18,
@@ -179,7 +179,7 @@ class _OsIcon extends StatelessWidget {
       height: 17,
       fit: BoxFit.contain,
       placeholderBuilder: (_) =>
-          const Icon(Icons.dns_rounded, color: AppColors.green, size: 16),
+          Icon(Icons.dns_rounded, color: AppColors.green, size: 16),
     );
   }
 }
