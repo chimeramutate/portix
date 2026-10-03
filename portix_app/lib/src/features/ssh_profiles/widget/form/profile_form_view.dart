@@ -32,6 +32,46 @@ class _ProfileFormViewState extends State<ProfileFormView> {
   // Advanced section toggle – collapsed by default
   bool _advancedExpanded = false;
 
+  final _identityKey = GlobalKey();
+  final _endpointKey = GlobalKey();
+  final _authKey = GlobalKey();
+  final _advancedKey = GlobalKey();
+  final _saveKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => showTutorialOnce(context, 'new_profile', [
+        (
+          key: _identityKey,
+          title: '1. Profile identity',
+          body: 'Isi nama profile dan group. Tag & warna opsional untuk memudahkan filter.',
+        ),
+        (
+          key: _endpointKey,
+          title: '2. Endpoint',
+          body: 'Masukkan host/IP, port (default 22), dan username server.',
+        ),
+        (
+          key: _authKey,
+          title: '3. Authentication',
+          body: 'Pilih Password atau SSH key. Kredensial disimpan terenkripsi.',
+        ),
+        (
+          key: _advancedKey,
+          title: 'Advanced (opsional)',
+          body: 'Startup command yang dijalankan saat login dan ukuran font terminal.',
+        ),
+        (
+          key: _saveKey,
+          title: '4. Simpan',
+          body: 'Klik Save Profile, lalu profile muncul di gallery dan siap dibuka di SSH atau SFTP.',
+        ),
+      ]),
+    );
+  }
+
   @override
   void dispose() {
     for (final controller in [
@@ -127,6 +167,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
             // --- Sections ---
 
             final identitySection = _FormSection(
+              key: _identityKey,
               title: 'Profile Identity',
               subtitle: 'Nama dan group wajib. Tag opsional untuk filter.',
               children: [
@@ -156,6 +197,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
 
             // Authentication is now embedded inside the endpoint section.
             final endpointSection = _FormSection(
+              key: _endpointKey,
               title: 'Connection Endpoint',
               subtitle:
                   'Host, port, username, dan metode autentikasi SSH session.',
@@ -179,7 +221,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                   onChanged: (_) => _changed(context),
                 ),
                 // Auth inline – full-width inside the endpoint card
-                _AuthSegments(profile: profile),
+                _AuthSegments(key: _authKey, profile: profile),
                 if (profile?.authMethod == AuthMethod.password)
                   AppTextField(
                     controller: _credential,
@@ -209,6 +251,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
 
             // Advanced section with ^ toggle header
             final advancedSection = _AdvancedSection(
+              key: _advancedKey,
               expanded: _advancedExpanded,
               onToggle: () =>
                   setState(() => _advancedExpanded = !_advancedExpanded),
@@ -318,6 +361,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                                     ),
                               ),
                               AppButton(
+                                key: _saveKey,
                                 icon: Icons.save_outlined,
                                 label: stackActions ? 'Save' : 'Save Profile',
                                 primary: true,
@@ -512,6 +556,7 @@ class _FormSection extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.children,
+    super.key,
   });
 
   final String title;
@@ -581,6 +626,7 @@ class _AdvancedSection extends StatelessWidget {
     required this.expanded,
     required this.onToggle,
     required this.children,
+    super.key,
   });
 
   final bool expanded;
@@ -1069,7 +1115,7 @@ class _JumpHostPicker extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _AuthSegments extends StatelessWidget {
-  const _AuthSegments({required this.profile});
+  const _AuthSegments({required this.profile, super.key});
   final SshProfile? profile;
 
   @override

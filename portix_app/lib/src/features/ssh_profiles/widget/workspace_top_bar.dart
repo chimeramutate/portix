@@ -62,11 +62,27 @@ class _GalleryTopBar extends StatefulWidget {
 
 class _GalleryTopBarState extends State<_GalleryTopBar> {
   late final TextEditingController _search;
+  final _searchKey = GlobalKey();
+  final _newKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
     _search = TextEditingController(text: widget.state.searchQuery);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => showTutorialOnce(context, 'gallery', [
+        (
+          key: _newKey,
+          title: 'Buat profile SSH',
+          body: 'Klik di sini untuk menambah server baru: nama, host, port, username, lalu password atau SSH key.',
+        ),
+        (
+          key: _searchKey,
+          title: 'Cari profile',
+          body: 'Filter profile berdasarkan nama, host, tag, atau group.',
+        ),
+      ]),
+    );
   }
 
   @override
@@ -97,6 +113,7 @@ class _GalleryTopBarState extends State<_GalleryTopBar> {
           ),
         );
         final search = SizedBox(
+          key: _searchKey,
           height: 40,
           child: AppTextField(
             controller: _search,
@@ -107,7 +124,9 @@ class _GalleryTopBarState extends State<_GalleryTopBar> {
                 context.read<SshWorkspaceBloc>().add(SearchChanged(value)),
           ),
         );
-        final newButton = mobile
+        final newButton = KeyedSubtree(
+          key: _newKey,
+          child: mobile
             ? AppIconButton(
                 icon: Icons.add_rounded,
                 onPressed: () => context.read<SshWorkspaceBloc>().add(
@@ -121,7 +140,8 @@ class _GalleryTopBarState extends State<_GalleryTopBar> {
                 onPressed: () => context.read<SshWorkspaceBloc>().add(
                   const NewProfileRequested(),
                 ),
-              );
+              ),
+        );
 
         if (mobile) {
           return Column(

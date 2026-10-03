@@ -5,3 +5,4 @@ export 'app_text_field.dart';
 export 'diff_badge.dart';
 export 'path_bar.dart';
 export 'rewrite_remote_dialog.dart';
+export 'app_tutorial.dart';

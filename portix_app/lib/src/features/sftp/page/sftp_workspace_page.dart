@@ -141,9 +141,31 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     'zsh',
   };
 
+  final _leftPaneKey = GlobalKey();
+  final _rightPaneKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => showTutorialOnce(context, 'sftp', [
+        (
+          key: _rightPaneKey,
+          title: 'Pilih server',
+          body: 'Pilih profile SSH di pane kanan untuk membuka file remote via SFTP.',
+        ),
+        (
+          key: _leftPaneKey,
+          title: 'File lokal',
+          body: 'Pane kiri berisi file komputer kamu. Klik judul pane untuk menggantinya ke server lain.',
+        ),
+        (
+          key: _rightPaneKey,
+          title: 'Drag & drop transfer',
+          body: 'Seret file/folder dari satu pane lalu drop ke pane lainnya untuk upload atau download. Progress tampil di pojok kanan bawah.',
+        ),
+      ]),
+    );
     _controller = _newController();
     _leftController = _newController();
     _tabs.add(_SftpTab(controller: _controller, label: 'SFTP 1'));
@@ -1237,7 +1259,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     // profile attaches it to the left controller, choosing Local stays Local.
     // No popup is used for choosing the left profile.
     final leftPickGate = _leftPicking ? _leftPickGate(context, profiles) : null;
-    final leftPane = leftSelectedProfile == null
+    Widget leftPane = leftSelectedProfile == null
         ? _buildLocalFilePane(
             context,
             _leftController,
@@ -1254,14 +1276,18 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
             onTitleTap: () => setState(() => _leftPicking = true),
             pickGate: leftPickGate,
           );
-    final rightPane = _buildRemoteFilePane(
-      context,
-      _controller,
-      profiles,
-      selectedProfile,
-      isLeft: false,
-      onTitleTap: null,
-      pickGate: null,
+    leftPane = KeyedSubtree(key: _leftPaneKey, child: leftPane);
+    final rightPane = KeyedSubtree(
+      key: _rightPaneKey,
+      child: _buildRemoteFilePane(
+        context,
+        _controller,
+        profiles,
+        selectedProfile,
+        isLeft: false,
+        onTitleTap: null,
+        pickGate: null,
+      ),
     );
 
     final leftJobs = _leftController.transferJobs;
