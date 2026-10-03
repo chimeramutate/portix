@@ -12,6 +12,7 @@ class TerminalSessionTab extends StatelessWidget {
     this.onClose,
     this.onReconnect,
     this.onDuplicate,
+    this.onRename,
     this.reconnectNearClose = false,
   });
 
@@ -25,6 +26,7 @@ class TerminalSessionTab extends StatelessWidget {
   final VoidCallback? onClose;
   final VoidCallback? onReconnect;
   final VoidCallback? onDuplicate;
+  final VoidCallback? onRename;
   final bool reconnectNearClose;
 
   void _showContextMenu(BuildContext context, Offset position) {
@@ -46,6 +48,18 @@ class TerminalSessionTab extends StatelessWidget {
         side: const BorderSide(color: AppColors.border),
       ),
       items: [
+        if (onRename != null)
+          PopupMenuItem(
+            value: _TabMenuAction.rename,
+            height: 38,
+            child: Row(
+              children: [
+                const Icon(Icons.edit_rounded, color: AppColors.cyan, size: 16),
+                const SizedBox(width: 10),
+                Text('Rename', style: portixTitle(13)),
+              ],
+            ),
+          ),
         PopupMenuItem(
           value: _TabMenuAction.duplicate,
           height: 38,
@@ -82,11 +96,7 @@ class TerminalSessionTab extends StatelessWidget {
           height: 38,
           child: Row(
             children: [
-              const Icon(
-                Icons.close_rounded,
-                color: AppColors.muted,
-                size: 16,
-              ),
+              const Icon(Icons.close_rounded, color: AppColors.muted, size: 16),
               const SizedBox(width: 10),
               Text('Close', style: portixTitle(13)),
             ],
@@ -96,6 +106,8 @@ class TerminalSessionTab extends StatelessWidget {
     ).then((action) {
       if (action == null) return;
       switch (action) {
+        case _TabMenuAction.rename:
+          onRename?.call();
         case _TabMenuAction.duplicate:
           onDuplicate?.call();
         case _TabMenuAction.reconnect:
@@ -289,4 +301,4 @@ class SessionProfileOption extends StatelessWidget {
   }
 }
 
-enum _TabMenuAction { duplicate, reconnect, close }
+enum _TabMenuAction { rename, duplicate, reconnect, close }
