@@ -160,6 +160,17 @@ class ProfilesImported extends SshWorkspaceEvent {
   List<Object?> get props => [profiles];
 }
 
+/// A profile created by quick connect: saved and listed, without leaving
+/// the current view.
+class QuickProfileSaved extends SshWorkspaceEvent {
+  const QuickProfileSaved(this.profile);
+
+  final SshProfile profile;
+
+  @override
+  List<Object?> get props => [profile];
+}
+
 class ProfileOsDetected extends SshWorkspaceEvent {
   const ProfileOsDetected({required this.profileId, required this.osIconAsset});
 

@@ -1169,7 +1169,11 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
   Future<void> _openNewSessionForCurrentProfile() async {
     final profile = await _pickSessionProfile();
-    if (profile == null) return;
+    if (profile == null || !mounted) return;
+    if (!widget.profiles.any((saved) => saved.id == profile.id)) {
+      // A quick connect: save it so reconnect, SFTP and snapshots find it.
+      context.read<SshWorkspaceBloc>().add(QuickProfileSaved(profile));
+    }
     _activeTabClosed = false;
     _connectedProfileId = null;
     _sessionId = null;
@@ -1241,8 +1245,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
           ..sort(
             (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
           );
-    if (profiles.isEmpty) return Future.value(null);
-
+    // Shown even with no profiles: a quick connect needs none.
     return showDialog<domain.SshProfile>(
       context: context,
       builder: (context) => SessionProfilePickerDialog(
