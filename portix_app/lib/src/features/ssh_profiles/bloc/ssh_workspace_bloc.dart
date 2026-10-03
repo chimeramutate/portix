@@ -29,6 +29,7 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
     on<ProfileTestRequested>(_onProfileTestRequested);
     on<ProfileSaved>(_onProfileSaved);
     on<ProfilesImported>(_onProfilesImported);
+    on<QuickProfileSaved>(_onQuickProfileSaved);
     on<ProfileOsDetected>(_onProfileOsDetected);
     on<ProfileDeleted>(_onProfileDeleted);
   }
@@ -357,6 +358,24 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
         activeView: WorkspaceView.gallery,
         message:
             '${savedProfiles.length} profile${savedProfiles.length == 1 ? '' : 's'} imported.',
+      ),
+    );
+  }
+
+  Future<void> _onQuickProfileSaved(
+    QuickProfileSaved event,
+    Emitter<SshWorkspaceState> emit,
+  ) async {
+    final result = await _repository.saveProfile(event.profile);
+    result.fold(
+      (failure) => emit(state.copyWith(message: failure.message)),
+      (saved) => emit(
+        state.copyWith(
+          profiles: [
+            saved,
+            ...state.profiles.where((profile) => profile.id != saved.id),
+          ],
+        ),
       ),
     );
   }
