@@ -27,6 +27,7 @@ import 'host_key_dialog.dart';
 import 'key_passphrase_dialog.dart';
 import 'port_forward_dialog.dart';
 import 'terminal_profile_picker_dialog.dart';
+import 'terminal_search_bar.dart';
 import 'terminal_snippets.dart';
 import 'terminal_status_footer.dart';
 import 'terminal_workspace_view.dart';
@@ -129,7 +130,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _idleTerminal = _terminalUi.idleTerminal;
     _listenToConnectionManager();
     _connectionManager.addListener(_handleConnectionManagerChanged);
-    HardwareKeyboard.instance.addHandler(_handleSnippetShortcut);
+    HardwareKeyboard.instance.addHandler(_handlePanelShortcut);
     _bootTerminal();
     _tabScrollController.addListener(_handleTabScrollChanged);
     unawaited(_loadTerminalSettings());
@@ -154,7 +155,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
   @override
   void dispose() {
     _connectionManager.removeListener(_handleConnectionManagerChanged);
-    HardwareKeyboard.instance.removeHandler(_handleSnippetShortcut);
+    HardwareKeyboard.instance.removeHandler(_handlePanelShortcut);
+    _search?.dispose();
     _tabScrollController.dispose();
 
     // Jangan close session di sini.
@@ -821,21 +823,74 @@ class _TerminalPanelState extends State<TerminalPanel> {
     });
   }
 
-  /// Ctrl/Cmd+Shift+P. Registered on [HardwareKeyboard] because xterm's
-  /// focused view would otherwise consume it and send ^P to the shell.
-  bool _handleSnippetShortcut(KeyEvent event) {
+  /// Ctrl/Cmd+Shift+P opens snippets; Cmd+F (macOS) or Ctrl+Shift+F finds
+  /// in the terminal (plain Ctrl+F belongs to the shell). Registered on
+  /// [HardwareKeyboard] because xterm's focused view would otherwise consume
+  /// them and send control characters to the shell.
+  bool _handlePanelShortcut(KeyEvent event) {
     final keyboard = HardwareKeyboard.instance;
-    if (!mounted ||
-        !widget.keyboardEnabled ||
-        _snippetPaletteOpen ||
-        event is! KeyDownEvent ||
-        event.logicalKey != LogicalKeyboardKey.keyP ||
-        !keyboard.isShiftPressed ||
-        !(keyboard.isControlPressed || keyboard.isMetaPressed)) {
+    if (!mounted || !widget.keyboardEnabled || event is! KeyDownEvent) {
       return false;
     }
-    unawaited(_openSnippetPalette());
-    return true;
+    final key = event.logicalKey;
+    final shift = keyboard.isShiftPressed;
+    final command = keyboard.isControlPressed || keyboard.isMetaPressed;
+    if (key == LogicalKeyboardKey.keyP && shift && command) {
+      if (_snippetPaletteOpen) return false;
+      unawaited(_openSnippetPalette());
+      return true;
+    }
+    final find = Platform.isMacOS
+        ? keyboard.isMetaPressed && !shift
+        : keyboard.isControlPressed && shift;
+    if (key == LogicalKeyboardKey.keyF && find && _sessionId != null) {
+      _openSearch();
+      return true;
+    }
+    return false;
+  }
+
+  TerminalSearchController? _search;
+
+  void _openSearch() {
+    final sessionId = _sessionId;
+    if (sessionId == null) return;
+    if (_search?.terminal == _terminalForSession(sessionId)) {
+      setState(() {}); // already open: the bar takes focus again
+      return;
+    }
+    _search?.dispose();
+    setState(() {
+      _search = TerminalSearchController(
+        terminal: _terminalForSession(sessionId),
+        controller: _controllerForSession(sessionId),
+        theme: terminalThemeForProfile(
+          _profileForSession(sessionId),
+          foreground: _terminalTextColor,
+          background: _terminalBackgroundColor,
+          themeName: _terminalThemeName,
+        ),
+        reveal: (line) => _revealLine(sessionId, line),
+      );
+    });
+  }
+
+  void _closeSearch() {
+    _search?.dispose();
+    setState(() => _search = null);
+    final sessionId = _sessionId;
+    if (sessionId != null) _focusNodeForSession(sessionId).requestFocus();
+  }
+
+  /// Scrolls [sessionId]'s terminal so buffer [line] sits mid-viewport.
+  void _revealLine(String sessionId, int line) {
+    final view = _viewKeyForSession(sessionId).currentState;
+    final scroll = _scrollControllerForSession(sessionId);
+    if (view == null || !scroll.hasClients) return;
+    final position = scroll.position;
+    final target =
+        line * view.renderTerminal.lineHeight - position.viewportDimension / 2;
+    scroll.jumpTo(target.clamp(0.0, position.maxScrollExtent));
   }
 
   bool _snippetPaletteOpen = false;
@@ -2150,6 +2205,21 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                         ),
                                         const SizedBox(width: 8),
                                         _buildRecordButton(),
+                                        const SizedBox(width: 8),
+                                        Tooltip(
+                                          message: Platform.isMacOS
+                                              ? 'Find in terminal (Cmd+F)'
+                                              : 'Find in terminal (Ctrl+Shift+F)',
+                                          child: AppIconButton(
+                                            key: const ValueKey(
+                                              'terminal-search',
+                                            ),
+                                            icon: Icons.search_rounded,
+                                            onPressed: _sessionId == null
+                                                ? null
+                                                : _openSearch,
+                                          ),
+                                        ),
                                         if (showDropHint) ...[
                                           const SizedBox(width: 8),
                                           const Text(
@@ -2239,47 +2309,29 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                   );
                               },
                             )
-                    : TerminalWorkspaceView(
-                        root: displayRoot,
-                        activeSessionId: _sessionId,
-                        soloSessionId: soloSessionId,
-                        broadcastTyping: _broadcastTyping,
-                        showPaneControls: showPaneControls,
-                        terminalForSession: _terminalForSession,
-                        statusForSession: _statusForSession,
-                        profileForSession: _profileForSession,
-                        idleTerminal: _idleTerminal,
-                        controllerForSession: _controllerForSession,
-                        scrollControllerForSession: _scrollControllerForSession,
-                        focusNodeForSession: _focusNodeForSession,
-                        viewKeyForSession: _viewKeyForSession,
-                        idleController: _idleController,
-                        idleScrollController: _terminalUi.idleScrollController,
-                        idleFocusNode: _idleFocusNode,
-                        idleViewKey: _terminalUi.idleViewKey,
-                        keyboardEnabled: widget.keyboardEnabled,
-                        copyShortcut: _copyShortcut,
-                        pasteShortcut: _pasteShortcut,
-                        textColor: _terminalTextColor,
-                        backgroundColor: _terminalBackgroundColor,
-                        fontFamily: _terminalFontFamily,
-                        fontSize: _terminalFontSize,
-                        themeName: _terminalThemeName,
-                        onFocus: (sessionId) {
-                          final session = _sessionById(sessionId);
-                          if (session != null) {
-                            _activateSession(
-                              session,
-                              keepWorkspaceVisible: true,
-                            );
-                          }
-                        },
-                        onClosePane: _removeSplit,
-                        onSplit: _splitPane,
-                        onResizeBranch: _resizeSplitBranch,
-                        onReconnect: _reconnectSession,
-                        onToggleBroadcast: _toggleBroadcastTyping,
-                        onToggleSolo: _toggleSoloPane,
+                    : Stack(
+                        children: [
+                          Positioned.fill(
+                            child: _buildWorkspaceView(
+                              displayRoot,
+                              soloSessionId,
+                              showPaneControls,
+                            ),
+                          ),
+                          if (_search case final search?
+                              when _sessionId != null &&
+                                  search.terminal ==
+                                      _terminalForSession(_sessionId!))
+                            Positioned(
+                              top: 8,
+                              right: 16,
+                              child: TerminalSearchBar(
+                                key: ObjectKey(search),
+                                search: search,
+                                onClose: _closeSearch,
+                              ),
+                            ),
+                        ],
                       ),
               ),
               Container(
@@ -2310,6 +2362,52 @@ class _TerminalPanelState extends State<TerminalPanel> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildWorkspaceView(
+    SplitNode displayRoot,
+    String? soloSessionId,
+    bool showPaneControls,
+  ) {
+    return TerminalWorkspaceView(
+      root: displayRoot,
+      activeSessionId: _sessionId,
+      soloSessionId: soloSessionId,
+      broadcastTyping: _broadcastTyping,
+      showPaneControls: showPaneControls,
+      terminalForSession: _terminalForSession,
+      statusForSession: _statusForSession,
+      profileForSession: _profileForSession,
+      idleTerminal: _idleTerminal,
+      controllerForSession: _controllerForSession,
+      scrollControllerForSession: _scrollControllerForSession,
+      focusNodeForSession: _focusNodeForSession,
+      viewKeyForSession: _viewKeyForSession,
+      idleController: _idleController,
+      idleScrollController: _terminalUi.idleScrollController,
+      idleFocusNode: _idleFocusNode,
+      idleViewKey: _terminalUi.idleViewKey,
+      keyboardEnabled: widget.keyboardEnabled,
+      copyShortcut: _copyShortcut,
+      pasteShortcut: _pasteShortcut,
+      textColor: _terminalTextColor,
+      backgroundColor: _terminalBackgroundColor,
+      fontFamily: _terminalFontFamily,
+      fontSize: _terminalFontSize,
+      themeName: _terminalThemeName,
+      onFocus: (sessionId) {
+        final session = _sessionById(sessionId);
+        if (session != null) {
+          _activateSession(session, keepWorkspaceVisible: true);
+        }
+      },
+      onClosePane: _removeSplit,
+      onSplit: _splitPane,
+      onResizeBranch: _resizeSplitBranch,
+      onReconnect: _reconnectSession,
+      onToggleBroadcast: _toggleBroadcastTyping,
+      onToggleSolo: _toggleSoloPane,
     );
   }
 }
