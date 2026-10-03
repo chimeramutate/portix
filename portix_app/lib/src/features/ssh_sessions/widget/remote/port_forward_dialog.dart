@@ -159,7 +159,7 @@ class _PortForwardDialogState extends State<_PortForwardDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: AppColors.surface,
-      title: const Row(
+      title: Row(
         children: [
           Icon(Icons.swap_horiz_rounded, color: AppColors.cyan),
           SizedBox(width: 10),
@@ -325,7 +325,7 @@ class _ForwardRow extends StatelessWidget {
         : local;
     return Row(
       children: [
-        const Icon(Icons.circle, size: 8, color: AppColors.green),
+        Icon(Icons.circle, size: 8, color: AppColors.green),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
@@ -335,7 +335,7 @@ class _ForwardRow extends StatelessWidget {
                 : forward.socks
                 ? '$local → SOCKS5 proxy'
                 : '$local → ${forward.remoteHost}:${forward.remotePort}',
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'monospace',
               fontSize: 12,
               color: AppColors.text,

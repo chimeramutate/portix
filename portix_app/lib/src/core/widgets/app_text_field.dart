@@ -76,7 +76,7 @@ class _AppTextFieldState extends State<AppTextField> {
             readOnly: widget.readOnly,
             obscureText: _obscured,
             onChanged: widget.onChanged,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'Inter',
               color: AppColors.text,
               fontWeight: FontWeight.w800,

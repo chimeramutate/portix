@@ -171,7 +171,7 @@ class _SessionSnapshotsDialogState extends State<SessionSnapshotsDialog> {
             children: [
               Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'Saved sessions',
                       style: TextStyle(
@@ -207,11 +207,11 @@ class _SessionSnapshotsDialogState extends State<SessionSnapshotsDialog> {
               ),
               const SizedBox(height: 8),
               if (_error != null)
-                Text(_error!, style: const TextStyle(color: AppColors.danger))
+                Text(_error!, style: TextStyle(color: AppColors.danger))
               else if (snapshots == null)
                 const Center(child: CircularProgressIndicator())
               else if (shown.isEmpty)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.symmetric(vertical: 24),
                   child: Text(
                     'No saved sessions yet. Use "Save session state" in the '
@@ -244,7 +244,7 @@ class _SessionSnapshotsDialogState extends State<SessionSnapshotsDialog> {
       color: AppColors.terminal,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: const BorderSide(color: AppColors.border),
+        side: BorderSide(color: AppColors.border),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -261,7 +261,7 @@ class _SessionSnapshotsDialogState extends State<SessionSnapshotsDialog> {
                     child: Text(
                       snapshot.title,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: AppColors.text,
                         fontWeight: FontWeight.w800,
                       ),
@@ -269,10 +269,7 @@ class _SessionSnapshotsDialogState extends State<SessionSnapshotsDialog> {
                   ),
                   Text(
                     _formatTime(snapshot.savedAt),
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(color: AppColors.muted, fontSize: 12),
                   ),
                   IconButton(
                     tooltip: 'Delete',
@@ -287,7 +284,7 @@ class _SessionSnapshotsDialogState extends State<SessionSnapshotsDialog> {
                 tail,
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   color: AppColors.muted,
                   fontFamily: 'monospace',
                   fontSize: 11,

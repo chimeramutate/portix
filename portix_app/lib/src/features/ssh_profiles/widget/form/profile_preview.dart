@@ -44,7 +44,7 @@ class _PreviewProfileCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF123455),
+        color: AppColors.selectedSoft,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.primaryBlue),
       ),
@@ -103,7 +103,7 @@ class _PreviewProfileCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: AppColors.border),
             ),
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.terminal_rounded, color: AppColors.muted, size: 16),
@@ -138,7 +138,7 @@ class _PreviewIcon extends StatelessWidget {
         borderRadius: BorderRadius.circular(9),
         border: Border.all(color: AppColors.green),
       ),
-      child: const Icon(Icons.dns_rounded, color: AppColors.green, size: 24),
+      child: Icon(Icons.dns_rounded, color: AppColors.green, size: 24),
     );
   }
 }

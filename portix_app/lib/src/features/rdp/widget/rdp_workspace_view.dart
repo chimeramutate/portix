@@ -94,7 +94,7 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const Text(
+                  Text(
                     'RDP Profiles',
                     style: TextStyle(
                       color: AppColors.text,
@@ -122,7 +122,7 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
                   padding: const EdgeInsets.only(top: 10, bottom: 4),
                   child: Text(
                     state.message,
-                    style: const TextStyle(color: AppColors.cyan),
+                    style: TextStyle(color: AppColors.cyan),
                   ),
                 ),
 
@@ -598,7 +598,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
                 icon: const Icon(Icons.arrow_back),
               ),
               const SizedBox(width: 8),
-              const Text(
+              Text(
                 'Edit RDP Profile',
                 style: TextStyle(
                   color: AppColors.text,
@@ -643,7 +643,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Connection',
                           style: TextStyle(
                             color: AppColors.text,
@@ -701,7 +701,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
 
                         const SizedBox(height: 24),
 
-                        const Text(
+                        Text(
                           'Display',
                           style: TextStyle(
                             color: AppColors.text,
@@ -745,7 +745,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
 
                         const SizedBox(height: 18),
 
-                        const Text(
+                        Text(
                           'Redirection',
                           style: TextStyle(
                             color: AppColors.text,
@@ -814,7 +814,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
 
                         const SizedBox(height: 18),
 
-                        const Text(
+                        Text(
                           'Security',
                           style: TextStyle(
                             color: AppColors.text,
@@ -856,7 +856,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
                           ),
                           child: Row(
                             children: [
-                              const Icon(
+                              Icon(
                                 Icons.info_outline,
                                 color: AppColors.cyan,
                                 size: 18,
@@ -865,7 +865,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
                               Expanded(
                                 child: Text(
                                   'Profile ID: ${widget.profile.id}',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     color: AppColors.muted,
                                     fontSize: 12,
                                   ),
@@ -1075,7 +1075,7 @@ class _EmptyProfiles extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: const [
+          children: [
             Icon(
               Icons.desktop_windows_outlined,
               size: 64,
@@ -1113,7 +1113,7 @@ class _NoSelectionPanel extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.border),
       ),
-      child: const Text(
+      child: Text(
         'Klik profil untuk melihat detail dan opsi koneksi.',
         style: TextStyle(color: AppColors.muted, fontSize: 14),
       ),
@@ -1138,7 +1138,7 @@ class _RdpDetailsPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Selected profile',
             style: TextStyle(
               color: AppColors.text,
@@ -1260,7 +1260,7 @@ class _DetailRow extends StatelessWidget {
             width: 110,
             child: Text(
               '$label:',
-              style: const TextStyle(
+              style: TextStyle(
                 color: AppColors.muted,
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
@@ -1270,7 +1270,7 @@ class _DetailRow extends StatelessWidget {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(color: AppColors.text, fontSize: 13),
+              style: TextStyle(color: AppColors.text, fontSize: 13),
             ),
           ),
         ],

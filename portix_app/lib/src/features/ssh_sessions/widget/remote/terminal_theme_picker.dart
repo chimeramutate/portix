@@ -51,7 +51,7 @@ class _TerminalThemePickerState extends State<TerminalThemePicker> {
             children: [
               Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'Terminal theme',
                       style: TextStyle(
