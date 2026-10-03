@@ -70,7 +70,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -337743501;
+  int get rustContentHash => -1969656338;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -206,6 +206,11 @@ abstract class RustLibApi extends BaseApi {
     required int localPort,
     required String remoteHost,
     required int remotePort,
+  });
+
+  Future<ForwardInfo> crateApiSshStartSocksProxy({
+    required SshProfile profile,
+    required int localPort,
   });
 
   Future<void> crateApiSshStopLocalForward({required String id});
@@ -1180,6 +1185,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<ForwardInfo> crateApiSshStartSocksProxy({
+    required SshProfile profile,
+    required int localPort,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_ssh_profile(profile, serializer);
+          sse_encode_u_16(localPort, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 29,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_forward_info,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSshStartSocksProxyConstMeta,
+        argValues: [profile, localPort],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSshStartSocksProxyConstMeta => const TaskConstMeta(
+    debugName: "start_socks_proxy",
+    argNames: ["profile", "localPort"],
+  );
+
+  @override
   Future<void> crateApiSshStopLocalForward({required String id}) {
     return handler.executeNormal(
       NormalTask(
@@ -1189,7 +1228,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 30,
             port: port_,
           );
         },
@@ -1217,7 +1256,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 30,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1250,7 +1289,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 31,
+              funcId: 32,
               port: port_,
             );
           },
@@ -1289,7 +1328,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 33,
             port: port_,
           );
         },
@@ -1375,14 +1414,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ForwardInfo dco_decode_forward_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return ForwardInfo(
       id: dco_decode_String(arr[0]),
       profileId: dco_decode_String(arr[1]),
       localPort: dco_decode_u_16(arr[2]),
       remoteHost: dco_decode_String(arr[3]),
       remotePort: dco_decode_u_16(arr[4]),
+      socks: dco_decode_bool(arr[5]),
     );
   }
 
@@ -1653,12 +1693,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_localPort = sse_decode_u_16(deserializer);
     var var_remoteHost = sse_decode_String(deserializer);
     var var_remotePort = sse_decode_u_16(deserializer);
+    var var_socks = sse_decode_bool(deserializer);
     return ForwardInfo(
       id: var_id,
       profileId: var_profileId,
       localPort: var_localPort,
       remoteHost: var_remoteHost,
       remotePort: var_remotePort,
+      socks: var_socks,
     );
   }
 
@@ -2012,6 +2054,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_16(self.localPort, serializer);
     sse_encode_String(self.remoteHost, serializer);
     sse_encode_u_16(self.remotePort, serializer);
+    sse_encode_bool(self.socks, serializer);
   }
 
   @protected

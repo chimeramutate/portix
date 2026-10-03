@@ -182,6 +182,21 @@ class ConnectionManager extends ChangeNotifier {
     }
   }
 
+  Future<Result<PortForward>> startSocksProxy(
+    SshProfile profile, {
+    required int localPort,
+  }) async {
+    try {
+      final proxy = await _backend.startSocksProxy(
+        await credentials.resolve(profile),
+        localPort,
+      );
+      return Right(proxy);
+    } catch (error) {
+      return Left(AppFailure('Failed to start SOCKS proxy', cause: error));
+    }
+  }
+
   Future<void> stopLocalForward(String id) => _backend.stopLocalForward(id);
 
   Future<List<PortForward>> listLocalForwards() =>

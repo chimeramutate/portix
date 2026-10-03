@@ -408,3 +408,50 @@ mod sftp {
         assert!(!remote_dir.join(format!("run.sh{PART_SUFFIX}")).exists());
     }
 }
+
+#[tokio::test]
+async fn socks_proxy_reaches_a_target_through_the_ssh_server() {
+    use crate::infrastructure::port_forward::{Destination, serve};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    // Target: echoes one message back.
+    let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let target_port = target.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let (mut socket, _) = target.accept().await.unwrap();
+        let mut buf = [0u8; 5];
+        socket.read_exact(&mut buf).await.unwrap();
+        socket.write_all(&buf).await.unwrap();
+    });
+
+    let dir = tempfile::tempdir().unwrap();
+    let known_hosts = dir.path().join("known_hosts");
+    let forwards = Arc::new(AtomicUsize::new(0));
+    let (port, key) = start_server(forwards.clone()).await;
+    trust(&known_hosts, port, &key);
+    let ssh = connect_with_known_hosts(&profile(port), &known_hosts)
+        .await
+        .unwrap();
+    let proxy = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let proxy_port = proxy.local_addr().unwrap().port();
+    tokio::spawn(serve(proxy, Arc::new(ssh), Destination::Socks));
+
+    let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    client.write_all(&[5, 1, 0]).await.unwrap();
+    let mut choice = [0u8; 2];
+    client.read_exact(&mut choice).await.unwrap();
+    assert_eq!(choice, [5, 0]);
+    let mut request = vec![5, 1, 0, 3, 9];
+    request.extend_from_slice(b"127.0.0.1");
+    request.extend_from_slice(&target_port.to_be_bytes());
+    client.write_all(&request).await.unwrap();
+    let mut reply = [0u8; 10];
+    client.read_exact(&mut reply).await.unwrap();
+    assert_eq!(reply[1], 0, "SOCKS succeeded");
+
+    client.write_all(b"hello").await.unwrap();
+    let mut echoed = [0u8; 5];
+    client.read_exact(&mut echoed).await.unwrap();
+    assert_eq!(&echoed, b"hello");
+    assert_eq!(forwards.load(Ordering::SeqCst), 1, "went through SSH");
+}

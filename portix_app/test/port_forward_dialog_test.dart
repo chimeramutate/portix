@@ -68,4 +68,23 @@ void main() {
     expect(await manager.listLocalForwards(), isEmpty);
     manager.dispose();
   });
+
+  testWidgets('starts a SOCKS proxy without a remote target', (tester) async {
+    final manager = ConnectionManager(backend: MockConnectionBackend());
+    await _open(tester, manager);
+
+    await tester.tap(find.text('SOCKS proxy (-D)'));
+    await tester.pumpAndSettle();
+    expect(find.text('Remote host'), findsNothing);
+
+    await tester.enterText(_field('Local port'), '1080');
+    await tester.tap(find.text('Start tunnel'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('127.0.0.1:1080 → SOCKS5 proxy'), findsOneWidget);
+    expect(find.byTooltip('Copy socks5h://127.0.0.1:1080'), findsOneWidget);
+    final forwards = await manager.listLocalForwards();
+    expect(forwards.single.socks, isTrue);
+    manager.dispose();
+  });
 }

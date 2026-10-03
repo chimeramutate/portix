@@ -23,6 +23,10 @@ abstract interface class ConnectionBackend {
     int remotePort,
   );
 
+  /// Serves a SOCKS5 proxy on 127.0.0.1:[localPort] (0 = any free port);
+  /// connections go wherever each client asks, from [profile]'s server.
+  Future<PortForward> startSocksProxy(SshProfile profile, int localPort);
+
   Future<void> stopLocalForward(String id);
 
   /// Tunnels still running; one ends on its own if its SSH connection drops.

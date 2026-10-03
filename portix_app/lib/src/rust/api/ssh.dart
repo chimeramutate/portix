@@ -108,6 +108,16 @@ Future<ForwardInfo> startLocalForward({
   remotePort: remotePort,
 );
 
+/// Starts a SOCKS5 proxy on 127.0.0.1:`local_port` (0 = any free port):
+/// connections go wherever each client asks, from the SSH server.
+Future<ForwardInfo> startSocksProxy({
+  required SshProfile profile,
+  required int localPort,
+}) => RustLib.instance.api.crateApiSshStartSocksProxy(
+  profile: profile,
+  localPort: localPort,
+);
+
 Future<void> stopLocalForward({required String id}) =>
     RustLib.instance.api.crateApiSshStopLocalForward(id: id);
 
@@ -124,13 +134,16 @@ Stream<String> connectionStatusStream() =>
 Stream<String> errorEventStream() =>
     RustLib.instance.api.crateApiSshErrorEventStream();
 
-/// An active local port forward (`ssh -L local_port:remote_host:remote_port`).
+/// An active tunnel on 127.0.0.1:`local_port`: a local forward
+/// (`ssh -L local_port:remote_host:remote_port`), or a SOCKS5 proxy
+/// (`ssh -D local_port`) when `socks` is set.
 class ForwardInfo {
   final String id;
   final String profileId;
   final int localPort;
   final String remoteHost;
   final int remotePort;
+  final bool socks;
 
   const ForwardInfo({
     required this.id,
@@ -138,6 +151,7 @@ class ForwardInfo {
     required this.localPort,
     required this.remoteHost,
     required this.remotePort,
+    required this.socks,
   });
 
   @override
@@ -146,7 +160,8 @@ class ForwardInfo {
       profileId.hashCode ^
       localPort.hashCode ^
       remoteHost.hashCode ^
-      remotePort.hashCode;
+      remotePort.hashCode ^
+      socks.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -157,7 +172,8 @@ class ForwardInfo {
           profileId == other.profileId &&
           localPort == other.localPort &&
           remoteHost == other.remoteHost &&
-          remotePort == other.remotePort;
+          remotePort == other.remotePort &&
+          socks == other.socks;
 }
 
 /// A server host key that was refused: unknown (`changed_line` is None) or
