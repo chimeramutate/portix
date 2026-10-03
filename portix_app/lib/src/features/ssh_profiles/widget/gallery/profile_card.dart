@@ -37,7 +37,7 @@ class ProfileCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(10),
       child: AppPanel(
         padding: const EdgeInsets.all(12),
-        color: selected ? const Color(0xFF123455) : AppColors.surface,
+        color: selected ? AppColors.selectedSoft : AppColors.surface,
         borderColor: selected ? AppColors.primaryBlue : AppColors.border,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,7 +62,7 @@ class ProfileCard extends StatelessWidget {
                   PopupMenuButton<_ProfileAction>(
                     tooltip: 'Profile actions',
                     color: AppColors.surfaceCard,
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.more_horiz_rounded,
                       color: AppColors.muted,
                       size: 20,
@@ -198,7 +198,7 @@ class MetaLine extends StatelessWidget {
             child: Text(
               text,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                 color: AppColors.text,
                 fontSize: 12,
                 fontWeight: FontWeight.w700,

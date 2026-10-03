@@ -34,7 +34,7 @@ class _TransferQueue extends StatelessWidget {
                     onPressed: onClose,
                     padding: EdgeInsets.zero,
                     tooltip: 'Hide transfer queue',
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.close_rounded,
                       color: AppColors.muted,
                       size: 16,

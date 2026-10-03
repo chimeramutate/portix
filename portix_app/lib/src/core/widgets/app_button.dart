@@ -42,13 +42,14 @@ class AppIconButton extends StatelessWidget {
   const AppIconButton({
     required this.icon,
     required this.onPressed,
-    this.color = AppColors.cyan,
+    Color? color,
     super.key,
-  });
+  }) : _color = color;
 
   final IconData icon;
   final VoidCallback? onPressed;
-  final Color color;
+  final Color? _color;
+  Color get color => _color ?? AppColors.cyan;
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +60,7 @@ class AppIconButton extends StatelessWidget {
         onPressed: onPressed,
         icon: Icon(icon, color: color, size: 15),
         style: IconButton.styleFrom(
-          side: const BorderSide(color: AppColors.border),
+          side: BorderSide(color: AppColors.border),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       ),

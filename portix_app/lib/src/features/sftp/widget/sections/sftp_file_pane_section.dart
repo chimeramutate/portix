@@ -604,7 +604,7 @@ class _PaneStatus extends StatelessWidget {
                         ),
                         maxTitleLines: 1,
                       )
-                    : const SizedBox.square(
+                    : SizedBox.square(
                         dimension: 28,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
@@ -852,11 +852,7 @@ class _RemoteFindBarState extends State<_RemoteFindBar> {
             IconButton(
               tooltip: widget.searching ? 'Cancel find' : 'Clear find',
               onPressed: widget.onCleared,
-              icon: const Icon(
-                Icons.close_rounded,
-                color: AppColors.muted,
-                size: 16,
-              ),
+              icon: Icon(Icons.close_rounded, color: AppColors.muted, size: 16),
             ),
         ],
       ),
@@ -987,11 +983,7 @@ class _SftpInlineCreateItem extends StatelessWidget {
             onPressed: onCancel,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-            icon: const Icon(
-              Icons.close_rounded,
-              color: AppColors.muted,
-              size: 16,
-            ),
+            icon: Icon(Icons.close_rounded, color: AppColors.muted, size: 16),
           ),
         ],
       ),
@@ -1020,7 +1012,7 @@ class _SftpInlineRenameItem extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0xFF143B63),
+        color: AppColors.selected,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.primaryBlue),
       ),
@@ -1068,11 +1060,7 @@ class _SftpInlineRenameItem extends StatelessWidget {
             onPressed: onCancel,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 24, height: 24),
-            icon: const Icon(
-              Icons.close_rounded,
-              color: AppColors.muted,
-              size: 15,
-            ),
+            icon: Icon(Icons.close_rounded, color: AppColors.muted, size: 15),
           ),
         ],
       ),
@@ -1089,7 +1077,7 @@ class _TableHeader extends StatelessWidget {
     return Container(
       height: 32,
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
@@ -1129,7 +1117,7 @@ class _SkeletonFileTable extends StatelessWidget {
         Container(
           height: 32,
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: AppColors.surface,
             border: Border(bottom: BorderSide(color: AppColors.border)),
           ),
@@ -1159,7 +1147,7 @@ class _SkeletonFileTable extends StatelessWidget {
         Container(
           height: 30,
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             border: Border(top: BorderSide(color: AppColors.border)),
           ),
           child: Row(

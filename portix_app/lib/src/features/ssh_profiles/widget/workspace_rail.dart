@@ -19,7 +19,7 @@ class WorkspaceRail extends StatelessWidget {
     ];
     return Container(
       width: 68,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surfaceDark,
         border: Border(right: BorderSide(color: AppColors.border)),
       ),
@@ -41,7 +41,7 @@ class WorkspaceRail extends StatelessWidget {
               ],
             ),
           ),
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(bottom: 14),
             child: Column(
               children: [

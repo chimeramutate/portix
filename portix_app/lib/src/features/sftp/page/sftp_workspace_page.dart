@@ -1193,7 +1193,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                           icon: const Icon(Icons.add_rounded, size: 18),
                           style: IconButton.styleFrom(
                             backgroundColor: AppColors.surface,
-                            side: const BorderSide(color: AppColors.border),
+                            side: BorderSide(color: AppColors.border),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),

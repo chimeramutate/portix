@@ -8,20 +8,23 @@ class AppPanel extends StatelessWidget {
     super.key,
     this.padding = const EdgeInsets.all(16),
     this.margin = EdgeInsets.zero,
-    this.color = AppColors.surface,
-    this.borderColor = AppColors.border,
+    Color? color,
+    Color? borderColor,
     this.radius = 8,
 
     /// Set to false when used inside unconstrained parents (e.g. overlay
     /// dropdowns, optionsViewBuilder) to avoid "infinite width" layout errors.
     this.fillWidth = true,
-  });
+  }) : _color = color,
+       _borderColor = borderColor;
 
   final Widget child;
   final EdgeInsetsGeometry padding;
   final EdgeInsetsGeometry margin;
-  final Color color;
-  final Color borderColor;
+  final Color? _color;
+  Color get color => _color ?? AppColors.surface;
+  final Color? _borderColor;
+  Color get borderColor => _borderColor ?? AppColors.border;
   final double radius;
   final bool fillWidth;
 

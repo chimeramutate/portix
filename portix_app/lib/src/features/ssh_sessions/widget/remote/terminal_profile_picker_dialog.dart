@@ -104,12 +104,12 @@ class _SessionProfilePickerDialogState
         color: AppColors.surfaceDark,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
-          side: const BorderSide(color: AppColors.green),
+          side: BorderSide(color: AppColors.green),
         ),
         child: ListTile(
           key: const ValueKey('quick-connect-option'),
           dense: true,
-          leading: const Icon(Icons.bolt_rounded, color: AppColors.green),
+          leading: Icon(Icons.bolt_rounded, color: AppColors.green),
           title: Text(
             'Connect to ${quickConnectLabel(target)}',
             style: portixTitle(13),
@@ -148,7 +148,7 @@ class _SessionProfilePickerDialogState
             children: [
               Row(
                 children: [
-                  const Icon(Icons.add_rounded, color: AppColors.cyan),
+                  Icon(Icons.add_rounded, color: AppColors.cyan),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
@@ -167,10 +167,7 @@ class _SessionProfilePickerDialogState
                   ),
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(
-                      Icons.close_rounded,
-                      color: AppColors.muted,
-                    ),
+                    icon: Icon(Icons.close_rounded, color: AppColors.muted),
                   ),
                 ],
               ),
@@ -188,7 +185,7 @@ class _SessionProfilePickerDialogState
                     }
                     setState(() {});
                   },
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Inter',
                     color: AppColors.text,
                     fontWeight: FontWeight.w800,
@@ -196,7 +193,7 @@ class _SessionProfilePickerDialogState
                   ),
                   decoration: InputDecoration(
                     hintText: 'Search profiles or type user@host[:port]',
-                    prefixIcon: const Icon(
+                    prefixIcon: Icon(
                       Icons.search_rounded,
                       color: AppColors.muted,
                       size: 19,
@@ -211,7 +208,7 @@ class _SessionProfilePickerDialogState
                               }
                               setState(() {});
                             },
-                            icon: const Icon(
+                            icon: Icon(
                               Icons.close_rounded,
                               color: AppColors.muted,
                               size: 18,
@@ -248,7 +245,7 @@ class _SessionProfilePickerDialogState
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.search_off_rounded,
                               color: AppColors.muted,
                               size: 22,

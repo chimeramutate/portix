@@ -66,7 +66,7 @@ class _UnknownHostKeyDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: AppColors.surface,
-      title: const Row(
+      title: Row(
         children: [
           Icon(Icons.fingerprint_rounded, color: AppColors.cyan),
           SizedBox(width: 10),
@@ -123,7 +123,7 @@ class _HostKeyChangedDialog extends StatelessWidget {
     final removeCommand = 'ssh-keygen -R "$target"';
     return AlertDialog(
       backgroundColor: AppColors.surface,
-      title: const Row(
+      title: Row(
         children: [
           Icon(Icons.gpp_bad_outlined, color: AppColors.danger),
           SizedBox(width: 10),
@@ -159,7 +159,7 @@ class _HostKeyChangedDialog extends StatelessWidget {
                 Expanded(
                   child: SelectableText(
                     removeCommand,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'monospace',
                       fontSize: 12,
                       color: AppColors.text,
@@ -205,7 +205,7 @@ class _FingerprintBox extends StatelessWidget {
       ),
       child: SelectableText(
         '$algorithm\n$fingerprint',
-        style: const TextStyle(
+        style: TextStyle(
           fontFamily: 'monospace',
           fontSize: 12,
           height: 1.4,

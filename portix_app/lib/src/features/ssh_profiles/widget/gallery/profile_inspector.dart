@@ -21,7 +21,7 @@ class ProfileInspector extends StatelessWidget {
     final status = effectiveProfileStatus(profile);
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(left: BorderSide(color: AppColors.border)),
       ),
@@ -44,7 +44,7 @@ class ProfileInspector extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             AppPanel(
-              color: const Color(0xFF123455),
+              color: AppColors.selectedSoft,
               borderColor: AppColors.primaryBlue,
               padding: const EdgeInsets.all(14),
               child: Row(
@@ -260,7 +260,7 @@ class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
         children: [
           Text('Connection feedback', style: portixTitle(13)),
           const SizedBox(height: 10),
-          const _FeedbackLine(
+          _FeedbackLine(
             icon: Icons.check_circle_outline,
             text: 'Host key verified',
             color: AppColors.green,
@@ -270,7 +270,7 @@ class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
             text: 'Latency $latencyText',
             color: AppColors.cyan,
           ),
-          const _FeedbackLine(
+          _FeedbackLine(
             icon: Icons.folder_outlined,
             text: 'Remote folder mounted',
             color: AppColors.muted,

@@ -111,8 +111,8 @@ class _SettingsProfileHeader extends StatelessWidget {
             label: dirty ? 'Draft' : 'Synced',
             color: dirty ? AppColors.amber : AppColors.green,
             background: dirty
-                ? const Color(0xFF3A2D0B)
-                : const Color(0xFF0B3A27),
+                ? AppColors.amberTint
+                : AppColors.greenTint,
           ),
         ],
       ),
@@ -213,7 +213,7 @@ class _SettingsValueRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 6),
-              const Icon(Icons.edit_rounded, color: AppColors.muted, size: 12),
+              Icon(Icons.edit_rounded, color: AppColors.muted, size: 12),
             ],
           ),
         ),
@@ -242,10 +242,7 @@ class _SettingsValueRow extends StatelessWidget {
                     dense: true,
                     title: Text(option, style: portixTitle(13)),
                     trailing: option == value
-                        ? const Icon(
-                            Icons.check_rounded,
-                            color: AppColors.green,
-                          )
+                        ? Icon(Icons.check_rounded, color: AppColors.green)
                         : null,
                     onTap: () => Navigator.of(context).pop(option),
                   ),
