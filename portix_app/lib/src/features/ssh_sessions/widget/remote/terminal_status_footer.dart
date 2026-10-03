@@ -5,20 +5,7 @@ import 'package:portix/src/connection_manager/session_models.dart'
     as session_models;
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
-
-class RemoteMetricSample {
-  const RemoteMetricSample({
-    required this.createdAt,
-    required this.memoryPercent,
-    required this.diskPercent,
-    this.cpuPercent,
-  });
-
-  final DateTime createdAt;
-  final double memoryPercent;
-  final double diskPercent;
-  final double? cpuPercent;
-}
+import 'package:portix/src/features/ssh_sessions/controller/terminal_telemetry_controller.dart';
 
 class TerminalStatusFooter extends StatelessWidget {
   const TerminalStatusFooter({
@@ -138,7 +125,7 @@ class _RemoteOsChip extends StatelessWidget {
         : _shortOsLabel(snapshot!.os);
     final assetPath = snapshot == null || error != null
         ? null
-        : _osAssetPath(snapshot!.os);
+        : osIconAssetFor(snapshot!.os);
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 140),
       child: Row(
@@ -166,29 +153,6 @@ class _RemoteOsChip extends StatelessWidget {
     if (normalized.isEmpty) return '--';
     final firstToken = normalized.split(RegExp(r'\s+')).first;
     return firstToken;
-  }
-
-  String _osAssetPath(String os) {
-    final normalized = os.toLowerCase();
-    if (normalized.contains('ubuntu'))
-      return 'assets/icons/os/ubuntu-linux.svg';
-    if (normalized.contains('debian'))
-      return 'assets/icons/os/debian-linux.svg';
-    if (normalized.contains('fedora'))
-      return 'assets/icons/os/fedora-linux.svg';
-    if (normalized.contains('centos'))
-      return 'assets/icons/os/centos-linux.svg';
-    if (normalized.contains('red hat') || normalized.contains('redhat')) {
-      return 'assets/icons/os/redhat-linux.svg';
-    }
-    if (normalized.contains('arch')) return 'assets/icons/os/arch-linux.svg';
-    if (normalized.contains('windows')) return 'assets/icons/os/windows.svg';
-    if (normalized.contains('darwin') ||
-        normalized.contains('mac') ||
-        normalized.contains('apple')) {
-      return 'assets/icons/os/apple.svg';
-    }
-    return 'assets/icons/os/linux.svg';
   }
 }
 

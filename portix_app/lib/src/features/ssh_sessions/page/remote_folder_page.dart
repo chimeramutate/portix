@@ -10,15 +10,20 @@ import 'package:portix/src/core/widgets/index.dart';
 
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/connection_manager/session_models.dart';
+import 'package:portix/src/connection_manager/ssh_profile.dart'
+    as manager_profile;
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
+import 'package:portix/src/core/utils/text_diff.dart';
 import 'package:portix/src/data/services/sftp/local_editor_service.dart';
 import 'package:portix/src/domain/entities/sftp/index.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart'
     hide ConnectionStatus;
 import 'package:portix/src/features/ssh_profiles/bloc/index.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+import 'package:portix/src/sftp_client/sftp_manager.dart';
+import 'package:portix/src/sftp_client/sftp_models.dart';
 
 import '../widget/remote/terminal_panel.dart';
 
@@ -33,6 +38,9 @@ class RemoteFolderPage extends StatefulWidget {
 
 class _RemoteFolderPageState extends State<RemoteFolderPage> {
   late final ConnectionManager _connectionManager = sl<ConnectionManager>();
+  late final SftpManager _sftp = sl<SftpManager>();
+  // This page's own SFTP connections; files never go through the terminal.
+  late final SftpSessionPool _sftpSessions = SftpSessionPool(_sftp);
   late final LocalEditorService _localEditorService = LocalEditorService();
   String? _profileId;
   String? _activeSessionId;
@@ -132,7 +140,36 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     _inlineRenameFocusNode.dispose();
     _remoteListFocusNode.dispose();
     _connectionManager.removeListener(_handleConnectionManagerChanged);
+    _sftpSessions.closeAll();
     super.dispose();
+  }
+
+  /// Runs [operation] on this page's SFTP connection to the server behind
+  /// terminal [sessionId], connecting (or reconnecting) first if needed.
+  Future<Result<T>> _withSftp<T>(
+    String sessionId,
+    Future<Result<T>> Function(String sftpId) operation,
+  ) async {
+    final profileId = _connectionManager.sessions
+        .where((session) => session.id == sessionId)
+        .firstOrNull
+        ?.profileId;
+    final profile = context
+        .read<SshWorkspaceBloc>()
+        .state
+        .profiles
+        .where((profile) => profile.id == profileId)
+        .firstOrNull;
+    if (profile == null) {
+      return const Left(AppFailure('SSH session is disconnected.'));
+    }
+    final session = await _sftpSessions.sessionFor(
+      manager_profile.SshProfile.fromDomain(profile),
+    );
+    return switch (session) {
+      Left(:final value) => Left(value),
+      Right(:final value) => operation(value),
+    };
   }
 
   @override
@@ -230,7 +267,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
                             onClose: _closeRemotePanel,
                           ),
                           const SizedBox(height: 10),
-                          _PathCrumb(
+                          PathBar(
                             path: _remotePath,
                             onSubmit: (path) => _loadRemoteDirectory(path),
                             onListPath: _activeSessionId != null
@@ -240,11 +277,19 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
                                         !_isSessionConnected(sessionId)) {
                                       return const [];
                                     }
-                                    final result = await _connectionManager
-                                        .listRemoteDirectory(sessionId, dir);
+                                    final result = await _withSftp(
+                                      sessionId,
+                                      (id) => _sftp.list(id, dir),
+                                    );
                                     return result.fold(
                                       (_) => const [],
-                                      (entries) => entries,
+                                      (entries) => [
+                                        for (final entry in entries)
+                                          (
+                                            name: entry.name,
+                                            isDirectory: entry.isDirectory,
+                                          ),
+                                      ],
                                     );
                                   }
                                 : null,
@@ -386,7 +431,6 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
   TerminalSession? _connectedSshSessionForProfile(String profileId) {
     for (final session in _connectionManager.sessions.reversed) {
       if (session.profileId == profileId &&
-          session.kind == SessionKind.ssh &&
           session.status == ConnectionStatus.connected) {
         return session;
       }
@@ -517,7 +561,6 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     return _connectionManager.sessions.any(
       (session) =>
           session.id == sessionId &&
-          session.kind == SessionKind.ssh &&
           session.status == ConnectionStatus.connected,
     );
   }
@@ -552,9 +595,9 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
       _remoteError = null;
     });
 
-    final resolvedResult = await _connectionManager.resolveRemoteDirectory(
+    final resolvedResult = await _withSftp(
       sessionId,
-      path,
+      (id) => _sftp.resolve(id, path),
     );
     if (!_isSessionConnected(sessionId)) {
       if (_isCurrentRemoteRequest(sessionId, token)) _markRemoteDisconnected();
@@ -571,9 +614,9 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     }, (value) => value);
     if (resolvedPath == null) return;
 
-    final entriesResult = await _connectionManager.listRemoteDirectory(
+    final entriesResult = await _withSftp(
       sessionId,
-      resolvedPath,
+      (id) => _sftp.list(id, resolvedPath),
     );
     if (!_isSessionConnected(sessionId)) {
       if (_isCurrentRemoteRequest(sessionId, token)) _markRemoteDisconnected();
@@ -779,10 +822,9 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     }
     final targetPath = _renameTargetPath(entry.path, newName);
     setState(() => _isLoadingRemote = true);
-    final result = await _connectionManager.executeRemoteCommand(
+    final result = await _withSftp(
       sessionId,
-      'mv -- ${_shellQuote(entry.path)} ${_shellQuote(targetPath)}',
-      action: 'rename remote path',
+      (id) => _sftp.rename(id, entry.path, targetPath),
     );
     result.fold((failure) => _showMessage(context, _failureDetails(failure)), (
       _,
@@ -1035,11 +1077,11 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     if (!mounted) return;
     final currentText = await _readFileTextIfPossible(localPath);
     if (!mounted) return;
-    final diff = _buildTextDiff(originalText, currentText);
+    final diff = buildTextDiff(originalText, currentText);
     final shouldRewrite = await showDialog<bool>(
       context: context,
       builder: (context) =>
-          _RewriteRemoteDialog(fileName: entry.name, diff: diff),
+          RewriteRemoteDialog(fileName: entry.name, diff: diff),
     );
     if (shouldRewrite == true) {
       await _rewriteEditedRemoteFile(sessionId, entry, localPath);
@@ -1056,83 +1098,17 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     }
   }
 
-  _TextDiff _buildTextDiff(String? before, String? after) {
-    if (before == null || after == null) {
-      return const _TextDiff(
-        added: 0,
-        removed: 0,
-        lines: ['Binary or non-text diff preview is not available.'],
-      );
-    }
-    final beforeLines = before.split('\n');
-    final afterLines = after.split('\n');
-    final maxLength = beforeLines.length > afterLines.length
-        ? beforeLines.length
-        : afterLines.length;
-    var added = 0;
-    var removed = 0;
-    final preview = <String>[];
-
-    // Build unified diff with context lines around changes.
-    const contextSize = 2;
-    final changedIndices = <int>{};
-    for (var index = 0; index < maxLength; index += 1) {
-      final oldLine = index < beforeLines.length ? beforeLines[index] : null;
-      final newLine = index < afterLines.length ? afterLines[index] : null;
-      if (oldLine != newLine) changedIndices.add(index);
-    }
-
-    final visibleIndices = <int>{};
-    for (final changed in changedIndices) {
-      for (var offset = -contextSize; offset <= contextSize; offset += 1) {
-        final idx = changed + offset;
-        if (idx >= 0 && idx < maxLength) visibleIndices.add(idx);
-      }
-    }
-
-    final sorted = visibleIndices.toList()..sort();
-    var lastIndex = -2;
-    for (final index in sorted) {
-      if (preview.length >= 120) break;
-      if (index > lastIndex + 1 && preview.isNotEmpty) {
-        preview.add('  ···');
-      }
-      lastIndex = index;
-      final oldLine = index < beforeLines.length ? beforeLines[index] : null;
-      final newLine = index < afterLines.length ? afterLines[index] : null;
-      if (oldLine == newLine) {
-        // Context (unchanged) line.
-        preview.add('  ${oldLine ?? ''}');
-      } else {
-        if (oldLine != null) {
-          removed += 1;
-          preview.add('- $oldLine');
-        }
-        if (newLine != null) {
-          added += 1;
-          preview.add('+ $newLine');
-        }
-      }
-    }
-
-    return _TextDiff(
-      added: added,
-      removed: removed,
-      lines: preview.isEmpty ? const ['No textual diff detected.'] : preview,
-    );
-  }
-
   Future<void> _rewriteEditedRemoteFile(
     String sessionId,
     RemoteFileEntry entry,
     String localPath,
   ) async {
     try {
+      // In place, so the file keeps its owner and permissions.
       final bytes = await File(localPath).readAsBytes();
-      final result = await _connectionManager.uploadRemoteFile(
+      final result = await _withSftp(
         sessionId,
-        entry.path,
-        bytes,
+        (id) => _sftp.write(id, entry.path, bytes),
       );
       result.fold(
         (failure) => _showMessage(context, _failureDetails(failure)),
@@ -1163,11 +1139,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     final confirmed = await _confirmDeleteRemoteEntry(context, entry);
     if (confirmed != true) return;
     setState(() => _isLoadingRemote = true);
-    final result = await _connectionManager.executeRemoteCommand(
-      sessionId,
-      'rm -rf -- ${_shellQuote(path)}',
-      action: 'delete remote path',
-    );
+    final result = await _withSftp(sessionId, (id) => _sftp.remove(id, path));
     result.fold((failure) => _showMessage(context, _failureDetails(failure)), (
       _,
     ) {
@@ -1343,39 +1315,41 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
       totalBytes: totalBytes > 0 ? totalBytes : sizeBytes,
     );
     _updateTransferJob(job, status: _TransferStatus.running);
-    final result = await _connectionManager.readRemoteFileBytes(
+    await File(localPath).parent.create(recursive: true);
+    final result = await _withSftp(
       sessionId,
-      remotePath,
+      (id) => _sftp.download(
+        id,
+        remotePath,
+        localPath,
+        onProgress: _jobProgress(job),
+      ),
     );
-    final bytes = result.fold<List<int>>((failure) {
+    result.fold((failure) {
       _updateTransferJob(
         job,
         status: _TransferStatus.failed,
         error: _failureDetails(failure),
       );
       throw StateError(failure.message);
-    }, (bytes) => bytes);
-    if (bytes.isEmpty && (totalBytes > 0 || sizeBytes > 0)) {
-      const message = 'Remote download returned empty data.';
-      _updateTransferJob(job, status: _TransferStatus.failed, error: message);
-      throw StateError(message);
-    }
-    _updateTransferJob(
-      job,
-      status: _TransferStatus.running,
-      totalBytes: bytes.length,
-      transferredBytes: (bytes.length * .75).round(),
-    );
-    final file = File(localPath);
-    await file.parent.create(recursive: true);
-    await file.writeAsBytes(bytes);
-    _updateTransferJob(
-      job,
-      status: _TransferStatus.done,
-      totalBytes: bytes.length,
-      transferredBytes: bytes.length,
-    );
+    }, (_) => _updateTransferJob(job, status: _TransferStatus.done));
     return true;
+  }
+
+  /// Feeds byte progress into [job], at most once per whole percent so a
+  /// large file does not rebuild the page on every chunk.
+  void Function(TransferProgress) _jobProgress(_TransferJob job) {
+    var lastPercent = -1;
+    return (progress) {
+      final percent = (progress.fraction * 100).floor();
+      if (percent == lastPercent) return;
+      lastPercent = percent;
+      _updateTransferJob(
+        job,
+        transferredBytes: progress.done,
+        totalBytes: progress.total,
+      );
+    };
   }
 
   Future<_TransferStats> _downloadRemoteDirectory(
@@ -1386,9 +1360,9 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     var completed = 0;
     var failed = 0;
     await Directory(localPath).create(recursive: true);
-    final result = await _connectionManager.listRemoteDirectory(
+    final result = await _withSftp(
       sessionId,
-      remotePath,
+      (id) => _sftp.list(id, remotePath),
     );
     final entries = result.fold<List<RemoteFileEntry>>((failure) {
       throw StateError(failure.message);
@@ -1447,9 +1421,9 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         return;
       }
       for (final directoryPath in plan.directories) {
-        final createResult = await _connectionManager.createRemoteDirectory(
+        final createResult = await _withSftp(
           sessionId,
-          directoryPath,
+          (id) => _sftp.createDir(id, directoryPath),
         );
         createResult.fold(
           (failure) => throw StateError(failure.message),
@@ -1488,18 +1462,16 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
       totalBytes: file.sizeBytes,
     );
     _updateTransferJob(job, status: _TransferStatus.running);
-    final bytes = await file.file.readAsBytes();
-    _updateTransferJob(
-      job,
-      transferredBytes: (bytes.length * .25).round(),
-      totalBytes: bytes.length,
-    );
-    final result = await _connectionManager.uploadRemoteFile(
+    final result = await _withSftp(
       sessionId,
-      file.remotePath,
-      bytes,
+      (id) => _sftp.upload(
+        id,
+        file.file.path,
+        file.remotePath,
+        onProgress: _jobProgress(job),
+      ),
     );
-    final uploaded = result.fold(
+    return result.fold(
       (failure) {
         _updateTransferJob(
           job,
@@ -1509,56 +1481,10 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         return false;
       },
       (_) {
+        _updateTransferJob(job, status: _TransferStatus.done);
         return true;
       },
     );
-    if (!uploaded) return false;
-    _updateTransferJob(
-      job,
-      status: _TransferStatus.running,
-      transferredBytes: (bytes.length * .85).round(),
-      totalBytes: bytes.length,
-    );
-    final verified = await _verifyRemoteFileUploaded(sessionId, file);
-    if (!verified) {
-      _updateTransferJob(
-        job,
-        status: _TransferStatus.failed,
-        transferredBytes: bytes.length,
-        totalBytes: bytes.length,
-        error: 'Upload finished but file was not found on remote.',
-      );
-      return false;
-    }
-    _updateTransferJob(
-      job,
-      status: _TransferStatus.done,
-      transferredBytes: bytes.length,
-      totalBytes: bytes.length,
-    );
-    return true;
-  }
-
-  Future<bool> _verifyRemoteFileUploaded(
-    String sessionId,
-    _UploadFilePlan file,
-  ) async {
-    final parentPath = _parentPath(file.remotePath);
-    final result = await _connectionManager.listRemoteDirectory(
-      sessionId,
-      parentPath,
-    );
-    return result.fold((_) => false, (entries) {
-      final name = _basename(file.remotePath);
-      return entries.any(
-        (entry) =>
-            !entry.isDirectory &&
-            entry.name == name &&
-            (file.sizeBytes <= 0 ||
-                entry.sizeBytes <= 0 ||
-                entry.sizeBytes == file.sizeBytes),
-      );
-    });
   }
 
   String _failureDetails(Failure failure) {
@@ -1681,8 +1607,8 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     }
     final path = _joinRemote(_remotePath, name);
     final result = kind == _InlineCreateKind.folder
-        ? await _connectionManager.createRemoteDirectory(sessionId, path)
-        : await _connectionManager.createRemoteFile(sessionId, path);
+        ? await _withSftp(sessionId, (id) => _sftp.createDir(id, path))
+        : await _withSftp(sessionId, (id) => _sftp.createFile(id, path));
     result.fold((failure) => _showMessage(context, _failureDetails(failure)), (
       _,
     ) {
@@ -1943,10 +1869,6 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
   String _safeLocalFileName(String name) {
     final safe = name.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_');
     return safe.trim().isEmpty ? 'remote-file' : safe;
-  }
-
-  String _shellQuote(String value) {
-    return "'${value.replaceAll("'", r"'\''")}'";
   }
 
   String _relativeLocalPath(String childPath, String parentPath) {

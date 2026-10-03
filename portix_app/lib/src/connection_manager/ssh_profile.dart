@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../domain/entities/ssh/ssh_profile.dart' as domain;
+
 @immutable
 class SshProfile {
   const SshProfile({
@@ -11,8 +13,12 @@ class SshProfile {
     this.password,
     this.hasPassword = false,
     this.privateKeyPath,
+    this.keyPassphrase,
+    this.jumpProfileId,
+    this.jumpHost,
     this.group,
     this.tags = const <String>[],
+    this.startupCommand,
   });
 
   final String id;
@@ -24,8 +30,54 @@ class SshProfile {
   final bool hasPassword;
   final String? privateKeyPath;
 
+  /// Passphrase for an encrypted [privateKeyPath]; read from the keychain at
+  /// connect time, never persisted with the profile.
+  final String? keyPassphrase;
+
+  /// Saved profile to tunnel through; [ConnectionManager] resolves it into
+  /// [jumpHost] (with credentials) at connect time.
+  final String? jumpProfileId;
+  final SshProfile? jumpHost;
+
+  /// Where the TCP connection actually goes: the outermost jump host.
+  SshProfile get entryPoint => jumpHost?.entryPoint ?? this;
+
   final String? group;
   final List<String> tags;
+
+  /// Typed into the shell once the terminal session is up.
+  final String? startupCommand;
+
+  /// Connection view of a saved profile. The domain stores either the key
+  /// path or the password in `credentialLabel`, depending on `authMethod`;
+  /// 'Saved password' is a placeholder meaning "read it from the keychain".
+  factory SshProfile.fromDomain(domain.SshProfile profile) {
+    final credential = profile.credentialLabel.trim();
+    final usesPassword = profile.authMethod == domain.AuthMethod.password;
+    return SshProfile(
+      id: profile.id,
+      name: profile.name,
+      host: profile.host,
+      port: profile.port,
+      username: profile.username,
+      password:
+          usesPassword &&
+              credential.isNotEmpty &&
+              credential != 'Saved password'
+          ? credential
+          : null,
+      hasPassword: usesPassword,
+      privateKeyPath: usesPassword ? null : credential,
+      jumpProfileId: profile.jumpProfileId.isEmpty
+          ? null
+          : profile.jumpProfileId,
+      group: profile.group,
+      tags: profile.tags,
+      startupCommand: profile.startupCommand.trim().isEmpty
+          ? null
+          : profile.startupCommand.trim(),
+    );
+  }
 
   SshProfile copyWith({
     String? id,
@@ -38,6 +90,8 @@ class SshProfile {
     bool clearPassword = false,
     String? privateKeyPath,
     bool clearPrivateKeyPath = false,
+    String? keyPassphrase,
+    SshProfile? jumpHost,
     String? group,
     List<String>? tags,
   }) {
@@ -52,8 +106,12 @@ class SshProfile {
       privateKeyPath: clearPrivateKeyPath
           ? null
           : privateKeyPath ?? this.privateKeyPath,
+      keyPassphrase: keyPassphrase ?? this.keyPassphrase,
+      jumpProfileId: jumpProfileId,
+      jumpHost: jumpHost ?? this.jumpHost,
       group: group ?? this.group,
       tags: tags ?? this.tags,
+      startupCommand: startupCommand,
     );
   }
 

@@ -7,6 +7,7 @@ import 'package:portix/src/domain/entities/ssh/index.dart';
 import '../../bloc/index.dart';
 import 'form_steps.dart';
 import 'profile_preview.dart';
+import 'ssh_key_manager_dialog.dart';
 
 class ProfileFormView extends StatefulWidget {
   const ProfileFormView({super.key});
@@ -190,13 +191,15 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                 else ...[
                   AppTextField(
                     controller: _credential,
-                    label: 'SSH key label / path',
+                    label: 'SSH key path (empty = ssh-agent)',
                     icon: Icons.key_rounded,
                     onChanged: (_) => _changed(context),
                   ),
                   _UploadBox(
-                    onTap: () {
-                      _credential.text = 'id_prod_ed25519';
+                    onTap: () async {
+                      final path = await showSshKeyManager(context);
+                      if (path == null || !context.mounted) return;
+                      _credential.text = path;
                       _changed(context);
                     },
                   ),
@@ -221,6 +224,13 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                   label: 'Terminal font size',
                   icon: Icons.text_fields_rounded,
                   onChanged: (_) => _changed(context),
+                ),
+                _JumpHostPicker(
+                  selectedId: profile?.jumpProfileId ?? '',
+                  candidates: [
+                    for (final other in state.profiles)
+                      if (other.id != profile?.id) other,
+                  ],
                 ),
               ],
             );
@@ -987,6 +997,73 @@ class _ProfileColorPicker extends StatelessWidget {
   }
 }
 
+/// Saved profile to connect through (`ssh -J`).
+class _JumpHostPicker extends StatelessWidget {
+  const _JumpHostPicker({required this.selectedId, required this.candidates});
+
+  final String selectedId;
+  final List<SshProfile> candidates;
+
+  @override
+  Widget build(BuildContext context) {
+    // A deleted jump profile shows as "direct" until the form is saved.
+    final selected = candidates.any((p) => p.id == selectedId)
+        ? selectedId
+        : '';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(
+              Icons.alt_route_rounded,
+              color: AppColors.muted,
+              size: 15,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Jump host (ProxyJump)',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: portixLabel(),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        SizedBox(
+          height: 40,
+          child: DropdownButtonFormField<String>(
+            key: ValueKey(selected),
+            initialValue: selected,
+            isExpanded: true,
+            dropdownColor: AppColors.surface,
+            decoration: const InputDecoration(
+              contentPadding: EdgeInsets.symmetric(horizontal: 12),
+            ),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('None (direct)')),
+              for (final candidate in candidates)
+                DropdownMenuItem(
+                  value: candidate.id,
+                  child: Text(
+                    '${candidate.name} (${candidate.address})',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (value) => context.read<SshWorkspaceBloc>().add(
+              JumpProfileChanged(value ?? ''),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Auth method segmented control
 // ---------------------------------------------------------------------------
@@ -1184,14 +1261,14 @@ class _UploadBoxText extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Drop SSH key here or select from vault',
+          'Select or generate an SSH key',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: portixTitle(14),
         ),
         const SizedBox(height: 4),
         Text(
-          'Supported: ed25519, rsa, pem. You can type the key label above or choose a vault key.',
+          'Pick a key from ~/.ssh, browse for a file, or generate a new ed25519 keypair.',
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: portixMuted(),

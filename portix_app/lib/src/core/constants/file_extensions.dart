@@ -57,17 +57,6 @@ const Set<String> kCodeFileNames = {
   'readme',
 };
 
-/// Returns true if [fileName] should be opened with a code editor.
-bool isCodeFileName(String fileName) {
-  final dotIndex = fileName.lastIndexOf('.');
-  if (dotIndex < 0 || dotIndex == fileName.length - 1) {
-    return fileName.startsWith('.') ||
-        kCodeFileNames.contains(fileName.toLowerCase());
-  }
-  final extension = fileName.substring(dotIndex + 1).toLowerCase();
-  return kCodeFileExtensions.contains(extension);
-}
-
 /// Returns the file extension (lowercase, without dot) from a file name.
 String fileExtension(String fileName) {
   final index = fileName.lastIndexOf('.');

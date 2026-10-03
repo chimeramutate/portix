@@ -124,10 +124,12 @@ class ProfileCard extends StatelessWidget {
               icon: profile.authMethod == AuthMethod.sshKey
                   ? Icons.key_rounded
                   : Icons.lock_outline_rounded,
-              text: profile.credentialLabel.isEmpty
+              text: profile.authMethod == AuthMethod.sshKey
+                  ? (profile.credentialLabel.isEmpty
+                        ? 'ssh-agent'
+                        : 'SSH key configured')
+                  : profile.credentialLabel.isEmpty
                   ? 'Choose auth'
-                  : profile.authMethod == AuthMethod.sshKey
-                  ? 'SSH key configured'
                   : 'Password saved securely',
             ),
             const Spacer(),

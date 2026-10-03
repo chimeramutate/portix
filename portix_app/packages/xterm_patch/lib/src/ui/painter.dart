@@ -217,6 +217,28 @@ class TerminalPainter {
     canvas.drawParagraph(paragraph, offset);
   }
 
+  /// Paints the character under a block cursor in the background color, so
+  /// it stays readable on top of the cursor instead of being covered by it.
+  void paintCursorCharacter(Canvas canvas, Offset offset, CellData cellData) {
+    final charCode = cellData.content & CellContent.codepointMask;
+    if (charCode == 0 || charCode == 0x20) return;
+    final style = _textStyle.toTextStyle(
+      color: _theme.background,
+      bold: cellData.flags & CellFlags.bold != 0,
+      italic: cellData.flags & CellFlags.italic != 0,
+    );
+    // Salted so it never shares a cache slot with the normal rendering.
+    final cacheKey = cellData.getHash() ^ _textScaler.hashCode ^ 0x5f3759df;
+    final paragraph = _paragraphCache.getLayoutFromCache(cacheKey) ??
+        _paragraphCache.performAndCacheLayout(
+          String.fromCharCode(charCode),
+          style,
+          _textScaler,
+          cacheKey,
+        );
+    canvas.drawParagraph(paragraph, offset);
+  }
+
   /// Paints the background of a cell represented by [cellData] to [canvas] at
   /// [offset].
   @pragma('vm:prefer-inline')

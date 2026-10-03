@@ -196,7 +196,6 @@ const settingsNavigationGroups = [
               SettingsDetailRow('Restore last view', 'Enabled'),
               SettingsDetailRow('Auto focus terminal', 'Enabled'),
               SettingsDetailRow('Remote folder mount', 'Enabled'),
-              SettingsDetailRow('Terminal suggestions', 'ON'),
               SettingsDetailRow('Terminal copy shortcut', 'Shift+Ctrl+C'),
               SettingsDetailRow('Terminal paste shortcut', 'Ctrl+V'),
             ],

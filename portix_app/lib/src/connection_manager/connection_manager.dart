@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -8,7 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../core/result/either.dart';
 import 'connection_backend.dart';
 import 'mock_backend.dart';
-import 'profile_secret_store.dart';
+import 'profile_credentials.dart';
 import 'rust_bridge_backend.dart';
 import 'session_models.dart';
 import 'ssh_profile.dart';
@@ -25,9 +24,9 @@ const Duration _heartbeatTimeout = Duration(seconds: 4);
 class ConnectionManager extends ChangeNotifier {
   ConnectionManager({
     ConnectionBackend? backend,
-    ProfileSecretStore? secretStore,
+    ProfileCredentials? credentials,
   }) : _backend = backend ?? MockConnectionBackend(),
-       _secretStore = secretStore ?? const ProfileSecretStore() {
+       credentials = credentials ?? ProfileCredentials() {
     _statusSub = _backend.connectionStatusStream.listen(_handleStatus);
     _outputSub = _backend.terminalOutputStream.listen(_handleTerminalOutput);
     _errorSub = _backend.errorEventStream.listen(_handleError);
@@ -38,7 +37,9 @@ class ConnectionManager extends ChangeNotifier {
   }
 
   final ConnectionBackend _backend;
-  final ProfileSecretStore _secretStore;
+
+  /// Saved secrets and jump hosts, shared with SFTP connections.
+  final ProfileCredentials credentials;
   final _uuid = const Uuid();
   late final StreamSubscription<ConnectionStatusEvent> _statusSub;
   late final StreamSubscription<TerminalOutputEvent> _outputSub;
@@ -47,16 +48,15 @@ class ConnectionManager extends ChangeNotifier {
   // Sessions currently being probed — avoid parallel probes for the same session.
   final Set<String> _heartbeatInFlight = {};
   final Map<String, String> _backendToUiSessionIds = {};
-  final Map<String, Future<void>> _pendingSecretWrites = {};
-  final Map<String, Object> _secretWriteErrors = {};
+  // Host/port of each UI session, so the heartbeat knows what to probe.
+  final Map<String, ({String host, int port})> _sessionEndpoints = {};
   final _terminalOutput = StreamController<TerminalOutputEvent>.broadcast();
   final _errors = StreamController<ConnectionErrorEvent>.broadcast();
-
-  final List<SshProfile> _profiles = [];
+  final _sessionLost = StreamController<String>.broadcast();
+  // Open session logs, keyed by UI session id.
+  final Map<String, ({String path, IOSink sink})> _recordings = {};
 
   final List<TerminalSession> _sessions = [];
-
-  List<SshProfile> get profiles => List.unmodifiable(_profiles);
 
   List<TerminalSession> get sessions => List.unmodifiable(_sessions);
 
@@ -65,83 +65,49 @@ class ConnectionManager extends ChangeNotifier {
 
   Stream<ConnectionErrorEvent> get errorEventStream => _errors.stream;
 
-  Result<void> upsertProfile(SshProfile profile) {
-    try {
-      final password = profile.password?.trim();
-      if ((profile.privateKeyPath ?? '').trim().isNotEmpty) {
-        _queueSecretWrite(profile.id, _secretStore.deletePassword(profile.id));
-        profile = profile.copyWith(hasPassword: false, clearPassword: true);
-      } else if (password != null && password.isNotEmpty) {
-        _queueSecretWrite(
-          profile.id,
-          _secretStore.savePassword(profile.id, password),
-        );
-        profile = profile.copyWith(hasPassword: true, clearPassword: true);
-      } else {
-        profile = profile.copyWith(clearPassword: true);
-      }
-      final index = _profiles.indexWhere((item) => item.id == profile.id);
-      if (index == -1) {
-        _profiles.add(profile);
-      } else {
-        _profiles[index] = profile;
-      }
-      notifyListeners();
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to save profile', cause: error));
-    }
+  /// UI session ids whose established connection dropped unexpectedly
+  /// (heartbeat failure or backend error/disconnect while connected).
+  /// User-initiated closes never fire this — [closeSession] removes the
+  /// session before the backend reports the disconnect.
+  Stream<String> get sessionLostStream => _sessionLost.stream;
+
+  /// Lightweight TCP probe of the session's first hop (the jump host, if
+  /// any), used to wait for the network to come back (e.g. after wake from
+  /// sleep) before spending a full SSH handshake.
+  Future<bool> isSessionHostReachable(String sessionId) async {
+    final endpoint = _sessionEndpoints[sessionId];
+    return endpoint != null &&
+        await _isHostReachable(endpoint.host, endpoint.port);
   }
 
-  Result<void> deleteProfile(String id) {
+  Future<bool> _isHostReachable(String host, int port) async {
     try {
-      _profiles.removeWhere((profile) => profile.id == id);
-      _queueSecretWrite(id, _secretStore.deletePassword(id));
-      notifyListeners();
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to delete profile', cause: error));
+      final socket = await Socket.connect(
+        host,
+        port,
+        timeout: _heartbeatTimeout,
+      );
+      await socket.close();
+      return true;
+    } catch (_) {
+      return false;
     }
-  }
-
-  SshProfile newProfile() {
-    return SshProfile(
-      id: _uuid.v4(),
-      name: 'New server',
-      host: '',
-      port: 22,
-      username: '',
-    );
   }
 
   Future<Result<void>> connect(SshProfile profile) async {
-    return _connect(profile, kind: SessionKind.ssh);
-  }
-
-  Future<Result<void>> connectSftp(SshProfile profile) async {
-    return _connect(
-      profile,
-      kind: SessionKind.sftp,
-      title: 'SFTP ${profile.name}',
-    );
-  }
-
-  Future<Result<void>> _connect(
-    SshProfile profile, {
-    required SessionKind kind,
-    String? title,
-  }) async {
     if (profile.host.trim().isEmpty || profile.username.trim().isEmpty) {
       return const Left(
         AppFailure('Host and username are required before connecting.'),
       );
     }
     final uiSessionId = _uuid.v4();
-    final baseTitle = title ?? profile.name;
+    _sessionEndpoints[uiSessionId] = (
+      host: profile.host.trim(),
+      port: profile.port,
+    );
+    final baseTitle = profile.name;
     final duplicateCount = _sessions
-        .where(
-          (session) => session.profileId == profile.id && session.kind == kind,
-        )
+        .where((session) => session.profileId == profile.id)
         .length;
     _sessions.add(
       TerminalSession(
@@ -151,13 +117,19 @@ class ConnectionManager extends ChangeNotifier {
             ? baseTitle
             : '$baseTitle ${duplicateCount + 1}',
         status: ConnectionStatus.connecting,
-        kind: kind,
       ),
     );
     notifyListeners();
 
     try {
-      final connectProfile = await _profileWithResolvedPassword(profile);
+      final connectProfile = await credentials.resolve(profile);
+      final entry = connectProfile.entryPoint;
+      if (_sessionEndpoints.containsKey(uiSessionId)) {
+        _sessionEndpoints[uiSessionId] = (
+          host: entry.host.trim(),
+          port: entry.port,
+        );
+      }
       // Rust enforces CONNECT_TIMEOUT (15s) + AUTH_TIMEOUT (15s) = ~30s.
       // Add a Flutter-side safety net slightly above that so the UI never
       // hangs indefinitely when the remote host is unreachable.
@@ -172,6 +144,15 @@ class ConnectionManager extends ChangeNotifier {
           );
       _backendToUiSessionIds[backendSessionId] = uiSessionId;
       notifyListeners();
+      final startup = profile.startupCommand;
+      if (startup != null) {
+        // The shell reads it once it is ready, like typed-ahead input.
+        unawaited(
+          _backend
+              .sendTerminalInput(backendSessionId, '$startup\r')
+              .catchError((Object _) {}),
+        );
+      }
       return const Right(null);
     } catch (error) {
       final index = _sessions.indexWhere(
@@ -191,23 +172,112 @@ class ConnectionManager extends ChangeNotifier {
 
   Future<void> disconnect(String sessionId) => _backend.disconnect(sessionId);
 
-  /// Save a password to secure storage so future connections can use it.
-  Future<void> saveProfilePassword(String profileId, String password) async {
-    await _secretStore.savePassword(profileId, password);
+  /// Renames a tab; a blank [title] is ignored.
+  void renameSession(String sessionId, String title) {
+    final index = _sessions.indexWhere((session) => session.id == sessionId);
+    if (index == -1 || title.trim().isEmpty) return;
+    _sessions[index] = _sessions[index].copyWith(title: title.trim());
+    notifyListeners();
   }
 
-  /// Returns true when a usable password for the given profile is already
-  /// stored in the local secure keychain / secret store.
-  Future<bool> hasSavedPassword(String profileId) async {
-    final password = await _secretStore.readPassword(profileId);
-    return (password ?? '').trim().isNotEmpty;
+  Future<Result<PortForward>> startLocalForward(
+    SshProfile profile, {
+    required int localPort,
+    required String remoteHost,
+    required int remotePort,
+  }) async {
+    try {
+      final forward = await _backend.startLocalForward(
+        await credentials.resolve(profile),
+        localPort,
+        remoteHost,
+        remotePort,
+      );
+      return Right(forward);
+    } catch (error) {
+      return Left(AppFailure('Failed to start port forward', cause: error));
+    }
   }
 
-  /// Reads the saved password for the given profile from secure storage.
-  /// Used when duplicating a connected session to a new window so the
-  /// child window can reconnect without re-prompting for a password.
-  Future<String?> readProfilePassword(String profileId) async {
-    return _secretStore.readPassword(profileId);
+  Future<Result<PortForward>> startSocksProxy(
+    SshProfile profile, {
+    required int localPort,
+  }) async {
+    try {
+      final proxy = await _backend.startSocksProxy(
+        await credentials.resolve(profile),
+        localPort,
+      );
+      return Right(proxy);
+    } catch (error) {
+      return Left(AppFailure('Failed to start SOCKS proxy', cause: error));
+    }
+  }
+
+  /// `ssh -R`, over its own connection; see [PortForward.reverse].
+  Future<Result<PortForward>> startRemoteForward(
+    SshProfile profile, {
+    required int remotePort,
+    required String localHost,
+    required int localPort,
+  }) async {
+    try {
+      final forward = await _backend.startRemoteForward(
+        await credentials.resolve(profile),
+        remotePort,
+        localHost,
+        localPort,
+      );
+      return Right(forward);
+    } catch (error) {
+      return Left(AppFailure('Failed to start remote forward', cause: error));
+    }
+  }
+
+  Future<void> stopLocalForward(String id) => _backend.stopLocalForward(id);
+
+  Future<List<PortForward>> listLocalForwards() =>
+      _backend.listLocalForwards().catchError((Object _) => <PortForward>[]);
+
+  /// The host key refused during the last connect to [profile], if any.
+  /// Lookup failures read as "no pending key" so the caller falls back to
+  /// its generic connection error.
+  Future<HostKeyInfo?> pendingHostKey(SshProfile profile) => _backend
+      .pendingHostKey(profile.host, profile.port)
+      .then<HostKeyInfo?>((info) => info, onError: (Object _) => null);
+
+  Future<Result<void>> trustHostKey(
+    SshProfile profile,
+    String fingerprint,
+  ) async {
+    try {
+      await _backend.trustHostKey(profile.host, profile.port, fingerprint);
+      return const Right(null);
+    } catch (error) {
+      return Left(AppFailure('Failed to trust host key', cause: error));
+    }
+  }
+
+  /// Log file the session's output is being appended to, if recording.
+  String? recordingPath(String sessionId) => _recordings[sessionId]?.path;
+
+  /// Appends the session's terminal output, without escape sequences, to
+  /// [path] until [stopRecording] or the session closes.
+  void startRecording(String sessionId, String path) {
+    if (_recordings.containsKey(sessionId)) return;
+    final file = File(path)..parent.createSync(recursive: true);
+    _recordings[sessionId] = (
+      path: path,
+      sink: file.openWrite(mode: FileMode.append),
+    );
+    notifyListeners();
+  }
+
+  Future<void> stopRecording(String sessionId) async {
+    final recording = _recordings.remove(sessionId);
+    if (recording == null) return;
+    notifyListeners();
+    await recording.sink.close();
   }
 
   Future<Result<void>> closeSession(String sessionId) async {
@@ -216,7 +286,9 @@ class ConnectionManager extends ChangeNotifier {
       return const Left(AppFailure('Session not found'));
     }
 
+    unawaited(_recordings.remove(sessionId)?.sink.close());
     _sessions.removeAt(index);
+    _sessionEndpoints.remove(sessionId);
     final backendSessionId = _backendSessionIdForUiSession(sessionId);
     if (backendSessionId != null) {
       _backendToUiSessionIds.remove(backendSessionId);
@@ -231,368 +303,60 @@ class ConnectionManager extends ChangeNotifier {
     }
   }
 
-  Future<Result<void>> sendTerminalInput(String sessionId, String data) async {
-    try {
-      await _backend.sendTerminalInput(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        data,
+  Future<Result<void>> sendTerminalInput(String sessionId, String data) =>
+      _call(
+        sessionId,
+        'Failed to send terminal input',
+        (id) => _backend.sendTerminalInput(id, data),
       );
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to send terminal input', cause: error));
-    }
-  }
 
-  Future<Result<void>> executeRemoteCommand(
+  Future<Result<void>> resizeTerminal(String sessionId, int cols, int rows) =>
+      _call(
+        sessionId,
+        'Failed to resize terminal',
+        (id) => _backend.resizeTerminal(id, cols, rows),
+      );
+
+  Future<Result<RemoteSystemSnapshot>> remoteSystemSnapshot(String sessionId) =>
+      _call(
+        sessionId,
+        'Failed to load remote telemetry',
+        _backend.remoteSystemSnapshot,
+      );
+
+  /// Runs [operation] against the backend session behind UI [sessionId],
+  /// turning any thrown error into a [Left] carrying [failureMessage].
+  Future<Result<T>> _call<T>(
     String sessionId,
-    String command, {
-    String action = 'remote command',
-    Duration timeout = const Duration(seconds: 20),
-  }) async {
-    final backendSessionId =
-        _backendSessionIdForUiSession(sessionId) ?? sessionId;
-
-    Result<void> result;
-    try {
-      // Run the command on the session's DEDICATED exec channel (a separate SSH
-      // channel, not the interactive shell). This used to send the command
-      // through `sendTerminalInput` (the interactive shell), which:
-      //   - recorded SFTP file-management commands (rename/move/delete/duplicate)
-      //     in the remote shell's shared history file (HISTFILE), so they showed
-      //     up when pressing ⬆ in the SSH terminal ("masuk ke history"), and
-      //   - echoed the command plus a `__PORTIX_CMD_..._EXIT` marker line into
-      //     the visible terminal output.
-      // The exec channel opens a fresh SSH `exec` session that never touches the
-      // user's interactive shell, so neither the command nor any marker reaches
-      // the shell history or the terminal. A non-zero exit status is surfaced
-      // directly as an exception by the Rust backend (see `run_exec`).
-      await _backend
-          .execRemoteCommand(backendSessionId, command)
-          .timeout(
-            timeout,
-            onTimeout: () => throw TimeoutException(
-              'Timed out while running $action',
-              timeout,
-            ),
-          );
-      result = const Right(null);
-    } on TimeoutException catch (_) {
-      result = Left(AppFailure('Timed out while running $action'));
-    } catch (error) {
-      result = Left(AppFailure('Failed to run $action', cause: error));
-    }
-
-    // Forward a concise command-result line (green ✓ / red ✗) to the SSH
-    // terminal panel so the user gets feedback that the SFTP/file-manager
-    // operation ran — WITHOUT echoing the underlying command or any marker
-    // into the remote shell history. SFTP sessions have no terminal panel, so
-    // the summary is intentionally only shown for SSH terminal sessions.
-    _forwardRemoteCommandResult(sessionId, action, result);
-    return result;
-  }
-
-  /// Forwards a concise command-result line to the terminal output stream so
-  /// the user can see in the SSH terminal whether a remote file-management
-  /// command (rename/move/delete/duplicate) succeeded or failed.
-  ///
-  /// Only SSH terminal sessions have a terminal panel to display this; SFTP
-  /// sessions do not, so the summary is skipped for them.
-  void _forwardRemoteCommandResult(
-    String uiSessionId,
-    String action,
-    Result<void> result,
-  ) {
-    // Only SSH terminal sessions have a terminal panel to display the result.
-    final index = _sessions.indexWhere((s) => s.id == uiSessionId);
-    if (index == -1 || _sessions[index].kind != SessionKind.ssh) {
-      return;
-    }
-
-    final status = result.isRight ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m';
-    _terminalOutput.add(
-      TerminalOutputEvent(
-        sessionId: uiSessionId,
-        data: '\r\n\x1b[36m[portix] $action\x1b[0m $status\r\n',
-      ),
-    );
-  }
-
-  Future<Result<void>> resizeTerminal(
-    String sessionId,
-    int cols,
-    int rows,
+    String failureMessage,
+    Future<T> Function(String backendSessionId) operation,
   ) async {
     try {
-      await _backend.resizeTerminal(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        cols,
-        rows,
-      );
-      return const Right(null);
+      return Right(await operation(_backendId(sessionId)));
     } catch (error) {
-      return Left(AppFailure('Failed to resize terminal', cause: error));
+      return Left(AppFailure(failureMessage, cause: error));
     }
   }
 
-  Future<Result<RemoteSystemSnapshot>> remoteSystemSnapshot(
-    String sessionId,
-  ) async {
-    try {
-      final snapshot = await _backend.remoteSystemSnapshot(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-      );
-      return Right(snapshot);
-    } catch (error) {
-      return Left(AppFailure('Failed to load remote telemetry', cause: error));
-    }
-  }
+  String _backendId(String uiSessionId) =>
+      _backendSessionIdForUiSession(uiSessionId) ?? uiSessionId;
 
-  Future<Result<List<String>>> commandHelpSuggestions(
-    String sessionId,
-    String input,
-  ) async {
-    try {
-      final suggestions = await _backend.commandHelpSuggestions(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        input,
-      );
-      return Right(suggestions);
-    } catch (error) {
-      return Left(
-        AppFailure('Failed to load command suggestions', cause: error),
-      );
-    }
-  }
-
-  Future<Result<List<TerminalCompletionCandidate>>> commandCompletions(
-    String sessionId,
-    String input,
-  ) async {
-    try {
-      final suggestions = await _backend.commandCompletions(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        input,
-      );
-      return Right(suggestions);
-    } catch (error) {
-      return Left(
-        AppFailure('Failed to load command completions', cause: error),
-      );
-    }
-  }
-
-  Future<Result<TerminalCompleteResponse>> terminalComplete(
-    TerminalCompleteRequest request,
-  ) async {
-    try {
-      final sessionId = request.sessionId;
-      final backendSessionId = sessionId == null
-          ? null
-          : _backendSessionIdForUiSession(sessionId) ?? sessionId;
-      final response = await _backend.terminalComplete(
-        request.copyWith(sessionId: backendSessionId),
-      );
-      return Right(response);
-    } catch (error) {
-      return Left(
-        AppFailure('Failed to load terminal autocomplete', cause: error),
-      );
-    }
-  }
-
-  Future<Result<String>> resolveRemoteDirectory(
-    String sessionId,
-    String path,
-  ) async {
-    try {
-      final resolvedPath = await _backend.resolveRemoteDirectory(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-      );
-      return Right(resolvedPath);
-    } catch (error) {
-      return Left(AppFailure('Failed to resolve remote folder', cause: error));
-    }
-  }
-
-  Future<Result<List<RemoteFileEntry>>> listRemoteDirectory(
-    String sessionId,
-    String path,
-  ) async {
-    try {
-      final entries = await _backend.listRemoteDirectory(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-      );
-      return Right(entries);
-    } catch (error) {
-      return Left(AppFailure('Failed to load remote folder', cause: error));
-    }
-  }
-
-  Future<Result<List<RemoteFileEntry>>> findRemoteEntries(
-    String sessionId,
-    String basePath,
-    String query, {
-    int maxResults = 120,
-  }) async {
-    final normalizedQuery = query.trim().toLowerCase();
-    if (normalizedQuery.isEmpty) return const Right([]);
-    try {
-      final entries = await _findRemoteEntriesBreadthFirst(
-        backendSessionId: _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        basePath: basePath,
-        query: normalizedQuery,
-        maxResults: maxResults,
-      );
-      return Right(entries);
-    } catch (error) {
-      return Left(AppFailure('Failed to find remote entries', cause: error));
-    }
-  }
-
-  Future<Result<String>> readRemoteFile(String sessionId, String path) async {
-    try {
-      final content = await _backend.readRemoteFile(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-      );
-      return Right(content);
-    } catch (error) {
-      return Left(AppFailure('Failed to read remote file', cause: error));
-    }
-  }
-
-  Future<Result<List<int>>> readRemoteFileBytes(
-    String sessionId,
-    String path,
-  ) async {
-    try {
-      final content = await _backend.readRemoteFileBytes(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-      );
-      return Right(content);
-    } catch (error) {
-      return Left(AppFailure('Failed to download remote file', cause: error));
-    }
-  }
-
-  Future<Result<void>> writeRemoteFile(
-    String sessionId,
-    String path,
-    String content,
-  ) async {
-    try {
-      await _backend.writeRemoteFile(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-        content,
-      );
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to save remote file', cause: error));
-    }
-  }
-
-  Future<Result<void>> uploadRemoteFile(
-    String sessionId,
-    String path,
-    List<int> data,
-  ) async {
-    try {
-      await _backend.uploadRemoteFile(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-        data,
-      );
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to upload file', cause: error));
-    }
-  }
-
-  Future<Result<void>> createRemoteDirectory(
-    String sessionId,
-    String path,
-  ) async {
-    try {
-      await _backend.createRemoteDirectory(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-      );
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to create remote folder', cause: error));
-    }
-  }
-
-  Future<Result<void>> createRemoteFile(String sessionId, String path) async {
-    try {
-      await _backend.createRemoteFile(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-      );
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to create remote file', cause: error));
-    }
-  }
-
-  Future<Result<void>> chmodRemotePath(
-    String sessionId,
-    String path,
-    String mode,
-  ) async {
-    try {
-      await _backend.chmodRemotePath(
-        _backendSessionIdForUiSession(sessionId) ?? sessionId,
-        path,
-        mode,
-      );
-      return const Right(null);
-    } catch (error) {
-      return Left(AppFailure('Failed to update permissions', cause: error));
-    }
-  }
-
-  /// Flutter-side heartbeat: probe every connected *SSH terminal* session by
+  /// Flutter-side heartbeat: probe every connected terminal session by
   /// attempting a lightweight TCP socket connect to the SSH port. This runs
   /// independently of the Rust keepalive so UI reflects a lost connection
   /// within [_heartbeatInterval] + [_heartbeatTimeout] (~9 s worst-case)
   /// instead of waiting for the Rust keepalive cycle (~17 s).
-  ///
-  /// SFTP sessions are intentionally EXCLUDED from this TCP probe. SFTP
-  /// sessions ride on the same Rust-managed SSH connection whose keepalive is
-  /// already driven server-side (see `ssh_client.rs`). Spinning up a *new*
-  /// TCP socket to host:port gives false "connection lost" positives whenever
-  /// the remote blocks new TCP connections, enforces per-host connection
-  /// limits, or briefly rejects new sockets — even though the existing SSH/SFTP
-  /// channel is perfectly alive. SFTP disconnects are detected instead through
-  /// the Rust keepalive and by consecutive SFTP-operation failures
-  /// (see `SftpWorkspaceController._recordRemoteFailure`).
   Future<void> _runHeartbeat() async {
-    // Collect all currently-connected SSH terminal sessions with a known profile.
-    // SFTP sessions are skipped — see the doc above.
     final candidates = _sessions
-        .where(
-          (s) =>
-              s.status == ConnectionStatus.connected &&
-              s.kind == SessionKind.ssh,
-        )
+        .where((s) => s.status == ConnectionStatus.connected)
         .toList(growable: false);
 
     for (final session in candidates) {
       if (_heartbeatInFlight.contains(session.id)) continue;
 
-      // Find the SshProfile for this session so we know host + port.
-      final profile = _profiles
-          .where((p) => p.id == session.profileId)
-          .firstOrNull;
-      if (profile == null) continue;
-      final host = profile.host.trim();
-      final port = profile.port;
-      if (host.isEmpty) continue;
+      final endpoint = _sessionEndpoints[session.id];
+      if (endpoint == null || endpoint.host.isEmpty) continue;
+      final (:host, :port) = endpoint;
 
       _heartbeatInFlight.add(session.id);
       unawaited(
@@ -635,9 +399,10 @@ class ConnectionManager extends ChangeNotifier {
     _sessions[index] = session.copyWith(status: ConnectionStatus.error);
     notifyListeners();
     _errors.add(ConnectionErrorEvent(message: message, sessionId: uiSessionId));
+    _sessionLost.add(uiSessionId);
 
     // Tell Rust to clean up the session too (best-effort).
-    final backendId = _backendSessionIdForUiSession(uiSessionId) ?? uiSessionId;
+    final backendId = _backendId(uiSessionId);
     unawaited(_backend.disconnect(backendId).catchError((_) {}));
   }
 
@@ -664,20 +429,20 @@ class ConnectionManager extends ChangeNotifier {
           ? event.message!
           : 'Connection lost. Check your network or VPN, then reconnect.';
       _errors.add(ConnectionErrorEvent(message: message, sessionId: sessionId));
+      if (previous.status == ConnectionStatus.connected) {
+        _sessionLost.add(sessionId);
+      }
     }
   }
 
   void _handleTerminalOutput(TerminalOutputEvent event) {
-    // Remote file-management commands now run on a dedicated exec channel
-    // (see `executeRemoteCommand`), so this listener never needs to intercept
-    // terminal output to detect a command marker. All SSH terminal output is
-    // forwarded straight to the UI, with backend session IDs remapped to the
-    // UI session IDs the terminal panel subscribes to.
+    // Forwarded straight to the UI, with backend session ids remapped to the
+    // UI session ids the terminal panel subscribes to.
+    final sessionId =
+        _backendToUiSessionIds[event.sessionId] ?? event.sessionId;
+    _recordings[sessionId]?.sink.write(stripTerminalEscapes(event.data));
     _terminalOutput.add(
-      TerminalOutputEvent(
-        sessionId: _backendToUiSessionIds[event.sessionId] ?? event.sessionId,
-        data: event.data,
-      ),
+      TerminalOutputEvent(sessionId: sessionId, data: event.data),
     );
   }
 
@@ -700,210 +465,19 @@ class ConnectionManager extends ChangeNotifier {
     return null;
   }
 
-  Future<SshProfile> _profileWithResolvedPassword(SshProfile profile) async {
-    if ((profile.privateKeyPath ?? '').trim().isNotEmpty) return profile;
-    if ((profile.password ?? '').trim().isNotEmpty) return profile;
-    if (!profile.hasPassword) return profile;
-    await _waitForSecretWrite(profile.id);
-    final password = await _secretStore.readPassword(profile.id);
-    if ((password ?? '').isEmpty) {
-      throw PasswordUnavailableException(profile.name, profile.id);
-    }
-    return profile.copyWith(password: password);
-  }
-
-  void _queueSecretWrite(String profileId, Future<void> write) {
-    final trackedWrite = write
-        .catchError((Object error) {
-          _secretWriteErrors[profileId] = error;
-        })
-        .whenComplete(() {
-          _pendingSecretWrites.remove(profileId);
-        });
-    _pendingSecretWrites[profileId] = trackedWrite;
-  }
-
-  Future<void> _waitForSecretWrite(String profileId) async {
-    final pendingWrite = _pendingSecretWrites[profileId];
-    if (pendingWrite != null) {
-      await pendingWrite;
-    }
-    final error = _secretWriteErrors.remove(profileId);
-    if (error != null) {
-      throw StateError('Failed to save profile password: $error');
-    }
-  }
-
-  static const int _maxRemoteSearchDepth = 12;
-  static const int _maxRemoteSearchDirectories = 600;
-  static const Set<String> _remoteSearchSkippedDirectories = {
-    '.cache',
-    '.cargo',
-    '.git',
-    '.gradle',
-    '.local',
-    '.npm',
-    '.rustup',
-    '.venv',
-    '.tox',
-    '.m2',
-    '.pub-cache',
-    '__pycache__',
-    'Library',
-    'cache',
-    'dev',
-    'node_modules',
-    'proc',
-    'run',
-    'sys',
-    'tmp',
-    'vendor',
-    'target',
-    'build',
-    'dist',
-    '.next',
-  };
-
-  Future<List<RemoteFileEntry>> _findRemoteEntriesBreadthFirst({
-    required String backendSessionId,
-    required String basePath,
-    required String query,
-    required int maxResults,
-  }) async {
-    final results = <RemoteFileEntry>[];
-    final visited = <String>{};
-    final queue = Queue<_RemoteSearchDirectory>()
-      ..add(_RemoteSearchDirectory(basePath, 0));
-
-    // Process directories in parallel batches for faster searching.
-    const batchSize = 6;
-
-    while (queue.isNotEmpty &&
-        results.length < maxResults &&
-        visited.length < _maxRemoteSearchDirectories) {
-      // Collect a batch of directories to process in parallel.
-      final batch = <_RemoteSearchDirectory>[];
-      while (batch.length < batchSize && queue.isNotEmpty) {
-        final current = queue.removeFirst();
-        if (current.depth > _maxRemoteSearchDepth) continue;
-        final normalizedPath = current.path.trim().isEmpty
-            ? '/'
-            : current.path.trim();
-        if (!visited.add(normalizedPath)) continue;
-        batch.add(_RemoteSearchDirectory(normalizedPath, current.depth));
-      }
-      if (batch.isEmpty) continue;
-
-      // List all directories in the batch concurrently.
-      final futures = batch.map(
-        (dir) => _listRemoteDirectoryForFind(
-          backendSessionId,
-          dir.path,
-          isBasePath: dir.depth == 0,
-        ).then((entries) => (dir, entries)),
-      );
-
-      final batchResults = await Future.wait(futures);
-
-      for (final (dir, entries) in batchResults) {
-        if (results.length >= maxResults) break;
-
-        final childDirectories = <RemoteFileEntry>[];
-        for (final entry in entries) {
-          if (results.length >= maxResults) break;
-          final haystack = '${entry.name}\n${entry.path}'.toLowerCase();
-          if (haystack.contains(query)) {
-            results.add(entry);
-          }
-          if (entry.isDirectory &&
-              !_shouldSkipRemoteSearchDirectory(entry, basePath)) {
-            childDirectories.add(entry);
-          }
-        }
-
-        childDirectories.sort(
-          (a, b) => _remoteSearchPriority(
-            a,
-            query,
-          ).compareTo(_remoteSearchPriority(b, query)),
-        );
-        for (final directory in childDirectories) {
-          if (visited.length + queue.length >= _maxRemoteSearchDirectories) {
-            break;
-          }
-          queue.add(_RemoteSearchDirectory(directory.path, dir.depth + 1));
-        }
-      }
-    }
-
-    return results;
-  }
-
-  Future<List<RemoteFileEntry>> _listRemoteDirectoryForFind(
-    String backendSessionId,
-    String path, {
-    required bool isBasePath,
-  }) async {
-    try {
-      return await _backend.listRemoteDirectory(backendSessionId, path);
-    } catch (error) {
-      if (isBasePath) rethrow;
-      return const [];
-    }
-  }
-
-  int _remoteSearchPriority(RemoteFileEntry entry, String query) {
-    final name = entry.name.toLowerCase();
-    final path = entry.path.toLowerCase();
-    var score = 100;
-    if (path.contains(query) || name.contains(query)) score -= 60;
-    if (_looksLikeMediaQuery(query) &&
-        (name.contains('picture') ||
-            name.contains('photo') ||
-            name.contains('image') ||
-            name.contains('screenshot') ||
-            name.contains('download'))) {
-      score -= 35;
-    }
-    if (!name.startsWith('.')) score -= 10;
-    return score;
-  }
-
-  bool _looksLikeMediaQuery(String query) {
-    return query.endsWith('.jpg') ||
-        query.endsWith('.jpeg') ||
-        query.endsWith('.png') ||
-        query.endsWith('.gif') ||
-        query.endsWith('.webp') ||
-        query.endsWith('.heic') ||
-        query.endsWith('.svg');
-  }
-
-  bool _shouldSkipRemoteSearchDirectory(
-    RemoteFileEntry entry,
-    String basePath,
-  ) {
-    final path = entry.path;
-    if (path == '/' || path == basePath) return false;
-    if (_remoteSearchSkippedDirectories.contains(entry.name)) return true;
-    return path == '/proc' ||
-        path.startsWith('/proc/') ||
-        path == '/sys' ||
-        path.startsWith('/sys/') ||
-        path == '/dev' ||
-        path.startsWith('/dev/') ||
-        path == '/run' ||
-        path.startsWith('/run/');
-  }
-
   @override
   void dispose() {
     _heartbeatTimer.cancel();
     _statusSub.cancel();
     _outputSub.cancel();
     _errorSub.cancel();
+    for (final recording in _recordings.values) {
+      unawaited(recording.sink.close());
+    }
+    _recordings.clear();
     _terminalOutput.close();
     _errors.close();
+    _sessionLost.close();
     if (_backend case MockConnectionBackend mock) {
       mock.dispose();
     }
@@ -914,20 +488,17 @@ class ConnectionManager extends ChangeNotifier {
   }
 }
 
-class _RemoteSearchDirectory {
-  const _RemoteSearchDirectory(this.path, this.depth);
+final _terminalEscape = RegExp(
+  // OSC (title etc.), CSI (colors, cursor), charset selection, then any
+  // other two-byte escape.
+  r'\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]'
+  r'|\x1b[()][0-9A-Za-z]|\x1b[@-_=>78]',
+);
 
-  final String path;
-  final int depth;
-}
-
-class PasswordUnavailableException implements Exception {
-  const PasswordUnavailableException(this.profileName, this.profileId);
-
-  final String profileName;
-  final String profileId;
-
-  String toString() =>
-      'Saved password for "$profileName" is not available on this device. '
-      'Please re-enter the password.';
-}
+/// Terminal output as plain text for log files: escape sequences and
+/// carriage returns removed.
+///
+/// ponytail: a sequence split across two output chunks leaks its tail into
+/// the log; buffer partial escapes per session if that shows up in practice.
+String stripTerminalEscapes(String data) =>
+    data.replaceAll(_terminalEscape, '').replaceAll('\r', '');

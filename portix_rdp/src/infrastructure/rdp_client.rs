@@ -1,4 +1,5 @@
-use ironrdp_cliprdr::Cliprdr;
+use ironrdp_cliprdr::pdu::{ClipboardFormat, ClipboardFormatId, FormatDataResponse};
+use ironrdp_cliprdr::{Cliprdr, CliprdrClient};
 use ironrdp_connector::{
     ClientConnector, ClientConnectorState, Config, ConnectionResult, ConnectorError,
     ConnectorErrorExt as _, ConnectorResult, Credentials, DesktopSize, LicenseCache, Sequence,
@@ -15,13 +16,8 @@ use ironrdp_rdpdr::Rdpdr;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use ironrdp_rdpdr_native::backend::NixRdpdrBackend;
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-use crate::infrastructure::clipboard::NativeClipboardBackend;
-
-#[cfg(target_os = "windows")]
-use crate::infrastructure::windows::clipboard::ClipboardBackend;
 use ironrdp_session::image::DecodedImage;
-use ironrdp_session::{ActiveStageBuilder, ActiveStageOutput};
+use ironrdp_session::{ActiveStage, ActiveStageBuilder, ActiveStageOutput};
 use ironrdp_tokio::reqwest::ReqwestNetworkClient;
 use ironrdp_tokio::{
     FramedRead, FramedWrite, TokioFramed, connect_begin, connect_finalize, mark_as_upgraded,
@@ -38,6 +34,7 @@ use crate::domain::errors::{RdpError, Result};
 use crate::domain::events::{RdpErrorEvent, RdpFrameEvent, RdpStatusEvent};
 use crate::domain::profile::RdpProfile;
 use crate::domain::session::RdpConnectionStatus;
+use crate::infrastructure::clipboard::{ClipboardAction, ClipboardBackend, ClipboardSync};
 use crate::infrastructure::license_cache::{StubLicenseCache, is_cyberark_pam, is_license_error};
 use crate::infrastructure::rdpsnd::NoopRdpSnd;
 
@@ -379,12 +376,30 @@ impl RdpRuntime {
         let mut frame_tick = interval(Duration::from_millis(33));
         frame_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
+        // Kept open for the whole session: on Linux the copied text is only
+        // served while the clipboard handle lives.
+        let mut local_clipboard = self
+            .profile
+            .redirect_clipboard
+            .then(|| arboard::Clipboard::new().ok())
+            .flatten();
+        let mut clipboard_sync = ClipboardSync::default();
+        let mut clipboard_tick = interval(Duration::from_secs(1));
+        clipboard_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
         loop {
             tokio::select! {
                 _ = frame_tick.tick() => {
                     if frame_dirty {
                         self.emit_full_frame(&image);
                         frame_dirty = false;
+                    }
+                }
+
+                _ = clipboard_tick.tick(), if local_clipboard.is_some() => {
+                    let text = local_clipboard.as_mut().and_then(|c| c.get_text().ok());
+                    if let Some(action) = clipboard_sync.on_local_text(text) {
+                        self.apply_clipboard_action(&mut active_stage, &mut tls_framed, &mut local_clipboard, action).await?;
                     }
                 }
 
@@ -421,6 +436,20 @@ impl RdpRuntime {
                                         return Ok(());
                                     }
                                     _ => {}
+                                }
+                            }
+
+                            let clipboard_events = active_stage
+                                .get_svc_processor_mut::<CliprdrClient>()
+                                .and_then(|cliprdr| cliprdr.downcast_backend_mut::<ClipboardBackend>())
+                                .map(ClipboardBackend::take_events)
+                                .unwrap_or_default();
+                            for event in clipboard_events {
+                                let action = clipboard_sync.on_remote_event(event, || {
+                                    local_clipboard.as_mut().and_then(|c| c.get_text().ok())
+                                });
+                                if let Some(action) = action {
+                                    self.apply_clipboard_action(&mut active_stage, &mut tls_framed, &mut local_clipboard, action).await?;
                                 }
                             }
                         }
@@ -789,23 +818,8 @@ impl RdpRuntime {
 
         // Clipboard redirection
         if self.profile.redirect_clipboard {
-            println!("[portix_rdp] clipboard redirection enabled");
-
-            #[cfg(target_os = "windows")]
-            {
-                let backend = ClipboardBackend::new();
-                let cliprdr = Cliprdr::new(Box::new(backend));
-                println!("[portix_rdp] attaching cliprdr channel (Windows backend)");
-                connector.attach_static_channel(cliprdr);
-            }
-
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
-            {
-                let backend = NativeClipboardBackend::new();
-                let cliprdr = Cliprdr::new(Box::new(backend));
-                println!("[portix_rdp] attaching cliprdr channel (Native backend)");
-                connector.attach_static_channel(cliprdr);
-            }
+            println!("[portix_rdp] attaching cliprdr channel (text clipboard sync)");
+            connector.attach_static_channel(Cliprdr::new(Box::new(ClipboardBackend::new())));
         }
 
         let mut framed = TokioFramed::new(tcp);
@@ -965,6 +979,51 @@ impl RdpRuntime {
         println!("[portix_rdp] connection established");
 
         Ok((tls_framed, connection_result))
+    }
+
+    /// Performs a clipboard step. Clipboard failures are logged, never fatal
+    /// to the session; only a broken connection is.
+    async fn apply_clipboard_action<W: FramedWrite + Unpin>(
+        &self,
+        active_stage: &mut ActiveStage,
+        framed: &mut W,
+        local_clipboard: &mut Option<arboard::Clipboard>,
+        action: ClipboardAction,
+    ) -> Result<()> {
+        let Some(cliprdr) = active_stage.get_svc_processor_mut::<CliprdrClient>() else {
+            return Ok(());
+        };
+        let messages = match action {
+            ClipboardAction::WriteLocal(text) => {
+                if let Some(Err(e)) = local_clipboard.as_mut().map(|c| c.set_text(text)) {
+                    eprintln!("[portix_rdp] cannot write local clipboard: {e}");
+                }
+                return Ok(());
+            }
+            ClipboardAction::Announce { has_text } => {
+                let text = [ClipboardFormat::new(ClipboardFormatId::CF_UNICODETEXT)];
+                cliprdr.initiate_copy(if has_text { &text } else { &[] })
+            }
+            ClipboardAction::RequestText => {
+                cliprdr.initiate_paste(ClipboardFormatId::CF_UNICODETEXT)
+            }
+            ClipboardAction::SendText(text) => cliprdr.submit_format_data(match text {
+                Some(text) => FormatDataResponse::new_unicode_string(&text),
+                None => FormatDataResponse::new_error(),
+            }),
+        };
+        let frame = match messages.map_err(|e| e.to_string()).and_then(|messages| {
+            active_stage
+                .process_svc_processor_messages(messages)
+                .map_err(|e| e.to_string())
+        }) {
+            Ok(frame) => frame,
+            Err(e) => {
+                eprintln!("[portix_rdp] clipboard: {e}");
+                return Ok(());
+            }
+        };
+        framed.write_all(&frame).await.map_err(RdpError::Io)
     }
 
     async fn send_fast_path<W: FramedWrite + Unpin>(

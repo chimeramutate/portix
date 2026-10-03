@@ -133,6 +133,16 @@ class ProfileColorChanged extends SshWorkspaceEvent {
   List<Object?> get props => [color];
 }
 
+class JumpProfileChanged extends SshWorkspaceEvent {
+  const JumpProfileChanged(this.jumpProfileId);
+
+  /// Empty for a direct connection.
+  final String jumpProfileId;
+
+  @override
+  List<Object?> get props => [jumpProfileId];
+}
+
 class ProfileTestRequested extends SshWorkspaceEvent {
   const ProfileTestRequested();
 }
@@ -148,6 +158,17 @@ class ProfilesImported extends SshWorkspaceEvent {
 
   @override
   List<Object?> get props => [profiles];
+}
+
+/// A profile created by quick connect: saved and listed, without leaving
+/// the current view.
+class QuickProfileSaved extends SshWorkspaceEvent {
+  const QuickProfileSaved(this.profile);
+
+  final SshProfile profile;
+
+  @override
+  List<Object?> get props => [profile];
 }
 
 class ProfileOsDetected extends SshWorkspaceEvent {
