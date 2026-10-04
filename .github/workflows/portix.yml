@@ -1105,27 +1105,14 @@ jobs:
           # Refresh ldconfig cache so newly installed packages are visible.
           sudo ldconfig 2>/dev/null || true
 
-          # Bundle runtime libs needed by Flutter/Rust that may not exist on
-          # all distros (Fedora, Arch, etc.). GTK3, libsecret, libgcrypt,
-          # libgpg-error are all required at runtime.
+          # Bundle only small, self-contained libs. Do NOT bundle the GTK
+          # stack (gtk/gdk/glib/pango/cairo/gdk-pixbuf/harfbuzz/...): Ubuntu's
+          # copies pull in Ubuntu-only sonames (e.g. libjpeg.so.8) and break
+          # on Fedora/openSUSE/Arch. Every desktop distro ships GTK3 already.
           REQUIRED_LIBS=(
             libsecret-1.so.0
             libgcrypt.so.20
             libgpg-error.so.0
-            libgtk-3.so.0
-            libgdk-3.so.0
-            libglib-2.0.so.0
-            libgobject-2.0.so.0
-            libgio-2.0.so.0
-            libpango-1.0.so.0
-            libpangocairo-1.0.so.0
-            libcairo.so.2
-            libgdk_pixbuf-2.0.so.0
-            libatk-1.0.so.0
-            libharfbuzz.so.0
-            libfontconfig.so.1
-            libfreetype.so.6
-            libepoxy.so.0
           )
 
           for lib in "${REQUIRED_LIBS[@]}"; do
@@ -1269,7 +1256,7 @@ jobs:
 
           # Install appimagetool
           curl -fsSL -o appimagetool \
-            "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
           chmod +x appimagetool
 
           # Build AppDir structure
