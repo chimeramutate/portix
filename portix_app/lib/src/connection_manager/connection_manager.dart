@@ -87,7 +87,7 @@ class ConnectionManager extends ChangeNotifier {
         port,
         timeout: _heartbeatTimeout,
       );
-      await socket.close();
+      socket.destroy();
       return true;
     } catch (_) {
       return false;
@@ -377,7 +377,7 @@ class ConnectionManager extends ChangeNotifier {
         timeout: _heartbeatTimeout,
       );
       // Connection succeeded — remote is still reachable.
-      await socket.close();
+      socket.destroy();
     } on SocketException {
       // TCP refused or timed out — remote is gone.
       _markSessionDead(uiSessionId, 'Connection lost. Host is unreachable.');

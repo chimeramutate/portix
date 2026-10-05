@@ -234,7 +234,8 @@ class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
       final socket = await RawSocket.connect(
         profile.host,
         profile.port,
-      ).timeout(const Duration(seconds: 5));
+        timeout: const Duration(seconds: 5),
+      );
       socket.close();
       if (!mounted) return;
       setState(() {
