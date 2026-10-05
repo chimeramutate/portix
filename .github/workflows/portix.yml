@@ -779,13 +779,19 @@ jobs:
           # Create symlink to /Applications for drag-and-drop install
           ln -s /Applications "$DMG_STAGING/Applications"
 
-          # Create a read/write DMG first then convert to compressed read-only
-          hdiutil create \
-            -volname "Portix ${VERSION}" \
-            -srcfolder "$DMG_STAGING" \
-            -ov \
-            -format UDRW \
-            "portix-rw.dmg"
+          # Create a read/write DMG first then convert to compressed read-only.
+          # Retried: hosted runners intermittently fail with "Resource busy".
+          for attempt in 1 2 3 4 5; do
+            hdiutil create \
+              -volname "Portix ${VERSION}" \
+              -srcfolder "$DMG_STAGING" \
+              -ov \
+              -format UDRW \
+              "portix-rw.dmg" && break
+            [ "$attempt" -eq 5 ] && exit 1
+            echo "hdiutil create failed (attempt $attempt), retrying..."
+            sleep $((attempt * 5))
+          done
 
           # Convert to compressed read-only DMG
           hdiutil convert \
