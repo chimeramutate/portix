@@ -77,8 +77,6 @@ class WorkspaceTopBar extends StatelessWidget {
           Row(
             children: [
               SizedBox(width: isMac ? _macTrafficLightInset : 14),
-              const _Brand(),
-              const SizedBox(width: 16),
               Expanded(child: Center(child: center)),
               for (final action in actions) ...[
                 const SizedBox(width: 8),
@@ -159,17 +157,26 @@ class _GallerySearchState extends State<_GallerySearch> {
   Widget build(BuildContext context) {
     return ConstrainedBox(
       key: _searchKey,
-      constraints: const BoxConstraints(maxWidth: 420, maxHeight: 28),
+      constraints: const BoxConstraints(maxWidth: 460, maxHeight: 30),
       child: TextField(
         controller: _search,
         onChanged: (value) =>
             context.read<SshWorkspaceBloc>().add(SearchChanged(value)),
-        style: TextStyle(color: AppColors.text, fontSize: 12),
+        style: TextStyle(color: AppColors.text, fontSize: 13),
         textAlignVertical: TextAlignVertical.center,
         decoration: InputDecoration(
           isDense: true,
           hintText: 'Search profile, host, tag, or group',
           contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+          // A 1px focus border: the 2px form default is too heavy in the bar.
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(6),
+            borderSide: BorderSide(color: AppColors.inputBorder),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(6),
+            borderSide: BorderSide(color: AppColors.cyan),
+          ),
           prefixIcon: Icon(
             Icons.search_rounded,
             color: AppColors.muted,
@@ -192,11 +199,13 @@ class _NewProfileButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return KeyedSubtree(
       key: tutorialKey,
-      child: AppIconButton(
+      child: IconButton(
         tooltip: 'New SSH Profile',
-        icon: Icons.add_rounded,
         onPressed: () =>
             context.read<SshWorkspaceBloc>().add(const NewProfileRequested()),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+        icon: Icon(Icons.add_rounded, size: 18, color: AppColors.text),
       ),
     );
   }
@@ -390,22 +399,6 @@ class _ConnectionBadge extends StatelessWidget {
             if (trailing != null) ...[const SizedBox(width: 10), trailing!],
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _Brand extends StatelessWidget {
-  const _Brand();
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      'Portix',
-      style: TextStyle(
-        color: AppColors.text,
-        fontSize: 14,
-        fontWeight: FontWeight.w900,
       ),
     );
   }
