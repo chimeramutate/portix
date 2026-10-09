@@ -328,14 +328,9 @@ class _ConnectionCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  profile?.address ?? 'root@172.24.82.36:22',
+                  profile?.name ?? '',
                   overflow: TextOverflow.ellipsis,
                   style: portixTitle(13),
-                ),
-                Text(
-                  'Mounted from active SSH session',
-                  overflow: TextOverflow.ellipsis,
-                  style: portixMuted(11),
                 ),
               ],
             ),

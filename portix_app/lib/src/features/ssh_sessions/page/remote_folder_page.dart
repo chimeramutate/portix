@@ -65,6 +65,8 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
   _InlineCreateKind? _inlineCreateKind;
   RemoteFileEntry? _renamingEntry;
   String? _autoLoadedSessionId;
+  // Last cwd each shell reported. The panel follows the shell, never drives it.
+  final Map<String, String> _terminalDirectories = {};
   String? _autoLoadedPath;
   int _remoteLoadToken = 0;
   int _handledOpenRequestSerial = 0;
@@ -359,6 +361,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
                           keyboardEnabled: isVisible,
                           onSessionChanged: (_) {},
                           onActiveSessionChanged: _handleActiveSessionChanged,
+                          onDirectoryChanged: _handleTerminalDirectoryChanged,
                           onLastSessionClosed: () {
                             context.read<SshSessionBloc>().add(
                               const SshSessionCleared(),
@@ -451,7 +454,8 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
       if (sessionId != null) {
         final state = context.read<SshWorkspaceBloc>().state;
         final profile = _activeProfile(state);
-        final path = _terminalFolderPath(profile);
+        final path =
+            _terminalDirectories[sessionId] ?? _terminalFolderPath(profile);
         // Only reload if path actually changed. Don't reload when switching
         // between panes in same workspace/profile.
         if (path != _remotePath) {
@@ -470,6 +474,13 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         }
       }
     });
+  }
+
+  void _handleTerminalDirectoryChanged(String sessionId, String path) {
+    if (_terminalDirectories[sessionId] == path) return;
+    _terminalDirectories[sessionId] = path;
+    if (!mounted || sessionId != _activeSessionId) return;
+    unawaited(_loadRemoteDirectory(path));
   }
 
   void _handleConnectionManagerChanged() {
