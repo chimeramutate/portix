@@ -225,7 +225,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                                 children: [
                                   Icon(
                                     Icons.dns_rounded,
-                                    color: AppColors.green,
+                                    color: AppColors.muted,
                                     size: 20,
                                   ),
                                   const SizedBox(width: 12),

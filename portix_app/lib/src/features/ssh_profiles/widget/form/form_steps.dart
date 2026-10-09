@@ -89,7 +89,7 @@ class FormSteps extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(Icons.shield_outlined, color: AppColors.green, size: 18),
+                  Icon(Icons.shield_outlined, color: AppColors.muted, size: 18),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(

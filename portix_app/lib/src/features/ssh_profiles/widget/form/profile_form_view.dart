@@ -46,7 +46,8 @@ class _ProfileFormViewState extends State<ProfileFormView> {
         (
           key: _identityKey,
           title: '1. Profile identity',
-          body: 'Isi nama profile dan group. Tag & warna opsional untuk memudahkan filter.',
+          body:
+              'Isi nama profile dan group. Tag & warna opsional untuk memudahkan filter.',
         ),
         (
           key: _endpointKey,
@@ -61,12 +62,14 @@ class _ProfileFormViewState extends State<ProfileFormView> {
         (
           key: _advancedKey,
           title: 'Advanced (opsional)',
-          body: 'Startup command yang dijalankan saat login dan ukuran font terminal.',
+          body:
+              'Startup command yang dijalankan saat login dan ukuran font terminal.',
         ),
         (
           key: _saveKey,
           title: '4. Simpan',
-          body: 'Klik Save Profile, lalu profile muncul di gallery dan siap dibuka di SSH atau SFTP.',
+          body:
+              'Klik Save Profile, lalu profile muncul di gallery dan siap dibuka di SSH atau SFTP.',
         ),
       ]),
     );

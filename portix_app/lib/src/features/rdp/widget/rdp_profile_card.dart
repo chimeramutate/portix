@@ -55,7 +55,7 @@ class RdpProfileCard extends StatelessWidget {
                     profile.address,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: portixMuted(10),
+                    style: portixMuted(11),
                   ),
                 ],
               ),
@@ -86,7 +86,7 @@ class RdpProfileCard extends StatelessWidget {
 
                 Text(
                   '${profile.desktopWidth}×${profile.desktopHeight}',
-                  style: portixMuted(9),
+                  style: portixMuted(11),
                 ),
               ],
             ),
@@ -166,7 +166,7 @@ class _Chip extends StatelessWidget {
         label,
         style: TextStyle(
           color: color,
-          fontSize: 9,
+          fontSize: 11,
           fontWeight: FontWeight.w800,
         ),
       ),

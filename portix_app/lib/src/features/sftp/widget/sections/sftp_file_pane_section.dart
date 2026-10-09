@@ -165,7 +165,7 @@ class _FilePane extends StatelessWidget {
                           isRemote
                               ? Icons.dns_outlined
                               : Icons.computer_rounded,
-                          color: isRemote ? AppColors.green : AppColors.cyan,
+                          color: AppColors.muted,
                           size: 18,
                         ),
                       const SizedBox(width: 9),
@@ -177,10 +177,7 @@ class _FilePane extends StatelessWidget {
                           style: portixTitle(16),
                         ),
                       ),
-                      AppPill(
-                        label: countLabel,
-                        color: isRemote ? AppColors.green : AppColors.cyan,
-                      ),
+                      AppPill(label: countLabel, color: AppColors.muted),
                     ],
                   ),
                 ),

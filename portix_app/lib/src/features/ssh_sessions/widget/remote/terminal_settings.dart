@@ -24,7 +24,6 @@ const terminalFonts = [
   'Roboto Mono',
   'Cascadia Mono',
   'SFMono-Regular',
-  'Inter',
 ];
 
 const terminalFontSizes = [
@@ -84,8 +83,6 @@ String terminalFontFamilyFromValue(String? value) {
       return 'Cascadia Mono';
     case 'SFMono-Regular':
       return 'SFMono-Regular';
-    case 'Inter':
-      return 'Inter';
     case 'Monospace':
     default:
       return 'monospace';

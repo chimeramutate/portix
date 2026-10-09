@@ -225,7 +225,7 @@ class _TransferQueueRow extends StatelessWidget {
               Text(
                 job.label,
                 overflow: TextOverflow.ellipsis,
-                style: portixTitle(10),
+                style: portixTitle(11),
               ),
               const SizedBox(height: 3),
               ClipRRect(
@@ -244,14 +244,14 @@ class _TransferQueueRow extends StatelessWidget {
                   job.error!,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: portixMuted(9).copyWith(color: AppColors.danger),
+                  style: portixMuted(11).copyWith(color: AppColors.danger),
                 ),
               ],
             ],
           ),
         ),
         const SizedBox(width: 8),
-        Text(status, style: portixTitle(10).copyWith(color: color)),
+        Text(status, style: portixTitle(11).copyWith(color: color)),
       ],
     );
   }
@@ -321,7 +321,7 @@ class _ConnectionCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
       child: Row(
         children: [
-          Icon(Icons.cloud_sync_outlined, color: AppColors.green, size: 20),
+          Icon(Icons.cloud_sync_outlined, color: AppColors.muted, size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -482,7 +482,7 @@ class _RemoteItem extends StatelessWidget {
                     Text(
                       meta,
                       overflow: TextOverflow.ellipsis,
-                      style: portixMuted(10),
+                      style: portixMuted(11),
                     ),
                   ],
                 ),

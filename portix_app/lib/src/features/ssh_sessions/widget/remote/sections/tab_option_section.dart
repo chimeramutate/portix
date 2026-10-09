@@ -235,9 +235,7 @@ class SessionProfileOption extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: highlighted
-                ? AppColors.selectedSoft
-                : AppColors.surfaceDark,
+            color: highlighted ? AppColors.selectedSoft : AppColors.surfaceDark,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: highlighted ? AppColors.primaryBlue : AppColors.border,
@@ -255,7 +253,7 @@ class SessionProfileOption extends StatelessWidget {
                 ),
                 child: Icon(
                   Icons.dns_rounded,
-                  color: AppColors.green,
+                  color: AppColors.muted,
                   size: 19,
                 ),
               ),

@@ -177,21 +177,16 @@ class _FollowSystemBrightnessState extends State<FollowSystemBrightness>
   Widget build(BuildContext context) => widget.child;
 }
 
-const _fontFamily = 'Inter';
-
 final appTheme = buildAppTheme(AppPalette.dark);
 final appLightTheme = buildAppTheme(AppPalette.light);
 
 ThemeData buildAppTheme(AppPalette p) {
-  final baseTextTheme = ThemeData(
-    brightness: p.brightness,
-  ).textTheme.apply(fontFamily: _fontFamily);
+  final baseTextTheme = ThemeData(brightness: p.brightness).textTheme;
   return ThemeData(
     useMaterial3: true,
     brightness: p.brightness,
     visualDensity: VisualDensity.compact,
     scaffoldBackgroundColor: p.bg,
-    fontFamily: _fontFamily,
     colorScheme:
         (p.brightness == Brightness.dark
                 ? const ColorScheme.dark()
@@ -221,13 +216,11 @@ ThemeData buildAppTheme(AppPalette p) {
       backgroundColor: p.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       titleTextStyle: TextStyle(
-        fontFamily: _fontFamily,
         color: p.text,
         fontSize: 20,
         fontWeight: FontWeight.w800,
       ),
       contentTextStyle: TextStyle(
-        fontFamily: _fontFamily,
         color: p.text,
         fontSize: 13,
         fontWeight: FontWeight.w600,
@@ -236,7 +229,6 @@ ThemeData buildAppTheme(AppPalette p) {
     popupMenuTheme: PopupMenuThemeData(
       color: p.surfaceCard,
       textStyle: TextStyle(
-        fontFamily: _fontFamily,
         color: p.text,
         fontSize: 12,
         fontWeight: FontWeight.w700,
@@ -244,31 +236,26 @@ ThemeData buildAppTheme(AppPalette p) {
     ),
     textTheme: baseTextTheme.copyWith(
       bodyLarge: TextStyle(
-        fontFamily: _fontFamily,
         color: p.text,
         fontSize: 13,
         fontWeight: FontWeight.w700,
       ),
       bodyMedium: TextStyle(
-        fontFamily: _fontFamily,
         color: p.text,
         fontSize: 12,
         fontWeight: FontWeight.w700,
       ),
       bodySmall: TextStyle(
-        fontFamily: _fontFamily,
         color: p.muted,
         fontSize: 11,
         fontWeight: FontWeight.w600,
       ),
       titleMedium: TextStyle(
-        fontFamily: _fontFamily,
         color: p.text,
         fontSize: 14,
         fontWeight: FontWeight.w900,
       ),
       titleLarge: TextStyle(
-        fontFamily: _fontFamily,
         color: p.text,
         fontSize: 18,
         fontWeight: FontWeight.w900,
@@ -277,7 +264,7 @@ ThemeData buildAppTheme(AppPalette p) {
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: p.surfaceDark,
-      hintStyle: TextStyle(fontFamily: _fontFamily, color: p.muted),
+      hintStyle: TextStyle(color: p.muted),
       contentPadding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
@@ -294,11 +281,7 @@ ThemeData buildAppTheme(AppPalette p) {
         backgroundColor: p.primaryBlue,
         foregroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        textStyle: TextStyle(
-          fontFamily: _fontFamily,
-          fontWeight: FontWeight.w800,
-          fontSize: 12,
-        ),
+        textStyle: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -307,11 +290,7 @@ ThemeData buildAppTheme(AppPalette p) {
         foregroundColor: p.text,
         side: BorderSide(color: p.border),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        textStyle: TextStyle(
-          fontFamily: _fontFamily,
-          fontWeight: FontWeight.w800,
-          fontSize: 12,
-        ),
+        textStyle: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
       ),
     ),
   );

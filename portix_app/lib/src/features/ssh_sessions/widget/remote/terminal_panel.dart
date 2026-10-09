@@ -1533,7 +1533,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                   const SizedBox(height: 8),
                   Text(
                     'The password will be saved to local secure storage.',
-                    style: portixMuted(10),
+                    style: portixMuted(11),
                   ),
                 ],
               ),
@@ -2133,7 +2133,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
             border: candidates.isNotEmpty
-                ? Border.all(color: AppColors.green, width: 1.2)
+                ? Border.all(color: AppColors.cyan, width: 1.2)
                 : null,
           ),
           child: TerminalSessionTab(
@@ -2403,7 +2403,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                             'Drop here to move this session',
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
-                                              color: AppColors.green,
+                                              color: AppColors.cyan,
                                               fontWeight: FontWeight.w800,
                                               fontSize: 12,
                                             ),

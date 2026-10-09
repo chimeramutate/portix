@@ -54,7 +54,6 @@ class _SftpTabChip extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontFamily: 'Inter',
                 color: active ? AppColors.text : AppColors.muted,
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
