@@ -76,7 +76,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                   padding: const EdgeInsets.all(14),
                   color: AppColors.surfaceDark,
                   child: Text(
-                    'Belum ada profile yang bisa dipakai. Buat atau lengkapi profile SSH terlebih dahulu.',
+                    'No usable profiles yet. Create or complete an SSH profile first.',
                     style: portixMuted(12),
                   ),
                 )
@@ -108,7 +108,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                           },
                           decoration: InputDecoration(
                             hintText:
-                                'Cari profile (nama, alamat, atau username)...',
+                                'Search profiles (name, address or username)',
                             hintStyle: portixMuted(12),
                             border: InputBorder.none,
                             isDense: true,
@@ -162,7 +162,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Text(
-                      'Tidak ada hasil untuk "$_searchQuery"',
+                      'No results for "$_searchQuery"',
                       style: portixMuted(12),
                     ),
                   ),
@@ -171,8 +171,8 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Text(
                       filteredProfiles.length == 1
-                          ? '1 profile ditemukan'
-                          : '${filteredProfiles.length} profile ditemukan',
+                          ? '1 profile found'
+                          : '${filteredProfiles.length} profiles found',
                       style: portixMuted(11),
                     ),
                   ),
@@ -189,10 +189,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                           size: 16,
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          'Tidak ada profile yang cocok',
-                          style: portixMuted(12),
-                        ),
+                        Text('No matching profiles', style: portixMuted(12)),
                       ],
                     ),
                   )

@@ -1114,7 +1114,7 @@ class _NoSelectionPanel extends StatelessWidget {
         border: Border.all(color: AppColors.border),
       ),
       child: Text(
-        'Klik profil untuk melihat detail dan opsi koneksi.',
+        'Click a profile to see its details and connection options.',
         style: TextStyle(color: AppColors.muted, fontSize: 14),
       ),
     );
