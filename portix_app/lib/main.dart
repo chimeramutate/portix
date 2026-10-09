@@ -27,6 +27,12 @@ Future<void> main() async {
   }
   await windowManager.ensureInitialized();
   await windowManager.setPreventClose(true);
+  // The app draws its own title bar (WorkspaceTopBar); macOS keeps its
+  // native traffic lights, Linux and Windows get Flutter caption buttons.
+  await windowManager.setTitleBarStyle(
+    TitleBarStyle.hidden,
+    windowButtonVisibility: Platform.isMacOS,
+  );
   runApp(const PortixApp());
 }
 
@@ -78,9 +84,13 @@ class _PortixAppState extends State<PortixApp> with WindowListener {
           // text size so a larger system setting still takes effect.
           final density = media.size.width >= 900 ? 0.95 : 1.0;
           final scale = media.textScaler.scale(1) * density;
+          final content = child ?? const SizedBox.shrink();
           return MediaQuery(
             data: media.copyWith(textScaler: TextScaler.linear(scale)),
-            child: child ?? const SizedBox.shrink(),
+            // Without the GTK title bar the window needs its own resize edges.
+            child: Platform.isLinux
+                ? DragToResizeArea(child: content)
+                : content,
           );
         },
         home: MultiBlocProvider(
