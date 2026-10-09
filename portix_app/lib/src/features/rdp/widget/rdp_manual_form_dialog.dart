@@ -105,13 +105,13 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
                 TextFormField(
                   controller: _nameController,
                   decoration: const InputDecoration(
-                    labelText: 'Nama *',
+                    labelText: 'Name *',
                     hintText: 'Server Production',
                     border: OutlineInputBorder(),
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return 'Nama harus diisi';
+                      return 'Name is required';
                     }
                     return null;
                   },
@@ -123,12 +123,12 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
                   controller: _hostController,
                   decoration: const InputDecoration(
                     labelText: 'Host / IP Address *',
-                    hintText: '192.168.1.10 atau server.example.com',
+                    hintText: '192.168.1.10 or server.example.com',
                     border: OutlineInputBorder(),
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return 'Host harus diisi';
+                      return 'Host is required';
                     }
                     return null;
                   },
@@ -147,11 +147,11 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return 'Port harus diisi';
+                      return 'Port is required';
                     }
                     final port = int.tryParse(value);
                     if (port == null || port < 1 || port > 65535) {
-                      return 'Port harus antara 1-65535';
+                      return 'Port must be between 1 and 65535';
                     }
                     return null;
                   },
@@ -168,7 +168,7 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return 'Username harus diisi';
+                      return 'Username is required';
                     }
                     return null;
                   },
@@ -192,7 +192,7 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
                   controller: _domainController,
                   decoration: const InputDecoration(
                     labelText: 'Domain',
-                    hintText: 'CORP (opsional)',
+                    hintText: 'CORP (optional)',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -276,7 +276,7 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
                     validator: (value) {
                       if (!_redirectDrives) return null;
                       if (value == null || value.trim().isEmpty) {
-                        return 'Folder lokal harus diisi jika Redirect Drives aktif';
+                        return 'Local folder is required when Redirect Drives is on';
                       }
                       return null;
                     },
@@ -285,12 +285,12 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
                   TextFormField(
                     controller: _localShareNameController,
                     decoration: InputDecoration(
-                      labelText: 'Share name (tampil di Windows)',
+                      labelText: 'Share name (shown in Windows)',
                       hintText: RdpProfile.defaultLocalShareName,
                       border: const OutlineInputBorder(),
                       prefixIcon: const Icon(Icons.drive_file_rename_outline),
                       helperText:
-                          'Akses dari Windows: \\\\tsclient\\${_localShareNameController.text.trim().isEmpty ? RdpProfile.defaultLocalShareName : _localShareNameController.text.trim()}',
+                          'Open from Windows: \\\\tsclient\\${_localShareNameController.text.trim().isEmpty ? RdpProfile.defaultLocalShareName : _localShareNameController.text.trim()}',
                     ),
                     inputFormatters: [
                       FilteringTextInputFormatter.allow(
@@ -300,7 +300,7 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
                     validator: (value) {
                       if (!_redirectDrives) return null;
                       if (value == null || value.trim().isEmpty) {
-                        return 'Share name harus diisi';
+                        return 'Share name is required';
                       }
                       return null;
                     },
@@ -321,7 +321,7 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
                       setState(() => _enableCredSsp = value ?? false),
                   title: const Text('Enable CredSSP (NLA)'),
                   subtitle: const Text(
-                    'Aktifkan hanya jika server support NLA (Windows Server 2012+)',
+                    'Turn on only if the server supports NLA (Windows Server 2012+)',
                     style: TextStyle(fontSize: 11),
                   ),
                   controlAffinity: ListTileControlAffinity.leading,
@@ -334,12 +334,12 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Batal'),
+          child: const Text('Cancel'),
         ),
         FilledButton.icon(
           onPressed: _handleSave,
           icon: const Icon(Icons.check),
-          label: const Text('Simpan'),
+          label: const Text('Save'),
         ),
       ],
     );

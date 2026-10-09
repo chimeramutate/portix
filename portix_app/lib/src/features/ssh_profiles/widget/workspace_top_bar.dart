@@ -73,14 +73,14 @@ class _GalleryTopBarState extends State<_GalleryTopBar> {
       (_) => showTutorialOnce(context, 'gallery', [
         (
           key: _newKey,
-          title: 'Buat profile SSH',
+          title: 'Create an SSH profile',
           body:
-              'Klik di sini untuk menambah server baru: nama, host, port, username, lalu password atau SSH key.',
+              'Click here to add a server: name, host, port, username, then a password or SSH key.',
         ),
         (
           key: _searchKey,
-          title: 'Cari profile',
-          body: 'Filter profile berdasarkan nama, host, tag, atau group.',
+          title: 'Search profiles',
+          body: 'Filter profiles by name, host, tag or group.',
         ),
       ]),
     );

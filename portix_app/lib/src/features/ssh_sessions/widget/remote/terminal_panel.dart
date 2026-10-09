@@ -1655,13 +1655,13 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final lower = message.toLowerCase();
     if (lower.contains('failed to load dynamic library') &&
         lower.contains('portix_serv.framework')) {
-      return 'Rust backend iOS belum dibundle ke app. Build iOS butuh portix_serv.framework/xcframework di dalam Runner.app/Frameworks sebelum SSH bisa dipakai.';
+      return 'The Rust backend is not bundled in this iOS build. SSH needs portix_serv.framework (or .xcframework) inside Runner.app/Frameworks.';
     }
     if (lower.contains('mobile ssh backend is disabled')) {
-      return 'SSH mobile belum diaktifkan. Untuk sekarang gunakan build desktop agar Rust backend dan SSH session berjalan stabil.';
+      return 'SSH is not enabled on mobile yet. Use the desktop build for SSH sessions.';
     }
     if (lower.contains('rust ssh backend is unavailable')) {
-      return 'Rust SSH backend belum tersedia untuk platform ini. Pastikan native library Portix sudah dibuild dan dibundle bersama app.';
+      return 'The Rust SSH backend is not available on this platform. Make sure the Portix native library is built and bundled with the app.';
     }
     return message.length > 420 ? '${message.substring(0, 420)}...' : message;
   }
