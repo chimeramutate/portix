@@ -79,10 +79,7 @@ class RdpProfileCard extends StatelessWidget {
                           const SizedBox(width: 4),
                         ],
 
-                        _Chip(
-                          label: profile.group,
-                          color: accent.withValues(alpha: .7),
-                        ),
+                        _Chip(label: profile.group, color: AppColors.muted),
                       ],
                     ),
 
