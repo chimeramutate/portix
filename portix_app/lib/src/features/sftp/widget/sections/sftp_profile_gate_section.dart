@@ -117,14 +117,20 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                         ),
                       ),
                       if (_searchQuery.isNotEmpty)
-                        GestureDetector(
-                          onTap: () {
+                        IconButton(
+                          tooltip: 'Clear search',
+                          onPressed: () {
                             _searchController.clear();
                             setState(() {
                               _searchQuery = '';
                             });
                           },
-                          child: Icon(
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 24,
+                            height: 24,
+                          ),
+                          icon: Icon(
                             Icons.close_rounded,
                             color: AppColors.muted,
                             size: 16,
@@ -349,11 +355,7 @@ class _LocalProfileTile extends StatelessWidget {
                 ),
               ),
               if (selected)
-                Icon(
-                  Icons.check_rounded,
-                  color: AppColors.cyan,
-                  size: 18,
-                ),
+                Icon(Icons.check_rounded, color: AppColors.cyan, size: 18),
             ],
           ),
         ),

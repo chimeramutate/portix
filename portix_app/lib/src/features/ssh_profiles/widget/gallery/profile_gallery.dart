@@ -202,7 +202,7 @@ class _ProfileGalleryState extends State<ProfileGallery> {
         .toList();
 
     if (newProfiles.isEmpty) {
-      _showSnack('All profiles already exist — nothing to import.');
+      _showSnack('All profiles already exist, nothing to import.');
       return;
     }
     final skipped = profiles.length - newProfiles.length;

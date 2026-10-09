@@ -74,9 +74,10 @@ class _PortixAppState extends State<PortixApp> with WindowListener {
         themeMode: ThemeMode.system,
         builder: (context, child) {
           final media = MediaQuery.of(context);
-          final scale = media.textScaler
-              .scale(1)
-              .clamp(0.85, media.size.width >= 900 ? 0.95 : 1.05);
+          // Slightly denser text on wide windows, scaled on top of the OS
+          // text size so a larger system setting still takes effect.
+          final density = media.size.width >= 900 ? 0.95 : 1.0;
+          final scale = media.textScaler.scale(1) * density;
           return MediaQuery(
             data: media.copyWith(textScaler: TextScaler.linear(scale)),
             child: child ?? const SizedBox.shrink(),

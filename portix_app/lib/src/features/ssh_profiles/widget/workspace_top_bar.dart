@@ -148,19 +148,7 @@ class _GalleryTopBarState extends State<_GalleryTopBar> {
         if (mobile) {
           return Column(
             children: [
-              Row(
-                children: [
-                  brand,
-                  const Spacer(),
-                  AppPill(
-                    label: 'Vault unlocked',
-                    color: AppColors.green,
-                    background: AppColors.greenTint,
-                  ),
-                  const SizedBox(width: 8),
-                  newButton,
-                ],
-              ),
+              Row(children: [brand, const Spacer(), newButton]),
               const SizedBox(height: 8),
               search,
             ],
@@ -180,14 +168,6 @@ class _GalleryTopBarState extends State<_GalleryTopBar> {
                 ),
               ),
             ),
-            if (MediaQuery.sizeOf(context).width > 980) ...[
-              const SizedBox(width: 12),
-              AppPill(
-                label: 'Vault unlocked',
-                color: AppColors.green,
-                background: AppColors.greenTint,
-              ),
-            ],
             const SizedBox(width: 12),
             newButton,
           ],
