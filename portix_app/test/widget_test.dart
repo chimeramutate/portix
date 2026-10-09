@@ -114,7 +114,7 @@ void main() {
     await _pumpPortixApp(tester, const Size(1600, 900));
 
     expect(find.text('Search profile, host, tag, or group'), findsOneWidget);
-    expect(find.text('List SSH'), findsOneWidget);
+    expect(find.byTooltip('SSH profiles'), findsOneWidget);
     expect(find.text('prod-api-01'), findsWidgets);
     expect(find.text('Selected Profile'), findsNothing);
 
@@ -124,12 +124,10 @@ void main() {
     expect(find.text('Selected Profile'), findsOneWidget);
   });
 
-  _appTest('renders the SFTP workspace from rail navigation', (
-    tester,
-  ) async {
+  _appTest('renders the SFTP workspace from rail navigation', (tester) async {
     await _pumpPortixApp(tester, const Size(1600, 900));
 
-    await tester.tap(find.text('SFTP'));
+    await tester.tap(find.byTooltip('SFTP'));
     await _waitForLocalPane(tester);
     await tester.pumpAndSettle();
 
@@ -154,12 +152,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('close-tab-prod-api-01')), findsNothing);
-    expect(find.text('List SSH'), findsOneWidget);
+    expect(find.byTooltip('SSH profiles'), findsOneWidget);
   });
 
-  _appTest('terminal tools sit behind one button at the right', (
-    tester,
-  ) async {
+  _appTest('terminal tools sit behind one button at the right', (tester) async {
     await _pumpPortixApp(tester, const Size(1600, 900));
     await tester.tap(find.text('Open SSH').first);
     await tester.pumpAndSettle();
@@ -209,11 +205,7 @@ void main() {
     tester,
   ) async {
     final backend = RefusingHostKeyBackend();
-    await _pumpPortixApp(
-      tester,
-      const Size(1600, 900),
-      backend: () => backend,
-    );
+    await _pumpPortixApp(tester, const Size(1600, 900), backend: () => backend);
 
     await tester.tap(find.text('Open SSH').first);
     await tester.pumpAndSettle();
@@ -262,7 +254,7 @@ void main() {
     expect(find.byKey(const ValueKey('close-tab-prod-api-01')), findsOneWidget);
     expect(find.byKey(const ValueKey('close-tab-prod-api-01 2')), findsNothing);
 
-    await tester.tap(find.text('List SSH'));
+    await tester.tap(find.byTooltip('SSH profiles'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Open SSH').first);
     await tester.pumpAndSettle();
@@ -271,9 +263,7 @@ void main() {
     expect(find.byKey(const ValueKey('close-tab-prod-api-01 2')), findsNothing);
   });
 
-  _appTest('new tab dialog supports end-to-end profile search', (
-    tester,
-  ) async {
+  _appTest('new tab dialog supports end-to-end profile search', (tester) async {
     await _pumpPortixApp(tester, const Size(1600, 900));
 
     await tester.tap(find.text('Open SSH').first);
