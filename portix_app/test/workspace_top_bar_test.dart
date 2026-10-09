@@ -32,6 +32,12 @@ void main() {
       workspaceTitleBarHeight,
     );
     expect(find.byType(TextField), findsOneWidget);
+    // The search outline must fit its 30px slot, not overflow and get clipped.
+    expect(
+      tester.getSize(find.byType(InputDecorator)).height,
+      lessThanOrEqualTo(30),
+    );
+    expect(tester.takeException(), isNull);
     expect(find.byTooltip('New SSH Profile'), findsOneWidget);
   });
 
@@ -59,5 +65,16 @@ void main() {
     await _pump(tester, WorkspaceView.remoteFolder, TargetPlatform.linux);
     expect(find.text('Terminal'), findsOneWidget);
     expect(find.byType(DragToMoveArea), findsOneWidget);
+  });
+
+  testWidgets('search stays a single line', (tester) async {
+    await _pump(tester, WorkspaceView.gallery, TargetPlatform.macOS);
+    final field = tester.widget<TextField>(find.byType(TextField));
+    final typed = field.inputFormatters!.fold(
+      const TextEditingValue(text: 'web\n01'),
+      (value, formatter) =>
+          formatter.formatEditUpdate(TextEditingValue.empty, value),
+    );
+    expect(typed.text, 'web01');
   });
 }

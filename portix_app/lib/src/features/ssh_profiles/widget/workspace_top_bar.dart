@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
@@ -157,32 +158,48 @@ class _GallerySearchState extends State<_GallerySearch> {
   Widget build(BuildContext context) {
     return ConstrainedBox(
       key: _searchKey,
-      constraints: const BoxConstraints(maxWidth: 460, maxHeight: 30),
-      child: TextField(
-        controller: _search,
-        onChanged: (value) =>
-            context.read<SshWorkspaceBloc>().add(SearchChanged(value)),
-        style: TextStyle(color: AppColors.text, fontSize: 13),
-        textAlignVertical: TextAlignVertical.center,
-        decoration: InputDecoration(
-          isDense: true,
-          hintText: 'Search profile, host, tag, or group',
-          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-          // A 1px focus border: the 2px form default is too heavy in the bar.
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6),
-            borderSide: BorderSide(color: AppColors.inputBorder),
+      constraints: const BoxConstraints(maxWidth: 460),
+      // expands: the field fills exactly 30px, so its outline never overflows.
+      child: SizedBox(
+        height: 30,
+        child: TextField(
+          controller: _search,
+          expands: true,
+          maxLines: null,
+          // expands needs maxLines: null; keep the search a single line.
+          inputFormatters: [FilteringTextInputFormatter.deny('\n')],
+          onChanged: (value) =>
+              context.read<SshWorkspaceBloc>().add(SearchChanged(value)),
+          style: TextStyle(color: AppColors.text, fontSize: 13),
+          textAlignVertical: TextAlignVertical.center,
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: 'Search profile, host, tag, or group',
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            hintStyle: TextStyle(
+              color: AppColors.muted,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+            // A 1px focus border: the 2px form default is too heavy in the bar.
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide: BorderSide(color: AppColors.inputBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide: BorderSide(color: AppColors.cyan),
+            ),
+            prefixIcon: Icon(
+              Icons.search_rounded,
+              color: AppColors.muted,
+              size: 16,
+            ),
+            prefixIconConstraints: const BoxConstraints(
+              minWidth: 30,
+              minHeight: 0,
+            ),
           ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6),
-            borderSide: BorderSide(color: AppColors.cyan),
-          ),
-          prefixIcon: Icon(
-            Icons.search_rounded,
-            color: AppColors.muted,
-            size: 16,
-          ),
-          prefixIconConstraints: const BoxConstraints(minWidth: 30),
         ),
       ),
     );
