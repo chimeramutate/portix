@@ -21,6 +21,15 @@ String? terminalDirectoryFrom({String? title, String? osc7}) {
   return match?.group(1);
 }
 
+/// [path] as a POSIX shell word: single-quoted, but a leading `~` stays
+/// unquoted so the shell still expands it to the home directory.
+String shellQuotePath(String path) {
+  String quote(String value) => "'${value.replaceAll("'", r"'\''")}'";
+  if (path == '~') return '~';
+  if (path.startsWith('~/')) return '~/${quote(path.substring(2))}';
+  return quote(path);
+}
+
 class TerminalSessionUiController {
   TerminalSessionUiController({
     required TerminalInputHandler onInput,

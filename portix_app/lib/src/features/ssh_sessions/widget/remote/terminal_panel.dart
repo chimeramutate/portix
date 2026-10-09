@@ -95,6 +95,11 @@ class _TerminalPanelState extends State<TerminalPanel> {
   StreamSubscription<String>? _sessionLostSubscription;
   // Sessions with an auto-reconnect loop running.
   final Set<String> _autoReconnecting = {};
+  // Last cwd each shell reported, so a new tab can start where this one is.
+  final Map<String, String> _sessionDirectories = {};
+  // A new tab told to `cd` somewhere: its shell's first prompt still reports
+  // ~, which would bounce the folder panel back to home before the cd lands.
+  final Map<String, ({String path, DateTime until})> _pendingDirectories = {};
   // Serializes reconnects: after wake from sleep every tab drops at once, and
   // _reconnectSession shares _workspaceReconnectInProgress across calls.
   Future<void> _reconnectQueue = Future.value();
@@ -132,8 +137,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _terminalUi = TerminalSessionUiController(
       onInput: _handleTerminalInput,
       onResize: _handleTerminalResize,
-      onDirectoryChanged: (path, sessionId) =>
-          widget.onDirectoryChanged?.call(sessionId, path),
+      onDirectoryChanged: _handleDirectoryChanged,
     );
     _idleController = _terminalUi.idleController;
     _idleFocusNode = _terminalUi.idleFocusNode;
@@ -947,6 +951,38 @@ class _TerminalPanelState extends State<TerminalPanel> {
     unawaited(_connectionManager.resizeTerminal(session.id, _cols, _rows));
   }
 
+  void _handleDirectoryChanged(String path, String sessionId) {
+    final pending = _pendingDirectories[sessionId];
+    if (pending != null) {
+      if (pending.path != path && DateTime.now().isBefore(pending.until)) {
+        return;
+      }
+      _pendingDirectories.remove(sessionId);
+    }
+    _sessionDirectories[sessionId] = path;
+    widget.onDirectoryChanged?.call(sessionId, path);
+  }
+
+  /// Moves the freshly opened shell of [sessionId] into [path] (the folder
+  /// the tab it was opened from is in). Call before activating the session
+  /// so the folder panel opens there instead of at the profile's default.
+  void _startSessionIn(String sessionId, String? path) {
+    if (path == null) return;
+    _pendingDirectories[sessionId] = (
+      path: path,
+      until: DateTime.now().add(const Duration(seconds: 5)),
+    );
+    _sessionDirectories[sessionId] = path;
+    widget.onDirectoryChanged?.call(sessionId, path);
+    // Leading space keeps it out of shell history (HISTCONTROL=ignorespace).
+    unawaited(
+      _connectionManager.sendTerminalInput(
+        sessionId,
+        ' cd ${shellQuotePath(path)}\r',
+      ),
+    );
+  }
+
   Future<void> _duplicateSession(String sessionId) async {
     final session = _sessionById(sessionId);
     if (session == null) return;
@@ -956,7 +992,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
     if (profile == null) return;
 
     final existingSessionIds = _sshSessions.map((s) => s.id).toSet();
-    final prevSessionId = _sessionId;
 
     final result = await _connectionManager.connect(
       manager_profile.SshProfile.fromDomain(profile),
@@ -977,17 +1012,17 @@ class _TerminalPanelState extends State<TerminalPanel> {
     if (newSession == null || !mounted) return;
 
     _terminalForSession(newSession.id).write('\x1b[2J\x1b[H');
+    _startSessionIn(newSession.id, _sessionDirectories[sessionId]);
     setState(() {
       _placeSessionInOrder(newSession.id);
       _sessionId = newSession.id;
       _connectedProfileId = newSession.profileId;
       _activeTabClosed = false;
-      // Keep the existing split layout — the duplicated session becomes the
-      // new active standalone session, not inserted into the split tree.
-      if (_splitRoot == null || prevSessionId == null) {
-        _splitRoot = SplitLeaf(newSession.id);
-      }
+      // Show the duplicate as its own standalone tab; the source's split
+      // workspace stays intact and reachable from the tab bar.
+      _splitRoot = SplitLeaf(newSession.id);
       _workspaceActive = false;
+      _activeWorkspaceId = null;
     });
     _updateTabScrollAffordances();
     widget.onSessionChanged?.call(true);
@@ -1189,6 +1224,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
   Future<void> _openNewSessionForCurrentProfile() async {
     final profile = await _pickSessionProfile();
     if (profile == null || !mounted) return;
+    final current = _sessionId;
+    final startDirectory = current != null && _connectedProfileId == profile.id
+        ? _sessionDirectories[current]
+        : null;
     if (!widget.profiles.any((saved) => saved.id == profile.id)) {
       // A quick connect: save it so reconnect, SFTP and snapshots find it.
       context.read<SshWorkspaceBloc>().add(QuickProfileSaved(profile));
@@ -1196,7 +1235,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _activeTabClosed = false;
     _connectedProfileId = null;
     _sessionId = null;
-    await _connectNewSession(profile);
+    await _connectNewSession(profile, startDirectory: startDirectory);
   }
 
   Future<void> _reconnectSession(String sessionId) async {
@@ -1277,6 +1316,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   Future<void> _connectNewSession(
     domain.SshProfile profile, {
     SessionSnapshot? restore,
+    String? startDirectory,
   }) async {
     final existingSessionIds = _sshSessions
         .map((session) => session.id)
@@ -1305,6 +1345,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         _connectionManager.renameSession(session.id, restore.title);
       }
       if (!mounted) return;
+      _startSessionIn(session.id, startDirectory);
       setState(() {
         _sessionId = session.id;
         _connectedProfileId = session.profileId;
