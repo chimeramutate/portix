@@ -113,7 +113,7 @@ void main() {
   _appTest('renders the Portix SSH workspace', (tester) async {
     await _pumpPortixApp(tester, const Size(1600, 900));
 
-    expect(find.text('Portix'), findsOneWidget);
+    expect(find.text('Search profile, host, tag, or group'), findsOneWidget);
     expect(find.text('List SSH'), findsOneWidget);
     expect(find.text('prod-api-01'), findsWidgets);
     expect(find.text('Selected Profile'), findsNothing);
