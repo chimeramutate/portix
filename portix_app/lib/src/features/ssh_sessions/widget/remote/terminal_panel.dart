@@ -43,6 +43,7 @@ class TerminalPanel extends StatefulWidget {
     this.keyboardEnabled = true,
     this.onSessionChanged,
     this.onActiveSessionChanged,
+    this.onDirectoryChanged,
     this.onLastSessionClosed,
   });
 
@@ -52,6 +53,7 @@ class TerminalPanel extends StatefulWidget {
   final bool keyboardEnabled;
   final ValueChanged<bool>? onSessionChanged;
   final ValueChanged<String?>? onActiveSessionChanged;
+  final void Function(String sessionId, String path)? onDirectoryChanged;
   final VoidCallback? onLastSessionClosed;
 
   @override
@@ -130,6 +132,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _terminalUi = TerminalSessionUiController(
       onInput: _handleTerminalInput,
       onResize: _handleTerminalResize,
+      onDirectoryChanged: (path, sessionId) =>
+          widget.onDirectoryChanged?.call(sessionId, path),
     );
     _idleController = _terminalUi.idleController;
     _idleFocusNode = _terminalUi.idleFocusNode;
