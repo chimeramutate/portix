@@ -65,7 +65,9 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
   _InlineCreateKind? _inlineCreateKind;
   RemoteFileEntry? _renamingEntry;
   String? _autoLoadedSessionId;
-  // Last cwd each shell reported. The panel follows the shell, never drives it.
+  // Last folder per session: the shell's reported cwd or where the panel was
+  // browsed to, so switching tabs returns there. The panel never drives the
+  // shell.
   final Map<String, String> _terminalDirectories = {};
   String? _autoLoadedPath;
   int _remoteLoadToken = 0;
@@ -223,7 +225,9 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         }
         if (profile?.id != _profileId) {
           _profileId = profile?.id;
-          _remotePath = _terminalFolderPath(profile);
+          _remotePath =
+              _terminalDirectories[_activeSessionId] ??
+              _terminalFolderPath(profile);
           _remoteEntries = const [];
           _remoteError = null;
           _remoteFolderMounted = false;
@@ -644,6 +648,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
       },
       (entries) {
         if (!_isCurrentRemoteRequest(sessionId, token)) return;
+        _terminalDirectories[sessionId] = resolvedPath;
         setState(() {
           _remotePath = resolvedPath;
           _remoteEntries = [...entries]..sort(_sortRemoteEntries);
