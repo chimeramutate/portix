@@ -3,17 +3,13 @@ use once_cell::sync::Lazy;
 use serde::Serialize;
 use tokio::sync::broadcast;
 
-use crate::application::autocomplete_service::AutocompleteService;
 use crate::application::session_manager::SessionManager;
-use crate::domain::autocomplete::TerminalCompleteRequest;
-use crate::domain::errors::PortixError;
 use crate::domain::profile::SshProfile;
 use crate::domain::session::{RemoteSystemSnapshot, SessionInfo};
 use crate::frb_generated::StreamSink;
 use crate::infrastructure::{host_keys, port_forward, ssh_client};
 
 static SESSION_MANAGER: Lazy<SessionManager> = Lazy::new(SessionManager::new);
-static AUTOCOMPLETE_SERVICE: Lazy<AutocompleteService> = Lazy::new(AutocompleteService::new);
 
 #[frb(init)]
 pub fn init_app() {
@@ -42,57 +38,6 @@ pub async fn resize_terminal(session_id: String, cols: u32, rows: u32) -> anyhow
 
 pub async fn remote_system_snapshot(session_id: String) -> anyhow::Result<RemoteSystemSnapshot> {
     Ok(SESSION_MANAGER.remote_system_snapshot(session_id).await?)
-}
-
-pub async fn command_help_suggestions(
-    session_id: String,
-    input: String,
-) -> anyhow::Result<Vec<String>> {
-    Ok(SESSION_MANAGER
-        .command_help_suggestions(session_id, input)
-        .await?)
-}
-
-pub async fn terminal_complete(req_json: String) -> anyhow::Result<String> {
-    let request = serde_json::from_str::<TerminalCompleteRequest>(&req_json)
-        .map_err(|error| PortixError::InvalidRequest(error.to_string()))?;
-    if request.session_id.is_some() {
-        let mut response = SESSION_MANAGER.terminal_complete(request.clone()).await?;
-        // Always merge local static completions (options, paths, etc.)
-        let local = AUTOCOMPLETE_SERVICE.complete(request).await?;
-        if response.suggestion.is_none() {
-            response.suggestion = local.suggestion;
-        }
-        // Merge: local static options first (more concise descriptions),
-        // then remote completions fill remaining slots.
-        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let mut merged = Vec::new();
-        for item in local.items {
-            if merged.len() >= 24 {
-                break;
-            }
-            if seen.insert(item.insert_text.clone()) {
-                merged.push(item);
-            }
-        }
-        for item in response.items {
-            if merged.len() >= 24 {
-                break;
-            }
-            if seen.insert(item.insert_text.clone()) {
-                merged.push(item);
-            }
-        }
-        response.items = merged;
-        return Ok(serde_json::to_string(&response)?);
-    }
-    Ok(AUTOCOMPLETE_SERVICE
-        .complete(request)
-        .await
-        .and_then(|response| {
-            serde_json::to_string(&response)
-                .map_err(|error| PortixError::InvalidRequest(error.to_string()))
-        })?)
 }
 
 /// Generates an unencrypted ed25519 keypair: the private key at `path` (0600

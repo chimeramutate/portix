@@ -47,17 +47,6 @@ Future<RemoteSystemSnapshot> remoteSystemSnapshot({
 }) =>
     RustLib.instance.api.crateApiSshRemoteSystemSnapshot(sessionId: sessionId);
 
-Future<List<String>> commandHelpSuggestions({
-  required String sessionId,
-  required String input,
-}) => RustLib.instance.api.crateApiSshCommandHelpSuggestions(
-  sessionId: sessionId,
-  input: input,
-);
-
-Future<String> terminalComplete({required String reqJson}) =>
-    RustLib.instance.api.crateApiSshTerminalComplete(reqJson: reqJson);
-
 /// Generates an unencrypted ed25519 keypair: the private key at `path` (0600
 /// on unix) and the public key at `path.pub`. Refuses to overwrite either
 /// file. Returns the OpenSSH public key line (for `authorized_keys`).
