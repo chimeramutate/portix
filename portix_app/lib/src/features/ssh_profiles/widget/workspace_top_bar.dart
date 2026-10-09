@@ -74,7 +74,8 @@ class _GalleryTopBarState extends State<_GalleryTopBar> {
         (
           key: _newKey,
           title: 'Buat profile SSH',
-          body: 'Klik di sini untuk menambah server baru: nama, host, port, username, lalu password atau SSH key.',
+          body:
+              'Klik di sini untuk menambah server baru: nama, host, port, username, lalu password atau SSH key.',
         ),
         (
           key: _searchKey,
@@ -127,20 +128,20 @@ class _GalleryTopBarState extends State<_GalleryTopBar> {
         final newButton = KeyedSubtree(
           key: _newKey,
           child: mobile
-            ? AppIconButton(
-                icon: Icons.add_rounded,
-                onPressed: () => context.read<SshWorkspaceBloc>().add(
-                  const NewProfileRequested(),
+              ? AppIconButton(
+                  icon: Icons.add_rounded,
+                  onPressed: () => context.read<SshWorkspaceBloc>().add(
+                    const NewProfileRequested(),
+                  ),
+                )
+              : AppButton(
+                  icon: Icons.add_rounded,
+                  label: 'New SSH Profile',
+                  primary: true,
+                  onPressed: () => context.read<SshWorkspaceBloc>().add(
+                    const NewProfileRequested(),
+                  ),
                 ),
-              )
-            : AppButton(
-                icon: Icons.add_rounded,
-                label: 'New SSH Profile',
-                primary: true,
-                onPressed: () => context.read<SshWorkspaceBloc>().add(
-                  const NewProfileRequested(),
-                ),
-              ),
         );
 
         if (mobile) {

@@ -104,12 +104,12 @@ class _SessionProfilePickerDialogState
         color: AppColors.surfaceDark,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
-          side: BorderSide(color: AppColors.green),
+          side: BorderSide(color: AppColors.cyan),
         ),
         child: ListTile(
           key: const ValueKey('quick-connect-option'),
           dense: true,
-          leading: Icon(Icons.bolt_rounded, color: AppColors.green),
+          leading: Icon(Icons.bolt_rounded, color: AppColors.cyan),
           title: Text(
             'Connect to ${quickConnectLabel(target)}',
             style: portixTitle(13),
@@ -186,7 +186,6 @@ class _SessionProfilePickerDialogState
                     setState(() {});
                   },
                   style: TextStyle(
-                    fontFamily: 'Inter',
                     color: AppColors.text,
                     fontWeight: FontWeight.w800,
                     fontSize: 13,

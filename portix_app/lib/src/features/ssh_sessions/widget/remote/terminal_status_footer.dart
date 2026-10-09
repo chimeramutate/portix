@@ -179,7 +179,7 @@ class _OsIcon extends StatelessWidget {
       height: 17,
       fit: BoxFit.contain,
       placeholderBuilder: (_) =>
-          Icon(Icons.dns_rounded, color: AppColors.green, size: 16),
+          Icon(Icons.dns_rounded, color: AppColors.muted, size: 16),
     );
   }
 }
@@ -299,7 +299,7 @@ class _MetricStrip extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.fade,
               softWrap: false,
-              style: portixMuted(10).copyWith(
+              style: portixMuted(11).copyWith(
                 color: AppColors.text,
                 fontWeight: FontWeight.w800,
                 height: 1,

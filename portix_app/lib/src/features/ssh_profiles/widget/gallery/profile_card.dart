@@ -139,7 +139,7 @@ class ProfileCard extends StatelessWidget {
               children: [
                 AppPill(label: profile.group, color: AppColors.cyan),
                 for (final tag in profile.tags.take(previewMode ? 3 : 1))
-                  AppPill(label: tag, color: AppColors.green),
+                  AppPill(label: tag, color: AppColors.muted),
                 if (!previewMode)
                   AppPill(label: statusLabelFor(status), color: statusColor),
               ],

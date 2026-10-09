@@ -63,7 +63,9 @@ class _ProfileGalleryState extends State<ProfileGallery> {
               SizedBox(height: mobile ? 12 : 18),
               Expanded(
                 child: profiles.isEmpty
-                    ? const _EmptyProfileGallery()
+                    ? _EmptyProfileGallery(
+                        firstRun: widget.state.profiles.isEmpty,
+                      )
                     : switch (viewMode) {
                         _ProfileViewMode.gallery => _ProfileGrid(
                           profiles: profiles,
@@ -613,7 +615,7 @@ class _TagFilterMenuButton extends StatelessWidget {
                   tag == selectedTag
                       ? Icons.check_circle_rounded
                       : Icons.sell_outlined,
-                  color: tag == selectedTag ? AppColors.green : AppColors.muted,
+                  color: tag == selectedTag ? AppColors.cyan : AppColors.muted,
                   size: 16,
                 ),
                 const SizedBox(width: 10),
@@ -901,7 +903,9 @@ class _ListText extends StatelessWidget {
 }
 
 class _EmptyProfileGallery extends StatelessWidget {
-  const _EmptyProfileGallery();
+  const _EmptyProfileGallery({required this.firstRun});
+
+  final bool firstRun;
 
   @override
   Widget build(BuildContext context) {
@@ -913,13 +917,29 @@ class _EmptyProfileGallery extends StatelessWidget {
           children: [
             Icon(Icons.dns_outlined, color: AppColors.muted, size: 24),
             const SizedBox(height: 10),
-            Text('No profiles found', style: portixTitle(15)),
+            Text(
+              firstRun ? 'No SSH profiles yet' : 'No profiles found',
+              style: portixTitle(15),
+            ),
             const SizedBox(height: 4),
             Text(
-              'Adjust the filters or import a Portix profile file.',
+              firstRun
+                  ? 'Add a server to connect to, or import hosts from ~/.ssh/config.'
+                  : 'Adjust the filters or import a Portix profile file.',
               textAlign: TextAlign.center,
               style: portixMuted(12),
             ),
+            if (firstRun) ...[
+              const SizedBox(height: 14),
+              AppButton(
+                icon: Icons.add_rounded,
+                label: 'New SSH Profile',
+                primary: true,
+                onPressed: () => context.read<SshWorkspaceBloc>().add(
+                  const NewProfileRequested(),
+                ),
+              ),
+            ],
           ],
         ),
       ),

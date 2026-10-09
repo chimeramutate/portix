@@ -302,9 +302,8 @@ class _PathBarState extends State<PathBar> {
                   'Tab',
                   style: TextStyle(
                     color: AppColors.muted,
-                    fontSize: 10,
+                    fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    fontFamily: 'Inter',
                   ),
                 ),
               ],
@@ -376,7 +375,6 @@ class _PathBarState extends State<PathBar> {
                                           : AppColors.muted,
                                       fontSize: 12,
                                       fontWeight: FontWeight.w700,
-                                      fontFamily: 'Inter',
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,

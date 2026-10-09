@@ -128,7 +128,7 @@ class _InfoPanel extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, color: AppColors.green, size: 18),
+              Icon(icon, color: AppColors.muted, size: 18),
               const SizedBox(width: 8),
               Expanded(child: Text(title, style: portixTitle(13))),
             ],

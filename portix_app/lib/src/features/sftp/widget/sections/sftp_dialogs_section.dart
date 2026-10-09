@@ -125,7 +125,7 @@ class _SftpPasswordDialogState extends State<_SftpPasswordDialog> {
               const SizedBox(height: 8),
               Text(
                 'The password will be saved to local secure storage.',
-                style: portixMuted(10),
+                style: portixMuted(11),
               ),
             ],
           ),

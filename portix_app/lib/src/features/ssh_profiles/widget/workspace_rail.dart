@@ -13,7 +13,7 @@ class WorkspaceRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = [
       (WorkspaceView.gallery, Icons.format_list_bulleted_rounded, 'List SSH'),
-      (WorkspaceView.rdp, Icons.computer_outlined, "Connect RDP"),
+      (WorkspaceView.rdp, Icons.computer_outlined, 'RDP'),
       (WorkspaceView.sftp, Icons.cable_rounded, 'SFTP'),
       (WorkspaceView.settings, Icons.settings_outlined, 'Settings'),
     ];
@@ -38,27 +38,6 @@ class WorkspaceRail extends StatelessWidget {
                       NavigationChanged(item.$1),
                     ),
                   ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.only(bottom: 14),
-            child: Column(
-              children: [
-                Icon(
-                  Icons.verified_user_outlined,
-                  color: AppColors.green,
-                  size: 18,
-                ),
-                SizedBox(height: 5),
-                Text(
-                  'Secure',
-                  style: TextStyle(
-                    color: AppColors.green,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
               ],
             ),
           ),
@@ -89,7 +68,7 @@ class _RailItem extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          width: 50,
+          width: 60,
           height: 54,
           decoration: BoxDecoration(
             color: selected ? AppColors.surfaceCard : Colors.transparent,
@@ -113,7 +92,7 @@ class _RailItem extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: selected ? AppColors.text : AppColors.muted,
-                  fontSize: 9,
+                  fontSize: 11,
                   fontWeight: FontWeight.w800,
                 ),
               ),

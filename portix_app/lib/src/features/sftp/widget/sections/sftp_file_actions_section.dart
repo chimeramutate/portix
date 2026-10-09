@@ -387,7 +387,7 @@ class _DragFeedback extends StatelessWidget {
           ),
           Icon(
             fromRemote ? Icons.download_rounded : Icons.upload_rounded,
-            color: AppColors.green,
+            color: AppColors.cyan,
             size: 16,
           ),
         ],
