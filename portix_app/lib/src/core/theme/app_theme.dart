@@ -101,11 +101,11 @@ class AppPalette {
     blue: Color(0xFF1F66E0),
     cyan: Color(0xFF036B95),
     onAccent: Color(0xFFFFFFFF),
-    green: Color(0xFF0A8F5A),
+    green: Color(0xFF077347),
     muted: Color(0xFF52637A),
     text: Color(0xFF0F1B2D),
-    amber: Color(0xFFA85F00),
-    danger: Color(0xFFD12E55),
+    amber: Color(0xFF995600),
+    danger: Color(0xFFBF2A4E),
     terminal: Color(0xFFF7F9FC),
     selected: Color(0xFFD8E6FB),
     selectedSoft: Color(0xFFE6EEF9),
@@ -319,6 +319,9 @@ ThemeData buildAppTheme(AppPalette p) {
               rest: BorderSide(color: p.inputBorder),
             ),
           ),
+    ),
+    iconButtonTheme: IconButtonThemeData(
+      style: ButtonStyle(side: focusRingSide(focus: p.cyan)),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
