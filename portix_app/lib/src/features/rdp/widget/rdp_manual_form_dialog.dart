@@ -92,7 +92,7 @@ class _RdpManualFormDialogState extends State<RdpManualFormDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.initialProfile == null ? 'RDP Baru' : 'Edit RDP'),
+      title: Text(widget.initialProfile == null ? 'New RDP profile' : 'Edit RDP'),
       content: SizedBox(
         width: 500,
         child: Form(
