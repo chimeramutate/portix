@@ -129,6 +129,7 @@ class _GalleryTopBarState extends State<_GalleryTopBar> {
           key: _newKey,
           child: mobile
               ? AppIconButton(
+                  tooltip: 'New SSH Profile',
                   icon: Icons.add_rounded,
                   onPressed: () => context.read<SshWorkspaceBloc>().add(
                     const NewProfileRequested(),

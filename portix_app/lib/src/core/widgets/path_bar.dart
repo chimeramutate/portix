@@ -57,6 +57,7 @@ class _PathBarState extends State<PathBar> {
     super.initState();
     _focusNode.onKeyEvent = _onKey;
     _focusNode.addListener(() {
+      if (mounted) setState(() {}); // repaint the focus border
       if (!_focusNode.hasFocus) _close();
     });
   }
@@ -263,6 +264,7 @@ class _PathBarState extends State<PathBar> {
   Widget build(BuildContext context) {
     return AppPanel(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 2),
+      borderColor: _focusNode.hasFocus ? AppColors.cyan : AppColors.inputBorder,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,

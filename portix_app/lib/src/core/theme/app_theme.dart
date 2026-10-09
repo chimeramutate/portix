@@ -9,8 +9,10 @@ class AppPalette {
     required this.surfaceDark,
     required this.surfaceCard,
     required this.border,
-    required this.primaryBlue,
+    required this.inputBorder,
+    required this.blue,
     required this.cyan,
+    required this.onAccent,
     required this.green,
     required this.muted,
     required this.text,
@@ -31,8 +33,18 @@ class AppPalette {
   final Color surfaceDark;
   final Color surfaceCard;
   final Color border;
-  final Color primaryBlue;
+
+  /// Boundary of inputs and outlined controls: 3:1 against their fill.
+  final Color inputBorder;
+
+  /// Categorical blue (profile color, file type); not an accent.
+  final Color blue;
+
+  /// The single interaction accent (DESIGN.md).
   final Color cyan;
+
+  /// Text and icons on a [cyan] fill.
+  final Color onAccent;
   final Color green;
   final Color muted;
   final Color text;
@@ -59,8 +71,10 @@ class AppPalette {
     surfaceDark: Color(0xFF071522),
     surfaceCard: Color(0xFF102B47),
     border: Color(0xFF21496F),
-    primaryBlue: Color(0xFF2D7DFF),
+    inputBorder: Color(0xFF4A77A2),
+    blue: Color(0xFF2D7DFF),
     cyan: Color(0xFF14D7FF),
+    onAccent: Color(0xFF06111D),
     green: Color(0xFF20E38A),
     muted: Color(0xFF91A8C2),
     text: Color(0xFFF4F8FF),
@@ -83,10 +97,12 @@ class AppPalette {
     surfaceDark: Color(0xFFF7F9FC),
     surfaceCard: Color(0xFFE9EFF7),
     border: Color(0xFFCBD6E4),
-    primaryBlue: Color(0xFF1F66E0),
-    cyan: Color(0xFF0479A8),
+    inputBorder: Color(0xFF76879E),
+    blue: Color(0xFF1F66E0),
+    cyan: Color(0xFF036B95),
+    onAccent: Color(0xFFFFFFFF),
     green: Color(0xFF0A8F5A),
-    muted: Color(0xFF5A6B80),
+    muted: Color(0xFF52637A),
     text: Color(0xFF0F1B2D),
     amber: Color(0xFFA85F00),
     danger: Color(0xFFD12E55),
@@ -110,7 +126,9 @@ abstract final class AppColors {
   static Color get surfaceDark => palette.surfaceDark;
   static Color get surfaceCard => palette.surfaceCard;
   static Color get border => palette.border;
-  static Color get primaryBlue => palette.primaryBlue;
+  static Color get inputBorder => palette.inputBorder;
+  static Color get blue => palette.blue;
+  static Color get onAccent => palette.onAccent;
   static Color get cyan => palette.cyan;
   static Color get green => palette.green;
   static Color get muted => palette.muted;
@@ -186,13 +204,15 @@ ThemeData buildAppTheme(AppPalette p) {
     useMaterial3: true,
     brightness: p.brightness,
     visualDensity: VisualDensity.compact,
+    focusColor: p.cyan.withValues(alpha: .28),
     scaffoldBackgroundColor: p.bg,
     colorScheme:
         (p.brightness == Brightness.dark
                 ? const ColorScheme.dark()
                 : const ColorScheme.light())
             .copyWith(
-              primary: p.primaryBlue,
+              primary: p.cyan,
+              onPrimary: p.onAccent,
               secondary: p.cyan,
               tertiary: p.green,
               surface: p.surface,
@@ -268,30 +288,52 @@ ThemeData buildAppTheme(AppPalette p) {
       contentPadding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(color: p.border),
+        borderSide: BorderSide(color: p.inputBorder),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(color: p.primaryBlue),
+        borderSide: BorderSide(color: p.cyan, width: 2),
       ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         minimumSize: const Size(0, 38),
-        backgroundColor: p.primaryBlue,
-        foregroundColor: Colors.white,
+        backgroundColor: p.cyan,
+        foregroundColor: p.onAccent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         textStyle: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
-      ),
+      ).copyWith(side: focusRingSide(focus: p.text)),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
-      style: OutlinedButton.styleFrom(
-        minimumSize: const Size(0, 38),
-        foregroundColor: p.text,
-        side: BorderSide(color: p.border),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        textStyle: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
-      ),
+      style:
+          OutlinedButton.styleFrom(
+            minimumSize: const Size(0, 38),
+            foregroundColor: p.text,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            textStyle: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+          ).copyWith(
+            side: focusRingSide(
+              focus: p.cyan,
+              rest: BorderSide(color: p.inputBorder),
+            ),
+          ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: p.cyan,
+      ).copyWith(side: focusRingSide(focus: p.cyan)),
     ),
   );
 }
+
+/// A 2px ring while keyboard-focused, so focus never relies on a faint overlay.
+WidgetStateProperty<BorderSide?> focusRingSide({
+  required Color focus,
+  BorderSide? rest,
+}) => WidgetStateProperty.resolveWith(
+  (states) => states.contains(WidgetState.focused)
+      ? BorderSide(color: focus, width: 2)
+      : rest,
+);

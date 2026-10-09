@@ -13,7 +13,7 @@ class _TransferQueue extends StatelessWidget {
       child: AppPanel(
         padding: const EdgeInsets.all(12),
         color: AppColors.surface.withValues(alpha: .96),
-        borderColor: AppColors.primaryBlue,
+        borderColor: AppColors.cyan,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,

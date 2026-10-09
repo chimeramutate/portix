@@ -335,7 +335,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
                               width: 2,
                               height: 34,
                               decoration: BoxDecoration(
-                                color: AppColors.primaryBlue.withValues(
+                                color: AppColors.cyan.withValues(
                                   alpha: .55,
                                 ),
                                 borderRadius: BorderRadius.circular(2),

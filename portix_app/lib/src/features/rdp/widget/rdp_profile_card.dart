@@ -175,7 +175,7 @@ class _Chip extends StatelessWidget {
 }
 
 Color _accentColor(RdpProfileColor color) => switch (color) {
-  RdpProfileColor.blue => AppColors.primaryBlue,
+  RdpProfileColor.blue => AppColors.blue,
   RdpProfileColor.cyan => AppColors.cyan,
   RdpProfileColor.green => AppColors.green,
   RdpProfileColor.amber => AppColors.amber,

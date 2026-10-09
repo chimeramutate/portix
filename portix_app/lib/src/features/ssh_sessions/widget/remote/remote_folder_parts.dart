@@ -459,7 +459,7 @@ class _RemoteItem extends StatelessWidget {
             color: selected ? AppColors.selected : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: selected ? AppColors.primaryBlue : Colors.transparent,
+              color: selected ? AppColors.cyan : Colors.transparent,
             ),
           ),
           child: Row(
@@ -769,7 +769,7 @@ class _InlineRenameItem extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.selected,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.primaryBlue),
+        border: Border.all(color: AppColors.cyan),
       ),
       child: Row(
         children: [
@@ -845,7 +845,7 @@ class _InlineCreateItem extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.surfaceCard.withValues(alpha: .55),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.primaryBlue),
+        border: Border.all(color: AppColors.cyan),
       ),
       child: Row(
         children: [

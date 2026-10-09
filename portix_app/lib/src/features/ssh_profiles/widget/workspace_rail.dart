@@ -74,7 +74,7 @@ class _RailItem extends StatelessWidget {
             color: selected ? AppColors.surfaceCard : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: selected ? AppColors.primaryBlue : Colors.transparent,
+              color: selected ? AppColors.cyan : Colors.transparent,
             ),
           ),
           child: Column(

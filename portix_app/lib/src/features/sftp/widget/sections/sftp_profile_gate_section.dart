@@ -282,17 +282,17 @@ class _SortChip extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
             color: selected
-                ? AppColors.primaryBlue.withValues(alpha: .10)
+                ? AppColors.cyan.withValues(alpha: .10)
                 : AppColors.surfaceDark,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: selected ? AppColors.primaryBlue : AppColors.border,
+              color: selected ? AppColors.cyan : AppColors.border,
             ),
           ),
           child: Text(
             label,
             style: (selected ? portixTitle(12) : portixMuted(11)).copyWith(
-              color: selected ? AppColors.primaryBlue : null,
+              color: selected ? AppColors.cyan : null,
             ),
           ),
         ),
@@ -323,11 +323,11 @@ class _LocalProfileTile extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: selected
-                ? AppColors.primaryBlue.withValues(alpha: .10)
+                ? AppColors.cyan.withValues(alpha: .10)
                 : AppColors.surfaceDark,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: selected ? AppColors.primaryBlue : AppColors.border,
+              color: selected ? AppColors.cyan : AppColors.border,
             ),
           ),
           child: Row(
@@ -351,7 +351,7 @@ class _LocalProfileTile extends StatelessWidget {
               if (selected)
                 Icon(
                   Icons.check_rounded,
-                  color: AppColors.primaryBlue,
+                  color: AppColors.cyan,
                   size: 18,
                 ),
             ],

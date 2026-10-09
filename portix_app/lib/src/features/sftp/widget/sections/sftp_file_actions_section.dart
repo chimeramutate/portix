@@ -164,7 +164,7 @@ class _FileRow extends StatelessWidget {
         child: InkWell(
           onTap: onSelected,
           highlightColor: AppColors.surfaceDark.withValues(alpha: .35),
-          splashColor: AppColors.primaryBlue.withValues(alpha: .08),
+          splashColor: AppColors.cyan.withValues(alpha: .08),
           child: Container(
             height: compact
                 ? data.location == null
@@ -234,13 +234,13 @@ class _FileRow extends StatelessWidget {
     final category = FileTypeRegistry.categoryFor(fileName);
     return switch (category) {
       FileCategory.code => AppColors.cyan,
-      FileCategory.document => AppColors.primaryBlue,
+      FileCategory.document => AppColors.blue,
       FileCategory.image => AppColors.amber,
       FileCategory.audio => AppColors.danger,
       FileCategory.video => AppColors.danger,
       FileCategory.archive => AppColors.amber,
       FileCategory.executable => AppColors.danger,
-      FileCategory.database => AppColors.primaryBlue,
+      FileCategory.database => AppColors.blue,
       FileCategory.design => AppColors.amber,
       FileCategory.unknown => AppColors.muted,
     };

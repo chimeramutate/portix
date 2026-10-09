@@ -230,9 +230,11 @@ class _TerminalPanelState extends State<TerminalPanel> {
     }) {
       return Padding(
         padding: const EdgeInsets.only(right: 8),
-        child: Tooltip(
-          message: message,
-          child: AppIconButton(key: key, icon: icon, onPressed: onPressed),
+        child: AppIconButton(
+          key: key,
+          tooltip: message,
+          icon: icon,
+          onPressed: onPressed,
         ),
       );
     }
@@ -290,15 +292,13 @@ class _TerminalPanelState extends State<TerminalPanel> {
                   ],
                 ),
         ),
-        Tooltip(
-          message: _toolsExpanded ? 'Hide tools' : 'Terminal tools',
-          child: AppIconButton(
-            key: const ValueKey('terminal-tools'),
-            icon: _toolsExpanded
-                ? Icons.chevron_right_rounded
-                : Icons.more_horiz_rounded,
-            onPressed: () => setState(() => _toolsExpanded = !_toolsExpanded),
-          ),
+        AppIconButton(
+          key: const ValueKey('terminal-tools'),
+          tooltip: _toolsExpanded ? 'Hide tools' : 'Terminal tools',
+          icon: _toolsExpanded
+              ? Icons.chevron_right_rounded
+              : Icons.more_horiz_rounded,
+          onPressed: () => setState(() => _toolsExpanded = !_toolsExpanded),
         ),
       ],
     );
@@ -1098,16 +1098,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final recording =
         sessionId != null &&
         _connectionManager.recordingPath(sessionId) != null;
-    return Tooltip(
-      message: recording ? 'Stop recording' : 'Record session to a log file',
-      child: AppIconButton(
-        key: const ValueKey('record-session'),
-        icon: recording
-            ? Icons.stop_circle_rounded
-            : Icons.fiber_manual_record_rounded,
-        color: recording ? AppColors.danger : AppColors.cyan,
-        onPressed: sessionId == null ? null : _toggleRecording,
-      ),
+    return AppIconButton(
+      key: const ValueKey('record-session'),
+      tooltip: recording ? 'Stop recording' : 'Record session to a log file',
+      icon: recording
+          ? Icons.stop_circle_rounded
+          : Icons.fiber_manual_record_rounded,
+      color: recording ? AppColors.danger : AppColors.cyan,
+      onPressed: sessionId == null ? null : _toggleRecording,
     );
   }
 
@@ -2393,6 +2391,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                           key: const ValueKey(
                                             'new-terminal-tab',
                                           ),
+                                          tooltip: 'New terminal tab',
                                           icon: Icons.add_rounded,
                                           onPressed:
                                               _openNewSessionForCurrentProfile,

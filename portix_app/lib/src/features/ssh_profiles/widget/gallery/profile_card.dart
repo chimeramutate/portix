@@ -38,7 +38,7 @@ class ProfileCard extends StatelessWidget {
       child: AppPanel(
         padding: const EdgeInsets.all(12),
         color: selected ? AppColors.selectedSoft : AppColors.surface,
-        borderColor: selected ? AppColors.primaryBlue : AppColors.border,
+        borderColor: selected ? AppColors.cyan : AppColors.border,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

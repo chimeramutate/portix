@@ -44,7 +44,7 @@ Color terminalTextColorFromValue(String? value) {
     case 'cyan':
       return AppColors.cyan;
     case 'blue':
-      return AppColors.primaryBlue;
+      return AppColors.blue;
     case 'red':
       return AppColors.danger;
     case 'white':

@@ -43,7 +43,7 @@ class _SftpTabChip extends StatelessWidget {
           color: active ? AppColors.selected : AppColors.surface,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: active ? AppColors.primaryBlue : AppColors.border,
+            color: active ? AppColors.cyan : AppColors.border,
           ),
         ),
         child: Row(
