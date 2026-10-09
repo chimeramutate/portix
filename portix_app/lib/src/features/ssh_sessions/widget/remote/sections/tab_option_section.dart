@@ -131,7 +131,7 @@ class TerminalSessionTab extends StatelessWidget {
           color: active ? AppColors.selected : AppColors.surface,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: active ? AppColors.primaryBlue : AppColors.border,
+            color: active ? AppColors.cyan : AppColors.border,
           ),
         ),
         child: Row(
@@ -238,7 +238,7 @@ class SessionProfileOption extends StatelessWidget {
             color: highlighted ? AppColors.selectedSoft : AppColors.surfaceDark,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: highlighted ? AppColors.primaryBlue : AppColors.border,
+              color: highlighted ? AppColors.cyan : AppColors.border,
             ),
           ),
           child: Row(
@@ -249,7 +249,7 @@ class SessionProfileOption extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: AppColors.surfaceCard,
                   borderRadius: BorderRadius.circular(9),
-                  border: Border.all(color: AppColors.primaryBlue),
+                  border: Border.all(color: AppColors.cyan),
                 ),
                 child: Icon(
                   Icons.dns_rounded,

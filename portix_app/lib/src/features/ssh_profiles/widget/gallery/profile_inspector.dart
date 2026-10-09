@@ -45,7 +45,7 @@ class ProfileInspector extends StatelessWidget {
             const SizedBox(height: 8),
             AppPanel(
               color: AppColors.selectedSoft,
-              borderColor: AppColors.primaryBlue,
+              borderColor: AppColors.cyan,
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [

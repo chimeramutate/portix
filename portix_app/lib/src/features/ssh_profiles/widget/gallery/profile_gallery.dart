@@ -707,9 +707,7 @@ class _ProfileList extends StatelessWidget {
                 child: AppPanel(
                   padding: const EdgeInsets.all(12),
                   color: selected ? AppColors.selectedSoft : AppColors.surface,
-                  borderColor: selected
-                      ? AppColors.primaryBlue
-                      : AppColors.border,
+                  borderColor: selected ? AppColors.cyan : AppColors.border,
                   child: compact
                       ? _CompactProfileListRow(profile: profile, status: status)
                       : Row(
@@ -751,6 +749,7 @@ class _ProfileList extends StatelessWidget {
                             ),
                             const SizedBox(width: 10),
                             AppIconButton(
+                              tooltip: 'Open terminal',
                               icon: Icons.terminal_rounded,
                               onPressed: () =>
                                   context.read<SshSessionBloc>().add(

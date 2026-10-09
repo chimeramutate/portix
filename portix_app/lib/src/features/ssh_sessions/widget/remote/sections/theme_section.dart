@@ -32,7 +32,7 @@ TerminalTheme terminalThemeForProfile(
       red: AppColors.danger,
       green: AppColors.green,
       yellow: AppColors.amber,
-      blue: AppColors.primaryBlue,
+      blue: AppColors.blue,
       magenta: const Color(0xFFFF6BD6),
       cyan: AppColors.cyan,
       white: textColor,
@@ -52,7 +52,7 @@ TerminalTheme terminalThemeForProfile(
   final accentColor = switch (profile.color) {
     domain.ProfileColor.green => AppColors.green,
     domain.ProfileColor.cyan => AppColors.cyan,
-    domain.ProfileColor.blue => AppColors.primaryBlue,
+    domain.ProfileColor.blue => AppColors.blue,
     domain.ProfileColor.pink => AppColors.danger,
     domain.ProfileColor.amber => AppColors.amber,
   };
@@ -65,7 +65,7 @@ TerminalTheme terminalThemeForProfile(
     red: AppColors.danger,
     green: AppColors.green,
     yellow: AppColors.amber,
-    blue: AppColors.primaryBlue,
+    blue: AppColors.blue,
     magenta: const Color(0xFFFF6BD6),
     cyan: AppColors.cyan,
     white: textColor,

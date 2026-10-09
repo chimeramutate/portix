@@ -1181,7 +1181,7 @@ class _Segment extends StatelessWidget {
           color: selected ? AppColors.selected : AppColors.surfaceDark,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: selected ? AppColors.primaryBlue : AppColors.border,
+            color: selected ? AppColors.cyan : AppColors.border,
           ),
         ),
         child: Row(

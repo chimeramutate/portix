@@ -476,7 +476,7 @@ class PaneControlStrip extends StatelessWidget {
         : switch (profile!.color) {
             domain.ProfileColor.green => AppColors.green,
             domain.ProfileColor.cyan => AppColors.cyan,
-            domain.ProfileColor.blue => AppColors.primaryBlue,
+            domain.ProfileColor.blue => AppColors.blue,
             domain.ProfileColor.pink => AppColors.danger,
             domain.ProfileColor.amber => AppColors.amber,
           };
