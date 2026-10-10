@@ -200,14 +200,14 @@ jobs:
           exit-code: "0"
 
       - name: Upload macOS server library
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-lib
           path: dist-serv/libportix_serv.dylib
           if-no-files-found: error
 
       - name: Upload macOS RDP library
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-rdp-lib
           path: dist-rdp/libportix_rdp.dylib
@@ -340,14 +340,14 @@ jobs:
           exit-code: "0"
 
       - name: Upload Linux server library
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-lib
           path: dist-serv/libportix_serv.so
           if-no-files-found: error
 
       - name: Upload Linux RDP library
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-rdp-lib
           path: dist-rdp/libportix_rdp.so
@@ -506,14 +506,14 @@ jobs:
           exit-code: "0"
 
       - name: Upload Windows server library
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-lib
           path: dist-serv/portix_serv.dll
           if-no-files-found: error
 
       - name: Upload Windows RDP library
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-rdp-lib
           path: dist-rdp/portix_rdp.dll
@@ -812,7 +812,7 @@ jobs:
           ls -lah "$DMG_NAME"
 
       - name: Upload macOS desktop
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portix-macos-${{ github.ref_name }}
           path: |
@@ -1346,7 +1346,7 @@ jobs:
           ls -lah "portix-linux-${RELEASE_NAME}.AppImage"
 
       - name: Upload Linux desktop
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portix-Linux-${{ steps.version.outputs.release_name }}
           path: |
@@ -1622,7 +1622,7 @@ jobs:
             Format-List Name,Length,FullName
 
       - name: Upload Windows desktop
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portix-Windows-${{ steps.version.outputs.release_name }}
           path: |
@@ -1870,7 +1870,7 @@ jobs:
           ls -la portix_*.snap
 
       - name: Upload Snap artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portix-snap-${{ github.ref_name }}
           path: portix_${{ github.ref_name }}.snap
@@ -2027,7 +2027,7 @@ jobs:
           cache-key: flatpak-builder-${{ github.sha }}
 
       - name: Upload Flatpak artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portix-flatpak-${{ github.ref_name }}
           path: portix-${{ github.ref_name }}.flatpak
