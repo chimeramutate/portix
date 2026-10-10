@@ -13,7 +13,7 @@ class _TransferQueue extends StatelessWidget {
       child: AppPanel(
         padding: const EdgeInsets.all(12),
         color: AppColors.surface.withValues(alpha: .96),
-        borderColor: AppColors.primaryBlue,
+        borderColor: AppColors.cyan,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -24,7 +24,7 @@ class _TransferQueue extends StatelessWidget {
                 const Spacer(),
                 Text(
                   '${jobs.where((job) => !job.done && !job.failed).length} running / ${jobs.where((job) => job.queued).length} waiting',
-                  style: portixMuted(10),
+                  style: portixMuted(11),
                 ),
                 const SizedBox(width: 8),
                 SizedBox(
@@ -98,7 +98,7 @@ class _QueueRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: portixTitle(11),
                 ),
-                Text(job.direction, style: portixMuted(9)),
+                Text(job.direction, style: portixMuted(11)),
                 const SizedBox(height: 3),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(999),
@@ -112,7 +112,7 @@ class _QueueRow extends StatelessWidget {
               ],
             ),
           ),
-          Text(label, style: portixMuted(10).copyWith(color: color)),
+          Text(label, style: portixMuted(11).copyWith(color: color)),
         ],
       ),
     );

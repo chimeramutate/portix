@@ -76,7 +76,7 @@ class _GroupTile extends StatelessWidget {
             color: selected ? AppColors.selected : AppColors.surfaceDark,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: selected ? AppColors.primaryBlue : AppColors.border,
+              color: selected ? AppColors.cyan : AppColors.border,
             ),
           ),
           child: Row(
@@ -128,7 +128,7 @@ class _InfoPanel extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, color: AppColors.green, size: 18),
+              Icon(icon, color: AppColors.muted, size: 18),
               const SizedBox(width: 8),
               Expanded(child: Text(title, style: portixTitle(13))),
             ],

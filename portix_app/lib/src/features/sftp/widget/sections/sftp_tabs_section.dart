@@ -33,45 +33,58 @@ class _SftpTabChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      onSecondaryTapDown: (details) => _showContextMenu(context, details),
-      child: Container(
-        height: 36,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          color: active ? AppColors.selected : AppColors.surface,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: active ? AppColors.primaryBlue : AppColors.border,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.folder_open_rounded, size: 14, color: AppColors.cyan),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                color: active ? AppColors.text : AppColors.muted,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            if (closable) ...[
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: onClose,
-                child: Icon(
-                  Icons.close_rounded,
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(8),
+      side: BorderSide(color: active ? AppColors.cyan : AppColors.border),
+    );
+    return FocusRing(
+      child: Material(
+        color: active ? AppColors.selected : AppColors.surface,
+        shape: shape,
+        child: InkWell(
+          customBorder: shape,
+          onTap: onTap,
+          onSecondaryTapDown: (details) => _showContextMenu(context, details),
+          child: Container(
+            height: 36,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.folder_open_rounded,
                   size: 14,
-                  color: AppColors.muted,
+                  color: AppColors.cyan,
                 ),
-              ),
-            ],
-          ],
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: active ? AppColors.text : AppColors.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (closable) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'Close tab',
+                    onPressed: onClose,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 22,
+                      height: 22,
+                    ),
+                    icon: Icon(
+                      Icons.close_rounded,
+                      size: 14,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );

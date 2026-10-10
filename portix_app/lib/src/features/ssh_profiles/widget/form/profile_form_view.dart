@@ -46,27 +46,32 @@ class _ProfileFormViewState extends State<ProfileFormView> {
         (
           key: _identityKey,
           title: '1. Profile identity',
-          body: 'Isi nama profile dan group. Tag & warna opsional untuk memudahkan filter.',
+          body:
+              'Enter a profile name and group. Tags and color are optional and help with filtering.',
         ),
         (
           key: _endpointKey,
           title: '2. Endpoint',
-          body: 'Masukkan host/IP, port (default 22), dan username server.',
+          body:
+              'Enter the host or IP, port (default 22) and the server username.',
         ),
         (
           key: _authKey,
           title: '3. Authentication',
-          body: 'Pilih Password atau SSH key. Kredensial disimpan terenkripsi.',
+          body:
+              'Choose Password or SSH key. Passwords are kept in the system credential store.',
         ),
         (
           key: _advancedKey,
-          title: 'Advanced (opsional)',
-          body: 'Startup command yang dijalankan saat login dan ukuran font terminal.',
+          title: 'Advanced (optional)',
+          body:
+              'A startup command to run at login, and the terminal font size.',
         ),
         (
           key: _saveKey,
-          title: '4. Simpan',
-          body: 'Klik Save Profile, lalu profile muncul di gallery dan siap dibuka di SSH atau SFTP.',
+          title: '4. Save',
+          body:
+              'Click Save Profile. The profile appears in the gallery, ready to open over SSH or SFTP.',
         ),
       ]),
     );
@@ -169,7 +174,8 @@ class _ProfileFormViewState extends State<ProfileFormView> {
             final identitySection = _FormSection(
               key: _identityKey,
               title: 'Profile Identity',
-              subtitle: 'Nama dan group wajib. Tag opsional untuk filter.',
+              subtitle:
+                  'Name and group are required. Tags are optional, for filtering.',
               children: [
                 AppTextField(
                   controller: _name,
@@ -200,7 +206,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
               key: _endpointKey,
               title: 'Connection Endpoint',
               subtitle:
-                  'Host, port, username, dan metode autentikasi SSH session.',
+                  'Host, port, username and the SSH authentication method.',
               children: [
                 AppTextField(
                   controller: _host,
@@ -338,7 +344,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Pastikan host, port, username, dan auth sudah benar sebelum menyimpan.',
+                                'Check the host, port, username and authentication before saving.',
                                 maxLines: 3,
                                 overflow: TextOverflow.ellipsis,
                                 style: portixMuted(),
@@ -513,7 +519,7 @@ class _CompactFormHeader extends StatelessWidget {
                     Text('New SSH Profile', style: portixTitle(16)),
                     const SizedBox(height: 2),
                     Text(
-                      'Isi yang wajib saja dulu. Advanced boleh dibiarkan default.',
+                      'Fill in the required fields first. Advanced settings can stay at their defaults.',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: portixMuted(11),
@@ -661,7 +667,7 @@ class _AdvancedSection extends StatelessWidget {
                       children: [
                         Text('Advanced', style: portixTitle(16)),
                         Text(
-                          'Startup command, font size, dan konfigurasi lanjutan.',
+                          'Startup command, font size and other advanced settings.',
                           style: portixMuted(),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -1178,7 +1184,7 @@ class _Segment extends StatelessWidget {
           color: selected ? AppColors.selected : AppColors.surfaceDark,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: selected ? AppColors.primaryBlue : AppColors.border,
+            color: selected ? AppColors.cyan : AppColors.border,
           ),
         ),
         child: Row(

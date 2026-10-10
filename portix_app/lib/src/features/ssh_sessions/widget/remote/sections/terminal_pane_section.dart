@@ -13,6 +13,7 @@ class TerminalPane extends StatefulWidget {
     this.broadcastTyping = false,
     this.solo = false,
     this.active = false,
+    this.highlightActive = false,
     this.keyboardEnabled = true,
     this.copyShortcut = TerminalClipboardShortcut.shiftCtrl,
     this.pasteShortcut = TerminalClipboardShortcut.ctrl,
@@ -41,6 +42,9 @@ class TerminalPane extends StatefulWidget {
   final bool broadcastTyping;
   final bool solo;
   final bool active;
+
+  /// Outline the active pane; only meaningful when panes are split.
+  final bool highlightActive;
   final bool keyboardEnabled;
   final TerminalClipboardShortcut copyShortcut;
   final TerminalClipboardShortcut pasteShortcut;
@@ -111,14 +115,14 @@ class _TerminalPaneState extends State<TerminalPane>
             ),
         },
         child: Container(
+          // Connection status lives on the tab dot; a border only tells
+          // split panes apart.
           decoration: BoxDecoration(
-            border: Border.all(
-              color: widget.active
-                  ? connected
-                        ? AppColors.green
-                        : AppColors.amber
-                  : AppColors.border,
-            ),
+            border: widget.highlightActive
+                ? Border.all(
+                    color: widget.active ? AppColors.cyan : AppColors.border,
+                  )
+                : null,
             borderRadius: BorderRadius.circular(8),
           ),
           clipBehavior: Clip.antiAlias,
@@ -399,7 +403,7 @@ class PaneDragHandle extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppColors.surfaceCard.withValues(alpha: .94),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.green, width: 1.2),
+            border: Border.all(color: AppColors.cyan, width: 1.2),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x66000000),
@@ -413,7 +417,7 @@ class PaneDragHandle extends StatelessWidget {
             children: [
               Icon(
                 Icons.drag_indicator_rounded,
-                color: AppColors.green,
+                color: AppColors.cyan,
                 size: 18,
               ),
               SizedBox(width: 8),
@@ -476,7 +480,7 @@ class PaneControlStrip extends StatelessWidget {
         : switch (profile!.color) {
             domain.ProfileColor.green => AppColors.green,
             domain.ProfileColor.cyan => AppColors.cyan,
-            domain.ProfileColor.blue => AppColors.primaryBlue,
+            domain.ProfileColor.blue => AppColors.blue,
             domain.ProfileColor.pink => AppColors.danger,
             domain.ProfileColor.amber => AppColors.amber,
           };
@@ -510,7 +514,6 @@ class PaneControlStrip extends StatelessWidget {
                   color: accentColor,
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  fontFamily: 'Inter',
                 ),
               ),
             ),
@@ -604,11 +607,11 @@ class PaneDropZone extends StatelessWidget {
                   height: height,
                   decoration: BoxDecoration(
                     color: hovered
-                        ? AppColors.green.withValues(alpha: .34)
+                        ? AppColors.cyan.withValues(alpha: .34)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(12),
                     border: hovered
-                        ? Border.all(color: AppColors.green, width: 1.8)
+                        ? Border.all(color: AppColors.cyan, width: 1.8)
                         : null,
                   ),
                   child: hovered
@@ -624,7 +627,7 @@ class PaneDropZone extends StatelessWidget {
                               SplitDirection.bottom =>
                                 Icons.keyboard_arrow_down_rounded,
                             },
-                            color: AppColors.green,
+                            color: AppColors.cyan,
                             size: 30,
                           ),
                         )

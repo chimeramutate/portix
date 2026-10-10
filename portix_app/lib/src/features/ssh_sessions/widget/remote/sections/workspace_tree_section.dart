@@ -219,6 +219,7 @@ class SplitTreeView extends StatelessWidget {
         broadcastTyping: broadcastTyping,
         solo: soloSessionId == node.sessionId,
         active: node.sessionId == activeSessionId,
+        highlightActive: canClosePane,
         keyboardEnabled: keyboardEnabled,
         copyShortcut: copyShortcut,
         pasteShortcut: pasteShortcut,

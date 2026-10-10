@@ -256,7 +256,7 @@ class _SnippetPaletteDialogState extends State<_SnippetPaletteDialog> {
                 },
                 style: TextStyle(color: AppColors.text, fontSize: 13),
                 decoration: InputDecoration(
-                  hintText: 'Search snippets — Enter runs the first match',
+                  hintText: 'Search snippets. Enter runs the first match',
                   prefixIcon: Icon(
                     Icons.search_rounded,
                     color: AppColors.muted,

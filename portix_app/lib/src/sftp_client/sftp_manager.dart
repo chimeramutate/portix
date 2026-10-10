@@ -56,6 +56,10 @@ class SftpManager extends ChangeNotifier {
     }
   }
 
+  /// Closes every SFTP session; used when the app quits.
+  Future<void> shutdown() =>
+      Future.wait([for (final id in _sessions.keys.toList()) close(id)]);
+
   Future<void> close(String sessionId) async {
     if (_sessions.remove(sessionId) != null) _notify();
     if (_sessions.isEmpty) {

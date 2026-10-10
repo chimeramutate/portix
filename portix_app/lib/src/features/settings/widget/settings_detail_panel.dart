@@ -110,9 +110,7 @@ class _SettingsProfileHeader extends StatelessWidget {
           AppPill(
             label: dirty ? 'Draft' : 'Synced',
             color: dirty ? AppColors.amber : AppColors.green,
-            background: dirty
-                ? AppColors.amberTint
-                : AppColors.greenTint,
+            background: dirty ? AppColors.amberTint : AppColors.greenTint,
           ),
         ],
       ),
@@ -197,7 +195,7 @@ class _SettingsValueRow extends StatelessWidget {
                 child: Text(
                   row.label,
                   overflow: TextOverflow.ellipsis,
-                  style: portixMuted(10),
+                  style: portixMuted(11),
                 ),
               ),
               const SizedBox(width: 10),
@@ -205,7 +203,7 @@ class _SettingsValueRow extends StatelessWidget {
                 child: Text(
                   value,
                   overflow: TextOverflow.ellipsis,
-                  style: portixTitle(10).copyWith(
+                  style: portixTitle(11).copyWith(
                     color: value == 'ON' || value == 'Enabled'
                         ? AppColors.green
                         : AppColors.text,
@@ -309,7 +307,7 @@ class _SettingsDetailFooter extends StatelessWidget {
             child: Text(
               _checkpointLabel(),
               overflow: TextOverflow.ellipsis,
-              style: portixMuted(10),
+              style: portixMuted(11),
             ),
           ),
           AppButton(

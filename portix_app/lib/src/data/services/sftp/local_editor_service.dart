@@ -359,9 +359,14 @@ class LocalEditorService {
   static String buildRemoteTempFileName(
     String displayName, {
     required String remotePath,
+    String? profileName,
     DateTime? now,
   }) {
     final sanitizedName = _sanitizeRemoteTempBaseName(displayName);
+    // Profile goes in the name so editor tabs show which server a copy is from.
+    final profile = profileName == null || profileName.trim().isEmpty
+        ? ''
+        : '__${_sanitizeRemoteTempBaseName(profileName)}';
     final dotIndex = sanitizedName.lastIndexOf('.');
     final hasExtension = dotIndex > 0 && dotIndex < sanitizedName.length - 1;
     final baseName = hasExtension
@@ -370,7 +375,7 @@ class LocalEditorService {
     final extension = hasExtension ? sanitizedName.substring(dotIndex) : '';
     final timestamp = (now ?? DateTime.now()).millisecondsSinceEpoch;
     final pathHash = _stableRemotePathHash(remotePath);
-    return '${baseName}__${pathHash}__${timestamp}${extension}';
+    return '$baseName${profile}__${pathHash}__$timestamp$extension';
   }
 
   static String _sanitizeRemoteTempBaseName(String name) {

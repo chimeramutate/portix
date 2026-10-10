@@ -465,6 +465,21 @@ class ConnectionManager extends ChangeNotifier {
     return null;
   }
 
+  /// Ends every SSH session and port forward and flushes session logs, so
+  /// Rust stops streaming into an engine that is about to go away.
+  Future<void> shutdown() async {
+    _heartbeatTimer.cancel();
+    final forwards = await listLocalForwards();
+    await Future.wait([
+      for (final id in _backendToUiSessionIds.keys.toList())
+        _backend.disconnect(id).catchError((Object _) {}),
+      for (final forward in forwards)
+        _backend.stopLocalForward(forward.id).catchError((Object _) {}),
+      for (final recording in _recordings.values) recording.sink.close(),
+    ]);
+    _recordings.clear();
+  }
+
   @override
   void dispose() {
     _heartbeatTimer.cancel();

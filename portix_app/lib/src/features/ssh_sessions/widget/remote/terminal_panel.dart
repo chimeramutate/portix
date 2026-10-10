@@ -43,6 +43,7 @@ class TerminalPanel extends StatefulWidget {
     this.keyboardEnabled = true,
     this.onSessionChanged,
     this.onActiveSessionChanged,
+    this.onDirectoryChanged,
     this.onLastSessionClosed,
   });
 
@@ -52,6 +53,7 @@ class TerminalPanel extends StatefulWidget {
   final bool keyboardEnabled;
   final ValueChanged<bool>? onSessionChanged;
   final ValueChanged<String?>? onActiveSessionChanged;
+  final void Function(String sessionId, String path)? onDirectoryChanged;
   final VoidCallback? onLastSessionClosed;
 
   @override
@@ -93,6 +95,11 @@ class _TerminalPanelState extends State<TerminalPanel> {
   StreamSubscription<String>? _sessionLostSubscription;
   // Sessions with an auto-reconnect loop running.
   final Set<String> _autoReconnecting = {};
+  // Last cwd each shell reported, so a new tab can start where this one is.
+  final Map<String, String> _sessionDirectories = {};
+  // A new tab told to `cd` somewhere: its shell's first prompt still reports
+  // ~, which would bounce the folder panel back to home before the cd lands.
+  final Map<String, ({String path, DateTime until})> _pendingDirectories = {};
   // Serializes reconnects: after wake from sleep every tab drops at once, and
   // _reconnectSession shares _workspaceReconnectInProgress across calls.
   Future<void> _reconnectQueue = Future.value();
@@ -130,6 +137,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _terminalUi = TerminalSessionUiController(
       onInput: _handleTerminalInput,
       onResize: _handleTerminalResize,
+      onDirectoryChanged: _handleDirectoryChanged,
     );
     _idleController = _terminalUi.idleController;
     _idleFocusNode = _terminalUi.idleFocusNode;
@@ -226,9 +234,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
     }) {
       return Padding(
         padding: const EdgeInsets.only(right: 8),
-        child: Tooltip(
-          message: message,
-          child: AppIconButton(key: key, icon: icon, onPressed: onPressed),
+        child: AppIconButton(
+          key: key,
+          tooltip: message,
+          outlined: false,
+          icon: icon,
+          onPressed: onPressed,
         ),
       );
     }
@@ -286,15 +297,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
                   ],
                 ),
         ),
-        Tooltip(
-          message: _toolsExpanded ? 'Hide tools' : 'Terminal tools',
-          child: AppIconButton(
-            key: const ValueKey('terminal-tools'),
-            icon: _toolsExpanded
-                ? Icons.chevron_right_rounded
-                : Icons.more_horiz_rounded,
-            onPressed: () => setState(() => _toolsExpanded = !_toolsExpanded),
-          ),
+        AppIconButton(
+          key: const ValueKey('terminal-tools'),
+          tooltip: _toolsExpanded ? 'Hide tools' : 'Terminal tools',
+          outlined: false,
+          icon: _toolsExpanded
+              ? Icons.chevron_right_rounded
+              : Icons.more_horiz_rounded,
+          onPressed: () => setState(() => _toolsExpanded = !_toolsExpanded),
         ),
       ],
     );
@@ -943,6 +953,38 @@ class _TerminalPanelState extends State<TerminalPanel> {
     unawaited(_connectionManager.resizeTerminal(session.id, _cols, _rows));
   }
 
+  void _handleDirectoryChanged(String path, String sessionId) {
+    final pending = _pendingDirectories[sessionId];
+    if (pending != null) {
+      if (pending.path != path && DateTime.now().isBefore(pending.until)) {
+        return;
+      }
+      _pendingDirectories.remove(sessionId);
+    }
+    _sessionDirectories[sessionId] = path;
+    widget.onDirectoryChanged?.call(sessionId, path);
+  }
+
+  /// Moves the freshly opened shell of [sessionId] into [path] (the folder
+  /// the tab it was opened from is in). Call before activating the session
+  /// so the folder panel opens there instead of at the profile's default.
+  void _startSessionIn(String sessionId, String? path) {
+    if (path == null) return;
+    _pendingDirectories[sessionId] = (
+      path: path,
+      until: DateTime.now().add(const Duration(seconds: 5)),
+    );
+    _sessionDirectories[sessionId] = path;
+    widget.onDirectoryChanged?.call(sessionId, path);
+    // Leading space keeps it out of shell history (HISTCONTROL=ignorespace).
+    unawaited(
+      _connectionManager.sendTerminalInput(
+        sessionId,
+        ' cd ${shellQuotePath(path)}\r',
+      ),
+    );
+  }
+
   Future<void> _duplicateSession(String sessionId) async {
     final session = _sessionById(sessionId);
     if (session == null) return;
@@ -952,7 +994,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
     if (profile == null) return;
 
     final existingSessionIds = _sshSessions.map((s) => s.id).toSet();
-    final prevSessionId = _sessionId;
 
     final result = await _connectionManager.connect(
       manager_profile.SshProfile.fromDomain(profile),
@@ -973,17 +1014,17 @@ class _TerminalPanelState extends State<TerminalPanel> {
     if (newSession == null || !mounted) return;
 
     _terminalForSession(newSession.id).write('\x1b[2J\x1b[H');
+    _startSessionIn(newSession.id, _sessionDirectories[sessionId]);
     setState(() {
       _placeSessionInOrder(newSession.id);
       _sessionId = newSession.id;
       _connectedProfileId = newSession.profileId;
       _activeTabClosed = false;
-      // Keep the existing split layout — the duplicated session becomes the
-      // new active standalone session, not inserted into the split tree.
-      if (_splitRoot == null || prevSessionId == null) {
-        _splitRoot = SplitLeaf(newSession.id);
-      }
+      // Show the duplicate as its own standalone tab; the source's split
+      // workspace stays intact and reachable from the tab bar.
+      _splitRoot = SplitLeaf(newSession.id);
       _workspaceActive = false;
+      _activeWorkspaceId = null;
     });
     _updateTabScrollAffordances();
     widget.onSessionChanged?.call(true);
@@ -1094,16 +1135,15 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final recording =
         sessionId != null &&
         _connectionManager.recordingPath(sessionId) != null;
-    return Tooltip(
-      message: recording ? 'Stop recording' : 'Record session to a log file',
-      child: AppIconButton(
-        key: const ValueKey('record-session'),
-        icon: recording
-            ? Icons.stop_circle_rounded
-            : Icons.fiber_manual_record_rounded,
-        color: recording ? AppColors.danger : AppColors.cyan,
-        onPressed: sessionId == null ? null : _toggleRecording,
-      ),
+    return AppIconButton(
+      key: const ValueKey('record-session'),
+      outlined: false,
+      tooltip: recording ? 'Stop recording' : 'Record session to a log file',
+      icon: recording
+          ? Icons.stop_circle_rounded
+          : Icons.fiber_manual_record_rounded,
+      color: recording ? AppColors.danger : AppColors.cyan,
+      onPressed: sessionId == null ? null : _toggleRecording,
     );
   }
 
@@ -1187,6 +1227,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
   Future<void> _openNewSessionForCurrentProfile() async {
     final profile = await _pickSessionProfile();
     if (profile == null || !mounted) return;
+    final current = _sessionId;
+    final startDirectory = current != null && _connectedProfileId == profile.id
+        ? _sessionDirectories[current]
+        : null;
     if (!widget.profiles.any((saved) => saved.id == profile.id)) {
       // A quick connect: save it so reconnect, SFTP and snapshots find it.
       context.read<SshWorkspaceBloc>().add(QuickProfileSaved(profile));
@@ -1194,7 +1238,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _activeTabClosed = false;
     _connectedProfileId = null;
     _sessionId = null;
-    await _connectNewSession(profile);
+    await _connectNewSession(profile, startDirectory: startDirectory);
   }
 
   Future<void> _reconnectSession(String sessionId) async {
@@ -1275,6 +1319,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   Future<void> _connectNewSession(
     domain.SshProfile profile, {
     SessionSnapshot? restore,
+    String? startDirectory,
   }) async {
     final existingSessionIds = _sshSessions
         .map((session) => session.id)
@@ -1303,6 +1348,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         _connectionManager.renameSession(session.id, restore.title);
       }
       if (!mounted) return;
+      _startSessionIn(session.id, startDirectory);
       setState(() {
         _sessionId = session.id;
         _connectedProfileId = session.profileId;
@@ -1529,7 +1575,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                   const SizedBox(height: 8),
                   Text(
                     'The password will be saved to local secure storage.',
-                    style: portixMuted(10),
+                    style: portixMuted(11),
                   ),
                 ],
               ),
@@ -1653,13 +1699,13 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final lower = message.toLowerCase();
     if (lower.contains('failed to load dynamic library') &&
         lower.contains('portix_serv.framework')) {
-      return 'Rust backend iOS belum dibundle ke app. Build iOS butuh portix_serv.framework/xcframework di dalam Runner.app/Frameworks sebelum SSH bisa dipakai.';
+      return 'The Rust backend is not bundled in this iOS build. SSH needs portix_serv.framework (or .xcframework) inside Runner.app/Frameworks.';
     }
     if (lower.contains('mobile ssh backend is disabled')) {
-      return 'SSH mobile belum diaktifkan. Untuk sekarang gunakan build desktop agar Rust backend dan SSH session berjalan stabil.';
+      return 'SSH is not enabled on mobile yet. Use the desktop build for SSH sessions.';
     }
     if (lower.contains('rust ssh backend is unavailable')) {
-      return 'Rust SSH backend belum tersedia untuk platform ini. Pastikan native library Portix sudah dibuild dan dibundle bersama app.';
+      return 'The Rust SSH backend is not available on this platform. Make sure the Portix native library is built and bundled with the app.';
     }
     return message.length > 420 ? '${message.substring(0, 420)}...' : message;
   }
@@ -2129,7 +2175,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
             border: candidates.isNotEmpty
-                ? Border.all(color: AppColors.green, width: 1.2)
+                ? Border.all(color: AppColors.cyan, width: 1.2)
                 : null,
           ),
           child: TerminalSessionTab(
@@ -2307,8 +2353,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
           child: Column(
             children: [
               Container(
-                height: 54,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
+                height: 36,
+                padding: const EdgeInsets.only(left: 4, right: 8),
                 decoration: BoxDecoration(
                   color: AppColors.bg,
                   border: Border(bottom: BorderSide(color: AppColors.border)),
@@ -2383,12 +2429,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                           else if (item
                                               is session_models.TerminalSession)
                                             _buildSessionTab(item),
-                                          const SizedBox(width: 8),
+                                          const SizedBox(width: 2),
                                         ],
                                         AppIconButton(
                                           key: const ValueKey(
                                             'new-terminal-tab',
                                           ),
+                                          tooltip: 'New terminal tab',
+                                          outlined: false,
                                           icon: Icons.add_rounded,
                                           onPressed:
                                               _openNewSessionForCurrentProfile,
@@ -2399,7 +2447,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                             'Drop here to move this session',
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
-                                              color: AppColors.green,
+                                              color: AppColors.cyan,
                                               fontWeight: FontWeight.w800,
                                               fontSize: 12,
                                             ),
@@ -2510,8 +2558,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
                       ),
               ),
               Container(
-                height: 52,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+                height: 26,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(
                   color: AppColors.bg,
                   border: Border(top: BorderSide(color: AppColors.border)),
@@ -2521,7 +2569,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
                     listenable: _telemetry,
                     builder: (context, _) => TerminalStatusFooter(
                       snapshot: _telemetry.snapshot,
-                      samples: _telemetry.samples,
                       error: _telemetry.error,
                       canUngroupWorkspace:
                           constraints.maxWidth >= 360 &&

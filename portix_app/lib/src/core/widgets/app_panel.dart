@@ -46,7 +46,6 @@ class AppPanel extends StatelessWidget {
 
 TextStyle portixTitle([double size = 14]) {
   return TextStyle(
-    fontFamily: 'Inter',
     color: AppColors.text,
     fontSize: size,
     fontWeight: FontWeight.w900,
@@ -55,7 +54,6 @@ TextStyle portixTitle([double size = 14]) {
 
 TextStyle portixMuted([double size = 12]) {
   return TextStyle(
-    fontFamily: 'Inter',
     color: AppColors.muted,
     fontSize: size,
     fontWeight: FontWeight.w600,
@@ -64,7 +62,6 @@ TextStyle portixMuted([double size = 12]) {
 
 TextStyle portixLabel([double size = 12]) {
   return TextStyle(
-    fontFamily: 'Inter',
     color: AppColors.muted,
     fontSize: size,
     fontWeight: FontWeight.w900,

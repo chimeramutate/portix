@@ -151,18 +151,21 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       (_) => showTutorialOnce(context, 'sftp', [
         (
           key: _rightPaneKey,
-          title: 'Pilih server',
-          body: 'Pilih profile SSH di pane kanan untuk membuka file remote via SFTP.',
+          title: 'Choose a server',
+          body:
+              'Pick an SSH profile in the right pane to open its remote files over SFTP.',
         ),
         (
           key: _leftPaneKey,
-          title: 'File lokal',
-          body: 'Pane kiri berisi file komputer kamu. Klik judul pane untuk menggantinya ke server lain.',
+          title: 'Local files',
+          body:
+              'The left pane shows the files on this computer. Click the pane title to switch it to another server.',
         ),
         (
           key: _rightPaneKey,
           title: 'Drag & drop transfer',
-          body: 'Seret file/folder dari satu pane lalu drop ke pane lainnya untuk upload atau download. Progress tampil di pojok kanan bawah.',
+          body:
+              'Drag files or folders from one pane and drop them on the other to upload or download. Progress appears in the bottom-right corner.',
         ),
       ]),
     );
@@ -646,7 +649,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           );
         case _FileAction.download:
           if (!isRemote) {
-            _showSnack(context, 'Download hanya tersedia untuk remote file.');
+            _showSnack(context, 'Download is only available for remote files.');
             return;
           }
           final selectedDir = await FilePicker.getDirectoryPath(
@@ -665,8 +668,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
               name: file.name,
               targetPath: localPath,
               message: file.folder
-                  ? 'Folder dengan nama yang sama sudah ada di local. Download akan merge folder dan rewrite file yang namanya sama.'
-                  : 'File dengan nama yang sama sudah ada di local. Replace akan rewrite file local.',
+                  ? 'A folder with this name already exists locally. Downloading merges the folders and overwrites files with the same name.'
+                  : 'A file with this name already exists locally. Replace overwrites the local file.',
             );
             if (replace != true) return;
           }
@@ -758,7 +761,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           if (!isRemote) {
             _showSnack(
               context,
-              'Local chmod belum tersedia dari workspace ini.',
+              'Changing local permissions is not available here yet.',
             );
             return;
           }
@@ -797,7 +800,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   }) async {
     final controller = _c(isLeft);
     if (file.folder) {
-      _showSnack(context, 'Editor hanya untuk file. Pakai Open untuk folder.');
+      _showSnack(context, 'The editor only opens files. Use Open for folders.');
       return;
     }
 
@@ -880,7 +883,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         );
         _showSnack(
           context,
-          'Opened temp copy in ${editor.name}. Save file untuk memunculkan rewrite prompt.',
+          'Opened a temporary copy in ${editor.name}. Save the file to be asked whether to upload it.',
         );
       } else {
         _showSnack(context, 'Opened ${file.name} in ${editor.name}.');
@@ -1736,8 +1739,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
             name: entry.name,
             targetPath: targetPath,
             message: entry.folder
-                ? 'Folder dengan nama yang sama sudah ada di remote. Upload akan merge folder dan rewrite file yang namanya sama.'
-                : 'File dengan nama yang sama sudah ada di remote. Replace akan rewrite file remote.',
+                ? 'A folder with this name already exists on the server. Uploading merges the folders and overwrites files with the same name.'
+                : 'A file with this name already exists on the server. Replace overwrites the remote file.',
           );
           if (replace != true) return;
         }
@@ -1783,8 +1786,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           name: entry.name,
           targetPath: localPath,
           message: entry.folder
-              ? 'Folder dengan nama yang sama sudah ada di local. Download akan merge folder dan rewrite file yang namanya sama.'
-              : 'File dengan nama yang sama sudah ada di local. Replace akan rewrite file local.',
+              ? 'A folder with this name already exists locally. Downloading merges the folders and overwrites files with the same name.'
+              : 'A file with this name already exists locally. Replace overwrites the local file.',
         );
         if (replace != true) return;
       }

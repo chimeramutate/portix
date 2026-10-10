@@ -3,9 +3,12 @@ import 'dart:io' show Platform;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/features/rdp/bloc/index.dart';
+import 'package:portix/src/features/rdp/service/rdp_backend_service.dart';
 import 'package:portix/src/features/rdp/service/rdp_window_service.dart';
+import 'package:portix/src/sftp_client/sftp_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'src/core/di/injection.dart';
@@ -27,6 +30,12 @@ Future<void> main() async {
   }
   await windowManager.ensureInitialized();
   await windowManager.setPreventClose(true);
+  // The app draws its own title bar (WorkspaceTopBar); macOS keeps its
+  // native traffic lights, Linux and Windows get Flutter caption buttons.
+  await windowManager.setTitleBarStyle(
+    TitleBarStyle.hidden,
+    windowButtonVisibility: Platform.isMacOS,
+  );
   runApp(const PortixApp());
 }
 
@@ -57,6 +66,18 @@ class _PortixAppState extends State<PortixApp> with WindowListener {
     if (_closing) return;
     _closing = true;
 
+    // End sessions before the engines go away, otherwise Rust keeps
+    // streaming into a dead isolate. Capped so a hung server can't block quit.
+    try {
+      await Future.wait([
+        sl<ConnectionManager>().shutdown(),
+        sl<SftpManager>().shutdown(),
+        sl<RdpBackendService>().disconnectAll(),
+      ]).timeout(const Duration(seconds: 2));
+    } catch (error) {
+      debugPrint('[Portix] shutdown: $error');
+    }
+
     await RdpWindowService.closeAllSessions();
     await Future<void>.delayed(const Duration(milliseconds: 120));
     await windowManager.destroy();
@@ -74,12 +95,17 @@ class _PortixAppState extends State<PortixApp> with WindowListener {
         themeMode: ThemeMode.system,
         builder: (context, child) {
           final media = MediaQuery.of(context);
-          final scale = media.textScaler
-              .scale(1)
-              .clamp(0.85, media.size.width >= 900 ? 0.95 : 1.05);
+          // Slightly denser text on wide windows, scaled on top of the OS
+          // text size so a larger system setting still takes effect.
+          final density = media.size.width >= 900 ? 0.95 : 1.0;
+          final scale = media.textScaler.scale(1) * density;
+          final content = child ?? const SizedBox.shrink();
           return MediaQuery(
             data: media.copyWith(textScaler: TextScaler.linear(scale)),
-            child: child ?? const SizedBox.shrink(),
+            // Without the GTK title bar the window needs its own resize edges.
+            child: Platform.isLinux
+                ? DragToResizeArea(child: content)
+                : content,
           );
         },
         home: MultiBlocProvider(

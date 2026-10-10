@@ -225,7 +225,7 @@ class _TransferQueueRow extends StatelessWidget {
               Text(
                 job.label,
                 overflow: TextOverflow.ellipsis,
-                style: portixTitle(10),
+                style: portixTitle(11),
               ),
               const SizedBox(height: 3),
               ClipRRect(
@@ -244,14 +244,14 @@ class _TransferQueueRow extends StatelessWidget {
                   job.error!,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: portixMuted(9).copyWith(color: AppColors.danger),
+                  style: portixMuted(11).copyWith(color: AppColors.danger),
                 ),
               ],
             ],
           ),
         ),
         const SizedBox(width: 8),
-        Text(status, style: portixTitle(10).copyWith(color: color)),
+        Text(status, style: portixTitle(11).copyWith(color: color)),
       ],
     );
   }
@@ -321,21 +321,16 @@ class _ConnectionCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
       child: Row(
         children: [
-          Icon(Icons.cloud_sync_outlined, color: AppColors.green, size: 20),
+          Icon(Icons.cloud_sync_outlined, color: AppColors.muted, size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  profile?.address ?? 'root@172.24.82.36:22',
+                  profile?.name ?? '',
                   overflow: TextOverflow.ellipsis,
                   style: portixTitle(13),
-                ),
-                Text(
-                  'Mounted from active SSH session',
-                  overflow: TextOverflow.ellipsis,
-                  style: portixMuted(11),
                 ),
               ],
             ),
@@ -464,7 +459,7 @@ class _RemoteItem extends StatelessWidget {
             color: selected ? AppColors.selected : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: selected ? AppColors.primaryBlue : Colors.transparent,
+              color: selected ? AppColors.cyan : Colors.transparent,
             ),
           ),
           child: Row(
@@ -487,7 +482,7 @@ class _RemoteItem extends StatelessWidget {
                     Text(
                       meta,
                       overflow: TextOverflow.ellipsis,
-                      style: portixMuted(10),
+                      style: portixMuted(11),
                     ),
                   ],
                 ),
@@ -774,7 +769,7 @@ class _InlineRenameItem extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.selected,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.primaryBlue),
+        border: Border.all(color: AppColors.cyan),
       ),
       child: Row(
         children: [
@@ -850,7 +845,7 @@ class _InlineCreateItem extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.surfaceCard.withValues(alpha: .55),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.primaryBlue),
+        border: Border.all(color: AppColors.cyan),
       ),
       child: Row(
         children: [

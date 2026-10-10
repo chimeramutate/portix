@@ -1,92 +1,147 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/features/sftp/bloc/index.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../bloc/index.dart';
 
+const workspaceTitleBarHeight = 38.0;
+
+/// Room for the macOS traffic lights, which stay native over the hidden
+/// title bar.
+const _macTrafficLightInset = 78.0;
+
+/// The app header merged into the window title bar: drag to move, double-click
+/// to maximize, window buttons drawn here on Linux and Windows.
 class WorkspaceTopBar extends StatelessWidget {
-  const WorkspaceTopBar({required this.state, super.key});
+  const WorkspaceTopBar({required this.state, this.platform, super.key});
 
   final SshWorkspaceState state;
 
+  /// Overrides [defaultTargetPlatform] in tests.
+  final TargetPlatform? platform;
+
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final compactForm =
-            state.activeView == WorkspaceView.form &&
-            constraints.maxWidth < 1240;
-        final mobile = constraints.maxWidth < 720;
-        return Container(
-          height: mobile
-              ? state.activeView == WorkspaceView.gallery
-                    ? 112
-                    : state.activeView == WorkspaceView.form
-                    ? 128
-                    : 86
-              : compactForm
-              ? 100
-              : 64,
-          padding: EdgeInsets.symmetric(
-            horizontal: mobile || compactForm ? 12 : 16,
-            vertical: mobile || compactForm ? 8 : 0,
+    final target = platform ?? defaultTargetPlatform;
+    final isMac = target == TargetPlatform.macOS;
+    final desktop =
+        isMac ||
+        target == TargetPlatform.linux ||
+        target == TargetPlatform.windows;
+    final (center, actions) = switch (state.activeView) {
+      WorkspaceView.form => (
+        const _FormBreadcrumb(compact: false),
+        <Widget>[
+          AppPill(
+            label: 'Unsaved draft',
+            color: AppColors.amber,
+            background: AppColors.amberTint,
           ),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceDark,
-            border: Border(bottom: BorderSide(color: AppColors.border)),
+          AppButton(
+            icon: Icons.save_outlined,
+            label: 'Save Profile',
+            primary: true,
+            onPressed: () =>
+                context.read<SshWorkspaceBloc>().add(const ProfileSaved()),
           ),
-          child: switch (state.activeView) {
-            WorkspaceView.form => const _FormTopBar(),
-            WorkspaceView.sftp => const _SftpTopBar(),
-            WorkspaceView.remoteFolder => const _RemoteTopBar(),
-            WorkspaceView.settings => const _SimpleTopBar(title: 'Settings'),
-            WorkspaceView.rdp => const _SimpleTopBar(title: 'Remote Desktop'),
-            _ => _GalleryTopBar(state: state),
-          },
-        );
-      },
+        ],
+      ),
+      WorkspaceView.sftp => (const _SftpStatus(), const <Widget>[]),
+      WorkspaceView.remoteFolder => (
+        _Title(state.selectedProfile?.name ?? 'Terminal'),
+        const <Widget>[],
+      ),
+      WorkspaceView.settings => (const _Title('Settings'), const <Widget>[]),
+      WorkspaceView.rdp => (const _Title('Remote Desktop'), const <Widget>[]),
+      _ => (_GallerySearch(state: state), const <Widget>[_NewProfileButton()]),
+    };
+
+    return Container(
+      height: workspaceTitleBarHeight,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceDark,
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
+      child: Stack(
+        children: [
+          // Empty parts of the bar fall through to this drag area.
+          if (desktop)
+            const Positioned.fill(
+              child: DragToMoveArea(child: SizedBox.expand()),
+            ),
+          Row(
+            children: [
+              SizedBox(width: isMac ? _macTrafficLightInset : 14),
+              Expanded(child: Center(child: center)),
+              for (final action in actions) ...[
+                const SizedBox(width: 8),
+                action,
+              ],
+              const SizedBox(width: 12),
+              if (desktop && !isMac) const _CaptionButtons(),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _GalleryTopBar extends StatefulWidget {
-  const _GalleryTopBar({required this.state});
+class _Title extends StatelessWidget {
+  const _Title(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    text,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: portixTitle(13),
+  );
+}
+
+class _GallerySearch extends StatefulWidget {
+  const _GallerySearch({required this.state});
   final SshWorkspaceState state;
 
   @override
-  State<_GalleryTopBar> createState() => _GalleryTopBarState();
+  State<_GallerySearch> createState() => _GallerySearchState();
 }
 
-class _GalleryTopBarState extends State<_GalleryTopBar> {
-  late final TextEditingController _search;
+class _GallerySearchState extends State<_GallerySearch> {
+  late final TextEditingController _search = TextEditingController(
+    text: widget.state.searchQuery,
+  );
   final _searchKey = GlobalKey();
-  final _newKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
-    _search = TextEditingController(text: widget.state.searchQuery);
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => showTutorialOnce(context, 'gallery', [
         (
-          key: _newKey,
-          title: 'Buat profile SSH',
-          body: 'Klik di sini untuk menambah server baru: nama, host, port, username, lalu password atau SSH key.',
+          key: _NewProfileButton.tutorialKey,
+          title: 'Create an SSH profile',
+          body:
+              'Click here to add a server: name, host, port, username, then a password or SSH key.',
         ),
         (
           key: _searchKey,
-          title: 'Cari profile',
-          body: 'Filter profile berdasarkan nama, host, tag, atau group.',
+          title: 'Search profiles',
+          body: 'Filter profiles by name, host, tag or group.',
         ),
       ]),
     );
   }
 
   @override
-  void didUpdateWidget(covariant _GalleryTopBar oldWidget) {
+  void didUpdateWidget(covariant _GallerySearch oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (_search.text != widget.state.searchQuery) {
       _search.text = widget.state.searchQuery;
@@ -101,215 +156,158 @@ class _GalleryTopBarState extends State<_GalleryTopBar> {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final mobile = constraints.maxWidth < 720;
-        final brand = Text(
-          'Portix',
-          style: TextStyle(
-            color: AppColors.text,
-            fontSize: 19,
-            fontWeight: FontWeight.w900,
-          ),
-        );
-        final search = SizedBox(
-          key: _searchKey,
-          height: 40,
-          child: AppTextField(
-            controller: _search,
-            label: '',
-            hint: 'Search profile, host, tag, or group',
-            icon: Icons.search_rounded,
-            onChanged: (value) =>
-                context.read<SshWorkspaceBloc>().add(SearchChanged(value)),
-          ),
-        );
-        final newButton = KeyedSubtree(
-          key: _newKey,
-          child: mobile
-            ? AppIconButton(
-                icon: Icons.add_rounded,
-                onPressed: () => context.read<SshWorkspaceBloc>().add(
-                  const NewProfileRequested(),
-                ),
-              )
-            : AppButton(
-                icon: Icons.add_rounded,
-                label: 'New SSH Profile',
-                primary: true,
-                onPressed: () => context.read<SshWorkspaceBloc>().add(
-                  const NewProfileRequested(),
-                ),
-              ),
-        );
-
-        if (mobile) {
-          return Column(
-            children: [
-              Row(
-                children: [
-                  brand,
-                  const Spacer(),
-                  AppPill(
-                    label: 'Vault unlocked',
-                    color: AppColors.green,
-                    background: AppColors.greenTint,
-                  ),
-                  const SizedBox(width: 8),
-                  newButton,
-                ],
-              ),
-              const SizedBox(height: 8),
-              search,
-            ],
-          );
-        }
-
-        return Row(
-          children: [
-            brand,
-            const SizedBox(width: 24),
-            Expanded(
-              child: Align(
-                alignment: Alignment.center,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 520),
-                  child: search,
-                ),
-              ),
+    return ConstrainedBox(
+      key: _searchKey,
+      constraints: const BoxConstraints(maxWidth: 460),
+      // expands: the field fills exactly 30px, so its outline never overflows.
+      child: SizedBox(
+        height: 30,
+        child: TextField(
+          controller: _search,
+          expands: true,
+          maxLines: null,
+          // expands needs maxLines: null; keep the search a single line.
+          inputFormatters: [FilteringTextInputFormatter.deny('\n')],
+          onChanged: (value) =>
+              context.read<SshWorkspaceBloc>().add(SearchChanged(value)),
+          style: TextStyle(color: AppColors.text, fontSize: 13),
+          textAlignVertical: TextAlignVertical.center,
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: 'Search profile, host, tag, or group',
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            hintStyle: TextStyle(
+              color: AppColors.muted,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
             ),
-            if (MediaQuery.sizeOf(context).width > 980) ...[
-              const SizedBox(width: 12),
-              AppPill(
-                label: 'Vault unlocked',
-                color: AppColors.green,
-                background: AppColors.greenTint,
-              ),
-            ],
-            const SizedBox(width: 12),
-            newButton,
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _MobilePageTopBar extends StatelessWidget {
-  const _MobilePageTopBar({
-    required this.title,
-    required this.icon,
-    this.subtitle,
-    this.trailing,
-  });
-
-  final String title;
-  final IconData icon;
-  final String? subtitle;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, color: AppColors.cyan, size: 19),
-        const SizedBox(width: 9),
-        Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: portixTitle(15),
-              ),
-              if (subtitle != null) ...[
-                const SizedBox(height: 2),
-                Text(
-                  subtitle!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: portixMuted(11),
-                ),
-              ],
-            ],
+            // A 1px focus border: the 2px form default is too heavy in the bar.
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide: BorderSide(color: AppColors.inputBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide: BorderSide(color: AppColors.cyan),
+            ),
+            prefixIcon: Icon(
+              Icons.search_rounded,
+              color: AppColors.muted,
+              size: 16,
+            ),
+            prefixIconConstraints: const BoxConstraints(
+              minWidth: 30,
+              minHeight: 0,
+            ),
           ),
         ),
-        if (trailing != null) ...[const SizedBox(width: 10), trailing!],
-      ],
+      ),
     );
   }
 }
 
-class _FormTopBar extends StatelessWidget {
-  const _FormTopBar();
+class _NewProfileButton extends StatelessWidget {
+  const _NewProfileButton();
+
+  /// Anchors the gallery tutorial step.
+  static final tutorialKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final compact = constraints.maxWidth < 1240;
-        final veryCompact = constraints.maxWidth < 760;
-        final breadcrumb = _FormBreadcrumb(compact: veryCompact);
-        final status = AppPill(
-          label: 'Unsaved draft',
-          color: AppColors.amber,
-          background: AppColors.amberTint,
-        );
-        final actions = Wrap(
-          spacing: 10,
-          runSpacing: 8,
-          alignment: WrapAlignment.end,
-          children: [
-            AppButton(
-              icon: Icons.save_outlined,
-              label: veryCompact ? 'Save' : 'Save Profile',
-              primary: true,
-              onPressed: () =>
-                  context.read<SshWorkspaceBloc>().add(const ProfileSaved()),
-            ),
-          ],
-        );
+    return KeyedSubtree(
+      key: tutorialKey,
+      child: IconButton(
+        tooltip: 'New SSH Profile',
+        onPressed: () =>
+            context.read<SshWorkspaceBloc>().add(const NewProfileRequested()),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+        icon: Icon(Icons.add_rounded, size: 18, color: AppColors.text),
+      ),
+    );
+  }
+}
 
-        if (compact) {
-          return Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Row(
-                children: [
-                  const _Brand(),
-                  SizedBox(width: veryCompact ? 12 : 20),
-                  Expanded(child: breadcrumb),
-                  if (!veryCompact) ...[const SizedBox(width: 10), status],
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  if (veryCompact) status,
-                  if (veryCompact) const SizedBox(width: 10),
-                  const Spacer(),
-                  actions,
-                ],
-              ),
-            ],
-          );
-        }
+class _SftpStatus extends StatelessWidget {
+  const _SftpStatus();
 
-        return Row(
-          children: [
-            const _Brand(),
-            const SizedBox(width: 28),
-            Expanded(child: breadcrumb),
-            const SizedBox(width: 12),
-            status,
-            const SizedBox(width: 10),
-            actions,
-          ],
-        );
+  @override
+  Widget build(BuildContext context) {
+    final profile = context.watch<SftpWorkspaceBloc>().state.selectedProfile;
+    final hasSession = profile != null;
+    return _ConnectionBadge(
+      osIconAsset: profile?.osIconAsset,
+      iconColor: hasSession ? AppColors.green : AppColors.muted,
+      title: profile?.name ?? 'SFTP Workspace',
+      trailing: AppPill(
+        label: hasSession ? 'Ready' : 'No session',
+        color: hasSession ? AppColors.green : AppColors.muted,
+        background: hasSession ? AppColors.greenTint : AppColors.surface,
+      ),
+    );
+  }
+}
+
+/// Minimize, maximize/restore and close for platforms without native
+/// buttons over the hidden title bar.
+class _CaptionButtons extends StatefulWidget {
+  const _CaptionButtons();
+
+  @override
+  State<_CaptionButtons> createState() => _CaptionButtonsState();
+}
+
+class _CaptionButtonsState extends State<_CaptionButtons> with WindowListener {
+  bool _maximized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    windowManager.addListener(this);
+    windowManager.isMaximized().then(
+      (value) {
+        if (mounted) setState(() => _maximized = value);
       },
+      onError: (Object _) {}, // no native window (tests): keep "maximize"
+    );
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  @override
+  void onWindowMaximize() => setState(() => _maximized = true);
+
+  @override
+  void onWindowUnmaximize() => setState(() => _maximized = false);
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        WindowCaptionButton.minimize(
+          brightness: brightness,
+          onPressed: windowManager.minimize,
+        ),
+        _maximized
+            ? WindowCaptionButton.unmaximize(
+                brightness: brightness,
+                onPressed: windowManager.unmaximize,
+              )
+            : WindowCaptionButton.maximize(
+                brightness: brightness,
+                onPressed: windowManager.maximize,
+              ),
+        WindowCaptionButton.close(
+          brightness: brightness,
+          onPressed: windowManager.close,
+        ),
+      ],
     );
   }
 }
@@ -322,8 +320,8 @@ class _FormBreadcrumb extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 38,
-      constraints: const BoxConstraints(maxWidth: 760),
+      height: 28,
+      constraints: const BoxConstraints(maxWidth: 560),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -355,103 +353,12 @@ class _FormBreadcrumb extends StatelessWidget {
             child: Text(
               'New SSH Profile',
               overflow: TextOverflow.ellipsis,
-              style: portixTitle(14),
+              style: portixTitle(13),
               maxLines: 1,
             ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _SftpTopBar extends StatelessWidget {
-  const _SftpTopBar();
-
-  @override
-  Widget build(BuildContext context) {
-    final sftpState = context.watch<SftpWorkspaceBloc>().state;
-    final profile = sftpState.selectedProfile;
-    final hasSession = profile != null;
-    final address = profile?.address;
-    final remotePath = sftpState.selectedProfile == null
-        ? '~'
-        : sftpState.selectedRemotePath;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final mobile = constraints.maxWidth < 720;
-        if (mobile) {
-          return _MobilePageTopBar(
-            icon: Icons.folder_open_rounded,
-            title: profile?.name ?? 'SFTP Workspace',
-            subtitle: hasSession
-                ? '$address · $remotePath'
-                : 'Select or activate a terminal session',
-            trailing: null,
-          );
-        }
-
-        return Row(
-          children: [
-            const _Brand(),
-            const SizedBox(width: 18),
-            Expanded(
-              child: Align(
-                alignment: Alignment.center,
-                child: _ConnectionBadge(
-                  osIconAsset: profile?.osIconAsset,
-                  iconColor: hasSession ? AppColors.green : AppColors.muted,
-                  title: profile?.name ?? 'SFTP Workspace',
-                  trailing: AppPill(
-                    label: hasSession ? 'Ready' : 'No session',
-                    color: hasSession ? AppColors.green : AppColors.muted,
-                    background: hasSession
-                        ? AppColors.greenTint
-                        : AppColors.surface,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _RemoteTopBar extends StatelessWidget {
-  const _RemoteTopBar();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(children: [const _Brand(), const Spacer()]);
-  }
-}
-
-class _SimpleTopBar extends StatelessWidget {
-  const _SimpleTopBar({required this.title});
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 720) {
-          return _MobilePageTopBar(
-            icon: Icons.settings_outlined,
-            title: title,
-            subtitle: 'Portix preferences',
-          );
-        }
-        return Row(
-          children: [
-            const _Brand(),
-            const SizedBox(width: 28),
-            Text(title, style: portixTitle(16)),
-          ],
-        );
-      },
     );
   }
 }
@@ -477,9 +384,9 @@ class _ConnectionBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final asset = (osIconAsset ?? '').trim();
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 620, minHeight: 38),
+      constraints: const BoxConstraints(maxWidth: 560),
       child: Container(
-        height: 34,
+        height: 28,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: AppColors.surface,
@@ -509,22 +416,6 @@ class _ConnectionBadge extends StatelessWidget {
             if (trailing != null) ...[const SizedBox(width: 10), trailing!],
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _Brand extends StatelessWidget {
-  const _Brand();
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      'Portix',
-      style: TextStyle(
-        color: AppColors.text,
-        fontSize: 19,
-        fontWeight: FontWeight.w900,
       ),
     );
   }

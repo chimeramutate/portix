@@ -119,7 +119,7 @@ class _ThemeCard extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
         side: BorderSide(
-          color: selected ? AppColors.green : AppColors.border,
+          color: selected ? AppColors.cyan : AppColors.border,
           width: selected ? 2 : 1,
         ),
       ),
@@ -195,7 +195,7 @@ class TerminalThemeSample extends StatelessWidget {
         style: TextStyle(
           color: theme.foreground,
           fontFamily: 'monospace',
-          fontSize: 10.5,
+          fontSize: 11,
           height: 1.35,
         ),
         children: [

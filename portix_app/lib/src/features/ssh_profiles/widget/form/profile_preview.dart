@@ -46,7 +46,7 @@ class _PreviewProfileCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.selectedSoft,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.primaryBlue),
+        border: Border.all(color: AppColors.cyan),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -91,7 +91,7 @@ class _PreviewProfileCard extends StatelessWidget {
             children: [
               AppPill(label: profile.group, color: AppColors.cyan),
               for (final tag in profile.tags.take(2))
-                AppPill(label: tag, color: AppColors.green),
+                AppPill(label: tag, color: AppColors.muted),
             ],
           ),
           const SizedBox(height: 12),
@@ -134,11 +134,11 @@ class _PreviewIcon extends StatelessWidget {
       width: 42,
       height: 42,
       decoration: BoxDecoration(
-        color: AppColors.green.withValues(alpha: .14),
+        color: AppColors.muted.withValues(alpha: .14),
         borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: AppColors.green),
+        border: Border.all(color: AppColors.muted),
       ),
-      child: Icon(Icons.dns_rounded, color: AppColors.green, size: 24),
+      child: Icon(Icons.dns_rounded, color: AppColors.muted, size: 24),
     );
   }
 }
