@@ -435,6 +435,9 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         .firstOrNull;
   }
 
+  String? _activeProfileName() =>
+      _activeProfile(context.read<SshWorkspaceBloc>().state)?.name;
+
   TerminalSession? _connectedSshSessionForProfile(String profileId) {
     for (final session in _connectionManager.sessions.reversed) {
       if (session.profileId == profileId &&
@@ -867,6 +870,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     final localFileName = LocalEditorService.buildRemoteTempFileName(
       _safeLocalFileName(entry.name),
       remotePath: entry.path,
+      profileName: _activeProfileName(),
     );
     final localPath =
         '${tempRoot.path}${Platform.pathSeparator}${localFileName}';
@@ -992,6 +996,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     final localFileName = LocalEditorService.buildRemoteTempFileName(
       _safeLocalFileName(entry.name),
       remotePath: entry.path,
+      profileName: _activeProfileName(),
     );
     final localPath =
         '${tempRoot.path}${Platform.pathSeparator}${localFileName}';
