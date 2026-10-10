@@ -1050,6 +1050,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     final localFileName = LocalEditorService.buildRemoteTempFileName(
       file.name,
       remotePath: remotePath,
+      profileName: _remoteProfileName,
     );
     final localPath =
         '${tempRoot.path}${Platform.pathSeparator}${localFileName}';

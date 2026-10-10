@@ -13,6 +13,17 @@ void main() {
       expect(fileName, 'config__41f6b000__1712345678901.json');
     });
 
+    test('includes sanitized profile name after the base name', () {
+      final fileName = LocalEditorService.buildRemoteTempFileName(
+        'config.json',
+        remotePath: '/srv/app/config.json',
+        profileName: 'prod/db:1',
+        now: DateTime.fromMillisecondsSinceEpoch(1712345678901),
+      );
+
+      expect(fileName, 'config__prod_db_1__41f6b000__1712345678901.json');
+    });
+
     test(
       'same input is deterministic for identical remote path and timestamp',
       () {
