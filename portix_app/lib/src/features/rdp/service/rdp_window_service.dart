@@ -1,14 +1,12 @@
 import 'dart:convert';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
-import 'package:flutter/services.dart';
 import 'package:portix/src/domain/entities/rdp/index.dart';
 
 class RdpWindowService {
   const RdpWindowService._();
 
   static const String windowType = 'portix_rdp_session';
-  static final List<WindowController> _openControllers = <WindowController>[];
 
   static Future<WindowController> openSession({
     required RdpProfile profile,
@@ -31,30 +29,25 @@ class RdpWindowService {
     );
 
     await controller.show();
-    _openControllers.add(controller);
     return controller;
   }
 
   static Future<void> closeAllSessions() async {
+    // Only windows that still exist: one the user already closed makes the
+    // plugin throw "failed to find target window".
     final controllers = await WindowController.getAll();
-    final targets = <String, WindowController>{
-      for (final controller in _openControllers)
-        controller.windowId: controller,
-      for (final controller in controllers.where(_isRdpSessionWindow))
-        controller.windowId: controller,
-    }.values;
 
-    for (final controller in targets) {
+    for (final controller in controllers.where(_isRdpSessionWindow)) {
       try {
         await controller.close();
-      } on MissingPluginException {
-        await controller.hide();
       } catch (_) {
-        await controller.hide();
+        try {
+          await controller.hide();
+        } catch (_) {
+          // Window went away between getAll() and now.
+        }
       }
     }
-
-    _openControllers.clear();
   }
 
   static bool _isRdpSessionWindow(WindowController controller) {

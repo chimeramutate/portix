@@ -641,6 +641,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ "$IS_BETA" = "true" ]; then
+            sed -i '' 's/^PRODUCT_BUNDLE_IDENTIFIER = .*/PRODUCT_BUNDLE_IDENTIFIER = beta.portix.app/' \
+              macos/Runner/Configs/AppInfo.xcconfig
+          fi
+          grep '^PRODUCT_BUNDLE_IDENTIFIER' macos/Runner/Configs/AppInfo.xcconfig
+
           flutter build macos \
             --release \
             --dart-define=PORTIX_BACKEND=rust \
@@ -1000,6 +1006,11 @@ jobs:
             "lib/src/rust/frb_generated.dart"
           sed -i "s|ioDirectory: '../portix_rdp/target/release/'|ioDirectory: ''|g" \
             "lib/src/rust_rdp/frb_generated.dart"
+
+          if [ "$IS_BETA" = "true" ]; then
+            sed -i 's/set(APPLICATION_ID ".*")/set(APPLICATION_ID "beta.portix.app")/' linux/CMakeLists.txt
+          fi
+          grep 'set(APPLICATION_ID' linux/CMakeLists.txt
 
           flutter build linux \
             --release \
@@ -1503,6 +1514,14 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
+          # Windows has no bundle ID; ProductName is what identifies the build
+          # (and keys the %APPDATA% folder), so beta gets its own.
+          if ($env:IS_BETA -eq "true") {
+            (Get-Content windows/runner/Runner.rc) -replace '"ProductName", "Portix"', '"ProductName", "Portix Beta"' |
+              Set-Content windows/runner/Runner.rc
+          }
+          Select-String -Path windows/runner/Runner.rc -Pattern '"ProductName"'
+
           flutter build windows --release --dart-define=PORTIX_BACKEND=rust --dart-define=RUST_LIBRARY_MODE=production
 
       - name: Bundle Rust libraries
@@ -1811,14 +1830,6 @@ jobs:
           echo "Icon copied to snap/gui/icon.png"
           ls -la snap/gui/
 
-      - name: Cache snapcraft
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/snapcraft
-            ~/.local/share/snapcraft
-          key: snapcraft-${{ runner.os }}-${{ hashFiles('snap/snapcraft.yaml') }}
-
       - name: Sync snap version
         shell: bash
         run: |
@@ -1888,7 +1899,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - snap
-    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-beta') && github.event_name != 'pull_request'
+    if: startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request'
 
     steps:
       - name: Checkout
@@ -1911,7 +1922,9 @@ jobs:
         uses: snapcore/action-publish@v1
         with:
           snap: snap_artifact/portix_${{ github.ref_name }}.snap
-          release: stable
+          # Every channel gets the fresh build, so no channel keeps a revision
+          # with stale Ubuntu packages (Snap Store security notices).
+          release: ${{ env.IS_BETA == 'true' && 'beta,edge' || 'stable,candidate,beta,edge' }}
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
 

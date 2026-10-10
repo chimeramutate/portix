@@ -68,9 +68,9 @@ Future<void> showTutorialOnce(
           const SizedBox(height: 14),
         ],
         widgetNext: Text(
-          last ? 'Selesai' : 'Klik untuk lanjut (${i + 1}/${steps.length})',
+          last ? 'Done' : 'Click to continue (${i + 1}/${steps.length})',
           style: TextStyle(
-            color: AppColors.green,
+            color: AppColors.cyan,
             fontWeight: FontWeight.w800,
             decoration: TextDecoration.none,
           ),

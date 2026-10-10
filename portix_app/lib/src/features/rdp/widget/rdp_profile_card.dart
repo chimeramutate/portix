@@ -22,79 +22,82 @@ class RdpProfileCard extends StatelessWidget {
     final borderColor = selected ? accent : AppColors.border;
     final cardBg = selected ? AppColors.surfaceCard : AppColors.surface;
 
-    return GestureDetector(
-      onTap: () =>
-          context.read<RdpWorkspaceBloc>().add(RdpProfileSelected(profile.id)),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-        decoration: BoxDecoration(
-          color: cardBg,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: borderColor, width: selected ? 1.3 : 1),
-        ),
-        child: Row(
-          children: [
-            _RdpIcon(color: accent, isCyberArk: profile.isCyberArkPsm),
-
-            const SizedBox(width: 9),
-
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    profile.name.isEmpty ? 'Unnamed' : profile.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: portixTitle(12.5),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    profile.address,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: portixMuted(10),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(width: 8),
-
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(8),
+      side: BorderSide(color: borderColor, width: selected ? 1.3 : 1),
+    );
+    return FocusRing(
+      child: Material(
+        color: cardBg,
+        shape: shape,
+        child: InkWell(
+          customBorder: shape,
+          onTap: () => context.read<RdpWorkspaceBloc>().add(
+            RdpProfileSelected(profile.id),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            child: Row(
               children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (profile.isCyberArkPsm) ...[
-                      _Chip(label: 'PSM', color: AppColors.amber),
-                      const SizedBox(width: 4),
-                    ],
+                _RdpIcon(color: accent, isCyberArk: profile.isCyberArkPsm),
 
-                    _Chip(
-                      label: profile.group,
-                      color: accent.withValues(alpha: .7),
+                const SizedBox(width: 9),
+
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        profile.name.isEmpty ? 'Unnamed' : profile.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: portixTitle(12.5),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        profile.address,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: portixMuted(11),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: 8),
+
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (profile.isCyberArkPsm) ...[
+                          _Chip(label: 'PSM', color: AppColors.amber),
+                          const SizedBox(width: 4),
+                        ],
+
+                        _Chip(label: profile.group, color: AppColors.muted),
+                      ],
+                    ),
+
+                    const SizedBox(height: 3),
+
+                    Text(
+                      '${profile.desktopWidth}×${profile.desktopHeight}',
+                      style: portixMuted(11),
                     ),
                   ],
                 ),
 
-                const SizedBox(height: 3),
+                const SizedBox(width: 7),
 
-                Text(
-                  '${profile.desktopWidth}×${profile.desktopHeight}',
-                  style: portixMuted(9),
-                ),
+                _StatusDot(status: profile.status),
               ],
             ),
-
-            const SizedBox(width: 7),
-
-            _StatusDot(status: profile.status),
-          ],
+          ),
         ),
       ),
     );
@@ -166,7 +169,7 @@ class _Chip extends StatelessWidget {
         label,
         style: TextStyle(
           color: color,
-          fontSize: 9,
+          fontSize: 11,
           fontWeight: FontWeight.w800,
         ),
       ),
@@ -175,7 +178,7 @@ class _Chip extends StatelessWidget {
 }
 
 Color _accentColor(RdpProfileColor color) => switch (color) {
-  RdpProfileColor.blue => AppColors.primaryBlue,
+  RdpProfileColor.blue => AppColors.blue,
   RdpProfileColor.cyan => AppColors.cyan,
   RdpProfileColor.green => AppColors.green,
   RdpProfileColor.amber => AppColors.amber,

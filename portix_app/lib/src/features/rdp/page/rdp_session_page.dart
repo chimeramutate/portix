@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:portix/src/core/di/injection.dart';
@@ -26,10 +28,14 @@ class RdpSessionPage extends StatefulWidget {
 class _RdpSessionPageState extends State<RdpSessionPage> {
   bool _isFullScreen = false;
 
+  /// Fullscreen toolbar visibility. It only appears while the pointer is at
+  /// the top edge, so clicks always reach the remote desktop.
   bool _showOverlayToolbar = false;
+  Timer? _hideTimer;
 
   @override
   void dispose() {
+    _hideTimer?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
     sl<RdpBackendService>().disconnect(widget.sessionId);
@@ -47,13 +53,16 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
 
   void _enterFullScreen() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    // Show the toolbar briefly so the user sees where it lives.
     setState(() {
       _isFullScreen = true;
-      _showOverlayToolbar = false;
+      _showOverlayToolbar = true;
     });
+    _scheduleHide(const Duration(seconds: 2));
   }
 
   void _exitFullScreen() {
+    _hideTimer?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     if (mounted) {
       setState(() {
@@ -63,32 +72,16 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
     }
   }
 
-  void _toggleFullScreen() {
-    if (_isFullScreen) {
-      _exitFullScreen();
-    } else {
-      _enterFullScreen();
-    }
+  void _showToolbar() {
+    _hideTimer?.cancel();
+    if (!_showOverlayToolbar) setState(() => _showOverlayToolbar = true);
   }
 
-  void _toggleOverlayToolbar() {
-    setState(() => _showOverlayToolbar = !_showOverlayToolbar);
-  }
-
-  Future<void> _pasteLocalClipboard() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final text = data?.text;
-    if (text == null || text.isEmpty) return;
-
-    await sl<RdpBackendService>().pasteTextAsKeystrokes(widget.sessionId, text);
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Pasted local clipboard to remote session.'),
-        duration: Duration(seconds: 2),
-      ),
-    );
+  void _scheduleHide([Duration delay = const Duration(milliseconds: 400)]) {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(delay, () {
+      if (mounted) setState(() => _showOverlayToolbar = false);
+    });
   }
 
   int get _desktopWidth =>
@@ -102,9 +95,6 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
       sessionId: widget.sessionId,
       desktopWidth: _desktopWidth,
       desktopHeight: _desktopHeight,
-
-      onSingleTapUp: _isFullScreen ? _toggleOverlayToolbar : null,
-      onDoubleTap: _isFullScreen ? _exitFullScreen : null,
       onDisconnect: _closePage,
     );
 
@@ -116,18 +106,37 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
           children: [
             viewer,
 
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeInOut,
-              top: _showOverlayToolbar ? 0 : -72,
+            // Hover strip along the top edge. Translucent, so clicks there
+            // still go to the remote desktop.
+            Positioned(
+              top: 0,
               left: 0,
               right: 0,
-              child: _FullscreenToolbar(
-                profileName: widget.profile.name,
-                resolution: '${_desktopWidth}×$_desktopHeight',
-                onPasteClipboard: _pasteLocalClipboard,
-                onExitFullscreen: _exitFullScreen,
-                onDisconnect: _closePage,
+              height: 4,
+              child: MouseRegion(
+                hitTestBehavior: HitTestBehavior.translucent,
+                onEnter: (_) => _showToolbar(),
+                onExit: (_) => _scheduleHide(),
+              ),
+            ),
+
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              top: _showOverlayToolbar ? 0 : -48,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: MouseRegion(
+                  onEnter: (_) => _showToolbar(),
+                  onExit: (_) => _scheduleHide(),
+                  child: _FullscreenToolbar(
+                    profileName: widget.profile.name,
+                    resolution: '${_desktopWidth}×$_desktopHeight',
+                    onExitFullscreen: _exitFullScreen,
+                    onDisconnect: _closePage,
+                  ),
+                ),
               ),
             ),
           ],
@@ -156,14 +165,9 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.content_paste_go_outlined),
-            tooltip: 'Paste local clipboard to remote',
-            onPressed: _pasteLocalClipboard,
-          ),
-          IconButton(
             icon: const Icon(Icons.fullscreen),
-            tooltip: 'Enter fullscreen (or double-tap)',
-            onPressed: _toggleFullScreen,
+            tooltip: 'Enter fullscreen',
+            onPressed: _enterFullScreen,
           ),
           IconButton(
             icon: const Icon(Icons.close),
@@ -177,65 +181,65 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
   }
 }
 
+/// Compact pill shown at the top center in fullscreen.
 class _FullscreenToolbar extends StatelessWidget {
   const _FullscreenToolbar({
     required this.profileName,
     required this.resolution,
-    required this.onPasteClipboard,
     required this.onExitFullscreen,
     required this.onDisconnect,
   });
 
   final String profileName;
   final String resolution;
-  final VoidCallback onPasteClipboard;
   final VoidCallback onExitFullscreen;
   final VoidCallback onDisconnect;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 56,
-      color: const Color.fromRGBO(0, 0, 0, 0.85),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      height: 36,
+      constraints: const BoxConstraints(maxWidth: 420),
+      padding: const EdgeInsets.only(left: 12, right: 4),
+      decoration: const BoxDecoration(
+        color: Color.fromRGBO(24, 24, 27, 0.92),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(10)),
+        boxShadow: [BoxShadow(color: Colors.black45, blurRadius: 8)],
+      ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.desktop_windows, color: Colors.white70, size: 18),
+          const Icon(Icons.desktop_windows, color: Colors.white70, size: 14),
           const SizedBox(width: 8),
-          Expanded(
+          Flexible(
             child: Text(
               profileName,
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 14,
+                fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          const SizedBox(width: 8),
           Text(
             resolution,
-            style: const TextStyle(color: Colors.white54, fontSize: 12),
+            style: const TextStyle(color: Colors.white54, fontSize: 11),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 4),
           IconButton(
-            icon: const Icon(Icons.content_paste_go_outlined, size: 18),
-            tooltip: 'Paste local clipboard to remote',
-            color: Colors.white70,
-            onPressed: onPasteClipboard,
-          ),
-          const SizedBox(width: 4),
-          TextButton.icon(
-            onPressed: onExitFullscreen,
             icon: const Icon(Icons.fullscreen_exit, size: 18),
-            label: const Text('Exit Fullscreen'),
-            style: TextButton.styleFrom(foregroundColor: Colors.white70),
+            tooltip: 'Exit fullscreen',
+            color: Colors.white70,
+            visualDensity: VisualDensity.compact,
+            onPressed: onExitFullscreen,
           ),
-          const SizedBox(width: 4),
           IconButton(
             icon: const Icon(Icons.close, size: 18),
             tooltip: 'Disconnect',
             color: Colors.redAccent,
+            visualDensity: VisualDensity.compact,
             onPressed: onDisconnect,
           ),
         ],

@@ -165,7 +165,7 @@ class _FilePane extends StatelessWidget {
                           isRemote
                               ? Icons.dns_outlined
                               : Icons.computer_rounded,
-                          color: isRemote ? AppColors.green : AppColors.cyan,
+                          color: AppColors.muted,
                           size: 18,
                         ),
                       const SizedBox(width: 9),
@@ -177,10 +177,7 @@ class _FilePane extends StatelessWidget {
                           style: portixTitle(16),
                         ),
                       ),
-                      AppPill(
-                        label: countLabel,
-                        color: isRemote ? AppColors.green : AppColors.cyan,
-                      ),
+                      AppPill(label: countLabel, color: AppColors.muted),
                     ],
                   ),
                 ),
@@ -938,7 +935,7 @@ class _SftpInlineCreateItem extends StatelessWidget {
         color: AppColors.surfaceCard.withValues(alpha: .58),
         border: Border(
           bottom: BorderSide(
-            color: AppColors.primaryBlue.withValues(alpha: .9),
+            color: AppColors.cyan.withValues(alpha: .9),
           ),
         ),
       ),
@@ -1014,7 +1011,7 @@ class _SftpInlineRenameItem extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.selected,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.primaryBlue),
+        border: Border.all(color: AppColors.cyan),
       ),
       child: Row(
         children: [

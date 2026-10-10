@@ -145,7 +145,7 @@ class _TerminalConnectionOverlayState extends State<TerminalConnectionOverlay> {
                           Text(
                             elapsed,
                             style: TextStyle(
-                              fontSize: 9,
+                              fontSize: 11,
                               color: slowConnection
                                   ? AppColors.amber
                                   : AppColors.muted,

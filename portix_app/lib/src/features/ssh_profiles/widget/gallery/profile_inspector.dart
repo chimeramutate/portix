@@ -45,7 +45,7 @@ class ProfileInspector extends StatelessWidget {
             const SizedBox(height: 8),
             AppPanel(
               color: AppColors.selectedSoft,
-              borderColor: AppColors.primaryBlue,
+              borderColor: AppColors.cyan,
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
@@ -242,7 +242,7 @@ class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
         _latencyMs = DateTime.now().difference(start).inMilliseconds;
       });
     } catch (_) {
-      // Latency measurement failed — keep null (will show "—").
+      // Measurement failed: leave null so the panel says "not measured".
     }
   }
 
@@ -252,7 +252,7 @@ class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
     final isOnline = status == ConnectionStatus.online;
     if (!isOnline) return const SizedBox.shrink();
 
-    final latencyText = _latencyMs == null ? '— ms' : '$_latencyMs ms';
+    final latencyText = _latencyMs == null ? 'not measured' : '$_latencyMs ms';
 
     return AppPanel(
       padding: const EdgeInsets.all(14),
@@ -270,11 +270,6 @@ class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
             icon: Icons.monitor_heart_outlined,
             text: 'Latency $latencyText',
             color: AppColors.cyan,
-          ),
-          _FeedbackLine(
-            icon: Icons.folder_outlined,
-            text: 'Remote folder mounted',
-            color: AppColors.muted,
           ),
         ],
       ),

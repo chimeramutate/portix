@@ -65,6 +65,10 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
   _InlineCreateKind? _inlineCreateKind;
   RemoteFileEntry? _renamingEntry;
   String? _autoLoadedSessionId;
+  // Last folder per session: the shell's reported cwd or where the panel was
+  // browsed to, so switching tabs returns there. The panel never drives the
+  // shell.
+  final Map<String, String> _terminalDirectories = {};
   String? _autoLoadedPath;
   int _remoteLoadToken = 0;
   int _handledOpenRequestSerial = 0;
@@ -221,7 +225,9 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         }
         if (profile?.id != _profileId) {
           _profileId = profile?.id;
-          _remotePath = _terminalFolderPath(profile);
+          _remotePath =
+              _terminalDirectories[_activeSessionId] ??
+              _terminalFolderPath(profile);
           _remoteEntries = const [];
           _remoteError = null;
           _remoteFolderMounted = false;
@@ -333,7 +339,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
                               width: 2,
                               height: 34,
                               decoration: BoxDecoration(
-                                color: AppColors.primaryBlue.withValues(
+                                color: AppColors.cyan.withValues(
                                   alpha: .55,
                                 ),
                                 borderRadius: BorderRadius.circular(2),
@@ -359,6 +365,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
                           keyboardEnabled: isVisible,
                           onSessionChanged: (_) {},
                           onActiveSessionChanged: _handleActiveSessionChanged,
+                          onDirectoryChanged: _handleTerminalDirectoryChanged,
                           onLastSessionClosed: () {
                             context.read<SshSessionBloc>().add(
                               const SshSessionCleared(),
@@ -428,6 +435,9 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         .firstOrNull;
   }
 
+  String? _activeProfileName() =>
+      _activeProfile(context.read<SshWorkspaceBloc>().state)?.name;
+
   TerminalSession? _connectedSshSessionForProfile(String profileId) {
     for (final session in _connectionManager.sessions.reversed) {
       if (session.profileId == profileId &&
@@ -451,7 +461,8 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
       if (sessionId != null) {
         final state = context.read<SshWorkspaceBloc>().state;
         final profile = _activeProfile(state);
-        final path = _terminalFolderPath(profile);
+        final path =
+            _terminalDirectories[sessionId] ?? _terminalFolderPath(profile);
         // Only reload if path actually changed. Don't reload when switching
         // between panes in same workspace/profile.
         if (path != _remotePath) {
@@ -470,6 +481,13 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         }
       }
     });
+  }
+
+  void _handleTerminalDirectoryChanged(String sessionId, String path) {
+    if (_terminalDirectories[sessionId] == path) return;
+    _terminalDirectories[sessionId] = path;
+    if (!mounted || sessionId != _activeSessionId) return;
+    unawaited(_loadRemoteDirectory(path));
   }
 
   void _handleConnectionManagerChanged() {
@@ -633,6 +651,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
       },
       (entries) {
         if (!_isCurrentRemoteRequest(sessionId, token)) return;
+        _terminalDirectories[sessionId] = resolvedPath;
         setState(() {
           _remotePath = resolvedPath;
           _remoteEntries = [...entries]..sort(_sortRemoteEntries);
@@ -851,6 +870,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     final localFileName = LocalEditorService.buildRemoteTempFileName(
       _safeLocalFileName(entry.name),
       remotePath: entry.path,
+      profileName: _activeProfileName(),
     );
     final localPath =
         '${tempRoot.path}${Platform.pathSeparator}${localFileName}';
@@ -976,6 +996,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     final localFileName = LocalEditorService.buildRemoteTempFileName(
       _safeLocalFileName(entry.name),
       remotePath: entry.path,
+      profileName: _activeProfileName(),
     );
     final localPath =
         '${tempRoot.path}${Platform.pathSeparator}${localFileName}';

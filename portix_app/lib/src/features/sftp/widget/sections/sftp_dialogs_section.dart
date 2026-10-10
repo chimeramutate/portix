@@ -96,8 +96,8 @@ class _SftpPasswordDialogState extends State<_SftpPasswordDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '"${profile.name}" belum memiliki secure password. '
-                'Masukkan password untuk menyambung.',
+                '"${profile.name}" has no saved password. '
+                'Enter the password to connect.',
                 style: portixMuted(12),
               ),
               const SizedBox(height: 16),
@@ -125,7 +125,7 @@ class _SftpPasswordDialogState extends State<_SftpPasswordDialog> {
               const SizedBox(height: 8),
               Text(
                 'The password will be saved to local secure storage.',
-                style: portixMuted(10),
+                style: portixMuted(11),
               ),
             ],
           ),

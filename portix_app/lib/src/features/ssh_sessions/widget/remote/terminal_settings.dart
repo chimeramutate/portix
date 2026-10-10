@@ -24,7 +24,6 @@ const terminalFonts = [
   'Roboto Mono',
   'Cascadia Mono',
   'SFMono-Regular',
-  'Inter',
 ];
 
 const terminalFontSizes = [
@@ -45,7 +44,7 @@ Color terminalTextColorFromValue(String? value) {
     case 'cyan':
       return AppColors.cyan;
     case 'blue':
-      return AppColors.primaryBlue;
+      return AppColors.blue;
     case 'red':
       return AppColors.danger;
     case 'white':
@@ -84,8 +83,6 @@ String terminalFontFamilyFromValue(String? value) {
       return 'Cascadia Mono';
     case 'SFMono-Regular':
       return 'SFMono-Regular';
-    case 'Inter':
-      return 'Inter';
     case 'Monospace':
     default:
       return 'monospace';

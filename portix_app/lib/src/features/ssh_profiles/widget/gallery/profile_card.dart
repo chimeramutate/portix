@@ -38,7 +38,7 @@ class ProfileCard extends StatelessWidget {
       child: AppPanel(
         padding: const EdgeInsets.all(12),
         color: selected ? AppColors.selectedSoft : AppColors.surface,
-        borderColor: selected ? AppColors.primaryBlue : AppColors.border,
+        borderColor: selected ? AppColors.cyan : AppColors.border,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -139,7 +139,7 @@ class ProfileCard extends StatelessWidget {
               children: [
                 AppPill(label: profile.group, color: AppColors.cyan),
                 for (final tag in profile.tags.take(previewMode ? 3 : 1))
-                  AppPill(label: tag, color: AppColors.green),
+                  AppPill(label: tag, color: AppColors.muted),
                 if (!previewMode)
                   AppPill(label: statusLabelFor(status), color: statusColor),
               ],

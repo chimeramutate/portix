@@ -108,11 +108,11 @@ class _SettingsNavigationTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
             color: active
-                ? AppColors.primaryBlue.withValues(alpha: .22)
+                ? AppColors.cyan.withValues(alpha: .22)
                 : AppColors.surfaceDark.withValues(alpha: .54),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: active ? AppColors.primaryBlue : AppColors.border,
+              color: active ? AppColors.cyan : AppColors.border,
             ),
           ),
           child: Row(
