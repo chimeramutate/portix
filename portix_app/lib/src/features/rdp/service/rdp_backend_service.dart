@@ -118,12 +118,12 @@ class RdpBackendService {
     try {
       final file = File(filePath);
       if (!await file.exists()) {
-        return Left(Failure('File tidak ditemukan: $filePath'));
+        return Left(Failure('File not found: $filePath'));
       }
       final content = await file.readAsString();
       return parseRdpContent(content, filePath: filePath);
     } catch (e) {
-      return Left(Failure('Gagal membaca file .rdp: $e'));
+      return Left(Failure('Could not read the .rdp file: $e'));
     }
   }
 
@@ -145,7 +145,7 @@ class RdpBackendService {
       );
       return Right(profile);
     } catch (e) {
-      return Left(Failure('Gagal mem-parse .rdp: $e'));
+      return Left(Failure('Could not parse the .rdp file: $e'));
     }
   }
 
@@ -218,7 +218,7 @@ class RdpBackendService {
         ),
       );
     } catch (e) {
-      return Left(Failure('Gagal connect ke RDP server: $e'));
+      return Left(Failure('Could not connect to the RDP server: $e'));
     }
   }
 
@@ -237,7 +237,7 @@ class RdpBackendService {
         debugPrint('[RDP] Disconnect: session $sessionId already gone');
         return const Right(null);
       }
-      return Left(Failure('Gagal disconnect: $e'));
+      return Left(Failure('Could not disconnect: $e'));
     }
   }
 

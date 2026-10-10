@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
+import 'package:portix/src/connection_manager/profile_credentials.dart';
 import 'package:portix/src/connection_manager/session_models.dart'
     as session_models;
 import 'package:portix/src/connection_manager/ssh_profile.dart'
@@ -22,7 +23,15 @@ import 'package:xterm/xterm.dart';
 import '../../controller/index.dart';
 import 'terminal_settings.dart';
 import 'terminal_shortcuts.dart';
+import 'host_key_dialog.dart';
+import 'key_passphrase_dialog.dart';
+import 'port_forward_dialog.dart';
+import 'session_snapshots_dialog.dart';
+import 'terminal_profile_picker_dialog.dart';
+import 'terminal_search_bar.dart';
+import 'terminal_snippets.dart';
 import 'terminal_status_footer.dart';
+import 'terminal_theme_picker.dart';
 import 'terminal_workspace_view.dart';
 
 class TerminalPanel extends StatefulWidget {
@@ -34,6 +43,7 @@ class TerminalPanel extends StatefulWidget {
     this.keyboardEnabled = true,
     this.onSessionChanged,
     this.onActiveSessionChanged,
+    this.onDirectoryChanged,
     this.onLastSessionClosed,
   });
 
@@ -43,6 +53,7 @@ class TerminalPanel extends StatefulWidget {
   final bool keyboardEnabled;
   final ValueChanged<bool>? onSessionChanged;
   final ValueChanged<String?>? onActiveSessionChanged;
+  final void Function(String sessionId, String path)? onDirectoryChanged;
   final VoidCallback? onLastSessionClosed;
 
   @override
@@ -54,18 +65,19 @@ class _TerminalPanelState extends State<TerminalPanel> {
   late final TerminalController _idleController;
   late final FocusNode _idleFocusNode;
   late final TerminalSessionUiController _terminalUi;
+
   /// Tracks, per session, whether the terminal is currently "following"
   /// output (i.e. the viewport is at or near the bottom).  This is updated
   /// by a persistent scroll-listener so that the check remains accurate
   /// even across layout cycles where `maxScrollExtent` has not yet been
   /// refreshed after new text blocks are written.
   final Map<String, bool> _isFollowingOutput = {};
+
   /// Guards one-time registration of scroll listeners per session.
   final Set<String> _scrollListenersRegistered = {};
   late final ConnectionManager _connectionManager;
+  late final TerminalTelemetryController _telemetry;
   late final SettingsRepository _settingsRepository;
-  final TerminalSuggestionController _suggestions =
-      TerminalSuggestionController();
   final TerminalSplitController _splitController =
       const TerminalSplitController();
   final TerminalSessionOrderController _sessionOrder =
@@ -80,11 +92,13 @@ class _TerminalPanelState extends State<TerminalPanel> {
   bool _broadcastTyping = false;
   StreamSubscription<session_models.TerminalOutputEvent>? _outputSubscription;
   StreamSubscription<session_models.ConnectionErrorEvent>? _errorSubscription;
-  Timer? _telemetryTimer;
-  final Map<String, Timer> _suggestionHelpTimers = {};
-  final Map<String, String> _suggestionHelpRequests = {};
+  StreamSubscription<String>? _sessionLostSubscription;
+  // Sessions with an auto-reconnect loop running.
+  final Set<String> _autoReconnecting = {};
+  // Serializes reconnects: after wake from sleep every tab drops at once, and
+  // _reconnectSession shares _workspaceReconnectInProgress across calls.
+  Future<void> _reconnectQueue = Future.value();
   String? _sessionId;
-  String? _telemetrySessionId;
   String? _connectedProfileId;
   bool _connectInProgress = false;
   TerminalClipboardShortcut _copyShortcut = TerminalClipboardShortcut.shiftCtrl;
@@ -93,19 +107,16 @@ class _TerminalPanelState extends State<TerminalPanel> {
   Color _terminalBackgroundColor = AppColors.terminal;
   String _terminalFontFamily = 'monospace';
   double _terminalFontSize = 13;
+  // Size from Settings; zoom shortcuts change _terminalFontSize around it.
+  double _baseFontSize = 13;
+  String? _terminalThemeName;
   bool _passwordPromptActive = false;
-  session_models.RemoteSystemSnapshot? _remoteSnapshot;
-  String? _telemetryError;
-  final List<RemoteMetricSample> _metricSamples = [];
-  bool _telemetryLoading = false;
-  // Consecutive telemetry failures — when this reaches the threshold the
-  // session is proactively closed so the disconnect overlay appears
-  // immediately without waiting for the Rust keepalive timeout.
-  final Map<String, int> _telemetryFailCount = {};
   bool _activeTabClosed = false;
   int _cols = 80;
   int _rows = 24;
   final ScrollController _tabScrollController = ScrollController();
+  final SessionSnapshotStore _snapshotStore = SessionSnapshotStore();
+  bool _toolsExpanded = false;
   bool _showTabScrollStart = false;
   bool _showTabScrollEnd = false;
 
@@ -114,20 +125,25 @@ class _TerminalPanelState extends State<TerminalPanel> {
     super.initState();
     _connectionManager = sl<ConnectionManager>();
     _settingsRepository = sl<SettingsRepository>();
+    _telemetry = TerminalTelemetryController(
+      connectionManager: _connectionManager,
+      onOsDetected: _handleOsDetected,
+    );
     _terminalUi = TerminalSessionUiController(
       onInput: _handleTerminalInput,
       onResize: _handleTerminalResize,
+      onDirectoryChanged: (path, sessionId) =>
+          widget.onDirectoryChanged?.call(sessionId, path),
     );
     _idleController = _terminalUi.idleController;
     _idleFocusNode = _terminalUi.idleFocusNode;
     _idleTerminal = _terminalUi.idleTerminal;
     _listenToConnectionManager();
     _connectionManager.addListener(_handleConnectionManagerChanged);
+    HardwareKeyboard.instance.addHandler(_handlePanelShortcut);
     _bootTerminal();
     _tabScrollController.addListener(_handleTabScrollChanged);
-    unawaited(_loadTerminalSuggestionSetting());
-    unawaited(_loadTerminalClipboardSettings());
-    unawaited(_loadTerminalAppearanceSettings());
+    unawaited(_loadTerminalSettings());
     WidgetsBinding.instance.addPostFrameCallback((_) => _connect());
   }
 
@@ -149,6 +165,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
   @override
   void dispose() {
     _connectionManager.removeListener(_handleConnectionManagerChanged);
+    HardwareKeyboard.instance.removeHandler(_handlePanelShortcut);
+    _search?.dispose();
     _tabScrollController.dispose();
 
     // Jangan close session di sini.
@@ -160,84 +178,225 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
     unawaited(_outputSubscription?.cancel());
     unawaited(_errorSubscription?.cancel());
-    _telemetryTimer?.cancel();
-    for (final timer in _suggestionHelpTimers.values) {
-      timer.cancel();
-    }
-    _suggestionHelpTimers.clear();
+    unawaited(_sessionLostSubscription?.cancel());
     _pendingDisposedSessionIds.clear();
-    _suggestions.clear();
     _terminalUi.dispose();
+    _telemetry.dispose();
 
     super.dispose();
   }
 
-  Future<void> _loadTerminalSuggestionSetting() async {
+  /// Reads clipboard + appearance settings in one file read. On failure the
+  /// current values (initially the defaults) are kept.
+  Future<void> _loadTerminalSettings() async {
+    final Map<String, String> values;
     try {
-      final values = await _settingsRepository.loadSettings();
-      final setting = values[TerminalSuggestionController.settingsKey]
-          ?.toUpperCase();
-      final enabled = setting != 'OFF';
-      if (!mounted) return;
-      setState(() => _suggestions.setEnabled(enabled));
+      values = await _settingsRepository.loadSettings();
     } catch (_) {
-      _suggestions.setEnabled(true);
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _copyShortcut = terminalClipboardShortcutFromValue(
+        values[terminalCopyShortcutSettingKey],
+      );
+      _pasteShortcut = terminalClipboardShortcutFromValue(
+        values[terminalPasteShortcutSettingKey],
+      );
+      _terminalThemeName = values[terminalThemeSettingKey];
+      _terminalTextColor = terminalTextColorFromValue(
+        values[terminalTextColorSettingKey],
+      );
+      _terminalBackgroundColor = terminalBackgroundColorFromValue(
+        values[terminalBackgroundColorSettingKey],
+      );
+      _terminalFontFamily = terminalFontFamilyFromValue(
+        values[terminalFontSettingKey],
+      );
+      _baseFontSize = _terminalFontSize = terminalFontSizeFromValue(
+        values[terminalFontSizeSettingKey],
+      ).toDouble();
+    });
+  }
+
+  /// Tools tucked behind one button at the right end of the tab bar.
+  Widget _buildTerminalTools() {
+    final hasSession = _sessionId != null;
+    Widget tool(
+      String message,
+      IconData icon,
+      VoidCallback? onPressed, {
+      Key? key,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: AppIconButton(
+          key: key,
+          tooltip: message,
+          outlined: false,
+          icon: icon,
+          onPressed: onPressed,
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AnimatedSize(
+          duration: const Duration(milliseconds: 160),
+          child: !_toolsExpanded
+              ? const SizedBox.shrink()
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    tool(
+                      'Snippets (Ctrl+Shift+P)',
+                      Icons.bolt_rounded,
+                      _openSnippetPalette,
+                    ),
+                    tool(
+                      'Port forwarding',
+                      Icons.swap_horiz_rounded,
+                      _openPortForwarding,
+                    ),
+                    tool(
+                      'Terminal theme',
+                      Icons.palette_outlined,
+                      _openThemePicker,
+                      key: const ValueKey('terminal-theme'),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _buildRecordButton(),
+                    ),
+                    tool(
+                      Platform.isMacOS
+                          ? 'Find in terminal (Cmd+F)'
+                          : 'Find in terminal (Ctrl+Shift+F)',
+                      Icons.search_rounded,
+                      hasSession ? _openSearch : null,
+                      key: const ValueKey('terminal-search'),
+                    ),
+                    tool(
+                      'Save session state',
+                      Icons.bookmark_add_outlined,
+                      hasSession ? _saveSnapshot : null,
+                      key: const ValueKey('save-session-state'),
+                    ),
+                    tool(
+                      'Saved sessions',
+                      Icons.history_rounded,
+                      _openSnapshots,
+                      key: const ValueKey('saved-sessions'),
+                    ),
+                  ],
+                ),
+        ),
+        AppIconButton(
+          key: const ValueKey('terminal-tools'),
+          tooltip: _toolsExpanded ? 'Hide tools' : 'Terminal tools',
+          outlined: false,
+          icon: _toolsExpanded
+              ? Icons.chevron_right_rounded
+              : Icons.more_horiz_rounded,
+          onPressed: () => setState(() => _toolsExpanded = !_toolsExpanded),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _renameTab(String sessionId) async {
+    final session = _sessionById(sessionId);
+    if (session == null) return;
+    final name = await showNameDialog(
+      context,
+      title: 'Rename tab',
+      initial: session.title,
+      action: 'Rename',
+    );
+    if (name != null) _connectionManager.renameSession(sessionId, name);
+  }
+
+  Future<void> _saveSnapshot() async {
+    final sessionId = _sessionId;
+    final session = sessionId == null ? null : _sessionById(sessionId);
+    if (session == null) return;
+    final name = await showNameDialog(
+      context,
+      title: 'Save session state',
+      initial: session.title,
+      action: 'Save',
+    );
+    if (name == null || !mounted) return;
+    final now = DateTime.now();
+    final snapshot = SessionSnapshot(
+      id: '${now.microsecondsSinceEpoch}',
+      profileId: session.profileId,
+      title: name,
+      savedAt: now,
+      output: terminalSnapshotText(_terminalForSession(session.id)),
+    );
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      await _snapshotStore.save(snapshot);
+      messenger?.showSnackBar(SnackBar(content: Text('Saved "$name"')));
+    } catch (error) {
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Failed to save session: $error')),
+      );
     }
   }
 
-  Future<void> _loadTerminalClipboardSettings() async {
-    try {
-      final values = await _settingsRepository.loadSettings();
-      if (!mounted) return;
-      setState(() {
-        _copyShortcut = terminalClipboardShortcutFromValue(
-          values[terminalCopyShortcutSettingKey],
-        );
-        _pasteShortcut = terminalClipboardShortcutFromValue(
-          values[terminalPasteShortcutSettingKey],
-        );
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _copyShortcut = TerminalClipboardShortcut.shiftCtrl;
-        _pasteShortcut = TerminalClipboardShortcut.ctrl;
-      });
-    }
+  /// Picks a saved snapshot (per profile) and opens it in a new tab.
+  Future<void> _openSnapshots() async {
+    final sessionId = _sessionId;
+    final snapshot = await showSessionSnapshotsDialog(
+      context,
+      store: _snapshotStore,
+      profiles: widget.profiles,
+      initialProfileId:
+          (sessionId == null ? null : _sessionById(sessionId)?.profileId) ??
+          widget.profile?.id,
+    );
+    if (snapshot == null || !mounted) return;
+    final profile = widget.profiles
+        .where((profile) => profile.id == snapshot.profileId)
+        .firstOrNull;
+    if (profile == null) return;
+    _activeTabClosed = false;
+    await _connectNewSession(profile, restore: snapshot);
   }
 
-  Future<void> _loadTerminalAppearanceSettings() async {
+  void _openThemePicker() {
+    unawaited(
+      showTerminalThemePicker(
+        context,
+        current: _terminalThemeName,
+        onSelected: (name) {
+          setState(() => _terminalThemeName = name);
+          unawaited(_saveTerminalTheme(name));
+        },
+      ),
+    );
+  }
+
+  /// Persists [name] so new windows and the Settings page use it too.
+  Future<void> _saveTerminalTheme(String name) async {
     try {
       final values = await _settingsRepository.loadSettings();
-      if (!mounted) return;
-      setState(() {
-        _terminalTextColor = terminalTextColorFromValue(
-          values[terminalTextColorSettingKey],
-        );
-        _terminalBackgroundColor = terminalBackgroundColorFromValue(
-          values[terminalBackgroundColorSettingKey],
-        );
-        _terminalFontFamily = terminalFontFamilyFromValue(
-          values[terminalFontSettingKey],
-        );
-        _terminalFontSize = terminalFontSizeFromValue(
-          values[terminalFontSizeSettingKey],
-        ).toDouble();
+      await _settingsRepository.saveSettings({
+        ...values,
+        terminalThemeSettingKey: name,
       });
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _terminalTextColor = AppColors.text;
-        _terminalBackgroundColor = AppColors.terminal;
-        _terminalFontFamily = 'monospace';
-        _terminalFontSize = 13;
-      });
+      // Applied for this session anyway; the next pick retries the save.
     }
   }
 
   void _notifyActiveSessionChanged(String? sessionId) {
     widget.onActiveSessionChanged?.call(sessionId);
-    _syncTelemetrySession(sessionId);
+    _telemetry.track(sessionId);
     if (!mounted) return;
 
     if (sessionId == null) {
@@ -311,7 +470,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
         // causing the auto-scroll to be skipped at the upper/lower scroll
         // boundaries ("batas atas/bawah") when a full text block has just
         // been added.
-        final wasFollowing = _isFollowingOutput[sessionId] ?? _isScrollAtBottom(sessionId);
+        final wasFollowing =
+            _isFollowingOutput[sessionId] ?? _isScrollAtBottom(sessionId);
         _ensureScrollListenerRegistered(sessionId);
         _terminalForSession(sessionId).write(event.data);
         // Auto-scroll to follow the text block (terminal output) when the
@@ -331,6 +491,56 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _errorSubscription ??= _connectionManager.errorEventStream.listen(
       _handleBackendError,
     );
+    _sessionLostSubscription ??= _connectionManager.sessionLostStream.listen(
+      (sessionId) => unawaited(_autoReconnect(sessionId)),
+    );
+  }
+
+  static const List<int> _autoReconnectDelaysSeconds = [2, 4, 8, 16, 30, 30];
+
+  /// Retries a dropped session with exponential backoff. Each attempt first
+  /// waits for the host's SSH port to accept TCP again, then runs the normal
+  /// [_reconnectSession] once. Aborts as soon as the user closes or
+  /// reconnects the tab themselves.
+  Future<void> _autoReconnect(String sessionId) async {
+    if (!_autoReconnecting.add(sessionId)) return;
+    try {
+      final profileId = _sessionById(sessionId)?.profileId;
+      final profile = widget.profiles
+          .where((profile) => profile.id == profileId)
+          .firstOrNull;
+      if (profile == null) return;
+      final total = _autoReconnectDelaysSeconds.length;
+      for (var attempt = 0; attempt < total; attempt++) {
+        final delay = _autoReconnectDelaysSeconds[attempt];
+        _terminalForSession(sessionId).write(
+          '\r\n\x1b[33m[portix] Reconnecting in ${delay}s '
+          '(attempt ${attempt + 1}/$total)...\x1b[0m\r\n',
+        );
+        await Future<void>.delayed(Duration(seconds: delay));
+        if (!mounted ||
+            _sessionById(sessionId) == null ||
+            _isSessionReusable(sessionId)) {
+          return;
+        }
+        if (await _connectionManager.isSessionHostReachable(sessionId)) {
+          final reconnect = _reconnectQueue.then(
+            (_) => _reconnectSession(sessionId),
+          );
+          _reconnectQueue = reconnect.catchError((_) {});
+          await reconnect;
+          return;
+        }
+      }
+      if (mounted && _sessionById(sessionId) != null) {
+        _terminalForSession(sessionId).write(
+          '\r\n\x1b[31m[portix] Host still unreachable. '
+          'Use Reconnect to try again.\x1b[0m\r\n',
+        );
+      }
+    } finally {
+      _autoReconnecting.remove(sessionId);
+    }
   }
 
   /// Registers a scroll-listener on the session's [ScrollController] that
@@ -351,12 +561,54 @@ class _TerminalPanelState extends State<TerminalPanel> {
     });
   }
 
+  // Sessions whose failure is being resolved (one failure can arrive as
+  // both a backend error and a status event).
+  final Set<String> _resolvingFailures = {};
+
+  /// Connects fail asynchronously (Rust returns the session id first), so a
+  /// refused host key or an encrypted key surfaces here as an error event.
+  /// Resolve it with the user, then reconnect the same tab.
+  Future<void> _resolveSessionFailure(String sessionId, String message) async {
+    final session = _sessionById(sessionId);
+    if (session == null ||
+        session.status == session_models.ConnectionStatus.connected ||
+        !_resolvingFailures.add(sessionId)) {
+      return;
+    }
+    try {
+      final profile = widget.profiles
+          .where((p) => p.id == session.profileId)
+          .firstOrNull;
+      if (profile == null) return;
+      final managerProfile = manager_profile.SshProfile.fromDomain(profile);
+
+      final hostKey = await resolveRefusedHostKey(
+        context,
+        _connectionManager,
+        managerProfile,
+      );
+      if (hostKey == true && mounted) return _reconnectSession(sessionId);
+      if (hostKey != null || !mounted) return;
+
+      final retry = await resolveKeyPassphrase(
+        context,
+        _connectionManager.credentials,
+        managerProfile,
+        message,
+      );
+      if (retry && mounted) await _reconnectSession(sessionId);
+    } finally {
+      _resolvingFailures.remove(sessionId);
+    }
+  }
+
   void _handleBackendError(session_models.ConnectionErrorEvent error) {
     final sessionId = error.sessionId;
     if (sessionId != null && _sessionById(sessionId) != null) {
       _terminalForSession(
         sessionId,
       ).write('\r\n\x1b[31m${error.message}\x1b[0m\r\n');
+      unawaited(_resolveSessionFailure(sessionId, error.message));
       return;
     }
     if (!mounted) return;
@@ -366,11 +618,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         SnackBar(
           content: Row(
             children: [
-              Icon(
-                Icons.cloud_off_rounded,
-                color: AppColors.danger,
-                size: 18,
-              ),
+              Icon(Icons.cloud_off_rounded, color: AppColors.danger, size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -424,10 +672,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
       final activeSession = _sessionById(_sessionId!);
       widget.onSessionChanged?.call(activeSession != null);
       _notifyActiveSessionChanged(_sessionId);
-      if (_isSessionConnected(_sessionId!) && _remoteSnapshot == null) {
-        unawaited(_loadRemoteTelemetry(_sessionId!));
+      if (_isSessionConnected(_sessionId!) && _telemetry.snapshot == null) {
+        unawaited(_telemetry.refresh());
       } else if (!_isSessionConnected(_sessionId!)) {
-        _clearRemoteTelemetry(
+        _telemetry.clear(
           error:
               _statusForSession(_sessionId!) ==
                   session_models.ConnectionStatus.connecting
@@ -440,117 +688,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
     setState(() {});
   }
 
-  void _clearRemoteTelemetry({String? error}) {
-    _telemetryLoading = false;
-    _remoteSnapshot = null;
-    _telemetryError = error;
-    _metricSamples.clear();
-  }
-
-  void _syncTelemetrySession(String? sessionId) {
-    if (_telemetrySessionId == sessionId) return;
-    _telemetryTimer?.cancel();
-    _telemetrySessionId = sessionId;
-    _clearRemoteTelemetry();
-    if (sessionId != null) _telemetryFailCount.remove(sessionId);
-    if (sessionId == null) return;
-    unawaited(_loadRemoteTelemetry(sessionId));
-    _telemetryTimer = Timer.periodic(
-      const Duration(seconds: 4),
-      (_) => unawaited(_loadRemoteTelemetry(sessionId)),
+  void _handleOsDetected(String sessionId, String osIconAsset) {
+    final profileId = _sessionById(sessionId)?.profileId;
+    if (profileId == null || !mounted) return;
+    context.read<SshWorkspaceBloc>().add(
+      ProfileOsDetected(profileId: profileId, osIconAsset: osIconAsset),
     );
-  }
-
-  Future<void> _loadRemoteTelemetry(String sessionId) async {
-    if (!_isSessionConnected(sessionId)) return;
-    if (_telemetryLoading) return;
-    _telemetryLoading = true;
-    final result = await _connectionManager.remoteSystemSnapshot(sessionId);
-    _telemetryLoading = false;
-    if (!mounted || _telemetrySessionId != sessionId) return;
-    result.fold(
-      (failure) {
-        setState(() => _telemetryError = failure.message);
-        // Count consecutive failures. After 2 failures the remote is almost
-        // certainly unreachable — force-close the session immediately so the
-        // disconnect overlay appears right away instead of waiting for the
-        // Rust keepalive timeout (~17 s).
-        final fails = (_telemetryFailCount[sessionId] ?? 0) + 1;
-        _telemetryFailCount[sessionId] = fails;
-        if (fails >= 2 && _isSessionConnected(sessionId)) {
-          _telemetryFailCount.remove(sessionId);
-          unawaited(_connectionManager.closeSession(sessionId));
-        }
-      },
-      (snapshot) {
-        // Reset failure counter on success.
-        _telemetryFailCount.remove(sessionId);
-        final session = _sessionById(sessionId);
-        final profileId = session?.profileId;
-        if (profileId != null) {
-          context.read<SshWorkspaceBloc>().add(
-            ProfileOsDetected(
-              profileId: profileId,
-              osIconAsset: _osAssetPath(snapshot.os),
-            ),
-          );
-        }
-        final memoryPercent = _capacityPercent(
-          snapshot.memoryUsedBytes,
-          snapshot.memoryTotalBytes,
-        );
-        final diskPercent = _capacityPercent(
-          snapshot.diskUsedBytes,
-          snapshot.diskTotalBytes,
-        );
-        setState(() {
-          _remoteSnapshot = snapshot;
-          _telemetryError = null;
-          _metricSamples.add(
-            RemoteMetricSample(
-              createdAt: DateTime.now(),
-              memoryPercent: memoryPercent,
-              diskPercent: diskPercent,
-            ),
-          );
-          if (_metricSamples.length > 36) {
-            _metricSamples.removeRange(0, _metricSamples.length - 36);
-          }
-        });
-      },
-    );
-  }
-
-  double _capacityPercent(int used, int total) {
-    if (total <= 0) return 0;
-    return (used / total * 100).clamp(0, 100);
-  }
-
-  String _osAssetPath(String os) {
-    final normalized = os.toLowerCase();
-    if (normalized.contains('ubuntu')) {
-      return 'assets/icons/os/ubuntu-linux.svg';
-    }
-    if (normalized.contains('debian')) {
-      return 'assets/icons/os/debian-linux.svg';
-    }
-    if (normalized.contains('fedora')) {
-      return 'assets/icons/os/fedora-linux.svg';
-    }
-    if (normalized.contains('centos')) {
-      return 'assets/icons/os/centos-linux.svg';
-    }
-    if (normalized.contains('red hat') || normalized.contains('redhat')) {
-      return 'assets/icons/os/redhat-linux.svg';
-    }
-    if (normalized.contains('arch')) return 'assets/icons/os/arch-linux.svg';
-    if (normalized.contains('windows')) return 'assets/icons/os/windows.svg';
-    if (normalized.contains('darwin') ||
-        normalized.contains('mac') ||
-        normalized.contains('apple')) {
-      return 'assets/icons/os/apple.svg';
-    }
-    return 'assets/icons/os/linux.svg';
   }
 
   void _bootTerminal() {
@@ -623,9 +766,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
   void _disposeSessionUi(String sessionId) {
     _isFollowingOutput.remove(sessionId);
     _scrollListenersRegistered.remove(sessionId);
-    _suggestionHelpTimers.remove(sessionId)?.cancel();
-    _suggestionHelpRequests.remove(sessionId);
-    _suggestions.clearSession(sessionId);
     _terminalUi.disposeSession(sessionId);
   }
 
@@ -702,386 +842,15 @@ class _TerminalPanelState extends State<TerminalPanel> {
     // terminal behaviour (the prompt lives at the bottom).
     _scrollTerminalToBottom(targetSessionId);
 
-    // Enter should only accept full command history suggestions. Remote/path
-    // completions can match ordinary names, so accepting them on Enter makes
-    // normal command execution surprisingly mutate the input.
-    if (data == '\r' &&
-        _suggestions.canAcceptSuggestionWithEnter(targetSessionId) &&
-        _acceptSuggestion(targetSessionId)) {
-      return;
-    }
-
-    if (_isAcceptSuggestionInput(data) && _acceptSuggestion(targetSessionId)) {
-      return;
-    }
-    if (_isSelectNextSuggestionInput(data) &&
-        _selectSuggestion(targetSessionId, 1)) {
-      return;
-    }
-    if (_isSelectPreviousSuggestionInput(data) &&
-        _selectSuggestion(targetSessionId, -1)) {
-      return;
-    }
     if (_broadcastTyping && _visibleSessionIds.contains(targetSessionId)) {
-      var suggestionChanged = false;
       for (final visibleSessionId in _visibleSessionIds) {
         if (!_isSessionConnected(visibleSessionId)) continue;
-        suggestionChanged =
-            _suggestions.handleInput(visibleSessionId, data) ||
-            suggestionChanged;
-        _scheduleRemoteHelpSuggestions(visibleSessionId);
         unawaited(_connectionManager.sendTerminalInput(visibleSessionId, data));
       }
-      if (suggestionChanged && mounted) setState(() {});
       return;
     }
-    final suggestionChanged = _suggestions.handleInput(targetSessionId, data);
-    _scheduleRemoteHelpSuggestions(targetSessionId);
-    if (suggestionChanged && mounted) setState(() {});
     unawaited(_connectionManager.sendTerminalInput(targetSessionId, data));
   }
-
-  bool _isAcceptSuggestionInput(String data) {
-    return data == '\t' ||
-        data == '\x1b[C' ||
-        data == '\x1b[F' ||
-        data == '\x1b[4~';
-  }
-
-  bool _isSelectNextSuggestionInput(String data) {
-    return data == '\x1b[B';
-  }
-
-  bool _isSelectPreviousSuggestionInput(String data) {
-    return data == '\x1b[A';
-  }
-
-  bool _acceptSuggestion(String sessionId) {
-    if (!_isSessionConnected(sessionId)) return false;
-    final suffix = _suggestions.acceptSuggestion(sessionId);
-    if (suffix == null) return false;
-    _suggestionHelpTimers.remove(sessionId)?.cancel();
-    unawaited(_connectionManager.sendTerminalInput(sessionId, suffix));
-    if (mounted) setState(() {});
-    return true;
-  }
-
-  bool _selectSuggestion(String sessionId, int delta) {
-    if (!_isSessionConnected(sessionId)) return false;
-    final changed = _suggestions.moveSelection(sessionId, delta);
-    if (changed && mounted) setState(() {});
-    return changed;
-  }
-
-  void _scheduleRemoteHelpSuggestions(String sessionId) {
-    final input = _suggestions.inputFor(sessionId);
-    _suggestionHelpTimers.remove(sessionId)?.cancel();
-    if (input.length < 2 || !_isSessionConnected(sessionId)) return;
-    _suggestionHelpTimers[sessionId] = Timer(
-      const Duration(milliseconds: 180),
-      () => unawaited(_loadRemoteHelpSuggestions(sessionId, input)),
-    );
-  }
-
-  Future<void> _loadRemoteHelpSuggestions(
-    String sessionId,
-    String requestInput,
-  ) async {
-    if (!_isSessionConnected(sessionId)) return;
-    _suggestionHelpRequests[sessionId] = requestInput;
-    final result = await _connectionManager.terminalComplete(
-      session_models.TerminalCompleteRequest(
-        buffer: requestInput,
-        cursor: requestInput.length,
-        cwd: _autocompleteCwdForSession(sessionId),
-        shell: _autocompleteShell(),
-        env: _autocompleteEnv(),
-        maxItems: 12,
-        sessionId: sessionId,
-      ),
-    );
-    if (!mounted) return;
-    if (_suggestionHelpRequests[sessionId] != requestInput) return;
-
-    var completions = <session_models.TerminalCompletionCandidate>[];
-    var loadedFromTerminalComplete = false;
-    result.fold((_) {}, (response) {
-      loadedFromTerminalComplete = true;
-      completions = _completionCandidatesFromResponse(requestInput, response);
-    });
-
-    if (completions.isEmpty) {
-      completions = _localOptionFallback(requestInput);
-    }
-
-    if (!loadedFromTerminalComplete &&
-        (completions.isEmpty || _shouldMergeDynamicCommandHelp(requestInput))) {
-      final fallback = await _connectionManager.commandCompletions(
-        sessionId,
-        requestInput,
-      );
-      if (!mounted) return;
-      if (_suggestionHelpRequests[sessionId] != requestInput) return;
-      fallback.fold((_) {}, (items) {
-        completions = _mergeCompletionCandidates(completions, items);
-      });
-    }
-
-    final changed = _suggestions.setRemoteCompletions(sessionId, completions);
-    if (changed && mounted) setState(() {});
-  }
-
-  List<session_models.TerminalCompletionCandidate> _localOptionFallback(
-    String input,
-  ) {
-    final trimmed = input.trimLeft();
-    if (!trimmed.contains(' ')) return const [];
-    final parts = trimmed.split(RegExp(r'\s+'));
-    if (parts.length < 2) return const [];
-    final command = parts.first;
-    final token = parts.last;
-    // Show options when token starts with '-' OR when it's the command itself
-    // (means user typed 'ls ' with trailing space — parts = ['ls', ''])
-    final isEmptyToken = trimmed.endsWith(' ') || token == command;
-    if (!token.startsWith('-') && !isEmptyToken) return const [];
-    final options = _fallbackOptions[command] ?? const [];
-    final filterToken = isEmptyToken ? '-' : token;
-    return options
-        .where((option) => option.$1.startsWith(filterToken))
-        .map(
-          (option) => session_models.TerminalCompletionCandidate(
-            replacement: isEmptyToken
-                ? '$trimmed${option.$1}'
-                : _replaceCurrentToken(trimmed, option.$1),
-            display: option.$1,
-            description: option.$2,
-            source: 'fallback',
-            kind: session_models.CompletionKind.command,
-          ),
-        )
-        .toList(growable: false);
-  }
-
-  String _replaceCurrentToken(String input, String token) {
-    if (input.isEmpty || input.codeUnitAt(input.length - 1) <= 32) {
-      return '$input$token';
-    }
-    final index = _lastTokenStart(input.trimRight());
-    return '${input.substring(0, index)}$token';
-  }
-
-  bool _shouldMergeDynamicCommandHelp(String input) {
-    final trimmed = input.trimLeft();
-    if (trimmed.length < 2) return false;
-    if (RegExp(r'[;&|`$<>\n\r]').hasMatch(trimmed)) return false;
-    final parts = trimmed.split(RegExp(r'\s+'));
-    if (parts.isEmpty) return false;
-    if (!_isSafeAutocompleteCommand(parts.first)) return false;
-    if (parts.length == 1) return true;
-    if (input.isNotEmpty && input.codeUnitAt(input.length - 1) <= 32) {
-      return parts.length >= 1;
-    }
-    return parts.length > 1;
-  }
-
-  bool _isSafeAutocompleteCommand(String command) {
-    if (command.isEmpty || command.length > 64 || command.contains('/')) {
-      return false;
-    }
-    return RegExp(r'^[A-Za-z0-9_.+-]+$').hasMatch(command);
-  }
-
-  List<session_models.TerminalCompletionCandidate> _mergeCompletionCandidates(
-    List<session_models.TerminalCompletionCandidate> first,
-    List<session_models.TerminalCompletionCandidate> second,
-  ) {
-    final unique = <String, session_models.TerminalCompletionCandidate>{};
-    for (final candidate in [...second, ...first]) {
-      unique.putIfAbsent(candidate.replacement, () => candidate);
-    }
-    return unique.values.toList(growable: false);
-  }
-
-  List<session_models.TerminalCompletionCandidate>
-  _completionCandidatesFromResponse(
-    String input,
-    session_models.TerminalCompleteResponse response,
-  ) {
-    final candidates = <session_models.TerminalCompletionCandidate>[];
-    final suggestion = response.suggestion?.trim();
-    if (input.trim().isNotEmpty &&
-        suggestion != null &&
-        suggestion.isNotEmpty) {
-      candidates.add(
-        session_models.TerminalCompletionCandidate(
-          replacement: '$input$suggestion',
-          display: '$input$suggestion',
-          description: 'history',
-          source: 'history',
-          kind: session_models.CompletionKind.history,
-        ),
-      );
-    }
-
-    for (final item in response.items) {
-      final replacement = _replacementForCompletion(input, item);
-      if (replacement.trim().isEmpty) continue;
-      candidates.add(
-        session_models.TerminalCompletionCandidate(
-          replacement: replacement,
-          display: item.label.trim().isEmpty ? item.insertText : item.label,
-          description: item.description ?? _completionKindLabel(item.kind),
-          source: _completionKindLabel(item.kind),
-          kind: item.kind,
-        ),
-      );
-    }
-    final unique = <String, session_models.TerminalCompletionCandidate>{};
-    for (final candidate in candidates) {
-      unique.putIfAbsent(candidate.replacement, () => candidate);
-    }
-    return unique.values.toList(growable: false);
-  }
-
-  String _replacementForCompletion(
-    String input,
-    session_models.TerminalCompletionItem item,
-  ) {
-    final insertText = item.insertText.trim();
-    if (insertText.isEmpty) return '';
-    if (item.kind == session_models.CompletionKind.history &&
-        insertText.toLowerCase().startsWith(input.toLowerCase())) {
-      return insertText;
-    }
-    if (input.isEmpty) return insertText;
-    final lastCodeUnit = input.codeUnitAt(input.length - 1);
-    if (lastCodeUnit <= 32) return '$input$insertText';
-
-    final trimmed = input.trimRight();
-    final tokenStart = _lastTokenStart(trimmed);
-    return '${trimmed.substring(0, tokenStart)}$insertText';
-  }
-
-  int _lastTokenStart(String input) {
-    for (var index = input.length - 1; index >= 0; index -= 1) {
-      if (input.codeUnitAt(index) <= 32) return index + 1;
-    }
-    return 0;
-  }
-
-  String _completionKindLabel(session_models.CompletionKind kind) {
-    return switch (kind) {
-      session_models.CompletionKind.command => 'command',
-      session_models.CompletionKind.path => 'path',
-      session_models.CompletionKind.directory => 'directory',
-      session_models.CompletionKind.file => 'file',
-      session_models.CompletionKind.env => 'env',
-      session_models.CompletionKind.git => 'git',
-      session_models.CompletionKind.history => 'history',
-    };
-  }
-
-  String _autocompleteCwdForSession(String sessionId) {
-    final profile = _profileForSession(sessionId);
-    if (profile == null) return _localHomePath();
-    final startup = profile.startupCommand.trim();
-    final cdMatch = RegExp(r'^cd\s+(.+)$').firstMatch(startup);
-    final profilePath = cdMatch?.group(1)?.trim() ?? profile.defaultPath.trim();
-    if (profilePath.isEmpty || profilePath == '~') return _localHomePath();
-    return profilePath;
-  }
-
-  String _localHomePath() {
-    final home = Platform.environment['HOME']?.trim();
-    if (home != null && home.isNotEmpty) return home;
-    final userProfile = Platform.environment['USERPROFILE']?.trim();
-    if (userProfile != null && userProfile.isNotEmpty) return userProfile;
-    return Directory.current.path;
-  }
-
-  String? _autocompleteShell() {
-    // Unix/macOS: check $SHELL environment variable (e.g. /bin/bash, /bin/zsh,
-    // /usr/bin/fish).
-    if (!Platform.isWindows) {
-      final shell = Platform.environment['SHELL']?.trim();
-      if (shell != null && shell.isNotEmpty) return shell;
-      // Fallback: probe common shell paths.
-      const unixShells = ['/bin/zsh', '/bin/bash', '/usr/bin/fish'];
-      for (final path in unixShells) {
-        if (File(path).existsSync()) return path;
-      }
-      return '/bin/sh';
-    }
-
-    // Windows: detect the active shell.
-    // Check COMSPEC for cmd.exe, but prefer PowerShell/pwsh if available.
-    final comspec = Platform.environment['COMSPEC']?.trim();
-
-    // Prefer modern PowerShell Core (pwsh) if installed.
-    final pwshPaths = [
-      '${Platform.environment['ProgramFiles'] ?? r'C:\Program Files'}\\PowerShell\\7\\pwsh.exe',
-      '${Platform.environment['LOCALAPPDATA'] ?? ''}\\Microsoft\\WindowsApps\\pwsh.exe',
-    ];
-    for (final p in pwshPaths) {
-      if (p.isNotEmpty && File(p).existsSync()) return 'pwsh';
-    }
-
-    // Windows PowerShell (5.x) is always available on modern Windows.
-    const windowsPowerShell =
-        r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe';
-    if (File(windowsPowerShell).existsSync()) return 'powershell';
-
-    // Fallback to COMSPEC (cmd.exe).
-    if (comspec != null && comspec.isNotEmpty) return comspec;
-    return 'cmd';
-  }
-
-  Map<String, String> _autocompleteEnv() {
-    const allowedKeys = [
-      'PATH',
-      'HOME',
-      'USER',
-      'SHELL',
-      'PWD',
-      'LANG',
-      'TERM',
-    ];
-    return {
-      for (final key in allowedKeys)
-        if ((Platform.environment[key] ?? '').trim().isNotEmpty)
-          key: Platform.environment[key]!,
-    };
-  }
-
-  static const Map<String, List<(String, String)>> _fallbackOptions = {
-    'rm': [
-      ('-f', 'ignore nonexistent files, never prompt'),
-      ('-i', 'prompt before every removal'),
-      ('-r', 'remove directories and contents recursively'),
-      ('-R', 'remove directories and contents recursively'),
-      ('-v', 'explain what is being done'),
-    ],
-    'ls': [
-      ('-a', 'show hidden entries'),
-      ('-A', 'show almost all entries'),
-      ('-h', 'human readable sizes'),
-      ('-l', 'long listing format'),
-      ('-R', 'list subdirectories recursively'),
-    ],
-    'cp': [
-      ('-a', 'archive mode'),
-      ('-f', 'force overwrite'),
-      ('-i', 'prompt before overwrite'),
-      ('-r', 'copy directories recursively'),
-      ('-v', 'explain what is being done'),
-    ],
-    'mv': [
-      ('-f', 'force overwrite'),
-      ('-i', 'prompt before overwrite'),
-      ('-n', 'do not overwrite existing file'),
-      ('-v', 'explain what is being done'),
-    ],
-  };
 
   void _handleTerminalResize(int cols, int rows, String? sessionId) {
     _cols = cols;
@@ -1117,10 +886,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _focusNodeForSession(sessionId).requestFocus();
   }
 
-  List<session_models.TerminalSession> get _sshSessions => _connectionManager
-      .sessions
-      .where((session) => session.kind == session_models.SessionKind.ssh)
-      .toList(growable: false);
+  List<session_models.TerminalSession> get _sshSessions =>
+      _connectionManager.sessions;
 
   session_models.TerminalSession? _lastSessionForProfile(String profileId) {
     final sessions = _sshSessions;
@@ -1193,7 +960,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final existingSessionIds = _sshSessions.map((s) => s.id).toSet();
     final prevSessionId = _sessionId;
 
-    final result = await _connectionManager.connect(_toManagerProfile(profile));
+    final result = await _connectionManager.connect(
+      manager_profile.SshProfile.fromDomain(profile),
+    );
     final failure = result.fold<Object?>((f) => f, (_) => null);
     if (failure != null || !mounted) {
       if (mounted) unawaited(_showConnectionFailedDialog(profile, failure!));
@@ -1203,9 +972,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final newSession = _connectionManager.sessions
         .where(
           (s) =>
-              s.profileId == profile.id &&
-              s.kind == session_models.SessionKind.ssh &&
-              !existingSessionIds.contains(s.id),
+              s.profileId == profile.id && !existingSessionIds.contains(s.id),
         )
         .lastOrNull;
 
@@ -1241,9 +1008,194 @@ class _TerminalPanelState extends State<TerminalPanel> {
     });
   }
 
+  /// Ctrl/Cmd+Shift+P opens snippets; Cmd+F (macOS) or Ctrl+Shift+F finds
+  /// in the terminal (plain Ctrl+F belongs to the shell). Registered on
+  /// [HardwareKeyboard] because xterm's focused view would otherwise consume
+  /// them and send control characters to the shell.
+  bool _handlePanelShortcut(KeyEvent event) {
+    final keyboard = HardwareKeyboard.instance;
+    if (!mounted || !widget.keyboardEnabled || event is! KeyDownEvent) {
+      return false;
+    }
+    final key = event.logicalKey;
+    final shift = keyboard.isShiftPressed;
+    final command = keyboard.isControlPressed || keyboard.isMetaPressed;
+    if (key == LogicalKeyboardKey.keyP && shift && command) {
+      if (_snippetPaletteOpen) return false;
+      unawaited(_openSnippetPalette());
+      return true;
+    }
+    final zoomed = terminalZoomFontSize(
+      key,
+      current: _terminalFontSize,
+      base: _baseFontSize,
+      meta: keyboard.isMetaPressed,
+      control: keyboard.isControlPressed,
+      shift: shift,
+      isMacOS: Platform.isMacOS,
+    );
+    if (zoomed != null) {
+      if (zoomed != _terminalFontSize) {
+        setState(() => _terminalFontSize = zoomed);
+      }
+      return true;
+    }
+    final find = Platform.isMacOS
+        ? keyboard.isMetaPressed && !shift
+        : keyboard.isControlPressed && shift;
+    if (key == LogicalKeyboardKey.keyF && find && _sessionId != null) {
+      _openSearch();
+      return true;
+    }
+    return false;
+  }
+
+  TerminalSearchController? _search;
+
+  void _openSearch() {
+    final sessionId = _sessionId;
+    if (sessionId == null) return;
+    if (_search?.terminal == _terminalForSession(sessionId)) {
+      setState(() {}); // already open: the bar takes focus again
+      return;
+    }
+    _search?.dispose();
+    setState(() {
+      _search = TerminalSearchController(
+        terminal: _terminalForSession(sessionId),
+        controller: _controllerForSession(sessionId),
+        theme: terminalThemeForProfile(
+          _profileForSession(sessionId),
+          foreground: _terminalTextColor,
+          background: _terminalBackgroundColor,
+          themeName: _terminalThemeName,
+        ),
+        reveal: (line) => _revealLine(sessionId, line),
+      );
+    });
+  }
+
+  void _closeSearch() {
+    _search?.dispose();
+    setState(() => _search = null);
+    final sessionId = _sessionId;
+    if (sessionId != null) _focusNodeForSession(sessionId).requestFocus();
+  }
+
+  /// Scrolls [sessionId]'s terminal so buffer [line] sits mid-viewport.
+  void _revealLine(String sessionId, int line) {
+    final view = _viewKeyForSession(sessionId).currentState;
+    final scroll = _scrollControllerForSession(sessionId);
+    if (view == null || !scroll.hasClients) return;
+    final position = scroll.position;
+    final target =
+        line * view.renderTerminal.lineHeight - position.viewportDimension / 2;
+    scroll.jumpTo(target.clamp(0.0, position.maxScrollExtent));
+  }
+
+  bool _snippetPaletteOpen = false;
+
+  Widget _buildRecordButton() {
+    final sessionId = _sessionId;
+    final recording =
+        sessionId != null &&
+        _connectionManager.recordingPath(sessionId) != null;
+    return AppIconButton(
+      key: const ValueKey('record-session'),
+      outlined: false,
+      tooltip: recording ? 'Stop recording' : 'Record session to a log file',
+      icon: recording
+          ? Icons.stop_circle_rounded
+          : Icons.fiber_manual_record_rounded,
+      color: recording ? AppColors.danger : AppColors.cyan,
+      onPressed: sessionId == null ? null : _toggleRecording,
+    );
+  }
+
+  /// Tunnels go through the active tab's server (or the selected profile).
+  Future<void> _openPortForwarding() async {
+    final profileId = _sessionId == null
+        ? widget.profile?.id
+        : _sessionById(_sessionId!)?.profileId;
+    final profile = widget.profiles
+        .where((profile) => profile.id == profileId)
+        .firstOrNull;
+    if (profile == null) return;
+    await showPortForwardDialog(
+      context,
+      _connectionManager,
+      manager_profile.SshProfile.fromDomain(profile),
+    );
+  }
+
+  /// Starts or stops logging the active tab's output to
+  /// `~/.portix/logs/<profile>-<timestamp>.log`.
+  Future<void> _toggleRecording() async {
+    final sessionId = _sessionId;
+    if (sessionId == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final current = _connectionManager.recordingPath(sessionId);
+    if (current != null) {
+      await _connectionManager.stopRecording(sessionId);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Session log saved: $current')),
+      );
+      return;
+    }
+    final profileId = _sessionById(sessionId)?.profileId;
+    final name =
+        widget.profiles
+            .where((profile) => profile.id == profileId)
+            .firstOrNull
+            ?.name ??
+        'session';
+    final home =
+        Platform.environment['HOME'] ??
+        Platform.environment['USERPROFILE'] ??
+        '.';
+    final stamp = DateTime.now()
+        .toIso8601String()
+        .split('.')
+        .first
+        .replaceAll(RegExp('[-:]'), '')
+        .replaceFirst('T', '-');
+    final safeName = name.replaceAll(RegExp(r'[^\w.-]+'), '_');
+    final path = '$home/.portix/logs/$safeName-$stamp.log';
+    try {
+      _connectionManager.startRecording(sessionId, path);
+      messenger.showSnackBar(SnackBar(content: Text('Recording to $path')));
+    } on FileSystemException catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Cannot record session: ${error.message}')),
+      );
+    }
+  }
+
+  Future<void> _openSnippetPalette() async {
+    if (_snippetPaletteOpen) return;
+    _snippetPaletteOpen = true;
+    String? command;
+    try {
+      command = await showTerminalSnippetPalette(context, _settingsRepository);
+      if (command != null && mounted) {
+        command = await resolveSnippetVariables(context, command);
+      }
+    } finally {
+      _snippetPaletteOpen = false;
+    }
+    final sessionId = _sessionId;
+    if (command == null || sessionId == null) return;
+    if (!_isSessionConnected(sessionId)) return;
+    unawaited(_connectionManager.sendTerminalInput(sessionId, '$command\r'));
+  }
+
   Future<void> _openNewSessionForCurrentProfile() async {
     final profile = await _pickSessionProfile();
-    if (profile == null) return;
+    if (profile == null || !mounted) return;
+    if (!widget.profiles.any((saved) => saved.id == profile.id)) {
+      // A quick connect: save it so reconnect, SFTP and snapshots find it.
+      context.read<SshWorkspaceBloc>().add(QuickProfileSaved(profile));
+    }
     _activeTabClosed = false;
     _connectedProfileId = null;
     _sessionId = null;
@@ -1260,6 +1212,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
     _workspaceReconnectInProgress = true;
     final orderIndex = _sessionOrder.indexOf(sessionId);
+    final recordingPath = _connectionManager.recordingPath(sessionId);
     await _connectionManager.closeSession(sessionId);
     _sessionOrder.remove(sessionId);
     _syncSplitTreeWithSessions(_sshSessions);
@@ -1269,7 +1222,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
     }
     _scheduleSessionUiDisposal(sessionId);
 
-    final result = await _connectionManager.connect(_toManagerProfile(profile));
+    final result = await _connectionManager.connect(
+      manager_profile.SshProfile.fromDomain(profile),
+    );
     final failure = result.fold<Object?>((failure) => failure, (_) => null);
     if (failure != null || !mounted) {
       _workspaceReconnectInProgress = false;
@@ -1282,11 +1237,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
     }
 
     final newSession = _connectionManager.sessions.lastWhere(
-      (session) =>
-          session.kind == session_models.SessionKind.ssh &&
-          session.profileId == profile.id,
+      (session) => session.profileId == profile.id,
     );
     _terminalForSession(newSession.id).write('\x1b[2J\x1b[H');
+    _connectionManager.renameSession(newSession.id, oldSession.title);
+    if (recordingPath != null) {
+      // Keep logging into the same file across the reconnect.
+      _connectionManager.startRecording(newSession.id, recordingPath);
+    }
     _workspaceReconnectInProgress = false;
     setState(() {
       _sessionOrder.restoreAtOrPlaceLast(newSession.id, orderIndex);
@@ -1309,18 +1267,20 @@ class _TerminalPanelState extends State<TerminalPanel> {
           ..sort(
             (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
           );
-    if (profiles.isEmpty) return Future.value(null);
-
+    // Shown even with no profiles: a quick connect needs none.
     return showDialog<domain.SshProfile>(
       context: context,
-      builder: (context) => _SessionProfilePickerDialog(
+      builder: (context) => SessionProfilePickerDialog(
         profiles: profiles,
         activeProfileId: _connectedProfileId ?? widget.profile?.id,
       ),
     );
   }
 
-  Future<void> _connectNewSession(domain.SshProfile profile) async {
+  Future<void> _connectNewSession(
+    domain.SshProfile profile, {
+    SessionSnapshot? restore,
+  }) async {
     final existingSessionIds = _sshSessions
         .map((session) => session.id)
         .toSet();
@@ -1332,7 +1292,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
     try {
       final result = await _connectionManager.connect(
-        _toManagerProfile(profile),
+        manager_profile.SshProfile.fromDomain(profile),
       );
       result.fold((failure) {
         throw failure;
@@ -1343,6 +1303,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
       }
       final terminal = _terminalForSession(session.id);
       terminal.write('\x1b[2J\x1b[H');
+      if (restore != null) {
+        terminal.write(restoredSnapshotText(restore));
+        _connectionManager.renameSession(session.id, restore.title);
+      }
       if (!mounted) return;
       setState(() {
         _sessionId = session.id;
@@ -1387,7 +1351,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
         .where(
           (item) =>
               item.profileId == profileId &&
-              item.kind == session_models.SessionKind.ssh &&
               !existingSessionIds.contains(item.id),
         )
         .lastOrNull;
@@ -1396,7 +1359,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
   Future<void> _showConnectionFailedDialog(
     domain.SshProfile profile,
     Object error,
-  ) {
+  ) async {
+    // A refused host key gets its own dialog (trust a new host, or a blocking
+    // warning for a changed key) instead of the generic failure.
     final passwordUnavailable = _extractPasswordUnavailable(error);
     if (passwordUnavailable != null) {
       return _showPasswordPromptDialog(profile);
@@ -1465,7 +1430,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                               ),
                               child: SelectableText(
                                 details,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   color: AppColors.muted,
                                   fontFamily: 'monospace',
                                   fontSize: 11,
@@ -1569,7 +1534,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                   const SizedBox(height: 8),
                   Text(
                     'The password will be saved to local secure storage.',
-                    style: portixMuted(10),
+                    style: portixMuted(11),
                   ),
                 ],
               ),
@@ -1605,21 +1570,16 @@ class _TerminalPanelState extends State<TerminalPanel> {
     String password,
   ) async {
     // Save password to secure storage for next time.
-    unawaited(_connectionManager.saveProfilePassword(profile.id, password));
-
-    // Build a profile with the password directly set.
-    final managerProfile = manager_profile.SshProfile(
-      id: profile.id,
-      name: profile.name,
-      host: profile.host,
-      port: profile.port,
-      username: profile.username,
-      password: password,
-      hasPassword: true,
-      privateKeyPath: null,
-      group: profile.group,
-      tags: profile.tags,
+    unawaited(
+      _connectionManager.credentials.savePassword(profile.id, password),
     );
+
+    final managerProfile = manager_profile.SshProfile.fromDomain(profile)
+        .copyWith(
+          password: password,
+          hasPassword: true,
+          clearPrivateKeyPath: true,
+        );
 
     // Close the failed session and reconnect in its place (same tab).
     final failedSessionId = _sessionId;
@@ -1698,13 +1658,13 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final lower = message.toLowerCase();
     if (lower.contains('failed to load dynamic library') &&
         lower.contains('portix_serv.framework')) {
-      return 'Rust backend iOS belum dibundle ke app. Build iOS butuh portix_serv.framework/xcframework di dalam Runner.app/Frameworks sebelum SSH bisa dipakai.';
+      return 'The Rust backend is not bundled in this iOS build. SSH needs portix_serv.framework (or .xcframework) inside Runner.app/Frameworks.';
     }
     if (lower.contains('mobile ssh backend is disabled')) {
-      return 'SSH mobile belum diaktifkan. Untuk sekarang gunakan build desktop agar Rust backend dan SSH session berjalan stabil.';
+      return 'SSH is not enabled on mobile yet. Use the desktop build for SSH sessions.';
     }
     if (lower.contains('rust ssh backend is unavailable')) {
-      return 'Rust SSH backend belum tersedia untuk platform ini. Pastikan native library Portix sudah dibuild dan dibundle bersama app.';
+      return 'The Rust SSH backend is not available on this platform. Make sure the Portix native library is built and bundled with the app.';
     }
     return message.length > 420 ? '${message.substring(0, 420)}...' : message;
   }
@@ -1988,14 +1948,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
         await _connectionManager.closeSession(oldId);
         _scheduleSessionUiDisposal(oldId);
         final result = await _connectionManager.connect(
-          _toManagerProfile(profile),
+          manager_profile.SshProfile.fromDomain(profile),
         );
         final connected = result.fold<bool>((_) => false, (_) => true);
         if (!connected) continue;
         final newSession = _connectionManager.sessions.lastWhere(
-          (session) =>
-              session.kind == session_models.SessionKind.ssh &&
-              session.profileId == profile.id,
+          (session) => session.profileId == profile.id,
         );
         replacements[oldId] = newSession.id;
         final terminal = _terminalForSession(newSession.id);
@@ -2176,7 +2134,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
             border: candidates.isNotEmpty
-                ? Border.all(color: AppColors.green, width: 1.2)
+                ? Border.all(color: AppColors.cyan, width: 1.2)
                 : null,
           ),
           child: TerminalSessionTab(
@@ -2188,6 +2146,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
             onClose: () => _closeTab(session.id),
             onReconnect: () => _reconnectSession(session.id),
             onDuplicate: () => _duplicateSession(session.id),
+            onRename: () => _renameTab(session.id),
           ),
         );
       },
@@ -2267,30 +2226,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
     }
   }
 
-  manager_profile.SshProfile _toManagerProfile(domain.SshProfile profile) {
-    final credential = profile.credentialLabel.trim();
-    final password =
-        profile.authMethod == domain.AuthMethod.password &&
-            credential.isNotEmpty &&
-            credential != 'Saved password'
-        ? credential
-        : null;
-    return manager_profile.SshProfile(
-      id: profile.id,
-      name: profile.name,
-      host: profile.host,
-      port: profile.port,
-      username: profile.username,
-      password: password,
-      hasPassword: profile.authMethod == domain.AuthMethod.password,
-      privateKeyPath: profile.authMethod == domain.AuthMethod.sshKey
-          ? credential
-          : null,
-      group: profile.group,
-      tags: profile.tags,
-    );
-  }
-
   /// Builds a combined ordered list of tab items (workspaces + single sessions)
   /// so that a workspace tab appears at the position of its earliest member
   /// session in [_sessionOrder], not always at the front.
@@ -2350,9 +2285,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
           previous.activeView != current.activeView &&
           current.activeView == WorkspaceView.remoteFolder,
       listener: (context, state) {
-        unawaited(_loadTerminalSuggestionSetting());
-        unawaited(_loadTerminalClipboardSettings());
-        unawaited(_loadTerminalAppearanceSettings());
+        unawaited(_loadTerminalSettings());
       },
       child: Focus(
         autofocus: false,
@@ -2372,34 +2305,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
             return KeyEventResult.handled;
           }
 
-          // When a TUI app (less, vim, htop, etc.) is running in the active
-          // terminal it uses the alternate screen buffer.  In that state we
-          // must not intercept navigation keys — they belong to the TUI app.
-          final sessionId = _sessionId;
-          final activeTerminalIsAltBuffer =
-              sessionId != null &&
-              _terminalForSession(sessionId).isUsingAltBuffer;
-
-          if (!activeTerminalIsAltBuffer) {
-            if (!isModifierPressed &&
-                (event.logicalKey == LogicalKeyboardKey.arrowRight ||
-                    event.logicalKey == LogicalKeyboardKey.end ||
-                    event.logicalKey == LogicalKeyboardKey.tab)) {
-              if (sessionId != null && _acceptSuggestion(sessionId)) {
-                return KeyEventResult.handled;
-              }
-            }
-            if (!isModifierPressed &&
-                (event.logicalKey == LogicalKeyboardKey.arrowDown ||
-                    event.logicalKey == LogicalKeyboardKey.arrowUp)) {
-              final delta = event.logicalKey == LogicalKeyboardKey.arrowDown
-                  ? 1
-                  : -1;
-              if (sessionId != null && _selectSuggestion(sessionId, delta)) {
-                return KeyEventResult.handled;
-              }
-            }
-          }
           return KeyEventResult.ignored;
         },
         child: Container(
@@ -2407,9 +2312,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
           child: Column(
             children: [
               Container(
-                height: 54,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: const BoxDecoration(
+                height: 36,
+                padding: const EdgeInsets.only(left: 4, right: 8),
+                decoration: BoxDecoration(
                   color: AppColors.bg,
                   border: Border(bottom: BorderSide(color: AppColors.border)),
                 ),
@@ -2430,7 +2335,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                 tooltip: 'Scroll tabs left',
                                 padding: EdgeInsets.zero,
                                 onPressed: () => _scrollTabsBy(-220),
-                                icon: const Icon(
+                                icon: Icon(
                                   Icons.chevron_left_rounded,
                                   color: AppColors.muted,
                                   size: 18,
@@ -2483,23 +2388,25 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                           else if (item
                                               is session_models.TerminalSession)
                                             _buildSessionTab(item),
-                                          const SizedBox(width: 8),
+                                          const SizedBox(width: 2),
                                         ],
                                         AppIconButton(
                                           key: const ValueKey(
                                             'new-terminal-tab',
                                           ),
+                                          tooltip: 'New terminal tab',
+                                          outlined: false,
                                           icon: Icons.add_rounded,
                                           onPressed:
                                               _openNewSessionForCurrentProfile,
                                         ),
                                         if (showDropHint) ...[
                                           const SizedBox(width: 8),
-                                          const Text(
+                                          Text(
                                             'Drop here to move this session',
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
-                                              color: AppColors.green,
+                                              color: AppColors.cyan,
                                               fontWeight: FontWeight.w800,
                                               fontSize: 12,
                                             ),
@@ -2523,7 +2430,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                 tooltip: 'Scroll tabs right',
                                 padding: EdgeInsets.zero,
                                 onPressed: () => _scrollTabsBy(220),
-                                icon: const Icon(
+                                icon: Icon(
                                   Icons.chevron_right_rounded,
                                   color: AppColors.muted,
                                   size: 18,
@@ -2531,6 +2438,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
                               ),
                             ),
                           ),
+                        const SizedBox(width: 8),
+                        _buildTerminalTools(),
                       ],
                     );
                   },
@@ -2542,7 +2451,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                           ? Container(
                               color: AppColors.terminal,
                               alignment: Alignment.center,
-                              child: const Column(
+                              child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   SizedBox(
@@ -2582,74 +2491,52 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                   );
                               },
                             )
-                    : TerminalWorkspaceView(
-                        root: displayRoot,
-                        activeSessionId: _sessionId,
-                        soloSessionId: soloSessionId,
-                        broadcastTyping: _broadcastTyping,
-                        showPaneControls: showPaneControls,
-                        terminalForSession: _terminalForSession,
-                        statusForSession: _statusForSession,
-                        profileForSession: _profileForSession,
-                        suggestionForSession: _suggestions.suggestionFor,
-                        suggestionCandidatesForSession:
-                            _suggestions.candidatesFor,
-                        suggestionSuffixForSession:
-                            _suggestions.completionSuffixFor,
-                        idleTerminal: _idleTerminal,
-                        controllerForSession: _controllerForSession,
-                        scrollControllerForSession: _scrollControllerForSession,
-                        focusNodeForSession: _focusNodeForSession,
-                        viewKeyForSession: _viewKeyForSession,
-                        idleController: _idleController,
-                        idleScrollController: _terminalUi.idleScrollController,
-                        idleFocusNode: _idleFocusNode,
-                        idleViewKey: _terminalUi.idleViewKey,
-                        keyboardEnabled: widget.keyboardEnabled,
-                        copyShortcut: _copyShortcut,
-                        pasteShortcut: _pasteShortcut,
-                        textColor: _terminalTextColor,
-                        backgroundColor: _terminalBackgroundColor,
-                        fontFamily: _terminalFontFamily,
-                        fontSize: _terminalFontSize,
-                        onFocus: (sessionId) {
-                          final session = _sessionById(sessionId);
-                          if (session != null) {
-                            _activateSession(
-                              session,
-                              keepWorkspaceVisible: true,
-                            );
-                          }
-                        },
-                        onClosePane: _removeSplit,
-                        onSplit: _splitPane,
-                        onResizeBranch: _resizeSplitBranch,
-                        onReconnect: _reconnectSession,
-                        onToggleBroadcast: _toggleBroadcastTyping,
-                        onToggleSolo: _toggleSoloPane,
+                    : Stack(
+                        children: [
+                          Positioned.fill(
+                            child: _buildWorkspaceView(
+                              displayRoot,
+                              soloSessionId,
+                              showPaneControls,
+                            ),
+                          ),
+                          if (_search case final search?
+                              when _sessionId != null &&
+                                  search.terminal ==
+                                      _terminalForSession(_sessionId!))
+                            Positioned(
+                              top: 8,
+                              right: 16,
+                              child: TerminalSearchBar(
+                                key: ObjectKey(search),
+                                search: search,
+                                onClose: _closeSearch,
+                              ),
+                            ),
+                        ],
                       ),
               ),
               Container(
-                height: 52,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                decoration: const BoxDecoration(
+                height: 26,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
                   color: AppColors.bg,
                   border: Border(top: BorderSide(color: AppColors.border)),
                 ),
                 child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    return TerminalStatusFooter(
-                      snapshot: _remoteSnapshot,
-                      samples: _metricSamples,
-                      error: _telemetryError,
+                  builder: (context, constraints) => ListenableBuilder(
+                    listenable: _telemetry,
+                    builder: (context, _) => TerminalStatusFooter(
+                      snapshot: _telemetry.snapshot,
+                      error: _telemetry.error,
                       canUngroupWorkspace:
                           constraints.maxWidth >= 360 &&
                           _activeWorkspace != null,
                       onUngroupWorkspace: _activeWorkspace == null
                           ? null
                           : _ungroupActiveWorkspace,
-                    );
-                  },
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -2658,227 +2545,50 @@ class _TerminalPanelState extends State<TerminalPanel> {
       ),
     );
   }
-}
 
-class _SessionProfilePickerDialog extends StatefulWidget {
-  const _SessionProfilePickerDialog({
-    required this.profiles,
-    required this.activeProfileId,
-  });
-
-  final List<domain.SshProfile> profiles;
-  final String? activeProfileId;
-
-  @override
-  State<_SessionProfilePickerDialog> createState() =>
-      _SessionProfilePickerDialogState();
-}
-
-class _SessionProfilePickerDialogState
-    extends State<_SessionProfilePickerDialog> {
-  late final TextEditingController _searchController;
-  late final ScrollController _listController;
-
-  @override
-  void initState() {
-    super.initState();
-    _searchController = TextEditingController();
-    _listController = ScrollController();
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _listController.dispose();
-    super.dispose();
-  }
-
-  List<domain.SshProfile> get _filteredProfiles {
-    final normalized = _searchController.text.trim().toLowerCase();
-    if (normalized.isEmpty) return widget.profiles;
-    return widget.profiles
-        .where((profile) {
-          final text = [
-            profile.name,
-            profile.host,
-            profile.username,
-            profile.group,
-            ...profile.tags,
-          ].join(' ').toLowerCase();
-          return text.contains(normalized);
-        })
-        .toList(growable: false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.sizeOf(context).height;
-    final maxListHeight = (screenHeight * 0.55).clamp(260.0, 520.0);
-    final filteredProfiles = _filteredProfiles;
-    final hasSearch = _searchController.text.trim().isNotEmpty;
-
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(24),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560),
-        child: AppPanel(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.add_rounded, color: AppColors.cyan),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('New SSH session', style: portixTitle(18)),
-                        const SizedBox(height: 2),
-                        Text(
-                          hasSearch
-                              ? '${filteredProfiles.length} of ${widget.profiles.length} profiles match your search'
-                              : '${widget.profiles.length} connectable profiles available',
-                          style: portixMuted(11),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(
-                      Icons.close_rounded,
-                      color: AppColors.muted,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 40,
-                child: TextField(
-                  controller: _searchController,
-                  autofocus: true,
-                  onChanged: (_) {
-                    if (_listController.hasClients) {
-                      _listController.jumpTo(0);
-                    }
-                    setState(() {});
-                  },
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    color: AppColors.text,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: 'Search profile, host, username, tag, or group',
-                    prefixIcon: const Icon(
-                      Icons.search_rounded,
-                      color: AppColors.muted,
-                      size: 19,
-                    ),
-                    suffixIcon: hasSearch
-                        ? IconButton(
-                            tooltip: 'Clear search',
-                            onPressed: () {
-                              _searchController.clear();
-                              if (_listController.hasClients) {
-                                _listController.jumpTo(0);
-                              }
-                              setState(() {});
-                            },
-                            icon: const Icon(
-                              Icons.close_rounded,
-                              color: AppColors.muted,
-                              size: 18,
-                            ),
-                          )
-                        : null,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              if (widget.activeProfileId != null && !hasSearch)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: AppPill(
-                    label: 'Current session profile highlighted below',
-                    color: AppColors.cyan,
-                    icon: Icons.radio_button_checked_rounded,
-                  ),
-                ),
-              ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: maxListHeight),
-                child: filteredProfiles.isEmpty
-                    ? Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(18),
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceDark,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.search_off_rounded,
-                              color: AppColors.muted,
-                              size: 22,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'No matching profiles found',
-                              style: portixTitle(13),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Try another keyword for host, username, group, or tag.',
-                              textAlign: TextAlign.center,
-                              style: portixMuted(11),
-                            ),
-                          ],
-                        ),
-                      )
-                    : Scrollbar(
-                        controller: _listController,
-                        interactive: false,
-                        thumbVisibility: filteredProfiles.length > 5,
-                        child: ListView.separated(
-                          controller: _listController,
-                          shrinkWrap: true,
-                          itemCount: filteredProfiles.length,
-                          separatorBuilder: (_, _) => const SizedBox(height: 8),
-                          itemBuilder: (context, index) {
-                            final profile = filteredProfiles[index];
-                            final isActiveProfile =
-                                profile.id == widget.activeProfileId;
-                            return SessionProfileOption(
-                              profile: profile,
-                              highlighted: isActiveProfile,
-                              subtitleLabel: isActiveProfile
-                                  ? 'Current profile'
-                                  : null,
-                              onSelected: () =>
-                                  Navigator.of(context).pop(profile),
-                            );
-                          },
-                        ),
-                      ),
-              ),
-            ],
-          ),
-        ),
-      ),
+  Widget _buildWorkspaceView(
+    SplitNode displayRoot,
+    String? soloSessionId,
+    bool showPaneControls,
+  ) {
+    return TerminalWorkspaceView(
+      root: displayRoot,
+      activeSessionId: _sessionId,
+      soloSessionId: soloSessionId,
+      broadcastTyping: _broadcastTyping,
+      showPaneControls: showPaneControls,
+      terminalForSession: _terminalForSession,
+      statusForSession: _statusForSession,
+      profileForSession: _profileForSession,
+      idleTerminal: _idleTerminal,
+      controllerForSession: _controllerForSession,
+      scrollControllerForSession: _scrollControllerForSession,
+      focusNodeForSession: _focusNodeForSession,
+      viewKeyForSession: _viewKeyForSession,
+      idleController: _idleController,
+      idleScrollController: _terminalUi.idleScrollController,
+      idleFocusNode: _idleFocusNode,
+      idleViewKey: _terminalUi.idleViewKey,
+      keyboardEnabled: widget.keyboardEnabled,
+      copyShortcut: _copyShortcut,
+      pasteShortcut: _pasteShortcut,
+      textColor: _terminalTextColor,
+      backgroundColor: _terminalBackgroundColor,
+      fontFamily: _terminalFontFamily,
+      fontSize: _terminalFontSize,
+      themeName: _terminalThemeName,
+      onFocus: (sessionId) {
+        final session = _sessionById(sessionId);
+        if (session != null) {
+          _activateSession(session, keepWorkspaceVisible: true);
+        }
+      },
+      onClosePane: _removeSplit,
+      onSplit: _splitPane,
+      onResizeBranch: _resizeSplitBranch,
+      onReconnect: _reconnectSession,
+      onToggleBroadcast: _toggleBroadcastTyping,
+      onToggleSolo: _toggleSoloPane,
     );
   }
-}
-
-extension _FirstOrNull<T> on Iterable<T> {
-  T? get firstOrNull => isEmpty ? null : first;
-  T? get lastOrNull => isEmpty ? null : last;
 }

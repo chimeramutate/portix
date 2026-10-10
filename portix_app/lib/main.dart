@@ -27,6 +27,12 @@ Future<void> main() async {
   }
   await windowManager.ensureInitialized();
   await windowManager.setPreventClose(true);
+  // The app draws its own title bar (WorkspaceTopBar); macOS keeps its
+  // native traffic lights, Linux and Windows get Flutter caption buttons.
+  await windowManager.setTitleBarStyle(
+    TitleBarStyle.hidden,
+    windowButtonVisibility: Platform.isMacOS,
+  );
   runApp(const PortixApp());
 }
 
@@ -64,33 +70,43 @@ class _PortixAppState extends State<PortixApp> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Portix',
-      debugShowCheckedModeBanner: false,
-      theme: appTheme,
-      builder: (context, child) {
-        final media = MediaQuery.of(context);
-        final scale = media.textScaler
-            .scale(1)
-            .clamp(0.85, media.size.width >= 900 ? 0.95 : 1.05);
-        return MediaQuery(
-          data: media.copyWith(textScaler: TextScaler.linear(scale)),
-          child: child ?? const SizedBox.shrink(),
-        );
-      },
-      home: MultiBlocProvider(
-        providers: [
-          BlocProvider(
-            create: (_) =>
-                sl<SshWorkspaceBloc>()..add(const ProfilesRequested()),
-          ),
-          BlocProvider(create: (_) => sl<SshSessionBloc>()),
-          BlocProvider(
-            create: (_) =>
-                sl<RdpWorkspaceBloc>()..add(const RdpProfilesRequested()),
-          ),
-        ],
-        child: const PortixWorkspacePage(),
+    return FollowSystemBrightness(
+      child: MaterialApp(
+        title: 'Portix',
+        debugShowCheckedModeBanner: false,
+        // Light or dark as the OS is set; there is no in-app switch.
+        theme: appLightTheme,
+        darkTheme: appTheme,
+        themeMode: ThemeMode.system,
+        builder: (context, child) {
+          final media = MediaQuery.of(context);
+          // Slightly denser text on wide windows, scaled on top of the OS
+          // text size so a larger system setting still takes effect.
+          final density = media.size.width >= 900 ? 0.95 : 1.0;
+          final scale = media.textScaler.scale(1) * density;
+          final content = child ?? const SizedBox.shrink();
+          return MediaQuery(
+            data: media.copyWith(textScaler: TextScaler.linear(scale)),
+            // Without the GTK title bar the window needs its own resize edges.
+            child: Platform.isLinux
+                ? DragToResizeArea(child: content)
+                : content,
+          );
+        },
+        home: MultiBlocProvider(
+          providers: [
+            BlocProvider(
+              create: (_) =>
+                  sl<SshWorkspaceBloc>()..add(const ProfilesRequested()),
+            ),
+            BlocProvider(create: (_) => sl<SshSessionBloc>()),
+            BlocProvider(
+              create: (_) =>
+                  sl<RdpWorkspaceBloc>()..add(const RdpProfilesRequested()),
+            ),
+          ],
+          child: const PortixWorkspacePage(),
+        ),
       ),
     );
   }

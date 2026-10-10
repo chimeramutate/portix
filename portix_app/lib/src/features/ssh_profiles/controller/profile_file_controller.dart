@@ -206,6 +206,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.
       'terminalFontSize': profile.terminalFontSize,
       'lastUsedLabel': profile.lastUsedLabel,
       'osIconAsset': profile.osIconAsset,
+      'jumpProfileId': profile.jumpProfileId,
     };
   }
 
@@ -246,6 +247,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.
           int.tryParse(json['terminalFontSize']?.toString() ?? '') ?? 14,
       lastUsedLabel: json['lastUsedLabel']?.toString() ?? 'recently',
       osIconAsset: json['osIconAsset']?.toString() ?? '',
+      jumpProfileId: json['jumpProfileId']?.toString() ?? '',
     );
   }
 }

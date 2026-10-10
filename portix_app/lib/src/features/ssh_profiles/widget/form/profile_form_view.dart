@@ -7,6 +7,7 @@ import 'package:portix/src/domain/entities/ssh/index.dart';
 import '../../bloc/index.dart';
 import 'form_steps.dart';
 import 'profile_preview.dart';
+import 'ssh_key_manager_dialog.dart';
 
 class ProfileFormView extends StatefulWidget {
   const ProfileFormView({super.key});
@@ -30,6 +31,51 @@ class _ProfileFormViewState extends State<ProfileFormView> {
 
   // Advanced section toggle – collapsed by default
   bool _advancedExpanded = false;
+
+  final _identityKey = GlobalKey();
+  final _endpointKey = GlobalKey();
+  final _authKey = GlobalKey();
+  final _advancedKey = GlobalKey();
+  final _saveKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => showTutorialOnce(context, 'new_profile', [
+        (
+          key: _identityKey,
+          title: '1. Profile identity',
+          body:
+              'Enter a profile name and group. Tags and color are optional and help with filtering.',
+        ),
+        (
+          key: _endpointKey,
+          title: '2. Endpoint',
+          body:
+              'Enter the host or IP, port (default 22) and the server username.',
+        ),
+        (
+          key: _authKey,
+          title: '3. Authentication',
+          body:
+              'Choose Password or SSH key. Passwords are kept in the system credential store.',
+        ),
+        (
+          key: _advancedKey,
+          title: 'Advanced (optional)',
+          body:
+              'A startup command to run at login, and the terminal font size.',
+        ),
+        (
+          key: _saveKey,
+          title: '4. Save',
+          body:
+              'Click Save Profile. The profile appears in the gallery, ready to open over SSH or SFTP.',
+        ),
+      ]),
+    );
+  }
 
   @override
   void dispose() {
@@ -126,8 +172,10 @@ class _ProfileFormViewState extends State<ProfileFormView> {
             // --- Sections ---
 
             final identitySection = _FormSection(
+              key: _identityKey,
               title: 'Profile Identity',
-              subtitle: 'Nama dan group wajib. Tag opsional untuk filter.',
+              subtitle:
+                  'Name and group are required. Tags are optional, for filtering.',
               children: [
                 AppTextField(
                   controller: _name,
@@ -155,9 +203,10 @@ class _ProfileFormViewState extends State<ProfileFormView> {
 
             // Authentication is now embedded inside the endpoint section.
             final endpointSection = _FormSection(
+              key: _endpointKey,
               title: 'Connection Endpoint',
               subtitle:
-                  'Host, port, username, dan metode autentikasi SSH session.',
+                  'Host, port, username and the SSH authentication method.',
               children: [
                 AppTextField(
                   controller: _host,
@@ -178,7 +227,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                   onChanged: (_) => _changed(context),
                 ),
                 // Auth inline – full-width inside the endpoint card
-                _AuthSegments(profile: profile),
+                _AuthSegments(key: _authKey, profile: profile),
                 if (profile?.authMethod == AuthMethod.password)
                   AppTextField(
                     controller: _credential,
@@ -190,13 +239,15 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                 else ...[
                   AppTextField(
                     controller: _credential,
-                    label: 'SSH key label / path',
+                    label: 'SSH key path (empty = ssh-agent)',
                     icon: Icons.key_rounded,
                     onChanged: (_) => _changed(context),
                   ),
                   _UploadBox(
-                    onTap: () {
-                      _credential.text = 'id_prod_ed25519';
+                    onTap: () async {
+                      final path = await showSshKeyManager(context);
+                      if (path == null || !context.mounted) return;
+                      _credential.text = path;
                       _changed(context);
                     },
                   ),
@@ -206,6 +257,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
 
             // Advanced section with ^ toggle header
             final advancedSection = _AdvancedSection(
+              key: _advancedKey,
               expanded: _advancedExpanded,
               onToggle: () =>
                   setState(() => _advancedExpanded = !_advancedExpanded),
@@ -221,6 +273,13 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                   label: 'Terminal font size',
                   icon: Icons.text_fields_rounded,
                   onChanged: (_) => _changed(context),
+                ),
+                _JumpHostPicker(
+                  selectedId: profile?.jumpProfileId ?? '',
+                  candidates: [
+                    for (final other in state.profiles)
+                      if (other.id != profile?.id) other,
+                  ],
                 ),
               ],
             );
@@ -285,7 +344,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Pastikan host, port, username, dan auth sudah benar sebelum menyimpan.',
+                                'Check the host, port, username and authentication before saving.',
                                 maxLines: 3,
                                 overflow: TextOverflow.ellipsis,
                                 style: portixMuted(),
@@ -308,6 +367,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                                     ),
                               ),
                               AppButton(
+                                key: _saveKey,
                                 icon: Icons.save_outlined,
                                 label: stackActions ? 'Save' : 'Save Profile',
                                 primary: true,
@@ -459,7 +519,7 @@ class _CompactFormHeader extends StatelessWidget {
                     Text('New SSH Profile', style: portixTitle(16)),
                     const SizedBox(height: 2),
                     Text(
-                      'Isi yang wajib saja dulu. Advanced boleh dibiarkan default.',
+                      'Fill in the required fields first. Advanced settings can stay at their defaults.',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: portixMuted(11),
@@ -502,6 +562,7 @@ class _FormSection extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.children,
+    super.key,
   });
 
   final String title;
@@ -571,6 +632,7 @@ class _AdvancedSection extends StatelessWidget {
     required this.expanded,
     required this.onToggle,
     required this.children,
+    super.key,
   });
 
   final bool expanded;
@@ -593,7 +655,7 @@ class _AdvancedSection extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.settings_outlined,
                     color: AppColors.muted,
                     size: 16,
@@ -605,7 +667,7 @@ class _AdvancedSection extends StatelessWidget {
                       children: [
                         Text('Advanced', style: portixTitle(16)),
                         Text(
-                          'Startup command, font size, dan konfigurasi lanjutan.',
+                          'Startup command, font size and other advanced settings.',
                           style: portixMuted(),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -616,7 +678,7 @@ class _AdvancedSection extends StatelessWidget {
                   AnimatedRotation(
                     duration: const Duration(milliseconds: 200),
                     turns: expanded ? 0.5 : 0.0,
-                    child: const Icon(
+                    child: Icon(
                       Icons.keyboard_arrow_down_rounded,
                       color: AppColors.muted,
                       size: 20,
@@ -735,12 +797,12 @@ class _AutocompleteTextFieldState extends State<_AutocompleteTextField> {
                 controller: textController,
                 focusNode: focusNode,
                 onChanged: widget.onChanged,
-                style: const TextStyle(
+                style: TextStyle(
                   color: AppColors.text,
                   fontWeight: FontWeight.w800,
                   fontSize: 13,
                 ),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   suffixIcon: Icon(
                     Icons.search_rounded,
                     color: AppColors.muted,
@@ -847,7 +909,7 @@ class _TagSelectorState extends State<_TagSelector> {
       children: [
         Row(
           children: [
-            const Icon(Icons.sell_outlined, color: AppColors.muted, size: 15),
+            Icon(Icons.sell_outlined, color: AppColors.muted, size: 15),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -887,12 +949,12 @@ class _TagSelectorState extends State<_TagSelector> {
                 child: TextField(
                   controller: _input,
                   onSubmitted: _addTag,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.text,
                     fontWeight: FontWeight.w800,
                     fontSize: 13,
                   ),
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: 'Add tag and press Enter',
                     prefixIcon: Icon(
                       Icons.add_rounded,
@@ -926,11 +988,7 @@ class _ProfileColorPicker extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Icon(
-              Icons.palette_outlined,
-              color: AppColors.muted,
-              size: 15,
-            ),
+            Icon(Icons.palette_outlined, color: AppColors.muted, size: 15),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -987,12 +1045,75 @@ class _ProfileColorPicker extends StatelessWidget {
   }
 }
 
+/// Saved profile to connect through (`ssh -J`).
+class _JumpHostPicker extends StatelessWidget {
+  const _JumpHostPicker({required this.selectedId, required this.candidates});
+
+  final String selectedId;
+  final List<SshProfile> candidates;
+
+  @override
+  Widget build(BuildContext context) {
+    // A deleted jump profile shows as "direct" until the form is saved.
+    final selected = candidates.any((p) => p.id == selectedId)
+        ? selectedId
+        : '';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.alt_route_rounded, color: AppColors.muted, size: 15),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Jump host (ProxyJump)',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: portixLabel(),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        SizedBox(
+          height: 40,
+          child: DropdownButtonFormField<String>(
+            key: ValueKey(selected),
+            initialValue: selected,
+            isExpanded: true,
+            dropdownColor: AppColors.surface,
+            decoration: const InputDecoration(
+              contentPadding: EdgeInsets.symmetric(horizontal: 12),
+            ),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('None (direct)')),
+              for (final candidate in candidates)
+                DropdownMenuItem(
+                  value: candidate.id,
+                  child: Text(
+                    '${candidate.name} (${candidate.address})',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (value) => context.read<SshWorkspaceBloc>().add(
+              JumpProfileChanged(value ?? ''),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Auth method segmented control
 // ---------------------------------------------------------------------------
 
 class _AuthSegments extends StatelessWidget {
-  const _AuthSegments({required this.profile});
+  const _AuthSegments({required this.profile, super.key});
   final SshProfile? profile;
 
   @override
@@ -1060,10 +1181,10 @@ class _Segment extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       child: Container(
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFF143B63) : AppColors.surfaceDark,
+          color: selected ? AppColors.selected : AppColors.surfaceDark,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: selected ? AppColors.primaryBlue : AppColors.border,
+            color: selected ? AppColors.cyan : AppColors.border,
           ),
         ),
         child: Row(
@@ -1169,7 +1290,7 @@ class _UploadIconBox extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.cyan),
       ),
-      child: const Icon(Icons.upload_rounded, color: AppColors.cyan),
+      child: Icon(Icons.upload_rounded, color: AppColors.cyan),
     );
   }
 }
@@ -1184,14 +1305,14 @@ class _UploadBoxText extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Drop SSH key here or select from vault',
+          'Select or generate an SSH key',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: portixTitle(14),
         ),
         const SizedBox(height: 4),
         Text(
-          'Supported: ed25519, rsa, pem. You can type the key label above or choose a vault key.',
+          'Pick a key from ~/.ssh, browse for a file, or generate a new ed25519 keypair.',
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: portixMuted(),

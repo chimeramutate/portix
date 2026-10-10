@@ -10,26 +10,26 @@ class TerminalPane extends StatefulWidget {
     this.sessionId,
     this.status = session_models.ConnectionStatus.connected,
     this.profile,
-    this.suggestion,
-    this.suggestionCandidates = const [],
-    this.suggestionSuffix,
     this.broadcastTyping = false,
     this.solo = false,
     this.active = false,
+    this.highlightActive = false,
     this.keyboardEnabled = true,
     this.copyShortcut = TerminalClipboardShortcut.shiftCtrl,
     this.pasteShortcut = TerminalClipboardShortcut.ctrl,
-    this.textColor = AppColors.text,
-    this.backgroundColor = AppColors.terminal,
+    Color? textColor,
+    Color? backgroundColor,
     this.fontFamily = 'monospace',
     this.fontSize = 13,
+    this.themeName,
     this.allowPaneDrag = false,
     this.onTap,
     this.onReconnect,
     this.onToggleBroadcast,
     this.onToggleSolo,
     this.onSplit,
-  });
+  }) : _textColor = textColor,
+       _backgroundColor = backgroundColor;
 
   final String? sessionId;
   final Terminal terminal;
@@ -39,19 +39,26 @@ class TerminalPane extends StatefulWidget {
   final GlobalKey<TerminalViewState> terminalViewKey;
   final session_models.ConnectionStatus status;
   final domain.SshProfile? profile;
-  final TerminalSuggestion? suggestion;
-  final List<TerminalSuggestion> suggestionCandidates;
-  final String? suggestionSuffix;
   final bool broadcastTyping;
   final bool solo;
   final bool active;
+
+  /// Outline the active pane; only meaningful when panes are split.
+  final bool highlightActive;
   final bool keyboardEnabled;
   final TerminalClipboardShortcut copyShortcut;
   final TerminalClipboardShortcut pasteShortcut;
-  final Color textColor;
-  final Color backgroundColor;
+  final Color? _textColor;
+  Color get textColor => _textColor ?? AppColors.text;
+  final Color? _backgroundColor;
+  Color get backgroundColor => _backgroundColor ?? AppColors.terminal;
   final String fontFamily;
   final double fontSize;
+
+  /// Name of the active terminal color scheme preset (e.g. 'Dracula').
+  /// When set, it takes priority over [textColor] and [backgroundColor].
+  final String? themeName;
+
   final bool allowPaneDrag;
   final VoidCallback? onTap;
   final VoidCallback? onReconnect;
@@ -108,14 +115,14 @@ class _TerminalPaneState extends State<TerminalPane>
             ),
         },
         child: Container(
+          // Connection status lives on the tab dot; a border only tells
+          // split panes apart.
           decoration: BoxDecoration(
-            border: Border.all(
-              color: widget.active
-                  ? connected
-                        ? AppColors.green
-                        : AppColors.amber
-                  : AppColors.border,
-            ),
+            border: widget.highlightActive
+                ? Border.all(
+                    color: widget.active ? AppColors.cyan : AppColors.border,
+                  )
+                : null,
             borderRadius: BorderRadius.circular(8),
           ),
           clipBehavior: Clip.antiAlias,
@@ -169,6 +176,7 @@ class _TerminalPaneState extends State<TerminalPane>
                     widget.profile,
                     foreground: widget.textColor,
                     background: widget.backgroundColor,
+                    themeName: widget.themeName,
                   ),
                   cursorType: TerminalCursorType.block,
                   alwaysShowCursor: widget.active && connected,
@@ -371,251 +379,6 @@ class _TerminalSelectionToolbarState extends State<TerminalSelectionToolbar> {
   }
 }
 
-// ── TerminalCompletionMenu ───────────────────────────────────────────────
-
-class TerminalCompletionMenu extends StatefulWidget {
-  const TerminalCompletionMenu({
-    required this.terminal,
-    required this.terminalViewKey,
-    required this.suggestions,
-    required this.selectedSuggestion,
-  });
-
-  final Terminal terminal;
-  final GlobalKey<TerminalViewState> terminalViewKey;
-  final List<TerminalSuggestion> suggestions;
-  final TerminalSuggestion? selectedSuggestion;
-
-  @override
-  State<TerminalCompletionMenu> createState() => _TerminalCompletionMenuState();
-}
-
-class _TerminalCompletionMenuState extends State<TerminalCompletionMenu> {
-  static const _rowHeight = 22.0;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.terminal.addListener(_handleTerminalChanged);
-  }
-
-  @override
-  void didUpdateWidget(covariant TerminalCompletionMenu oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.terminal != widget.terminal) {
-      oldWidget.terminal.removeListener(_handleTerminalChanged);
-      widget.terminal.addListener(_handleTerminalChanged);
-    }
-  }
-
-  @override
-  void dispose() {
-    widget.terminal.removeListener(_handleTerminalChanged);
-    super.dispose();
-  }
-
-  void _handleTerminalChanged() {
-    if (mounted) setState(() {});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cursorRect = widget.terminalViewKey.currentState?.cursorRect;
-    if (widget.suggestions.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final visibleSuggestions = widget.suggestions.take(6).toList();
-            final menuHeight = visibleSuggestions.length * _rowHeight;
-            final menuWidth = (constraints.maxWidth - 32)
-                .clamp(220.0, 560.0)
-                .toDouble();
-            final maxLeft = (constraints.maxWidth - menuWidth - 16)
-                .clamp(16.0, constraints.maxWidth)
-                .toDouble();
-            final fallbackTop = (constraints.maxHeight - menuHeight - 52)
-                .clamp(12.0, constraints.maxHeight)
-                .toDouble();
-            final left = (cursorRect?.left ?? 16.0)
-                .clamp(16.0, maxLeft)
-                .toDouble();
-            final topBelow = (cursorRect?.bottom ?? fallbackTop) + 12;
-            final topAbove = (cursorRect?.top ?? fallbackTop) - menuHeight - 12;
-            final top = topBelow + menuHeight <= constraints.maxHeight - 12
-                ? topBelow
-                : topAbove.clamp(12.0, constraints.maxHeight).toDouble();
-
-            return Stack(
-              children: [
-                Positioned(
-                  left: left,
-                  top: top,
-                  width: menuWidth,
-                  height: menuHeight,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: AppColors.terminal.withValues(alpha: .9),
-                      border: Border.all(
-                        color: AppColors.border.withValues(alpha: .7),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (final suggestion in visibleSuggestions)
-                          _TerminalCompletionRow(
-                            suggestion: suggestion,
-                            selected:
-                                suggestion.command ==
-                                widget.selectedSuggestion?.command,
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class _TerminalCompletionRow extends StatelessWidget {
-  const _TerminalCompletionRow({
-    required this.suggestion,
-    required this.selected,
-  });
-
-  final TerminalSuggestion suggestion;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = switch (suggestion.source) {
-      TerminalSuggestionSource.history => AppColors.green,
-      TerminalSuggestionSource.remoteHelp => AppColors.cyan,
-    };
-    final description = suggestion.description.trim();
-
-    return Container(
-      height: _TerminalCompletionMenuState._rowHeight,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      color: selected ? AppColors.primaryBlue.withValues(alpha: .28) : null,
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text.rich(
-          TextSpan(
-            children: [
-              TextSpan(
-                text: suggestion.display,
-                style: TextStyle(
-                  color: selected ? AppColors.text : color,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              if (description.isNotEmpty)
-                TextSpan(
-                  text: ' -- $description',
-                  style: TextStyle(
-                    color: selected ? AppColors.text : AppColors.muted,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-            ],
-          ),
-          overflow: TextOverflow.ellipsis,
-          softWrap: false,
-          style: const TextStyle(
-            fontSize: 12,
-            height: 1,
-            fontFamily: 'monospace',
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class TerminalInlineSuggestion extends StatefulWidget {
-  const TerminalInlineSuggestion({
-    required this.terminal,
-    required this.terminalViewKey,
-    required this.text,
-  });
-
-  final Terminal terminal;
-  final GlobalKey<TerminalViewState> terminalViewKey;
-  final String text;
-
-  @override
-  State<TerminalInlineSuggestion> createState() =>
-      _TerminalInlineSuggestionState();
-}
-
-class _TerminalInlineSuggestionState extends State<TerminalInlineSuggestion> {
-  @override
-  void initState() {
-    super.initState();
-    widget.terminal.addListener(_handleTerminalChanged);
-  }
-
-  @override
-  void didUpdateWidget(covariant TerminalInlineSuggestion oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.terminal != widget.terminal) {
-      oldWidget.terminal.removeListener(_handleTerminalChanged);
-      widget.terminal.addListener(_handleTerminalChanged);
-    }
-  }
-
-  @override
-  void dispose() {
-    widget.terminal.removeListener(_handleTerminalChanged);
-    super.dispose();
-  }
-
-  void _handleTerminalChanged() {
-    if (mounted) setState(() {});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cursorRect = widget.terminalViewKey.currentState?.cursorRect;
-    if (cursorRect == null || widget.text.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return Positioned(
-      left: cursorRect.right,
-      top: cursorRect.top,
-      right: 16,
-      height: cursorRect.height,
-      child: IgnorePointer(
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            widget.text,
-            overflow: TextOverflow.fade,
-            softWrap: false,
-            style: const TextStyle(
-              color: Color(0x668FA6BE),
-              fontSize: 13,
-              height: 1.28,
-              fontFamily: 'monospace',
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class PaneDragHandle extends StatelessWidget {
   const PaneDragHandle({required this.sessionId});
 
@@ -640,7 +403,7 @@ class PaneDragHandle extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppColors.surfaceCard.withValues(alpha: .94),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.green, width: 1.2),
+            border: Border.all(color: AppColors.cyan, width: 1.2),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x66000000),
@@ -649,12 +412,12 @@ class PaneDragHandle extends StatelessWidget {
               ),
             ],
           ),
-          child: const Row(
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 Icons.drag_indicator_rounded,
-                color: AppColors.green,
+                color: AppColors.cyan,
                 size: 18,
               ),
               SizedBox(width: 8),
@@ -684,7 +447,7 @@ class PaneDragHandle extends StatelessWidget {
             borderRadius: BorderRadius.circular(7),
             border: Border.all(color: AppColors.border.withValues(alpha: .55)),
           ),
-          child: const Icon(
+          child: Icon(
             Icons.drag_indicator_rounded,
             color: AppColors.muted,
             size: 16,
@@ -717,7 +480,7 @@ class PaneControlStrip extends StatelessWidget {
         : switch (profile!.color) {
             domain.ProfileColor.green => AppColors.green,
             domain.ProfileColor.cyan => AppColors.cyan,
-            domain.ProfileColor.blue => AppColors.primaryBlue,
+            domain.ProfileColor.blue => AppColors.blue,
             domain.ProfileColor.pink => AppColors.danger,
             domain.ProfileColor.amber => AppColors.amber,
           };
@@ -751,7 +514,6 @@ class PaneControlStrip extends StatelessWidget {
                   color: accentColor,
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  fontFamily: 'Inter',
                 ),
               ),
             ),
@@ -845,11 +607,11 @@ class PaneDropZone extends StatelessWidget {
                   height: height,
                   decoration: BoxDecoration(
                     color: hovered
-                        ? AppColors.green.withValues(alpha: .34)
+                        ? AppColors.cyan.withValues(alpha: .34)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(12),
                     border: hovered
-                        ? Border.all(color: AppColors.green, width: 1.8)
+                        ? Border.all(color: AppColors.cyan, width: 1.8)
                         : null,
                   ),
                   child: hovered
@@ -865,7 +627,7 @@ class PaneDropZone extends StatelessWidget {
                               SplitDirection.bottom =>
                                 Icons.keyboard_arrow_down_rounded,
                             },
-                            color: AppColors.green,
+                            color: AppColors.cyan,
                             size: 30,
                           ),
                         )

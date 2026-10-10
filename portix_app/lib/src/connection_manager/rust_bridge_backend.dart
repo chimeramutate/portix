@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-import '../rust/api.dart' as rust_api;
+import '../rust/api/ssh.dart' as rust_api;
 import '../rust/domain/profile.dart' as rust_profile;
 import '../rust/domain/session.dart' as rust_session;
 import '../rust/frb_generated.dart';
@@ -70,7 +70,7 @@ class RustBridgeBackend implements ConnectionBackend {
   @override
   Future<String> connect(SshProfile profile) async {
     final session = await rust_api.connect(
-      profile: profile.toRustProfile(),
+      profile: toRustProfile(profile),
       cols: 80,
       rows: 24,
     );
@@ -105,126 +105,100 @@ class RustBridgeBackend implements ConnectionBackend {
     return snapshot.toAppSnapshot();
   }
 
-  @override
-  Future<List<String>> commandHelpSuggestions(String sessionId, String input) {
-    return rust_api.commandHelpSuggestions(sessionId: sessionId, input: input);
-  }
-
-  @override
-  Future<List<TerminalCompletionCandidate>> commandCompletions(
-    String sessionId,
-    String input,
-  ) async {
-    final suggestions = await commandHelpSuggestions(sessionId, input);
-    return suggestions
-        .map(TerminalCompletionCandidate.fromWire)
-        .where((candidate) => candidate.replacement.isNotEmpty)
-        .toList(growable: false);
-  }
-
-  @override
-  Future<TerminalCompleteResponse> terminalComplete(
-    TerminalCompleteRequest request,
-  ) async {
-    final response = await rust_api.terminalComplete(
-      reqJson: jsonEncode(request.toJson()),
-    );
-    final decoded = jsonDecode(response);
-    if (decoded is! Map) {
-      return const TerminalCompleteResponse();
-    }
-    return TerminalCompleteResponse.fromJson(decoded.cast<String, Object?>());
-  }
-
-  @override
-  Future<String> resolveRemoteDirectory(String sessionId, String path) {
-    return rust_api.resolveRemoteDirectory(sessionId: sessionId, path: path);
-  }
-
-  @override
-  Future<List<RemoteFileEntry>> listRemoteDirectory(
-    String sessionId,
-    String path,
-  ) async {
-    final entries = await rust_api.listRemoteDirectory(
-      sessionId: sessionId,
-      path: path,
-    );
-    return entries.map((entry) => entry.toAppEntry()).toList();
-  }
-
-  @override
-  Future<String> readRemoteFile(String sessionId, String path) {
-    return rust_api.readRemoteFile(sessionId: sessionId, path: path);
-  }
-
-  @override
-  Future<List<int>> readRemoteFileBytes(String sessionId, String path) {
-    return rust_api.readRemoteFileBytes(sessionId: sessionId, path: path);
-  }
-
-  @override
-  Future<void> writeRemoteFile(String sessionId, String path, String content) {
-    return rust_api.writeRemoteFile(
-      sessionId: sessionId,
-      path: path,
-      content: content,
-    );
-  }
-
-  @override
-  Future<void> uploadRemoteFile(String sessionId, String path, List<int> data) {
-    return rust_api.uploadRemoteFile(
-      sessionId: sessionId,
-      path: path,
-      data: data,
-    );
-  }
-
-  @override
-  Future<void> createRemoteDirectory(String sessionId, String path) {
-    return rust_api.createRemoteDirectory(sessionId: sessionId, path: path);
-  }
-
-  @override
-  Future<void> createRemoteFile(String sessionId, String path) {
-    return rust_api.createRemoteFile(sessionId: sessionId, path: path);
-  }
-
-  @override
-  Future<void> chmodRemotePath(String sessionId, String path, String mode) {
-    return rust_api.chmodRemotePath(
-      sessionId: sessionId,
-      path: path,
-      mode: mode,
-    );
-  }
-
-  @override
-  Future<String> execRemoteCommand(String sessionId, String command) {
-    return rust_api.execRemoteCommand(
-      sessionId: sessionId,
-      command: command,
-    );
-  }
-
   void dispose() {
     RustLib.dispose();
   }
-}
 
-extension on SshProfile {
-  rust_profile.SshProfile toRustProfile() {
-    return rust_profile.SshProfile(
-      id: id,
-      name: name,
-      host: host,
-      port: port,
-      username: username,
-      password: _blankToNull(password),
-      privateKeyPath: _blankToNull(privateKeyPath),
+  @override
+  Future<HostKeyInfo?> pendingHostKey(String host, int port) async {
+    final info = await rust_api.pendingHostKey(host: host, port: port);
+    if (info == null) return null;
+    return HostKeyInfo(
+      algorithm: info.algorithm,
+      fingerprint: info.fingerprint,
+      changedLine: info.changedLine,
     );
   }
+
+  @override
+  Future<void> trustHostKey(String host, int port, String fingerprint) =>
+      rust_api.trustHostKey(host: host, port: port, fingerprint: fingerprint);
+
+  @override
+  Future<PortForward> startLocalForward(
+    SshProfile profile,
+    int localPort,
+    String remoteHost,
+    int remotePort,
+  ) async => _toPortForward(
+    await rust_api.startLocalForward(
+      profile: toRustProfile(profile),
+      localPort: localPort,
+      remoteHost: remoteHost,
+      remotePort: remotePort,
+    ),
+  );
+
+  @override
+  Future<PortForward> startSocksProxy(
+    SshProfile profile,
+    int localPort,
+  ) async => _toPortForward(
+    await rust_api.startSocksProxy(
+      profile: toRustProfile(profile),
+      localPort: localPort,
+    ),
+  );
+
+  @override
+  Future<PortForward> startRemoteForward(
+    SshProfile profile,
+    int remotePort,
+    String localHost,
+    int localPort,
+  ) async => _toPortForward(
+    await rust_api.startRemoteForward(
+      profile: toRustProfile(profile),
+      remotePort: remotePort,
+      localHost: localHost,
+      localPort: localPort,
+    ),
+  );
+
+  @override
+  Future<void> stopLocalForward(String id) => rust_api.stopLocalForward(id: id);
+
+  @override
+  Future<List<PortForward>> listLocalForwards() async => [
+    for (final forward in await rust_api.listLocalForwards())
+      _toPortForward(forward),
+  ];
+
+  PortForward _toPortForward(rust_api.ForwardInfo forward) => PortForward(
+    id: forward.id,
+    profileId: forward.profileId,
+    localPort: forward.localPort,
+    remoteHost: forward.remoteHost,
+    remotePort: forward.remotePort,
+    socks: forward.socks,
+    reverse: forward.reverse,
+  );
+}
+
+/// The profile as the Rust side takes it (terminal and SFTP alike).
+rust_profile.SshProfile toRustProfile(SshProfile profile) {
+  final jumpHost = profile.jumpHost;
+  return rust_profile.SshProfile(
+    id: profile.id,
+    name: profile.name,
+    host: profile.host,
+    port: profile.port,
+    username: profile.username,
+    password: _blankToNull(profile.password),
+    privateKeyPath: _blankToNull(profile.privateKeyPath),
+    keyPassphrase: _blankToNull(profile.keyPassphrase),
+    jumpHost: jumpHost == null ? null : toRustProfile(jumpHost),
+  );
 }
 
 TerminalOutputEvent _terminalOutputFromJson(String source) {
@@ -280,18 +254,6 @@ extension on rust_session.RemoteSystemSnapshot {
       diskUsedBytes: diskUsedBytes.toInt(),
       diskFreeBytes: diskFreeBytes.toInt(),
       diskTotalBytes: diskTotalBytes.toInt(),
-    );
-  }
-}
-
-extension on rust_session.RemoteFileEntry {
-  RemoteFileEntry toAppEntry() {
-    return RemoteFileEntry(
-      name: name,
-      path: path,
-      isDirectory: isDirectory,
-      sizeBytes: sizeBytes.toInt(),
-      modifiedUnixSeconds: modifiedUnixSeconds.toInt(),
     );
   }
 }

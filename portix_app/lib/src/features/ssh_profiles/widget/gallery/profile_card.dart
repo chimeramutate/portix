@@ -37,8 +37,8 @@ class ProfileCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(10),
       child: AppPanel(
         padding: const EdgeInsets.all(12),
-        color: selected ? const Color(0xFF123455) : AppColors.surface,
-        borderColor: selected ? AppColors.primaryBlue : AppColors.border,
+        color: selected ? AppColors.selectedSoft : AppColors.surface,
+        borderColor: selected ? AppColors.cyan : AppColors.border,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -62,7 +62,7 @@ class ProfileCard extends StatelessWidget {
                   PopupMenuButton<_ProfileAction>(
                     tooltip: 'Profile actions',
                     color: AppColors.surfaceCard,
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.more_horiz_rounded,
                       color: AppColors.muted,
                       size: 20,
@@ -124,10 +124,12 @@ class ProfileCard extends StatelessWidget {
               icon: profile.authMethod == AuthMethod.sshKey
                   ? Icons.key_rounded
                   : Icons.lock_outline_rounded,
-              text: profile.credentialLabel.isEmpty
+              text: profile.authMethod == AuthMethod.sshKey
+                  ? (profile.credentialLabel.isEmpty
+                        ? 'ssh-agent'
+                        : 'SSH key configured')
+                  : profile.credentialLabel.isEmpty
                   ? 'Choose auth'
-                  : profile.authMethod == AuthMethod.sshKey
-                  ? 'SSH key configured'
                   : 'Password saved securely',
             ),
             const Spacer(),
@@ -137,7 +139,7 @@ class ProfileCard extends StatelessWidget {
               children: [
                 AppPill(label: profile.group, color: AppColors.cyan),
                 for (final tag in profile.tags.take(previewMode ? 3 : 1))
-                  AppPill(label: tag, color: AppColors.green),
+                  AppPill(label: tag, color: AppColors.muted),
                 if (!previewMode)
                   AppPill(label: statusLabelFor(status), color: statusColor),
               ],
@@ -196,7 +198,7 @@ class MetaLine extends StatelessWidget {
             child: Text(
               text,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                 color: AppColors.text,
                 fontSize: 12,
                 fontWeight: FontWeight.w700,

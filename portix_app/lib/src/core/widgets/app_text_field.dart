@@ -58,7 +58,13 @@ class _AppTextFieldState extends State<AppTextField> {
                 Icon(widget.icon, color: AppColors.muted, size: 15),
                 const SizedBox(width: 8),
               ],
-              Text(widget.label, style: portixLabel()),
+              Flexible(
+                child: Text(
+                  widget.label,
+                  style: portixLabel(),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 7),
@@ -70,8 +76,7 @@ class _AppTextFieldState extends State<AppTextField> {
             readOnly: widget.readOnly,
             obscureText: _obscured,
             onChanged: widget.onChanged,
-            style: const TextStyle(
-              fontFamily: 'Inter',
+            style: TextStyle(
               color: AppColors.text,
               fontWeight: FontWeight.w800,
               fontSize: 13,

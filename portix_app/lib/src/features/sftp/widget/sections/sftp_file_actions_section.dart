@@ -33,11 +33,7 @@ class _FileActionMenu extends StatelessWidget {
     return PopupMenuButton<_FileAction>(
       tooltip: 'Actions',
       color: AppColors.surfaceCard,
-      icon: const Icon(
-        Icons.more_vert_rounded,
-        size: 18,
-        color: AppColors.muted,
-      ),
+      icon: Icon(Icons.more_vert_rounded, size: 18, color: AppColors.muted),
       onSelected: onSelected,
       itemBuilder: (context) => [
         if (file.folder)
@@ -168,7 +164,7 @@ class _FileRow extends StatelessWidget {
         child: InkWell(
           onTap: onSelected,
           highlightColor: AppColors.surfaceDark.withValues(alpha: .35),
-          splashColor: AppColors.primaryBlue.withValues(alpha: .08),
+          splashColor: AppColors.cyan.withValues(alpha: .08),
           child: Container(
             height: compact
                 ? data.location == null
@@ -179,7 +175,7 @@ class _FileRow extends StatelessWidget {
                 : 44,
             padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
             decoration: BoxDecoration(
-              color: selected ? const Color(0xFF123B63) : Colors.transparent,
+              color: selected ? AppColors.selected : Colors.transparent,
               border: Border(
                 bottom: BorderSide(
                   color: AppColors.border.withValues(alpha: .65),
@@ -238,13 +234,13 @@ class _FileRow extends StatelessWidget {
     final category = FileTypeRegistry.categoryFor(fileName);
     return switch (category) {
       FileCategory.code => AppColors.cyan,
-      FileCategory.document => AppColors.primaryBlue,
+      FileCategory.document => AppColors.blue,
       FileCategory.image => AppColors.amber,
       FileCategory.audio => AppColors.danger,
       FileCategory.video => AppColors.danger,
       FileCategory.archive => AppColors.amber,
       FileCategory.executable => AppColors.danger,
-      FileCategory.database => AppColors.primaryBlue,
+      FileCategory.database => AppColors.blue,
       FileCategory.design => AppColors.amber,
       FileCategory.unknown => AppColors.muted,
     };
@@ -391,7 +387,7 @@ class _DragFeedback extends StatelessWidget {
           ),
           Icon(
             fromRemote ? Icons.download_rounded : Icons.upload_rounded,
-            color: AppColors.green,
+            color: AppColors.cyan,
             size: 16,
           ),
         ],
@@ -410,7 +406,7 @@ class _PaneFooter extends StatelessWidget {
     return Container(
       height: 30,
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(top: BorderSide(color: AppColors.border)),
       ),
       child: Row(

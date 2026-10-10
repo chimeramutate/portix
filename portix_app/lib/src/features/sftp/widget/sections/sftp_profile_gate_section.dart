@@ -76,7 +76,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                   padding: const EdgeInsets.all(14),
                   color: AppColors.surfaceDark,
                   child: Text(
-                    'Belum ada profile yang bisa dipakai. Buat atau lengkapi profile SSH terlebih dahulu.',
+                    'No usable profiles yet. Create or complete an SSH profile first.',
                     style: portixMuted(12),
                   ),
                 )
@@ -92,7 +92,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.search_rounded,
                         color: AppColors.muted,
                         size: 18,
@@ -108,7 +108,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                           },
                           decoration: InputDecoration(
                             hintText:
-                                'Cari profile (nama, alamat, atau username)...',
+                                'Search profiles (name, address or username)',
                             hintStyle: portixMuted(12),
                             border: InputBorder.none,
                             isDense: true,
@@ -117,14 +117,20 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                         ),
                       ),
                       if (_searchQuery.isNotEmpty)
-                        GestureDetector(
-                          onTap: () {
+                        IconButton(
+                          tooltip: 'Clear search',
+                          onPressed: () {
                             _searchController.clear();
                             setState(() {
                               _searchQuery = '';
                             });
                           },
-                          child: const Icon(
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 24,
+                            height: 24,
+                          ),
+                          icon: Icon(
                             Icons.close_rounded,
                             color: AppColors.muted,
                             size: 16,
@@ -156,7 +162,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Text(
-                      'Tidak ada hasil untuk "$_searchQuery"',
+                      'No results for "$_searchQuery"',
                       style: portixMuted(12),
                     ),
                   ),
@@ -165,8 +171,8 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Text(
                       filteredProfiles.length == 1
-                          ? '1 profile ditemukan'
-                          : '${filteredProfiles.length} profile ditemukan',
+                          ? '1 profile found'
+                          : '${filteredProfiles.length} profiles found',
                       style: portixMuted(11),
                     ),
                   ),
@@ -177,16 +183,13 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                     color: AppColors.surfaceDark,
                     child: Row(
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.search_off_rounded,
                           color: AppColors.muted,
                           size: 16,
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          'Tidak ada profile yang cocok',
-                          style: portixMuted(12),
-                        ),
+                        Text('No matching profiles', style: portixMuted(12)),
                       ],
                     ),
                   )
@@ -223,9 +226,9 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(
+                                  Icon(
                                     Icons.dns_rounded,
-                                    color: AppColors.green,
+                                    color: AppColors.muted,
                                     size: 20,
                                   ),
                                   const SizedBox(width: 12),
@@ -242,7 +245,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                                       ],
                                     ),
                                   ),
-                                  const Icon(
+                                  Icon(
                                     Icons.chevron_right_rounded,
                                     color: AppColors.muted,
                                   ),
@@ -282,17 +285,17 @@ class _SortChip extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
             color: selected
-                ? AppColors.primaryBlue.withValues(alpha: .10)
+                ? AppColors.cyan.withValues(alpha: .10)
                 : AppColors.surfaceDark,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: selected ? AppColors.primaryBlue : AppColors.border,
+              color: selected ? AppColors.cyan : AppColors.border,
             ),
           ),
           child: Text(
             label,
             style: (selected ? portixTitle(12) : portixMuted(11)).copyWith(
-              color: selected ? AppColors.primaryBlue : null,
+              color: selected ? AppColors.cyan : null,
             ),
           ),
         ),
@@ -323,11 +326,11 @@ class _LocalProfileTile extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: selected
-                ? AppColors.primaryBlue.withValues(alpha: .10)
+                ? AppColors.cyan.withValues(alpha: .10)
                 : AppColors.surfaceDark,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: selected ? AppColors.primaryBlue : AppColors.border,
+              color: selected ? AppColors.cyan : AppColors.border,
             ),
           ),
           child: Row(
@@ -349,11 +352,7 @@ class _LocalProfileTile extends StatelessWidget {
                 ),
               ),
               if (selected)
-                const Icon(
-                  Icons.check_rounded,
-                  color: AppColors.primaryBlue,
-                  size: 18,
-                ),
+                Icon(Icons.check_rounded, color: AppColors.cyan, size: 18),
             ],
           ),
         ),
@@ -363,9 +362,3 @@ class _LocalProfileTile extends StatelessWidget {
 }
 
 /// Text label for a profile's [ConnectionStatus], shown in the picker tile.
-String _connectionStatusLabel(ConnectionStatus status) => switch (status) {
-  ConnectionStatus.online => 'Online',
-  ConnectionStatus.offline => 'Offline',
-  ConnectionStatus.draft => 'Draft',
-  ConnectionStatus.error => 'Error',
-};

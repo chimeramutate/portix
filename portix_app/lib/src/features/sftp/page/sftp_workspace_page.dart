@@ -7,10 +7,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:easy_stepper/easy_stepper.dart';
-import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
+import 'package:portix/src/core/utils/text_diff.dart';
 import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/domain/entities/sftp/index.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart';
@@ -18,12 +18,16 @@ import 'package:portix/src/features/sftp/bloc/index.dart';
 import 'package:portix/src/features/sftp/controller/index.dart';
 import 'package:portix/src/features/sftp/window/index.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+import 'package:portix/src/features/ssh_sessions/widget/remote/host_key_dialog.dart';
+import 'package:portix/src/features/ssh_sessions/widget/remote/key_passphrase_dialog.dart';
+import 'package:portix/src/sftp_client/sftp_manager.dart';
 import 'package:skeletonizer/skeletonizer.dart';
 
 part '../widget/sections/sftp_dialogs_section.dart';
 part '../widget/sections/sftp_file_actions_section.dart';
 part '../widget/sections/sftp_file_pane_section.dart';
 part '../widget/sections/sftp_profile_gate_section.dart';
+part '../widget/sections/sftp_tabs_section.dart';
 part '../widget/sections/sftp_transfer_queue_section.dart';
 
 class SftpWorkspacePage extends StatefulWidget {
@@ -137,15 +141,36 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     'zsh',
   };
 
+  final _leftPaneKey = GlobalKey();
+  final _rightPaneKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
-    _controller = SftpWorkspaceController(
-      connectionManager: sl<ConnectionManager>(),
-    )..addListener(_handleControllerChanged);
-    _leftController = SftpWorkspaceController(
-      connectionManager: sl<ConnectionManager>(),
-    )..addListener(_handleControllerChanged);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => showTutorialOnce(context, 'sftp', [
+        (
+          key: _rightPaneKey,
+          title: 'Choose a server',
+          body:
+              'Pick an SSH profile in the right pane to open its remote files over SFTP.',
+        ),
+        (
+          key: _leftPaneKey,
+          title: 'Local files',
+          body:
+              'The left pane shows the files on this computer. Click the pane title to switch it to another server.',
+        ),
+        (
+          key: _rightPaneKey,
+          title: 'Drag & drop transfer',
+          body:
+              'Drag files or folders from one pane and drop them on the other to upload or download. Progress appears in the bottom-right corner.',
+        ),
+      ]),
+    );
+    _controller = _newController();
+    _leftController = _newController();
     _tabs.add(_SftpTab(controller: _controller, label: 'SFTP 1'));
 
     // When opened as a detached window (duplicate as new window),
@@ -178,6 +203,28 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       ..removeListener(_handleControllerChanged)
       ..dispose();
     super.dispose();
+  }
+
+  SftpWorkspaceController _newController() {
+    final sftpManager = sl<SftpManager>();
+    return SftpWorkspaceController(
+      sftpManager: sftpManager,
+      resolveConnectFailure: (profile, error) async {
+        final hostKey = await resolveRefusedHostKey(
+          context,
+          sl<ConnectionManager>(),
+          profile,
+        );
+        if (hostKey != null) return hostKey;
+        if (!mounted) return false;
+        return resolveKeyPassphrase(
+          context,
+          sftpManager.credentials,
+          profile,
+          error,
+        );
+      },
+    )..addListener(_handleControllerChanged);
   }
 
   void _handleControllerChanged() {
@@ -285,7 +332,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     // This handles the "silent stale" case where the SSH/SFTP channel has
     // died but TCP port-22 is still reachable (so ConnectionStatus stays
     // "connected" and no disconnect event is ever fired).
-    final forceSync = _controller.needsRevalidation;
+    // Without a profile there is no session to revalidate; forcing a sync
+    // would clear the session, notify, rebuild and reschedule every frame.
+    final forceSync = profile != null && _controller.needsRevalidation;
     if (!forceSync && _remoteSyncKey == key) return;
     _remoteSyncKey = key;
     // When a session is already active, re-attach to the directory the user
@@ -305,7 +354,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     // Mirrors [_scheduleRemoteSync] for the independent left controller so the
     // left pane can browse its own server.
     final key = profile == null ? 'none' : '${profile.id}|$remotePath';
-    final forceSync = _leftController.needsRevalidation;
+    final forceSync = profile != null && _leftController.needsRevalidation;
     if (!forceSync && _leftSyncKey == key) return;
     _leftSyncKey = key;
     final targetPath = _leftController.hasRemoteSession
@@ -318,9 +367,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   }
 
   void _addSftpTab() {
-    final newController = SftpWorkspaceController(
-      connectionManager: sl<ConnectionManager>(),
-    )..addListener(_handleControllerChanged);
+    final newController = _newController();
     setState(() {
       _tabs.add(
         _SftpTab(controller: newController, label: 'SFTP ${_tabs.length + 1}'),
@@ -346,9 +393,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       if (_tabs.isEmpty) {
         // When the last tab is closed, create a fresh blank tab so the
         // user always has at least one tab to work with.
-        final newController = SftpWorkspaceController(
-          connectionManager: sl<ConnectionManager>(),
-        )..addListener(_handleControllerChanged);
+        final newController = _newController();
         _tabs.add(_SftpTab(controller: newController, label: 'SFTP 1'));
       }
       if (_activeTabIndex >= _tabs.length) {
@@ -407,9 +452,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   void _duplicateSftpTab(int index) {
     if (index < 0 || index >= _tabs.length) return;
     final sourceTab = _tabs[index];
-    final newController = SftpWorkspaceController(
-      connectionManager: sl<ConnectionManager>(),
-    )..addListener(_handleControllerChanged);
+    final newController = _newController();
     setState(() {
       _tabs.insert(
         index + 1,
@@ -457,7 +500,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     if (profile.authMethod == AuthMethod.password &&
         (profile.credentialLabel.trim().isEmpty ||
             profile.credentialLabel == 'Saved password')) {
-      final saved = await _controller.connectionManager.readProfilePassword(
+      final saved = await _controller.sftpManager.credentials.readPassword(
         profile.id,
       );
       if (saved != null && saved.trim().isNotEmpty) {
@@ -606,7 +649,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           );
         case _FileAction.download:
           if (!isRemote) {
-            _showSnack(context, 'Download hanya tersedia untuk remote file.');
+            _showSnack(context, 'Download is only available for remote files.');
             return;
           }
           final selectedDir = await FilePicker.getDirectoryPath(
@@ -625,8 +668,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
               name: file.name,
               targetPath: localPath,
               message: file.folder
-                  ? 'Folder dengan nama yang sama sudah ada di local. Download akan merge folder dan rewrite file yang namanya sama.'
-                  : 'File dengan nama yang sama sudah ada di local. Replace akan rewrite file local.',
+                  ? 'A folder with this name already exists locally. Downloading merges the folders and overwrites files with the same name.'
+                  : 'A file with this name already exists locally. Replace overwrites the local file.',
             );
             if (replace != true) return;
           }
@@ -718,7 +761,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           if (!isRemote) {
             _showSnack(
               context,
-              'Local chmod belum tersedia dari workspace ini.',
+              'Changing local permissions is not available here yet.',
             );
             return;
           }
@@ -757,7 +800,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   }) async {
     final controller = _c(isLeft);
     if (file.folder) {
-      _showSnack(context, 'Editor hanya untuk file. Pakai Open untuk folder.');
+      _showSnack(context, 'The editor only opens files. Use Open for folders.');
       return;
     }
 
@@ -840,7 +883,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         );
         _showSnack(
           context,
-          'Opened temp copy in ${editor.name}. Save file untuk memunculkan rewrite prompt.',
+          'Opened a temporary copy in ${editor.name}. Save the file to be asked whether to upload it.',
         );
       } else {
         _showSnack(context, 'Opened ${file.name} in ${editor.name}.');
@@ -940,11 +983,11 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       if (!mounted) return;
       final currentText = await _readFileTextIfPossible(localPath);
       if (!mounted) return;
-      final diff = _buildTextDiff(originalText, currentText);
+      final diff = buildTextDiff(originalText, currentText);
       final shouldRewrite = await showDialog<bool>(
         context: context,
         builder: (context) =>
-            _SftpRewriteRemoteDialog(fileName: file.name, diff: diff),
+            RewriteRemoteDialog(fileName: file.name, diff: diff),
       );
       if (shouldRewrite == true) {
         await _rewriteEditedRemoteFile(file, localPath, isLeft);
@@ -982,72 +1025,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     } catch (_) {
       return null;
     }
-  }
-
-  _SftpTextDiff _buildTextDiff(String? before, String? after) {
-    if (before == null || after == null) {
-      return const _SftpTextDiff(
-        added: 0,
-        removed: 0,
-        lines: ['Binary or non-text diff preview is not available.'],
-      );
-    }
-    final beforeLines = before.split('\n');
-    final afterLines = after.split('\n');
-    final maxLength = beforeLines.length > afterLines.length
-        ? beforeLines.length
-        : afterLines.length;
-    var added = 0;
-    var removed = 0;
-    final preview = <String>[];
-
-    // Build unified diff with context lines around changes.
-    const contextSize = 2;
-    final changedIndices = <int>{};
-    for (var index = 0; index < maxLength; index += 1) {
-      final oldLine = index < beforeLines.length ? beforeLines[index] : null;
-      final newLine = index < afterLines.length ? afterLines[index] : null;
-      if (oldLine != newLine) changedIndices.add(index);
-    }
-
-    final visibleIndices = <int>{};
-    for (final changed in changedIndices) {
-      for (var offset = -contextSize; offset <= contextSize; offset += 1) {
-        final idx = changed + offset;
-        if (idx >= 0 && idx < maxLength) visibleIndices.add(idx);
-      }
-    }
-
-    final sorted = visibleIndices.toList()..sort();
-    var lastIndex = -2;
-    for (final index in sorted) {
-      if (preview.length >= 120) break;
-      if (index > lastIndex + 1 && preview.isNotEmpty) {
-        preview.add('  ···');
-      }
-      lastIndex = index;
-      final oldLine = index < beforeLines.length ? beforeLines[index] : null;
-      final newLine = index < afterLines.length ? afterLines[index] : null;
-      if (oldLine == newLine) {
-        // Context (unchanged) line.
-        preview.add('  ${oldLine ?? ''}');
-      } else {
-        if (oldLine != null) {
-          removed += 1;
-          preview.add('- $oldLine');
-        }
-        if (newLine != null) {
-          added += 1;
-          preview.add('+ $newLine');
-        }
-      }
-    }
-
-    return _SftpTextDiff(
-      added: added,
-      removed: removed,
-      lines: preview.isEmpty ? const ['No textual diff detected.'] : preview,
-    );
   }
 
   String _fileExtension(String fileName) {
@@ -1241,7 +1218,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                           icon: const Icon(Icons.add_rounded, size: 18),
                           style: IconButton.styleFrom(
                             backgroundColor: AppColors.surface,
-                            side: const BorderSide(color: AppColors.border),
+                            side: BorderSide(color: AppColors.border),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -1285,7 +1262,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     // profile attaches it to the left controller, choosing Local stays Local.
     // No popup is used for choosing the left profile.
     final leftPickGate = _leftPicking ? _leftPickGate(context, profiles) : null;
-    final leftPane = leftSelectedProfile == null
+    Widget leftPane = leftSelectedProfile == null
         ? _buildLocalFilePane(
             context,
             _leftController,
@@ -1302,14 +1279,18 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
             onTitleTap: () => setState(() => _leftPicking = true),
             pickGate: leftPickGate,
           );
-    final rightPane = _buildRemoteFilePane(
-      context,
-      _controller,
-      profiles,
-      selectedProfile,
-      isLeft: false,
-      onTitleTap: null,
-      pickGate: null,
+    leftPane = KeyedSubtree(key: _leftPaneKey, child: leftPane);
+    final rightPane = KeyedSubtree(
+      key: _rightPaneKey,
+      child: _buildRemoteFilePane(
+        context,
+        _controller,
+        profiles,
+        selectedProfile,
+        isLeft: false,
+        onTitleTap: null,
+        pickGate: null,
+      ),
     );
 
     final leftJobs = _leftController.transferJobs;
@@ -1393,7 +1374,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         });
         // Klik profil di picker kiri: hanya buka SFTP ke pane kiri.
         // Koneksi SFTP dilakukan oleh SftpWorkspaceController melalui
-        // _scheduleLeftSync -> attachRemoteProfile -> connectSftp.
+        // _scheduleLeftSync -> attachRemoteProfile -> SftpManager.connect.
         // Jangan membuka sesi SSH terminal (remoteFolder) karena picker
         // ini khusus SFTP, bukan terminal.
       },
@@ -1582,7 +1563,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                     // Klik profil di picker: hanya buka SFTP ke pane yang
                     // bersangkutan. Koneksi SFTP dilakukan oleh
                     // SftpWorkspaceController melalui _scheduleRemoteSync /
-                    // _scheduleLeftSync -> attachRemoteProfile -> connectSftp.
+                    // _scheduleLeftSync -> attachRemoteProfile -> SftpManager.connect.
                     // Jangan membuka sesi SSH terminal (remoteFolder) karena
                     // picker ini khusus SFTP, bukan terminal.
                   },
@@ -1758,8 +1739,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
             name: entry.name,
             targetPath: targetPath,
             message: entry.folder
-                ? 'Folder dengan nama yang sama sudah ada di remote. Upload akan merge folder dan rewrite file yang namanya sama.'
-                : 'File dengan nama yang sama sudah ada di remote. Replace akan rewrite file remote.',
+                ? 'A folder with this name already exists on the server. Uploading merges the folders and overwrites files with the same name.'
+                : 'A file with this name already exists on the server. Replace overwrites the remote file.',
           );
           if (replace != true) return;
         }
@@ -1805,8 +1786,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           name: entry.name,
           targetPath: localPath,
           message: entry.folder
-              ? 'Folder dengan nama yang sama sudah ada di local. Download akan merge folder dan rewrite file yang namanya sama.'
-              : 'File dengan nama yang sama sudah ada di local. Replace akan rewrite file local.',
+              ? 'A folder with this name already exists locally. Downloading merges the folders and overwrites files with the same name.'
+              : 'A file with this name already exists locally. Replace overwrites the local file.',
         );
         if (replace != true) return;
       }
@@ -1977,547 +1958,4 @@ class _SftpLocalEditSession {
   final String? originalText;
 }
 
-class _SftpTextDiff {
-  const _SftpTextDiff({
-    required this.added,
-    required this.removed,
-    required this.lines,
-  });
-
-  final int added;
-  final int removed;
-  final List<String> lines;
-}
-
-class _SftpRewriteRemoteDialog extends StatelessWidget {
-  const _SftpRewriteRemoteDialog({required this.fileName, required this.diff});
-
-  final String fileName;
-  final _SftpTextDiff diff;
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: AppColors.surface,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 28),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: AppColors.border),
-      ),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 720, maxHeight: 560),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.sync_alt_rounded,
-                    color: AppColors.cyan,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text('Rewrite remote file?', style: portixTitle(16)),
-                  ),
-                  IconButton(
-                    tooltip: 'Cancel',
-                    onPressed: () => Navigator.of(context).pop(false),
-                    icon: const Icon(Icons.close_rounded, size: 18),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                fileName,
-                overflow: TextOverflow.ellipsis,
-                style: portixMuted(12),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  _SftpDiffBadge(
-                    label: '+${diff.added}',
-                    color: AppColors.green,
-                  ),
-                  const SizedBox(width: 8),
-                  _SftpDiffBadge(
-                    label: '-${diff.removed}',
-                    color: AppColors.danger,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Flexible(
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: AppColors.terminal,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.all(12),
-                    itemCount: diff.lines.length,
-                    itemBuilder: (context, index) {
-                      final line = diff.lines[index];
-                      final isAdd = line.startsWith('+ ');
-                      final isRemove = line.startsWith('- ');
-                      final isSeparator = line.trim() == '···';
-                      final color = isAdd
-                          ? AppColors.green
-                          : isRemove
-                          ? AppColors.danger
-                          : isSeparator
-                          ? AppColors.muted.withValues(alpha: .5)
-                          : AppColors.text.withValues(alpha: .6);
-                      final bgColor = isAdd
-                          ? AppColors.green.withValues(alpha: .07)
-                          : isRemove
-                          ? AppColors.danger.withValues(alpha: .07)
-                          : Colors.transparent;
-                      return Container(
-                        color: bgColor,
-                        child: Text(
-                          line,
-                          style: TextStyle(
-                            color: color,
-                            fontSize: 11,
-                            height: 1.4,
-                            fontFamily: 'monospace',
-                            fontWeight: (isAdd || isRemove)
-                                ? FontWeight.w700
-                                : FontWeight.normal,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(false),
-                    child: Text('Cancel', style: portixTitle(12)),
-                  ),
-                  const SizedBox(width: 10),
-                  FilledButton.icon(
-                    onPressed: () => Navigator.of(context).pop(true),
-                    icon: const Icon(Icons.upload_file_rounded, size: 16),
-                    label: const Text('Rewrite remote'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SftpDiffBadge extends StatelessWidget {
-  const _SftpDiffBadge({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: .12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: .8)),
-      ),
-      child: Text(label, style: portixTitle(11).copyWith(color: color)),
-    );
-  }
-}
-
 enum _SftpInlineCreateKind { folder, file }
-
-class _SftpTab {
-  _SftpTab({
-    required this.controller,
-    required this.label,
-    this.selectedProfile,
-  });
-
-  final SftpWorkspaceController controller;
-  final String label;
-  SshProfile? selectedProfile;
-}
-
-class _SftpTabChip extends StatelessWidget {
-  const _SftpTabChip({
-    required this.label,
-    required this.active,
-    required this.closable,
-    required this.onTap,
-    required this.onClose,
-    this.onDuplicate,
-    this.onDuplicateWindow,
-  });
-
-  final String label;
-  final bool active;
-  final bool closable;
-  final VoidCallback onTap;
-  final VoidCallback onClose;
-  final VoidCallback? onDuplicate;
-  final VoidCallback? onDuplicateWindow;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      onSecondaryTapDown: (details) => _showContextMenu(context, details),
-      child: Container(
-        height: 36,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          color: active ? const Color(0xFF143B63) : AppColors.surface,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: active ? AppColors.primaryBlue : AppColors.border,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.folder_open_rounded,
-              size: 14,
-              color: AppColors.cyan,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                color: active ? AppColors.text : AppColors.muted,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            if (closable) ...[
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: onClose,
-                child: const Icon(
-                  Icons.close_rounded,
-                  size: 14,
-                  color: AppColors.muted,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showContextMenu(BuildContext context, TapDownDetails details) {
-    final renderBox = context.findRenderObject() as RenderBox?;
-    final offset = renderBox != null
-        ? renderBox.localToGlobal(details.localPosition)
-        : details.localPosition;
-    showMenu(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        offset.dx,
-        offset.dy,
-        offset.dx,
-        offset.dy,
-      ),
-      items: [
-        if (onDuplicate != null)
-          PopupMenuItem(
-            onTap: onDuplicate,
-            child: const Row(
-              children: [
-                Icon(Icons.content_copy_rounded, size: 16),
-                SizedBox(width: 8),
-                Text('Duplicate tab'),
-              ],
-            ),
-          ),
-        if (onDuplicateWindow != null)
-          PopupMenuItem(
-            onTap: onDuplicateWindow,
-            child: const Row(
-              children: [
-                Icon(Icons.open_in_new_rounded, size: 16),
-                SizedBox(width: 8),
-                Text('Duplicate as new window'),
-              ],
-            ),
-          ),
-        if (closable)
-          PopupMenuItem(
-            onTap: onClose,
-            child: const Row(
-              children: [
-                Icon(Icons.close_rounded, size: 16),
-                SizedBox(width: 8),
-                Text('Close tab'),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _RemoteFolderPickerDialog extends StatefulWidget {
-  const _RemoteFolderPickerDialog({
-    required this.title,
-    required this.initialPath,
-    required this.connectionManager,
-  });
-
-  final String title;
-  final String initialPath;
-  final SftpWorkspaceController connectionManager;
-
-  @override
-  State<_RemoteFolderPickerDialog> createState() =>
-      _RemoteFolderPickerDialogState();
-}
-
-class _RemoteFolderPickerDialogState extends State<_RemoteFolderPickerDialog> {
-  late String _currentPath;
-  List<SftpFileEntry> _entries = const [];
-  bool _loading = false;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _currentPath = widget.initialPath;
-    _loadFolders();
-  }
-
-  Future<void> _loadFolders() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      // Use the controller's connection to list remote directories.
-      final entries = await widget.connectionManager.listRemoteDirectoryRaw(
-        _currentPath,
-      );
-      if (!mounted) return;
-      setState(() {
-        _entries = entries.where((e) => e.name != '..').toList(growable: false)
-          ..sort((a, b) {
-            if (a.folder != b.folder) return a.folder ? -1 : 1;
-            return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-          });
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = '$e';
-        _loading = false;
-      });
-    }
-  }
-
-  void _navigateInto(String folderName) {
-    setState(() {
-      _currentPath = _currentPath.endsWith('/')
-          ? '$_currentPath$folderName'
-          : '$_currentPath/$folderName';
-    });
-    _loadFolders();
-  }
-
-  void _navigateUp() {
-    final parts = _currentPath.split('/')..removeWhere((p) => p.isEmpty);
-    if (parts.length <= 1) {
-      setState(() => _currentPath = '/');
-    } else {
-      parts.removeLast();
-      setState(() => _currentPath = '/${parts.join('/')}');
-    }
-    _loadFolders();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: AppColors.surface,
-      insetPadding: const EdgeInsets.all(24),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 520),
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.drive_file_move_rounded,
-                    color: AppColors.cyan,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text(widget.title, style: portixTitle(16))),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close_rounded, size: 18),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              // Current path bar
-              Container(
-                height: 36,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceDark,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.folder_rounded,
-                      size: 16,
-                      color: AppColors.cyan,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _currentPath,
-                        overflow: TextOverflow.ellipsis,
-                        style: portixTitle(12),
-                      ),
-                    ),
-                    if (_currentPath != '/')
-                      IconButton(
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints.tightFor(
-                          width: 28,
-                          height: 28,
-                        ),
-                        onPressed: _navigateUp,
-                        icon: const Icon(
-                          Icons.arrow_upward_rounded,
-                          size: 16,
-                          color: AppColors.muted,
-                        ),
-                        tooltip: 'Go up',
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              // Folder list
-              Expanded(
-                child: _loading
-                    ? const Center(
-                        child: SizedBox.square(
-                          dimension: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      )
-                    : _error != null
-                    ? Center(
-                        child: Text(
-                          _error!,
-                          style: portixMuted(12),
-                          textAlign: TextAlign.center,
-                        ),
-                      )
-                    : _entries.isEmpty
-                    ? Center(
-                        child: Text('Empty directory', style: portixMuted(12)),
-                      )
-                    : ListView.builder(
-                        itemCount: _entries.length,
-                        itemBuilder: (context, index) {
-                          final entry = _entries[index];
-                          final isFolder = entry.folder;
-                          return InkWell(
-                            onTap: isFolder
-                                ? () => _navigateInto(entry.name)
-                                : null,
-                            borderRadius: BorderRadius.circular(8),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 6,
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    isFolder
-                                        ? Icons.folder_rounded
-                                        : Icons.insert_drive_file_outlined,
-                                    color: isFolder
-                                        ? AppColors.amber
-                                        : AppColors.muted,
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Text(
-                                      entry.name,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: isFolder
-                                          ? portixTitle(13)
-                                          : portixMuted(12),
-                                    ),
-                                  ),
-                                  if (isFolder)
-                                    const Icon(
-                                      Icons.chevron_right_rounded,
-                                      color: AppColors.muted,
-                                      size: 18,
-                                    ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-              const SizedBox(height: 14),
-              // Action buttons
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
-                  ),
-                  const SizedBox(width: 10),
-                  FilledButton.icon(
-                    onPressed: () => Navigator.of(context).pop(_currentPath),
-                    icon: const Icon(Icons.check_rounded, size: 16),
-                    label: const Text('Move here'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

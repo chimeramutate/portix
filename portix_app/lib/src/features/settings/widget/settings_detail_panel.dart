@@ -36,29 +36,32 @@ class SettingsDetailPanel extends StatelessWidget {
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                // Calculate card height based on max row count across sections.
-                // row height(28) + spacing(7) = 35 per row, title(20) + gap(8) + padding(20) = 48
-                final maxRows = item.sections.isEmpty
-                    ? 3
-                    : item.sections
-                          .map((s) => s.rows.length)
-                          .reduce((a, b) => a > b ? a : b);
-                final cardHeight = 48.0 + maxRows * 35.0;
-
-                return GridView.builder(
-                  itemCount: item.sections.length,
-                  gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 380,
-                    mainAxisExtent: cardHeight,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                  ),
-                  itemBuilder: (context, index) => _SettingsSectionCard(
-                    item: item,
-                    section: item.sections[index],
-                    values: values,
-                    defaults: defaults,
-                    onChanged: onChanged,
+                // Same columns as a 380px max-extent grid, but each card
+                // takes its natural height, so no row count or text scale
+                // can overflow it.
+                const spacing = 10.0;
+                final columns = (constraints.maxWidth / (380 + spacing))
+                    .ceil()
+                    .clamp(1, 99);
+                final cardWidth =
+                    (constraints.maxWidth - spacing * (columns - 1)) / columns;
+                return SingleChildScrollView(
+                  child: Wrap(
+                    spacing: spacing,
+                    runSpacing: spacing,
+                    children: [
+                      for (final section in item.sections)
+                        SizedBox(
+                          width: cardWidth,
+                          child: _SettingsSectionCard(
+                            item: item,
+                            section: section,
+                            values: values,
+                            defaults: defaults,
+                            onChanged: onChanged,
+                          ),
+                        ),
+                    ],
                   ),
                 );
               },
@@ -107,9 +110,7 @@ class _SettingsProfileHeader extends StatelessWidget {
           AppPill(
             label: dirty ? 'Draft' : 'Synced',
             color: dirty ? AppColors.amber : AppColors.green,
-            background: dirty
-                ? const Color(0xFF3A2D0B)
-                : const Color(0xFF0B3A27),
+            background: dirty ? AppColors.amberTint : AppColors.greenTint,
           ),
         ],
       ),
@@ -138,6 +139,7 @@ class _SettingsSectionCard extends StatelessWidget {
       padding: const EdgeInsets.all(10),
       color: AppColors.surfaceDark.withValues(alpha: .4),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(section.title, style: portixTitle(12)),
@@ -193,7 +195,7 @@ class _SettingsValueRow extends StatelessWidget {
                 child: Text(
                   row.label,
                   overflow: TextOverflow.ellipsis,
-                  style: portixMuted(10),
+                  style: portixMuted(11),
                 ),
               ),
               const SizedBox(width: 10),
@@ -201,7 +203,7 @@ class _SettingsValueRow extends StatelessWidget {
                 child: Text(
                   value,
                   overflow: TextOverflow.ellipsis,
-                  style: portixTitle(10).copyWith(
+                  style: portixTitle(11).copyWith(
                     color: value == 'ON' || value == 'Enabled'
                         ? AppColors.green
                         : AppColors.text,
@@ -209,7 +211,7 @@ class _SettingsValueRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 6),
-              const Icon(Icons.edit_rounded, color: AppColors.muted, size: 12),
+              Icon(Icons.edit_rounded, color: AppColors.muted, size: 12),
             ],
           ),
         ),
@@ -238,10 +240,7 @@ class _SettingsValueRow extends StatelessWidget {
                     dense: true,
                     title: Text(option, style: portixTitle(13)),
                     trailing: option == value
-                        ? const Icon(
-                            Icons.check_rounded,
-                            color: AppColors.green,
-                          )
+                        ? Icon(Icons.check_rounded, color: AppColors.green)
                         : null,
                     onTap: () => Navigator.of(context).pop(option),
                   ),
@@ -308,7 +307,7 @@ class _SettingsDetailFooter extends StatelessWidget {
             child: Text(
               _checkpointLabel(),
               overflow: TextOverflow.ellipsis,
-              style: portixMuted(10),
+              style: portixMuted(11),
             ),
           ),
           AppButton(

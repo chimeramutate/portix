@@ -708,17 +708,6 @@ class LocalEditorService {
     return File(path).existsSync();
   }
 
-  Future<String> prepareRemoteFileForLocalEdit(SftpFileEntry file) async {
-    final tempRoot = Directory.systemTemp.createTempSync('portix-sftp-edit-');
-    final localPath = '${tempRoot.path}${Platform.pathSeparator}${file.name}';
-    final placeholder = File(localPath);
-    await placeholder.writeAsString(
-      '# Temp copy for remote file: ${file.name}\n'
-      '# TODO: replace this placeholder with bytes from ConnectionManager.readRemoteFileBytes(...)\n',
-    );
-    return localPath;
-  }
-
   Future<void> open(LocalEditor editor, String path) async {
     // Handle system default pseudo-command.
     if (editor.command == '_system_default_') {

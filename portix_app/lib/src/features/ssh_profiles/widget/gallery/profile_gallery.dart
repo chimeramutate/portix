@@ -15,7 +15,7 @@ enum _GalleryFilter { all, production, keyAuth, recent }
 
 enum _ProfileViewMode { gallery, list }
 
-enum _ProfileFileAction { importProfiles, exportProfiles }
+enum _ProfileFileAction { importProfiles, importSshConfig, exportProfiles }
 
 class ProfileGallery extends StatefulWidget {
   const ProfileGallery({required this.state, super.key});
@@ -63,7 +63,9 @@ class _ProfileGalleryState extends State<ProfileGallery> {
               SizedBox(height: mobile ? 12 : 18),
               Expanded(
                 child: profiles.isEmpty
-                    ? const _EmptyProfileGallery()
+                    ? _EmptyProfileGallery(
+                        firstRun: widget.state.profiles.isEmpty,
+                      )
                     : switch (viewMode) {
                         _ProfileViewMode.gallery => _ProfileGrid(
                           profiles: profiles,
@@ -108,6 +110,8 @@ class _ProfileGalleryState extends State<ProfileGallery> {
     switch (action) {
       case _ProfileFileAction.importProfiles:
         await _importProfiles();
+      case _ProfileFileAction.importSshConfig:
+        await _importSshConfig();
       case _ProfileFileAction.exportProfiles:
         await _exportProfiles(visibleProfiles);
     }
@@ -133,40 +137,82 @@ class _ProfileGalleryState extends State<ProfileGallery> {
         existingIds: widget.state.profiles.map((profile) => profile.id).toSet(),
       );
       if (!mounted) return;
-      if (profiles.isEmpty) {
-        _showSnack('No profiles found in that file.');
-        return;
-      }
-
-      // Filter out profiles that are already present by fingerprint
-      // (username@host:port) to prevent duplicates even when IDs differ.
-      final existingFingerprints = widget.state.profiles
-          .map((p) => '${p.username}@${p.host}:${p.port}')
-          .toSet();
-      final newProfiles = profiles
-          .where(
-            (p) => !existingFingerprints.contains(
-              '${p.username}@${p.host}:${p.port}',
-            ),
-          )
-          .toList();
-
-      if (newProfiles.isEmpty) {
-        _showSnack('All profiles already exist — nothing to import.');
-        return;
-      }
-      final skipped = profiles.length - newProfiles.length;
-      context.read<SshWorkspaceBloc>().add(ProfilesImported(newProfiles));
-      final skippedNote = skipped > 0
-          ? ' ($skipped duplicate${skipped == 1 ? '' : 's'} skipped)'
-          : '';
-      _showSnack(
-        'Importing ${newProfiles.length} profile${newProfiles.length == 1 ? '' : 's'}$skippedNote...',
+      _addImportedProfiles(
+        profiles,
+        emptyMessage: 'No profiles found in that file.',
       );
     } catch (error) {
       if (!mounted) return;
       _showSnack('Import failed: $error');
     }
+  }
+
+  Future<void> _importSshConfig() async {
+    final home =
+        Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+    if (home == null) return _showSnack('Home directory not found.');
+    final file = File('$home/.ssh/config');
+    try {
+      if (!await file.exists()) {
+        return _showSnack('No ~/.ssh/config found.');
+      }
+      final profiles = parseSshConfig(
+        await file.readAsString(),
+        home: home,
+        defaultUser:
+            Platform.environment['USER'] ??
+            Platform.environment['USERNAME'] ??
+            '',
+        fileExists: (path) => File(path).existsSync(),
+      );
+      if (!mounted) return;
+      _addImportedProfiles(
+        profiles,
+        emptyMessage: 'No hosts found in ~/.ssh/config.',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _showSnack('Import failed: $error');
+    }
+  }
+
+  /// Saves [profiles] that are not already present (same username@host:port).
+  void _addImportedProfiles(
+    List<SshProfile> profiles, {
+    required String emptyMessage,
+  }) {
+    if (profiles.isEmpty) {
+      _showSnack(emptyMessage);
+      return;
+    }
+
+    // Skip profiles already present by fingerprint (username@host:port), or
+    // by id: re-importing an ~/.ssh/config alias the user since edited must
+    // not overwrite their edit.
+    final existingIds = widget.state.profiles.map((p) => p.id).toSet();
+    final existingFingerprints = widget.state.profiles
+        .map((p) => p.address)
+        .toSet();
+    final newProfiles = profiles
+        .where(
+          (p) =>
+              !existingIds.contains(p.id) &&
+              !existingFingerprints.contains(p.address),
+        )
+        .toList();
+
+    if (newProfiles.isEmpty) {
+      _showSnack('All profiles already exist, nothing to import.');
+      return;
+    }
+    final skipped = profiles.length - newProfiles.length;
+    context.read<SshWorkspaceBloc>().add(ProfilesImported(newProfiles));
+    final skippedNote = skipped > 0
+        ? ' ($skipped duplicate${skipped == 1 ? '' : 's'} skipped)'
+        : '';
+    _showSnack(
+      'Importing ${newProfiles.length} profile${newProfiles.length == 1 ? '' : 's'}$skippedNote...',
+    );
   }
 
   Future<void> _exportProfiles(List<SshProfile> visibleProfiles) async {
@@ -391,6 +437,15 @@ class _GalleryToolbar extends StatelessWidget {
             PopupMenuItem(
               height: 38,
               padding: EdgeInsets.symmetric(horizontal: 12),
+              value: _ProfileFileAction.importSshConfig,
+              child: _MenuItem(
+                icon: Icons.terminal_rounded,
+                label: 'Import ~/.ssh/config',
+              ),
+            ),
+            PopupMenuItem(
+              height: 38,
+              padding: EdgeInsets.symmetric(horizontal: 12),
               value: _ProfileFileAction.exportProfiles,
               child: _MenuItem(
                 icon: Icons.file_download_outlined,
@@ -560,7 +615,7 @@ class _TagFilterMenuButton extends StatelessWidget {
                   tag == selectedTag
                       ? Icons.check_circle_rounded
                       : Icons.sell_outlined,
-                  color: tag == selectedTag ? AppColors.green : AppColors.muted,
+                  color: tag == selectedTag ? AppColors.cyan : AppColors.muted,
                   size: 16,
                 ),
                 const SizedBox(width: 10),
@@ -651,10 +706,8 @@ class _ProfileList extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
                 child: AppPanel(
                   padding: const EdgeInsets.all(12),
-                  color: selected ? const Color(0xFF123455) : AppColors.surface,
-                  borderColor: selected
-                      ? AppColors.primaryBlue
-                      : AppColors.border,
+                  color: selected ? AppColors.selectedSoft : AppColors.surface,
+                  borderColor: selected ? AppColors.cyan : AppColors.border,
                   child: compact
                       ? _CompactProfileListRow(profile: profile, status: status)
                       : Row(
@@ -684,7 +737,9 @@ class _ProfileList extends StatelessWidget {
                                     ? 'Key auth'
                                     : 'Password',
                                 subtitle: profile.credentialLabel.isEmpty
-                                    ? 'No credential'
+                                    ? (profile.authMethod == AuthMethod.sshKey
+                                          ? 'ssh-agent'
+                                          : 'No credential')
                                     : profile.credentialLabel,
                               ),
                             ),
@@ -694,6 +749,7 @@ class _ProfileList extends StatelessWidget {
                             ),
                             const SizedBox(width: 10),
                             AppIconButton(
+                              tooltip: 'Open terminal',
                               icon: Icons.terminal_rounded,
                               onPressed: () =>
                                   context.read<SshSessionBloc>().add(
@@ -846,7 +902,9 @@ class _ListText extends StatelessWidget {
 }
 
 class _EmptyProfileGallery extends StatelessWidget {
-  const _EmptyProfileGallery();
+  const _EmptyProfileGallery({required this.firstRun});
+
+  final bool firstRun;
 
   @override
   Widget build(BuildContext context) {
@@ -856,15 +914,31 @@ class _EmptyProfileGallery extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.dns_outlined, color: AppColors.muted, size: 24),
+            Icon(Icons.dns_outlined, color: AppColors.muted, size: 24),
             const SizedBox(height: 10),
-            Text('No profiles found', style: portixTitle(15)),
+            Text(
+              firstRun ? 'No SSH profiles yet' : 'No profiles found',
+              style: portixTitle(15),
+            ),
             const SizedBox(height: 4),
             Text(
-              'Adjust the filters or import a Portix profile file.',
+              firstRun
+                  ? 'Add a server to connect to, or import hosts from ~/.ssh/config.'
+                  : 'Adjust the filters or import a Portix profile file.',
               textAlign: TextAlign.center,
               style: portixMuted(12),
             ),
+            if (firstRun) ...[
+              const SizedBox(height: 14),
+              AppButton(
+                icon: Icons.add_rounded,
+                label: 'New SSH Profile',
+                primary: true,
+                onPressed: () => context.read<SshWorkspaceBloc>().add(
+                  const NewProfileRequested(),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -942,15 +1016,13 @@ class _ListProfileMenu extends StatelessWidget {
 }
 
 class _MenuItem extends StatelessWidget {
-  const _MenuItem({
-    required this.icon,
-    required this.label,
-    this.color = AppColors.muted,
-  });
+  const _MenuItem({required this.icon, required this.label, Color? color})
+    : _color = color;
 
   final IconData icon;
   final String label;
-  final Color color;
+  final Color? _color;
+  Color get color => _color ?? AppColors.muted;
 
   @override
   Widget build(BuildContext context) {

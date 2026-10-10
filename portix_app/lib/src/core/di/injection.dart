@@ -7,6 +7,7 @@ import 'package:portix/src/features/rdp/bloc/rdp_workspace_bloc.dart';
 import '../../connection_manager/connection_backend.dart';
 import '../../connection_manager/connection_manager.dart';
 import '../../connection_manager/mock_backend.dart';
+import '../../connection_manager/profile_credentials.dart';
 import '../../connection_manager/profile_secret_store.dart';
 import '../../connection_manager/rust_bridge_backend.dart';
 import '../../connection_manager/unavailable_backend.dart';
@@ -18,7 +19,10 @@ import '../../features/settings/bloc/index.dart';
 import '../../features/sftp/bloc/index.dart';
 import '../../features/ssh_profiles/bloc/index.dart';
 import '../../features/ssh_sessions/bloc/index.dart';
-import '../../security/security_policy.dart';
+import '../../sftp_client/rust_sftp_backend.dart';
+import '../../sftp_client/sftp_backend.dart';
+import '../../sftp_client/sftp_manager.dart';
+import '../../sftp_client/unavailable_sftp_backend.dart';
 
 final sl = GetIt.instance;
 
@@ -37,13 +41,34 @@ Future<void> configureDependencies() async {
   }
 
   sl
-    ..registerLazySingleton<SecurityPolicy>(SecurityPolicy.new)
-    ..registerLazySingleton<ProfileSecretStore>(
-      () => ProfileSecretStore(policy: sl()),
-    )
+    ..registerLazySingleton<ProfileSecretStore>(ProfileSecretStore.new)
     ..registerLazySingleton<ConnectionBackend>(() => backend)
+    ..registerLazySingleton<ProfileCredentials>(
+      () => ProfileCredentials(
+        secretStore: sl(),
+        savedProfiles: () async =>
+            (await sl<SshProfileRepository>().getProfiles()).fold(
+              (_) => const [],
+              (profiles) => profiles,
+            ),
+      ),
+    )
     ..registerLazySingleton<ConnectionManager>(
-      () => ConnectionManager(backend: sl(), secretStore: sl()),
+      () => ConnectionManager(backend: sl(), credentials: sl()),
+      dispose: (manager) => manager.dispose(),
+    )
+    // SFTP rides the same Rust library but its own connections.
+    ..registerLazySingleton<SftpBackend>(
+      () => backend is RustBridgeBackend
+          ? const RustSftpBackend()
+          : UnavailableSftpBackend(
+              backend is UnavailableConnectionBackend
+                  ? backend.cause
+                  : 'mock backend',
+            ),
+    )
+    ..registerLazySingleton<SftpManager>(
+      () => SftpManager(backend: sl(), credentials: sl()),
       dispose: (manager) => manager.dispose(),
     )
     ..registerLazySingleton<SshProfileRepository>(
@@ -54,9 +79,7 @@ Future<void> configureDependencies() async {
     ..registerLazySingleton<RdpProfileRepository>(() => RdpProfileRepository())
     ..registerFactory(() => SshWorkspaceBloc(repository: sl()))
     ..registerFactory(() => RdpWorkspaceBloc(repository: sl()))
-    ..registerFactory(
-      () => SettingsBloc(repository: sl(), securityPolicy: sl()),
-    )
+    ..registerFactory(() => SettingsBloc(repository: sl()))
     ..registerFactory(() => SftpWorkspaceBloc(repository: sl()))
     ..registerFactory(SshSessionBloc.new);
 }
