@@ -3,9 +3,12 @@ import 'dart:io' show Platform;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/features/rdp/bloc/index.dart';
+import 'package:portix/src/features/rdp/service/rdp_backend_service.dart';
 import 'package:portix/src/features/rdp/service/rdp_window_service.dart';
+import 'package:portix/src/sftp_client/sftp_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'src/core/di/injection.dart';
@@ -62,6 +65,18 @@ class _PortixAppState extends State<PortixApp> with WindowListener {
   Future<void> onWindowClose() async {
     if (_closing) return;
     _closing = true;
+
+    // End sessions before the engines go away, otherwise Rust keeps
+    // streaming into a dead isolate. Capped so a hung server can't block quit.
+    try {
+      await Future.wait([
+        sl<ConnectionManager>().shutdown(),
+        sl<SftpManager>().shutdown(),
+        sl<RdpBackendService>().disconnectAll(),
+      ]).timeout(const Duration(seconds: 2));
+    } catch (error) {
+      debugPrint('[Portix] shutdown: $error');
+    }
 
     await RdpWindowService.closeAllSessions();
     await Future<void>.delayed(const Duration(milliseconds: 120));
