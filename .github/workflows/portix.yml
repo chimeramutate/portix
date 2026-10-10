@@ -641,6 +641,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ "$IS_BETA" = "true" ]; then
+            sed -i '' 's/^PRODUCT_BUNDLE_IDENTIFIER = .*/PRODUCT_BUNDLE_IDENTIFIER = beta.portix.app/' \
+              macos/Runner/Configs/AppInfo.xcconfig
+          fi
+          grep '^PRODUCT_BUNDLE_IDENTIFIER' macos/Runner/Configs/AppInfo.xcconfig
+
           flutter build macos \
             --release \
             --dart-define=PORTIX_BACKEND=rust \
@@ -1000,6 +1006,11 @@ jobs:
             "lib/src/rust/frb_generated.dart"
           sed -i "s|ioDirectory: '../portix_rdp/target/release/'|ioDirectory: ''|g" \
             "lib/src/rust_rdp/frb_generated.dart"
+
+          if [ "$IS_BETA" = "true" ]; then
+            sed -i 's/set(APPLICATION_ID ".*")/set(APPLICATION_ID "beta.portix.app")/' linux/CMakeLists.txt
+          fi
+          grep 'set(APPLICATION_ID' linux/CMakeLists.txt
 
           flutter build linux \
             --release \
@@ -1502,6 +1513,14 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+
+          # Windows has no bundle ID; ProductName is what identifies the build
+          # (and keys the %APPDATA% folder), so beta gets its own.
+          if ($env:IS_BETA -eq "true") {
+            (Get-Content windows/runner/Runner.rc) -replace '"ProductName", "Portix"', '"ProductName", "Portix Beta"' |
+              Set-Content windows/runner/Runner.rc
+          }
+          Select-String -Path windows/runner/Runner.rc -Pattern '"ProductName"'
 
           flutter build windows --release --dart-define=PORTIX_BACKEND=rust --dart-define=RUST_LIBRARY_MODE=production
 
