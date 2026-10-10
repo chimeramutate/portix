@@ -1811,14 +1811,6 @@ jobs:
           echo "Icon copied to snap/gui/icon.png"
           ls -la snap/gui/
 
-      - name: Cache snapcraft
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/snapcraft
-            ~/.local/share/snapcraft
-          key: snapcraft-${{ runner.os }}-${{ hashFiles('snap/snapcraft.yaml') }}
-
       - name: Sync snap version
         shell: bash
         run: |
@@ -1888,7 +1880,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - snap
-    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-beta') && github.event_name != 'pull_request'
+    if: startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request'
 
     steps:
       - name: Checkout
@@ -1911,7 +1903,9 @@ jobs:
         uses: snapcore/action-publish@v1
         with:
           snap: snap_artifact/portix_${{ github.ref_name }}.snap
-          release: stable
+          # Every channel gets the fresh build, so no channel keeps a revision
+          # with stale Ubuntu packages (Snap Store security notices).
+          release: ${{ env.IS_BETA == 'true' && 'beta,edge' || 'stable,candidate,beta,edge' }}
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
 
