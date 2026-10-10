@@ -13,6 +13,7 @@ class TerminalPane extends StatefulWidget {
     this.broadcastTyping = false,
     this.solo = false,
     this.active = false,
+    this.highlightActive = false,
     this.keyboardEnabled = true,
     this.copyShortcut = TerminalClipboardShortcut.shiftCtrl,
     this.pasteShortcut = TerminalClipboardShortcut.ctrl,
@@ -41,6 +42,9 @@ class TerminalPane extends StatefulWidget {
   final bool broadcastTyping;
   final bool solo;
   final bool active;
+
+  /// Outline the active pane; only meaningful when panes are split.
+  final bool highlightActive;
   final bool keyboardEnabled;
   final TerminalClipboardShortcut copyShortcut;
   final TerminalClipboardShortcut pasteShortcut;
@@ -111,14 +115,14 @@ class _TerminalPaneState extends State<TerminalPane>
             ),
         },
         child: Container(
+          // Connection status lives on the tab dot; a border only tells
+          // split panes apart.
           decoration: BoxDecoration(
-            border: Border.all(
-              color: widget.active
-                  ? connected
-                        ? AppColors.green
-                        : AppColors.amber
-                  : AppColors.border,
-            ),
+            border: widget.highlightActive
+                ? Border.all(
+                    color: widget.active ? AppColors.cyan : AppColors.border,
+                  )
+                : null,
             borderRadius: BorderRadius.circular(8),
           ),
           clipBehavior: Clip.antiAlias,

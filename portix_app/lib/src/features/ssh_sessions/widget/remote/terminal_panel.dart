@@ -233,6 +233,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         child: AppIconButton(
           key: key,
           tooltip: message,
+          outlined: false,
           icon: icon,
           onPressed: onPressed,
         ),
@@ -295,6 +296,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         AppIconButton(
           key: const ValueKey('terminal-tools'),
           tooltip: _toolsExpanded ? 'Hide tools' : 'Terminal tools',
+          outlined: false,
           icon: _toolsExpanded
               ? Icons.chevron_right_rounded
               : Icons.more_horiz_rounded,
@@ -1100,6 +1102,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
         _connectionManager.recordingPath(sessionId) != null;
     return AppIconButton(
       key: const ValueKey('record-session'),
+      outlined: false,
       tooltip: recording ? 'Stop recording' : 'Record session to a log file',
       icon: recording
           ? Icons.stop_circle_rounded
@@ -2309,8 +2312,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
           child: Column(
             children: [
               Container(
-                height: 54,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
+                height: 36,
+                padding: const EdgeInsets.only(left: 4, right: 8),
                 decoration: BoxDecoration(
                   color: AppColors.bg,
                   border: Border(bottom: BorderSide(color: AppColors.border)),
@@ -2385,13 +2388,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                           else if (item
                                               is session_models.TerminalSession)
                                             _buildSessionTab(item),
-                                          const SizedBox(width: 8),
+                                          const SizedBox(width: 2),
                                         ],
                                         AppIconButton(
                                           key: const ValueKey(
                                             'new-terminal-tab',
                                           ),
                                           tooltip: 'New terminal tab',
+                                          outlined: false,
                                           icon: Icons.add_rounded,
                                           onPressed:
                                               _openNewSessionForCurrentProfile,
@@ -2513,8 +2517,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
                       ),
               ),
               Container(
-                height: 52,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+                height: 26,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(
                   color: AppColors.bg,
                   border: Border(top: BorderSide(color: AppColors.border)),
@@ -2524,7 +2528,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
                     listenable: _telemetry,
                     builder: (context, _) => TerminalStatusFooter(
                       snapshot: _telemetry.snapshot,
-                      samples: _telemetry.samples,
                       error: _telemetry.error,
                       canUngroupWorkspace:
                           constraints.maxWidth >= 360 &&

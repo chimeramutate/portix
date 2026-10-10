@@ -117,84 +117,98 @@ class TerminalSessionTab extends StatelessWidget {
     final canReconnect =
         status == session_models.ConnectionStatus.disconnected ||
         status == session_models.ConnectionStatus.error;
-    final tab = GestureDetector(
-      key: ValueKey('terminal-session-tab-$sessionId'),
-      onTap: onTap,
-      onSecondaryTapUp: onDuplicate == null
-          ? null
-          : (details) => _showContextMenu(context, details.globalPosition),
-      child: Container(
-        height: 36,
-        width: 200,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          color: active ? AppColors.selected : AppColors.surface,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: active ? AppColors.cyan : AppColors.border,
+    final tab = _HoverBuilder(
+      builder: (context, hovered) => GestureDetector(
+        key: ValueKey('terminal-session-tab-$sessionId'),
+        onTap: onTap,
+        onSecondaryTapUp: onDuplicate == null
+            ? null
+            : (details) => _showContextMenu(context, details.globalPosition),
+        // Flat tab: the active one takes the panel color and a top marker.
+        child: Container(
+          height: 36,
+          width: 200,
+          padding: const EdgeInsets.only(left: 12, right: 6),
+          decoration: BoxDecoration(
+            color: active ? AppColors.surface : Colors.transparent,
+            border: Border(
+              top: BorderSide(
+                color: active ? AppColors.cyan : Colors.transparent,
+                width: 2,
+              ),
+            ),
           ),
-        ),
-        child: Row(
-          children: [
-            if (canReconnect && onReconnect != null && !reconnectNearClose)
-              SizedBox.square(
-                dimension: 24,
-                child: IconButton(
-                  tooltip: 'Reconnect $label',
-                  onPressed: onReconnect,
-                  padding: EdgeInsets.zero,
-                  icon: Icon(
-                    Icons.refresh_rounded,
-                    color: AppColors.amber,
-                    size: 17,
+          child: Row(
+            children: [
+              if (canReconnect && onReconnect != null && !reconnectNearClose)
+                SizedBox.square(
+                  dimension: 22,
+                  child: IconButton(
+                    tooltip: 'Reconnect $label',
+                    onPressed: onReconnect,
+                    padding: EdgeInsets.zero,
+                    icon: Icon(
+                      Icons.refresh_rounded,
+                      color: AppColors.amber,
+                      size: 15,
+                    ),
                   ),
+                )
+              else
+                Icon(
+                  leadingIcon ??
+                      (connecting ? Icons.sync_rounded : Icons.circle),
+                  size: leadingIcon == null && !connecting ? 8 : 15,
+                  // The dot is the connection status, active tab or not.
+                  color: connected ? AppColors.green : AppColors.muted,
                 ),
-              )
-            else
-              Icon(
-                leadingIcon ?? (connecting ? Icons.sync_rounded : Icons.circle),
-                size: leadingIcon == null && !connecting ? 9 : 17,
-                color: connected && active ? AppColors.green : AppColors.muted,
-              ),
-            const SizedBox(width: 9),
-            Expanded(
-              child: Text(
-                label,
-                overflow: TextOverflow.ellipsis,
-                style: portixTitle(13),
-              ),
-            ),
-            if (canReconnect && onReconnect != null && reconnectNearClose)
-              SizedBox.square(
-                dimension: 24,
-                child: IconButton(
-                  tooltip: 'Reconnect $label',
-                  onPressed: onReconnect,
-                  padding: EdgeInsets.zero,
-                  icon: Icon(
-                    Icons.refresh_rounded,
-                    color: AppColors.amber,
-                    size: 17,
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: active ? AppColors.text : AppColors.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
-            if (canReconnect && onReconnect != null && reconnectNearClose)
-              const SizedBox(width: 4),
-            SizedBox.square(
-              dimension: 24,
-              child: IconButton(
-                key: ValueKey('close-tab-$label'),
-                onPressed: onClose,
-                padding: EdgeInsets.zero,
-                tooltip: 'Close $label',
-                icon: Icon(
-                  Icons.close_rounded,
-                  color: AppColors.muted,
-                  size: 17,
+              if (canReconnect && onReconnect != null && reconnectNearClose)
+                SizedBox.square(
+                  dimension: 22,
+                  child: IconButton(
+                    tooltip: 'Reconnect $label',
+                    onPressed: onReconnect,
+                    padding: EdgeInsets.zero,
+                    icon: Icon(
+                      Icons.refresh_rounded,
+                      color: AppColors.amber,
+                      size: 15,
+                    ),
+                  ),
+                ),
+              // Close shows on the active or hovered tab; it stays in the
+              // tree (and keyboard reachable) so the layout never shifts.
+              _RevealOnFocus(
+                visible: active || hovered,
+                child: SizedBox.square(
+                  dimension: 22,
+                  child: IconButton(
+                    key: ValueKey('close-tab-$label'),
+                    onPressed: onClose,
+                    padding: EdgeInsets.zero,
+                    tooltip: 'Close $label',
+                    icon: Icon(
+                      Icons.close_rounded,
+                      color: AppColors.muted,
+                      size: 15,
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -292,3 +306,49 @@ class SessionProfileOption extends StatelessWidget {
 }
 
 enum _TabMenuAction { rename, duplicate, reconnect, close }
+
+class _HoverBuilder extends StatefulWidget {
+  const _HoverBuilder({required this.builder});
+
+  final Widget Function(BuildContext context, bool hovered) builder;
+
+  @override
+  State<_HoverBuilder> createState() => _HoverBuilderState();
+}
+
+class _HoverBuilderState extends State<_HoverBuilder> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    onEnter: (_) => setState(() => _hovered = true),
+    onExit: (_) => setState(() => _hovered = false),
+    child: widget.builder(context, _hovered),
+  );
+}
+
+/// Fully visible when [visible] or while its child has keyboard focus.
+class _RevealOnFocus extends StatefulWidget {
+  const _RevealOnFocus({required this.visible, required this.child});
+
+  final bool visible;
+  final Widget child;
+
+  @override
+  State<_RevealOnFocus> createState() => _RevealOnFocusState();
+}
+
+class _RevealOnFocusState extends State<_RevealOnFocus> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) => Focus(
+    canRequestFocus: false,
+    skipTraversal: true,
+    onFocusChange: (focused) => setState(() => _focused = focused),
+    child: Opacity(
+      opacity: widget.visible || _focused ? 1 : 0,
+      child: widget.child,
+    ),
+  );
+}
