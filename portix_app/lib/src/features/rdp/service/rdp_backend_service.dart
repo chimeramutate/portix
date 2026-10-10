@@ -298,25 +298,10 @@ class RdpBackendService {
     }
   }
 
-  Future<void> pasteTextAsKeystrokes(String sessionId, String text) async {
-    if (!_sessionToProfile.containsKey(sessionId)) return;
-
-    for (final codeUnit in text.codeUnits) {
-      final stroke = _KeyboardStroke.fromAscii(codeUnit);
-      if (stroke == null) continue;
-
-      if (stroke.shift) {
-        await sendKeyboardInput(sessionId, _KeyboardStroke.shiftLeft, true);
-      }
-      await sendKeyboardInput(sessionId, stroke.hidUsage, true);
-      await sendKeyboardInput(sessionId, stroke.hidUsage, false);
-      if (stroke.shift) {
-        await sendKeyboardInput(sessionId, _KeyboardStroke.shiftLeft, false);
-      }
-
-      await Future<void>.delayed(const Duration(milliseconds: 8));
-    }
-  }
+  /// Disconnects every RDP session this engine started; used on app quit.
+  Future<void> disconnectAll() => Future.wait([
+    for (final id in _sessionToProfile.keys.toList()) disconnect(id),
+  ]);
 
   void dispose() {
     _frameSub?.cancel();
@@ -342,69 +327,6 @@ class RdpConnectionResult {
   final String profileId;
   final String host;
   final int port;
-}
-
-class _KeyboardStroke {
-  const _KeyboardStroke(this.hidUsage, {this.shift = false});
-
-  static const int shiftLeft = 0xE1;
-
-  final int hidUsage;
-  final bool shift;
-
-  static _KeyboardStroke? fromAscii(int codeUnit) {
-    if (codeUnit >= 0x61 && codeUnit <= 0x7A) {
-      return _KeyboardStroke(0x04 + codeUnit - 0x61);
-    }
-    if (codeUnit >= 0x41 && codeUnit <= 0x5A) {
-      return _KeyboardStroke(0x04 + codeUnit - 0x41, shift: true);
-    }
-    if (codeUnit >= 0x31 && codeUnit <= 0x39) {
-      return _KeyboardStroke(0x1E + codeUnit - 0x31);
-    }
-
-    return switch (codeUnit) {
-      0x30 => const _KeyboardStroke(0x27),
-      0x0A => const _KeyboardStroke(0x28),
-      0x0D => const _KeyboardStroke(0x28),
-      0x08 => const _KeyboardStroke(0x2A),
-      0x09 => const _KeyboardStroke(0x2B),
-      0x20 => const _KeyboardStroke(0x2C),
-      0x2D => const _KeyboardStroke(0x2D),
-      0x3D => const _KeyboardStroke(0x2E),
-      0x5B => const _KeyboardStroke(0x2F),
-      0x5D => const _KeyboardStroke(0x30),
-      0x5C => const _KeyboardStroke(0x31),
-      0x3B => const _KeyboardStroke(0x33),
-      0x27 => const _KeyboardStroke(0x34),
-      0x60 => const _KeyboardStroke(0x35),
-      0x2C => const _KeyboardStroke(0x36),
-      0x2E => const _KeyboardStroke(0x37),
-      0x2F => const _KeyboardStroke(0x38),
-      0x21 => const _KeyboardStroke(0x1E, shift: true),
-      0x40 => const _KeyboardStroke(0x1F, shift: true),
-      0x23 => const _KeyboardStroke(0x20, shift: true),
-      0x24 => const _KeyboardStroke(0x21, shift: true),
-      0x25 => const _KeyboardStroke(0x22, shift: true),
-      0x5E => const _KeyboardStroke(0x23, shift: true),
-      0x26 => const _KeyboardStroke(0x24, shift: true),
-      0x2A => const _KeyboardStroke(0x25, shift: true),
-      0x28 => const _KeyboardStroke(0x26, shift: true),
-      0x29 => const _KeyboardStroke(0x27, shift: true),
-      0x5F => const _KeyboardStroke(0x2D, shift: true),
-      0x2B => const _KeyboardStroke(0x2E, shift: true),
-      0x7B => const _KeyboardStroke(0x2F, shift: true),
-      0x7D => const _KeyboardStroke(0x30, shift: true),
-      0x7C => const _KeyboardStroke(0x31, shift: true),
-      0x3A => const _KeyboardStroke(0x33, shift: true),
-      0x22 => const _KeyboardStroke(0x34, shift: true),
-      0x7E => const _KeyboardStroke(0x35, shift: true),
-      0x3C => const _KeyboardStroke(0x36, shift: true),
-      0x3E => const _KeyboardStroke(0x37, shift: true),
-      0x3F => const _KeyboardStroke(0x38, shift: true),
-      _ => null,
-    };
-  }
 }
 
 extension on RdpProfile {

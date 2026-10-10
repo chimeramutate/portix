@@ -16,16 +16,12 @@ class RdpFrameViewer extends StatefulWidget {
     required this.desktopWidth,
     required this.desktopHeight,
     this.onDisconnect,
-    this.onDoubleTap,
-    this.onSingleTapUp,
   });
 
   final String sessionId;
   final int desktopWidth;
   final int desktopHeight;
   final VoidCallback? onDisconnect;
-  final VoidCallback? onDoubleTap;
-  final VoidCallback? onSingleTapUp;
 
   @override
   State<RdpFrameViewer> createState() => _RdpFrameViewerState();
@@ -502,19 +498,13 @@ class _RdpFrameViewerState extends State<RdpFrameViewer> {
           focusNode: _focusNode,
           autofocus: true,
           onKeyEvent: _handleKey,
-          child: GestureDetector(
-            onDoubleTap: widget.onDoubleTap,
-            onTapUp: widget.onSingleTapUp != null
-                ? (_) => widget.onSingleTapUp!()
-                : null,
-            child: Listener(
-              behavior: HitTestBehavior.opaque,
-              onPointerMove: _handlePointerMove,
-              onPointerDown: _handlePointerDown,
-              onPointerUp: _handlePointerUp,
-              onPointerSignal: _handlePointerSignal,
-              child: const SizedBox.expand(),
-            ),
+          child: Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerMove: _handlePointerMove,
+            onPointerDown: _handlePointerDown,
+            onPointerUp: _handlePointerUp,
+            onPointerSignal: _handlePointerSignal,
+            child: const SizedBox.expand(),
           ),
         ),
       ],
