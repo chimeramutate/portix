@@ -3,12 +3,14 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
-import 'api.dart';
+import 'api/sftp.dart';
+import 'api/ssh.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'domain/profile.dart';
 import 'domain/session.dart';
+import 'domain/sftp.dart';
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_io.dart';
 
@@ -27,16 +29,36 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RustStreamSink<String> dco_decode_StreamSink_String_Sse(dynamic raw);
 
   @protected
+  RustStreamSink<TransferProgress> dco_decode_StreamSink_transfer_progress_Sse(
+    dynamic raw,
+  );
+
+  @protected
   String dco_decode_String(dynamic raw);
 
   @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  HostKeyInfo dco_decode_box_autoadd_host_key_info(dynamic raw);
+
+  @protected
   SshProfile dco_decode_box_autoadd_ssh_profile(dynamic raw);
 
   @protected
+  int dco_decode_box_autoadd_u_32(dynamic raw);
+
+  @protected
+  SshProfile dco_decode_box_ssh_profile(dynamic raw);
+
+  @protected
   ConnectionStatus dco_decode_connection_status(dynamic raw);
+
+  @protected
+  ForwardInfo dco_decode_forward_info(dynamic raw);
+
+  @protected
+  HostKeyInfo dco_decode_host_key_info(dynamic raw);
 
   @protected
   int dco_decode_i_32(dynamic raw);
@@ -45,7 +67,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64 dco_decode_i_64(dynamic raw);
 
   @protected
-  List<String> dco_decode_list_String(dynamic raw);
+  List<ForwardInfo> dco_decode_list_forward_info(dynamic raw);
 
   @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
@@ -60,6 +82,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
+  HostKeyInfo? dco_decode_opt_box_autoadd_host_key_info(dynamic raw);
+
+  @protected
+  int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
+
+  @protected
+  SshProfile? dco_decode_opt_box_ssh_profile(dynamic raw);
+
+  @protected
   RemoteFileEntry dco_decode_remote_file_entry(dynamic raw);
 
   @protected
@@ -70,6 +101,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SshProfile dco_decode_ssh_profile(dynamic raw);
+
+  @protected
+  TransferProgress dco_decode_transfer_progress(dynamic raw);
 
   @protected
   int dco_decode_u_16(dynamic raw);
@@ -95,16 +129,38 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  RustStreamSink<TransferProgress> sse_decode_StreamSink_transfer_progress_Sse(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  HostKeyInfo sse_decode_box_autoadd_host_key_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   SshProfile sse_decode_box_autoadd_ssh_profile(SseDeserializer deserializer);
 
   @protected
+  int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
+  SshProfile sse_decode_box_ssh_profile(SseDeserializer deserializer);
+
+  @protected
   ConnectionStatus sse_decode_connection_status(SseDeserializer deserializer);
+
+  @protected
+  ForwardInfo sse_decode_forward_info(SseDeserializer deserializer);
+
+  @protected
+  HostKeyInfo sse_decode_host_key_info(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
@@ -113,7 +169,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
 
   @protected
-  List<String> sse_decode_list_String(SseDeserializer deserializer);
+  List<ForwardInfo> sse_decode_list_forward_info(SseDeserializer deserializer);
 
   @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
@@ -130,6 +186,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
+  HostKeyInfo? sse_decode_opt_box_autoadd_host_key_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
+  SshProfile? sse_decode_opt_box_ssh_profile(SseDeserializer deserializer);
+
+  @protected
   RemoteFileEntry sse_decode_remote_file_entry(SseDeserializer deserializer);
 
   @protected
@@ -142,6 +209,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SshProfile sse_decode_ssh_profile(SseDeserializer deserializer);
+
+  @protected
+  TransferProgress sse_decode_transfer_progress(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_16(SseDeserializer deserializer);
@@ -171,10 +241,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_StreamSink_transfer_progress_Sse(
+    RustStreamSink<TransferProgress> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_host_key_info(
+    HostKeyInfo self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_ssh_profile(
@@ -183,10 +265,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_ssh_profile(SshProfile self, SseSerializer serializer);
+
+  @protected
   void sse_encode_connection_status(
     ConnectionStatus self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_forward_info(ForwardInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_host_key_info(HostKeyInfo self, SseSerializer serializer);
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
@@ -195,7 +289,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
 
   @protected
-  void sse_encode_list_String(List<String> self, SseSerializer serializer);
+  void sse_encode_list_forward_info(
+    List<ForwardInfo> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
@@ -216,6 +313,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_host_key_info(
+    HostKeyInfo? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_ssh_profile(
+    SshProfile? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_remote_file_entry(
     RemoteFileEntry self,
     SseSerializer serializer,
@@ -232,6 +344,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_ssh_profile(SshProfile self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_transfer_progress(
+    TransferProgress self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_u_16(int self, SseSerializer serializer);

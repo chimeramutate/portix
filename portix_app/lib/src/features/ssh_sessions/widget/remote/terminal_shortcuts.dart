@@ -118,3 +118,33 @@ class TerminalCtrlCCopyAction extends Action<_CtrlCConditionalCopyIntent> {
   @override
   bool consumesKey(_CtrlCConditionalCopyIntent intent) => _hasSelection;
 }
+
+const minTerminalFontSize = 8.0;
+const maxTerminalFontSize = 32.0;
+
+/// Font size after a zoom shortcut, or null when [key] is not one.
+/// macOS: Cmd + `=` / `-` / `0`. Elsewhere Ctrl+Shift, because plain
+/// Ctrl+`-` is `^_` (readline undo) and must reach the shell. `0` returns
+/// to [base], the size from Settings.
+double? terminalZoomFontSize(
+  LogicalKeyboardKey key, {
+  required double current,
+  required double base,
+  required bool meta,
+  required bool control,
+  required bool shift,
+  required bool isMacOS,
+}) {
+  final modifier = isMacOS ? meta && !control : control && shift && !meta;
+  if (!modifier) return null;
+  final next = switch (key) {
+    LogicalKeyboardKey.equal || LogicalKeyboardKey.add => current + 1,
+    LogicalKeyboardKey.numpadAdd => current + 1,
+    LogicalKeyboardKey.minus || LogicalKeyboardKey.underscore => current - 1,
+    LogicalKeyboardKey.numpadSubtract => current - 1,
+    LogicalKeyboardKey.digit0 || LogicalKeyboardKey.parenthesisRight => base,
+    LogicalKeyboardKey.numpad0 => base,
+    _ => null,
+  };
+  return next?.clamp(minTerminalFontSize, maxTerminalFontSize);
+}

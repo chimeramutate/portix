@@ -24,7 +24,7 @@ class RewriteRemoteDialog extends StatelessWidget {
       insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 28),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: AppColors.border),
+        side: BorderSide(color: AppColors.border),
       ),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 720, maxHeight: 560),
@@ -36,11 +36,7 @@ class RewriteRemoteDialog extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const Icon(
-                    Icons.sync_alt_rounded,
-                    color: AppColors.cyan,
-                    size: 20,
-                  ),
+                  Icon(Icons.sync_alt_rounded, color: AppColors.cyan, size: 20),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text('Rewrite remote file?', style: portixTitle(16)),

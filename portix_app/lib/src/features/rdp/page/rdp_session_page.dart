@@ -151,7 +151,7 @@ class _RdpSessionPageState extends State<RdpSessionPage> {
             child: Center(
               child: Text(
                 '${_desktopWidth}×$_desktopHeight',
-                style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                style: TextStyle(fontSize: 12, color: AppColors.muted),
               ),
             ),
           ),

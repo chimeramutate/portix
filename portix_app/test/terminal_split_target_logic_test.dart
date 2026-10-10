@@ -91,21 +91,18 @@ void main() {
           profileId: 'p1',
           title: 'Tab 1',
           status: session_models.ConnectionStatus.connected,
-          kind: session_models.SessionKind.ssh,
         ),
         session_models.TerminalSession(
           id: 'session-2',
           profileId: 'p2',
           title: 'Tab 2',
           status: session_models.ConnectionStatus.connected,
-          kind: session_models.SessionKind.ssh,
         ),
         session_models.TerminalSession(
           id: 'session-3',
           profileId: 'p3',
           title: 'Tab 3',
           status: session_models.ConnectionStatus.connected,
-          kind: session_models.SessionKind.ssh,
         ),
       ];
 

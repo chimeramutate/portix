@@ -1,18 +1,14 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/domain/repositories/settings/index.dart';
-import 'package:portix/src/security/security_policy.dart';
 
 part 'settings_event.dart';
 part 'settings_state.dart';
 
 class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
-  SettingsBloc({
-    required SettingsRepository repository,
-    SecurityPolicy? securityPolicy,
-  }) : _repository = repository,
-       _securityPolicy = securityPolicy,
-       super(const SettingsState()) {
+  SettingsBloc({required SettingsRepository repository})
+    : _repository = repository,
+      super(const SettingsState()) {
     on<SettingsStarted>(_onStarted);
     on<SettingsSectionSelected>(_onSectionSelected);
     on<SettingsValueChanged>(_onValueChanged);
@@ -22,7 +18,6 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   }
 
   final SettingsRepository _repository;
-  final SecurityPolicy? _securityPolicy;
 
   Future<void> _onStarted(
     SettingsStarted event,
@@ -32,7 +27,6 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     try {
       final stored = await _repository.loadSettings();
       final savedValues = {...event.defaults, ...stored};
-      _securityPolicy?.updateFromSettings(savedValues);
       emit(
         state.copyWith(
           status: SettingsStatus.ready,
@@ -76,7 +70,6 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     emit(state.copyWith(status: SettingsStatus.saving));
     try {
       await _repository.saveSettings(state.draftValues);
-      _securityPolicy?.updateFromSettings(state.draftValues);
       emit(
         state.copyWith(
           status: SettingsStatus.ready,
@@ -111,8 +104,13 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   ) async {
     emit(state.copyWith(status: SettingsStatus.saving));
     try {
-      await _repository.clearSettings();
-      _securityPolicy?.updateFromSettings(state.defaults);
+      // Only the values this page shows: the same file also holds terminal
+      // snippets and the theme picked from the terminal.
+      final stored = await _repository.loadSettings();
+      await _repository.saveSettings({
+        for (final entry in stored.entries)
+          if (!state.defaults.containsKey(entry.key)) entry.key: entry.value,
+      });
       emit(
         state.copyWith(
           status: SettingsStatus.ready,

@@ -3,28 +3,35 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
-import 'package:portix/src/connection_manager/connection_manager.dart';
-import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/connection_manager/ssh_profile.dart'
     as manager_profile;
+import 'package:portix/src/sftp_client/sftp_manager.dart';
+import 'package:portix/src/sftp_client/sftp_models.dart';
+import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/data/services/sftp/index.dart';
 import 'package:portix/src/domain/entities/sftp/index.dart';
 import 'package:portix/src/domain/entities/ssh/index.dart' as domain;
 
 class SftpWorkspaceController extends ChangeNotifier {
   SftpWorkspaceController({
-    required ConnectionManager connectionManager,
+    required SftpManager sftpManager,
     LocalFileBrowser? localFileBrowser,
     LocalEditorService? localEditorService,
     String? tabId,
-  }) : _connectionManager = connectionManager,
+    this.resolveConnectFailure,
+  }) : _sftp = sftpManager,
        _localFileBrowser = localFileBrowser ?? LocalFileBrowser(),
        _localEditorService = localEditorService ?? LocalEditorService(),
        tabId = tabId ?? const Uuid().v4() {
     _localPath = _localFileBrowser.defaultPath();
     unawaited(loadLocalDirectory(_localPath));
-    _connectionManager.addListener(_handleConnectionManagerChanged);
+    _sftp.addListener(_handleSftpChanged);
   }
+
+  /// Lets the UI fix a failed connect it can explain (a host key to trust,
+  /// a key passphrase to enter). True means connect again.
+  final Future<bool> Function(manager_profile.SshProfile profile, Object error)?
+  resolveConnectFailure;
 
   /// Stable, unique identifier for the SFTP tab that owns this controller.
   /// Generated when the controller is created so every tab — even one that is
@@ -32,17 +39,17 @@ class SftpWorkspaceController extends ChangeNotifier {
   /// a previously closed tab, and that disconnect notifications fired for a
   /// closed tab never bleed into a new one.
   final String tabId;
-  final ConnectionManager _connectionManager;
+  final SftpManager _sftp;
 
-  /// Public accessor for the underlying connection manager, used by the
-  /// workspace page to resolve saved passwords for duplicate-window flows.
-  ConnectionManager get connectionManager => _connectionManager;
+  /// Used by the workspace page to resolve saved passwords for
+  /// duplicate-window flows.
+  SftpManager get sftpManager => _sftp;
   final LocalFileBrowser _localFileBrowser;
   final LocalEditorService _localEditorService;
 
   /// True once [dispose] has run. The controller starts an in-flight
   /// `loadLocalDirectory` in its constructor and `attachRemoteProfile` awaits
-  /// `ConnectionManager.connectSftp`, so those async ops can resume *after*
+  /// `SftpManager.connect`, so those async ops can resume *after*
   /// the owning tab/page is closed and the controller is disposed. Guarding
   /// [notifyListeners] with this flag lets such resumes no-op instead of
   /// tripping Flutter's "A SftpWorkspaceController was used after being
@@ -58,7 +65,6 @@ class SftpWorkspaceController extends ChangeNotifier {
   String _remotePath = '~';
   List<SftpFileEntry> _remoteRows = const [];
   List<SftpFileEntry> _remoteSearchRows = const [];
-  final Map<String, String> _remoteChmodModes = {};
   String _remoteSearchQuery = '';
   String _remoteSearchBase = '~';
   String? _localError;
@@ -119,11 +125,11 @@ class SftpWorkspaceController extends ChangeNotifier {
   // (heartbeat, status events, closeSession, etc.).
   bool _remoteDisconnectNotified = false;
 
-  /// Whether an `attachRemoteProfile → connectSftp` call is currently in
+  /// Whether an `attachRemoteProfile → SftpManager.connect` call is currently in
   /// flight.  This replaces the old loading-guard that keyed on
   /// `_loadingRemote && (_remoteStatus == 'connecting' || 'listing')`,
   /// because [beginLoading] now pre-sets that same `_remoteStatus = 'connecting'`
-  /// state — without starting `connectSftp` — to avoid a one-frame controls
+  /// state — without starting `SftpManager.connect` — to avoid a one-frame controls
   /// flash when a profile is selected.  The old guard would have tripped on
   /// that pre-set state and blocked the very connection it was meant to start.
   bool _connectInProgress = false;
@@ -192,13 +198,8 @@ class SftpWorkspaceController extends ChangeNotifier {
   bool get showConnectionSteps => _showConnectionSteps;
 
   bool get isRemoteDisconnected {
-    if (_remoteSessionId == null) return false;
-    final session = _connectionManager.sessions
-        .where((s) => s.id == _remoteSessionId)
-        .firstOrNull;
-    if (session == null) return true;
-    return session.status == ConnectionStatus.disconnected ||
-        session.status == ConnectionStatus.error;
+    final sessionId = _remoteSessionId;
+    return sessionId != null && !_sftp.isConnected(sessionId);
   }
 
   /// Marks the remote pane as loading **before** the async
@@ -221,11 +222,8 @@ class SftpWorkspaceController extends ChangeNotifier {
   }
 
   bool get isRemoteConnected {
-    if (_remoteSessionId == null) return false;
-    final session = _connectionManager.sessions
-        .where((s) => s.id == _remoteSessionId)
-        .firstOrNull;
-    return session?.status == ConnectionStatus.connected;
+    final sessionId = _remoteSessionId;
+    return sessionId != null && _sftp.isConnected(sessionId);
   }
 
   bool get localSearchActive => _localSearchQuery.trim().isNotEmpty;
@@ -332,12 +330,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     // silently dead even though TCP port-22 is still reachable).
     if (_remoteProfileId == profile.id && _remoteSessionId != null) {
       // Verify the session is still connected before reusing
-      final session = _connectionManager.sessions
-          .where((s) => s.id == _remoteSessionId)
-          .firstOrNull;
-      if (session != null &&
-          session.status == ConnectionStatus.connected &&
-          _remoteError == null) {
+      if (isRemoteConnected && _remoteError == null) {
         if (_remoteRows.isEmpty && !_loadingRemote) {
           await loadRemoteDirectory(_remotePath);
         } else if (_remotePath != normalizedPath && _remoteRows.isEmpty) {
@@ -383,7 +376,7 @@ class SftpWorkspaceController extends ChangeNotifier {
       if (_passwordSubmitting) {
         return;
       }
-      final hasSaved = await _connectionManager.hasSavedPassword(profile.id);
+      final hasSaved = await _sftp.credentials.hasSavedPassword(profile.id);
       if (!hasSaved) {
         _pendingProfile = profile;
         _remoteProfileId = profile.id;
@@ -398,14 +391,14 @@ class SftpWorkspaceController extends ChangeNotifier {
       }
     }
 
-    // Prevent duplicate connection attempts while connectSftp is actually
+    // Prevent duplicate connection attempts while a connect is actually
     // in flight, or while a listing is already underway.
     //
     // [beginLoading] — called by the page before setState — sets
-    // _remoteStatus = 'connecting' (without starting connectSftp) so the
+    // _remoteStatus = 'connecting' (without starting SftpManager.connect) so the
     // step indicator shows immediately and the file-table controls don't
     // flash for one frame.  We must NOT block on that mere 'connecting'
-    // status; only on _connectInProgress (set around the real connectSftp
+    // status; only on _connectInProgress (set around the real SftpManager.connect
     // call below) and on 'listing' (loadRemoteDirectory in progress,
     // already protected downstream by the session-reuse path or the
     // _remoteLoadToken mechanism).
@@ -423,18 +416,23 @@ class SftpWorkspaceController extends ChangeNotifier {
     notifyListeners();
 
     _connectInProgress = true;
-    final result = await _connectionManager.connectSftp(
-      _toManagerProfile(profile),
-    );
+    final managerProfile = manager_profile.SshProfile.fromDomain(profile);
+    final result = await _sftp.connect(managerProfile);
     _connectInProgress = false;
-    if (result.isLeft) {
-      final failureStr = result.fold<String?>((f) => f.toString(), (_) => null);
+    if (result case Left(value: final failure)) {
+      final failureStr = failure.toString();
+      final resolve = resolveConnectFailure;
+      if (resolve != null && !_isDisposed) {
+        _connectInProgress = true;
+        final retry = await resolve(managerProfile, failure);
+        _connectInProgress = false;
+        if (retry) return attachRemoteProfile(profile, normalizedPath);
+      }
 
       // If the profile is password-based and the error is auth-related,
       // re-enter the 'authenticating' state so the inline form can collect
       // a different password. The error is shown below the password field.
       if (profile.authMethod == domain.AuthMethod.password &&
-          failureStr != null &&
           _isAuthError(failureStr)) {
         _pendingProfile = profile;
         _remoteStatus = 'authenticating';
@@ -446,7 +444,7 @@ class SftpWorkspaceController extends ChangeNotifier {
 
       // Timeout — surface a specific message so the user knows the
       // server didn't respond in time. Retry is possible via reconnect.
-      if (failureStr != null && _isTimeoutError(failureStr)) {
+      if (_isTimeoutError(failureStr)) {
         _loadingRemote = false;
         _remoteStatus = 'failed';
         _remoteError = 'Connection timeout';
@@ -456,27 +454,17 @@ class SftpWorkspaceController extends ChangeNotifier {
 
       _loadingRemote = false;
       _remoteStatus = 'failed';
-      _remoteError = failureStr ?? 'Unknown connection error.';
+      _remoteError = failureStr;
       notifyListeners();
       return;
     }
 
-    final sessions = _connectionManager.sessions
-        .where(
-          (session) =>
-              session.kind == SessionKind.sftp &&
-              session.profileId == profile.id,
-        )
-        .toList(growable: false);
-    if (sessions.isEmpty) {
-      _loadingRemote = false;
-      _remoteStatus = 'failed';
-      _remoteError = 'SFTP session was not created by the backend.';
-      notifyListeners();
+    final sessionId = result.fold((_) => '', (id) => id);
+    if (_isDisposed) {
+      unawaited(_sftp.close(sessionId));
       return;
     }
-    final session = sessions.last;
-    _remoteSessionId = session.id;
+    _remoteSessionId = sessionId;
     _remoteProfileId = profile.id;
     _remoteProfileName = profile.name;
     await loadRemoteDirectory(_remotePath);
@@ -503,7 +491,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     _remoteSearchToken += 1;
     notifyListeners();
     if (sessionId != null) {
-      await _connectionManager.closeSession(sessionId);
+      await _sftp.close(sessionId);
     }
   }
 
@@ -540,7 +528,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     _remoteError = null;
     notifyListeners();
 
-    final resolvedResult = await _connectionManager.resolveRemoteDirectory(
+    final resolvedResult = await _sftp.resolve(
       sessionId,
       path.trim().isEmpty ? _remotePath : path.trim(),
     );
@@ -555,10 +543,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     }, (value) => value);
     if (resolvedPath == null) return;
 
-    final entriesResult = await _connectionManager.listRemoteDirectory(
-      sessionId,
-      resolvedPath,
-    );
+    final entriesResult = await _sftp.list(sessionId, resolvedPath);
     entriesResult.fold(
       (failure) {
         if (!_isCurrentRemoteRequest(token)) return;
@@ -593,10 +578,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     final token = ++_remoteLoadToken;
     final path = _remotePath;
 
-    final entriesResult = await _connectionManager.listRemoteDirectory(
-      sessionId,
-      path,
-    );
+    final entriesResult = await _sftp.list(sessionId, path);
     entriesResult.fold(
       (failure) {
         if (!_isCurrentRemoteRequest(token)) return;
@@ -631,7 +613,12 @@ class SftpWorkspaceController extends ChangeNotifier {
       if (file.folder) {
         await _downloadRemoteDirectory(sessionId, remotePath, localPath);
       } else {
-        await _downloadRemoteFile(sessionId, remotePath, localPath);
+        await _downloadRemoteFile(
+          sessionId,
+          remotePath,
+          localPath,
+          onProgress: (progress) => _reportProgress(jobId, progress),
+        );
       }
       _updateTransfer(jobId, value: 1, done: true);
       await _refreshLocalDirectoryForDownloadedPath(localPath);
@@ -677,7 +664,12 @@ class SftpWorkspaceController extends ChangeNotifier {
           targetDirectory,
         );
       } else {
-        await _uploadFile(sessionId, File(normalized), targetDirectory);
+        await _uploadFile(
+          sessionId,
+          File(normalized),
+          targetDirectory,
+          onProgress: (progress) => _reportProgress(jobId, progress),
+        );
       }
       _updateTransfer(jobId, value: 1, done: true);
     } catch (error) {
@@ -754,13 +746,8 @@ class SftpWorkspaceController extends ChangeNotifier {
     final remotePath = file.path;
     if (sessionId == null || remotePath == null) return;
     final normalizedMode = mode.toString().padLeft(3, '0');
-    final result = await _connectionManager.chmodRemotePath(
-      sessionId,
-      remotePath,
-      normalizedMode,
-    );
+    final result = await _sftp.chmod(sessionId, remotePath, normalizedMode);
     result.fold((failure) => throw StateError(failure.message), (_) {});
-    _remoteChmodModes[remotePath] = normalizedMode;
     await _refreshCurrentRemoteDirectory();
   }
 
@@ -776,14 +763,8 @@ class SftpWorkspaceController extends ChangeNotifier {
       throw StateError('Rename only supports a name, not a path.');
     }
     final targetPath = _renameTargetPath(remotePath, trimmed);
-    final result = await _connectionManager.executeRemoteCommand(
-      sessionId,
-      'mv -- ${_shellQuote(remotePath)} ${_shellQuote(targetPath)}',
-      action: 'rename remote path',
-    );
+    final result = await _sftp.rename(sessionId, remotePath, targetPath);
     result.fold((failure) => throw StateError(failure.message), (_) {});
-    final oldMode = _remoteChmodModes.remove(remotePath);
-    if (oldMode != null) _remoteChmodModes[targetPath] = oldMode;
     await _refreshCurrentRemoteDirectory();
   }
 
@@ -796,14 +777,7 @@ class SftpWorkspaceController extends ChangeNotifier {
       throw StateError('Duplicate only supports a name, not a path.');
     }
     final targetPath = _renameTargetPath(remotePath, trimmed);
-    final command = file.folder
-        ? 'cp -R -- ${_shellQuote(remotePath)} ${_shellQuote(targetPath)}'
-        : 'cp -- ${_shellQuote(remotePath)} ${_shellQuote(targetPath)}';
-    final result = await _connectionManager.executeRemoteCommand(
-      sessionId,
-      command,
-      action: 'duplicate remote path',
-    );
+    final result = await _sftp.copy(sessionId, remotePath, targetPath);
     result.fold((failure) => throw StateError(failure.message), (_) {});
     await _refreshCurrentRemoteDirectory();
   }
@@ -813,13 +787,8 @@ class SftpWorkspaceController extends ChangeNotifier {
     final remotePath = file.path;
     final trimmed = targetPath.trim();
     if (sessionId == null || remotePath == null || trimmed.isEmpty) return;
-    final result = await _connectionManager.executeRemoteCommand(
-      sessionId,
-      'mv -- ${_shellQuote(remotePath)} ${_shellQuote(trimmed)}',
-      action: 'move remote path',
-    );
+    final result = await _sftp.rename(sessionId, remotePath, trimmed);
     result.fold((failure) => throw StateError(failure.message), (_) {});
-    _remoteChmodModes.remove(remotePath);
     await _refreshCurrentRemoteDirectory();
   }
 
@@ -831,13 +800,8 @@ class SftpWorkspaceController extends ChangeNotifier {
     if (trimmed.isEmpty || trimmed == '/' || trimmed == '~') {
       throw StateError('This remote path cannot be deleted.');
     }
-    final result = await _connectionManager.executeRemoteCommand(
-      sessionId,
-      'rm -rf -- ${_shellQuote(trimmed)}',
-      action: 'delete remote path',
-    );
+    final result = await _sftp.remove(sessionId, trimmed);
     result.fold((failure) => throw StateError(failure.message), (_) {});
-    _remoteChmodModes.remove(trimmed);
     await _refreshCurrentRemoteDirectory();
   }
 
@@ -948,10 +912,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     _searchingRemote = true;
     notifyListeners();
 
-    final resolvedResult = await _connectionManager.resolveRemoteDirectory(
-      sessionId,
-      parsed.base,
-    );
+    final resolvedResult = await _sftp.resolve(sessionId, parsed.base);
     final resolvedBase = resolvedResult.fold<String?>((failure) {
       if (!_isCurrentRemoteSearch(token)) return null;
       _remoteSearchError = failure.message;
@@ -961,7 +922,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     }, (value) => value);
     if (resolvedBase == null) return;
 
-    final result = await _connectionManager.findRemoteEntries(
+    final result = await _sftp.find(
       sessionId,
       resolvedBase,
       parsed.query,
@@ -1035,6 +996,15 @@ class SftpWorkspaceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Byte progress of a single-file transfer; only whole-percent changes
+  /// reach the UI so a big file does not rebuild it on every chunk.
+  void _reportProgress(int jobId, TransferProgress progress) {
+    final job = _transferJobs.where((job) => job.id == jobId).firstOrNull;
+    final value = (progress.fraction * 100).floor() / 100;
+    if (job == null || job.value == value) return;
+    _updateTransfer(jobId, value: value);
+  }
+
   void clearTransfers() {
     _clearTransferTimer?.cancel();
     _transferJobs.clear();
@@ -1062,10 +1032,7 @@ class SftpWorkspaceController extends ChangeNotifier {
   Future<List<SftpFileEntry>> listRemoteDirectoryRaw(String path) async {
     final sessionId = _remoteSessionId;
     if (sessionId == null) throw StateError('No remote session');
-    final result = await _connectionManager.listRemoteDirectory(
-      sessionId,
-      path,
-    );
+    final result = await _sftp.list(sessionId, path);
     return result.fold(
       (failure) => throw StateError(failure.message),
       (entries) => _mapRemoteRows(path, entries),
@@ -1099,7 +1066,8 @@ class SftpWorkspaceController extends ChangeNotifier {
     if (sessionId == null || remotePath == null) {
       throw StateError('Remote SFTP session is not connected.');
     }
-    final result = await _connectionManager.uploadRemoteFile(
+    // In place, so the file keeps its owner and permissions.
+    final result = await _sftp.write(
       sessionId,
       remotePath,
       await File(localPath).readAsBytes(),
@@ -1133,58 +1101,40 @@ class SftpWorkspaceController extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
-    _connectionManager.removeListener(_handleConnectionManagerChanged);
+    _sftp.removeListener(_handleSftpChanged);
     _clearTransferTimer?.cancel();
     _remoteSearchDebounce?.cancel();
     final sessionId = _remoteSessionId;
     _remoteSessionId = null;
     if (sessionId != null) {
-      unawaited(_connectionManager.closeSession(sessionId));
+      unawaited(_sftp.close(sessionId));
     }
     super.dispose();
   }
 
-  void _handleConnectionManagerChanged() {
-    if (_remoteSessionId == null) return;
-    final session = _connectionManager.sessions
-        .where((s) => s.id == _remoteSessionId)
-        .firstOrNull;
-    if (session == null) {
-      // Session was removed entirely — mark as disconnected.
-      if (!_remoteDisconnectNotified) {
-        _remoteError = 'SFTP session lost. Connection was closed.';
-        _remoteStatus = 'disconnected';
-        _remoteDisconnectNotified = true;
-        notifyListeners();
-      }
+  void _handleSftpChanged() {
+    final sessionId = _remoteSessionId;
+    if (sessionId == null) return;
+    final session = _sftp.session(sessionId);
+    if (session != null && session.isConnected) {
+      _remoteDisconnectNotified = false;
       return;
     }
-    final isDisconnected =
-        session.status == ConnectionStatus.disconnected ||
-        session.status == ConnectionStatus.error;
-    if (isDisconnected) {
-      // Only enter the disconnected state once per disconnect event so the
-      // overlay is not re-triggered on every ConnectionManager notification.
-      if (!_remoteDisconnectNotified) {
-        _remoteError ??= 'Remote connection lost.';
-        _remoteStatus = 'disconnected';
-        _remoteDisconnectNotified = true;
-        notifyListeners();
-      }
-    } else {
-      // Session is connecting/connected — only re-arm the notification
-      // when we reach a stable connected state, not during transient
-      // "connecting" transitions that could re-trigger false notifications.
-      if (session.status == ConnectionStatus.connected) {
-        _remoteDisconnectNotified = false;
-      }
-    }
+    // Only enter the disconnected state once per disconnect so the overlay
+    // is not re-triggered on every SftpManager notification.
+    if (_remoteDisconnectNotified) return;
+    _remoteError ??= session == null
+        ? 'SFTP session lost. Connection was closed.'
+        : 'Remote connection lost.';
+    _remoteStatus = 'disconnected';
+    _remoteDisconnectNotified = true;
+    notifyListeners();
   }
 
   /// Whether the page should show a disconnection notification.
   ///
   /// Returns `true` when a disconnection has been detected by
-  /// [_handleConnectionManagerChanged] (the flag is armed) and the
+  /// [_handleSftpChanged] (the flag is armed) and the
   /// connection is still considered disconnected. The page calls
   /// [clearDisconnectionNotification] after displaying the snackbar so the
   /// notification is not re-shown on subsequent change notifications.
@@ -1226,7 +1176,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     _pendingProfile = null;
     _passwordSubmitting = true;
     try {
-      await _connectionManager.saveProfilePassword(profile.id, password);
+      await _sftp.credentials.savePassword(profile.id, password);
       final resolvedProfile = profile.copyWith(credentialLabel: password);
       await attachRemoteProfile(resolvedProfile, _remotePath);
     } finally {
@@ -1256,7 +1206,7 @@ class SftpWorkspaceController extends ChangeNotifier {
 
   /// Track consecutive remote failures. After [_remoteFailThreshold] failures,
   /// force-close the session so the disconnect overlay appears immediately
-  /// instead of waiting for the Rust keepalive timeout (~17 s).
+  /// instead of waiting for the liveness check.
   void _recordRemoteFailure(String sessionId) {
     if (_remoteSessionId != sessionId) return;
     _remoteConsecutiveFailures++;
@@ -1266,9 +1216,9 @@ class SftpWorkspaceController extends ChangeNotifier {
       _remoteDisconnectNotified = true;
       _remoteError ??= 'Remote connection lost.';
       notifyListeners();
-      // Force-close so ConnectionManager removes the session and
+      // Force-close so SftpManager forgets the session and
       // isRemoteDisconnected becomes true, making the overlay appear.
-      unawaited(_connectionManager.closeSession(sessionId));
+      unawaited(_sftp.close(sessionId));
     }
   }
 
@@ -1298,8 +1248,8 @@ class SftpWorkspaceController extends ChangeNotifier {
     if (sessionId == null) return;
     final remotePath = _joinRemote(_remotePath, name.trim());
     final result = folder
-        ? await _connectionManager.createRemoteDirectory(sessionId, remotePath)
-        : await _connectionManager.createRemoteFile(sessionId, remotePath);
+        ? await _sftp.createDir(sessionId, remotePath)
+        : await _sftp.createFile(sessionId, remotePath);
     result.fold((failure) => throw StateError(failure.message), (_) {});
     await _refreshCurrentRemoteDirectory();
   }
@@ -1307,19 +1257,17 @@ class SftpWorkspaceController extends ChangeNotifier {
   Future<void> _downloadRemoteFile(
     String sessionId,
     String remotePath,
-    String localPath,
-  ) async {
-    final result = await _connectionManager.readRemoteFileBytes(
+    String localPath, {
+    void Function(TransferProgress progress)? onProgress,
+  }) async {
+    await File(localPath).parent.create(recursive: true);
+    final result = await _sftp.download(
       sessionId,
       remotePath,
+      localPath,
+      onProgress: onProgress,
     );
-    final bytes = result.fold<List<int>>(
-      (failure) => throw StateError(failure.message),
-      (bytes) => bytes,
-    );
-    final file = File(localPath);
-    await file.parent.create(recursive: true);
-    await file.writeAsBytes(bytes);
+    result.fold((failure) => throw StateError(failure.message), (_) {});
   }
 
   Future<void> _downloadRemoteDirectory(
@@ -1328,10 +1276,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     String localPath,
   ) async {
     await Directory(localPath).create(recursive: true);
-    final result = await _connectionManager.listRemoteDirectory(
-      sessionId,
-      remotePath,
-    );
+    final result = await _sftp.list(sessionId, remotePath);
     final entries = result.fold<List<RemoteFileEntry>>(
       (failure) => throw StateError(failure.message),
       (entries) => entries,
@@ -1370,13 +1315,15 @@ class SftpWorkspaceController extends ChangeNotifier {
   Future<void> _uploadFile(
     String sessionId,
     File file,
-    String remoteDirectory,
-  ) async {
+    String remoteDirectory, {
+    void Function(TransferProgress progress)? onProgress,
+  }) async {
     final remotePath = _joinRemote(remoteDirectory, _basename(file.path));
-    final result = await _connectionManager.uploadRemoteFile(
+    final result = await _sftp.upload(
       sessionId,
+      file.path,
       remotePath,
-      await file.readAsBytes(),
+      onProgress: onProgress,
     );
     result.fold((failure) => throw StateError(failure.message), (_) {});
   }
@@ -1387,10 +1334,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     String remoteDirectory,
   ) async {
     final remoteRoot = _joinRemote(remoteDirectory, _basename(directory.path));
-    final createResult = await _connectionManager.createRemoteDirectory(
-      sessionId,
-      remoteRoot,
-    );
+    final createResult = await _sftp.createDir(sessionId, remoteRoot);
     createResult.fold((failure) => throw StateError(failure.message), (_) {});
     await for (final entity in directory.list(followLinks: false)) {
       if (entity is Directory) {
@@ -1414,7 +1358,6 @@ class SftpWorkspaceController extends ChangeNotifier {
           modified: '-',
           type: 'dir',
           folder: true,
-          chmodMode: _remoteChmodModes[_parentRemotePath(currentPath)],
         ),
       ...entries.map(
         (entry) => SftpFileEntry(
@@ -1424,7 +1367,7 @@ class SftpWorkspaceController extends ChangeNotifier {
           modified: _formatUnixDate(entry.modifiedUnixSeconds),
           type: entry.isDirectory ? 'dir' : 'file',
           folder: entry.isDirectory,
-          chmodMode: _remoteChmodModes[entry.path],
+          chmodMode: _chmodText(entry.mode),
         ),
       ),
     ];
@@ -1446,33 +1389,12 @@ class SftpWorkspaceController extends ChangeNotifier {
       modified: _formatUnixDate(entry.modifiedUnixSeconds),
       type: entry.isDirectory ? 'dir' : 'file',
       folder: entry.isDirectory,
-      chmodMode: _remoteChmodModes[entry.path],
+      chmodMode: _chmodText(entry.mode),
     );
   }
 
-  manager_profile.SshProfile _toManagerProfile(domain.SshProfile profile) {
-    final credential = profile.credentialLabel.trim();
-    final password =
-        profile.authMethod == domain.AuthMethod.password &&
-            credential.isNotEmpty &&
-            credential != 'Saved password'
-        ? credential
-        : null;
-    return manager_profile.SshProfile(
-      id: profile.id,
-      name: profile.name,
-      host: profile.host,
-      port: profile.port,
-      username: profile.username,
-      password: password,
-      hasPassword: profile.authMethod == domain.AuthMethod.password,
-      privateKeyPath: profile.authMethod == domain.AuthMethod.sshKey
-          ? credential
-          : null,
-      group: profile.group,
-      tags: profile.tags,
-    );
-  }
+  static String? _chmodText(int mode) =>
+      mode == 0 ? null : (mode & 0x1FF).toRadixString(8).padLeft(3, '0');
 }
 
 class _RemoteSearchInput {
@@ -1517,10 +1439,6 @@ String _renameTargetPath(String oldPath, String newName) {
   if (slashIndex == 0) return '/$newName';
   final parent = normalized.substring(0, slashIndex);
   return '$parent/$newName';
-}
-
-String _shellQuote(String value) {
-  return "'${value.replaceAll("'", "'\"'\"'")}'";
 }
 
 String _basename(String path) {

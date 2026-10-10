@@ -2,11 +2,6 @@ name: Build & Release
 
 on:
   push:
-    branches:
-      - main
-      - develop
-      - staging
-      - "release/**"
     tags:
       - "v*.*.*"
       - "v*.*.*-beta*"
@@ -33,7 +28,7 @@ permissions:
   pull-requests: read
 
 env:
-  IS_BETA: ${{ contains(github.ref_name, '-beta') || (github.event_name == 'workflow_dispatch' && github.event.inputs.channel == 'beta') || (github.event_name == 'push' && github.ref_name != 'main' && !startsWith(github.ref, 'refs/tags/')) }}
+  IS_BETA: ${{ contains(github.ref_name, '-beta') || (github.event_name == 'workflow_dispatch' && github.event.inputs.channel == 'beta') }}
   IS_RELEASE: ${{ startsWith(github.ref, 'refs/tags/') }}
   IS_MAIN_BRANCH: ${{ github.ref_name == 'main' }}
   BRANCH_NAME: ${{ github.ref_name }}
@@ -63,7 +58,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -111,7 +106,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -205,14 +200,14 @@ jobs:
           exit-code: "0"
 
       - name: Upload macOS server library
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: macos-lib
           path: dist-serv/libportix_serv.dylib
           if-no-files-found: error
 
       - name: Upload macOS RDP library
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: macos-rdp-lib
           path: dist-rdp/libportix_rdp.dylib
@@ -237,7 +232,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -345,14 +340,14 @@ jobs:
           exit-code: "0"
 
       - name: Upload Linux server library
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: linux-lib
           path: dist-serv/libportix_serv.so
           if-no-files-found: error
 
       - name: Upload Linux RDP library
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: linux-rdp-lib
           path: dist-rdp/libportix_rdp.so
@@ -377,7 +372,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -511,14 +506,14 @@ jobs:
           exit-code: "0"
 
       - name: Upload Windows server library
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: windows-lib
           path: dist-serv/portix_serv.dll
           if-no-files-found: error
 
       - name: Upload Windows RDP library
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: windows-rdp-lib
           path: dist-rdp/portix_rdp.dll
@@ -546,16 +541,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download macOS server library
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: macos-lib
           path: portix_serv_lib
 
       - name: Download macOS RDP library
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: macos-rdp-lib
           path: portix_rdp_lib
@@ -741,7 +736,7 @@ jobs:
           fi
 
           VERSION="${{ steps.version.outputs.version }}"
-          RELEASE_NAME="${{ github.ref_name }}-${VERSION}"
+          RELEASE_NAME="${{ github.ref_name }}"
 
           ditto \
             -c \
@@ -773,7 +768,7 @@ jobs:
 
           APP_NAME="$(basename "$APP_PATH" .app)"
           VERSION="${{ steps.version.outputs.version }}"
-          RELEASE_NAME="${{ github.ref_name }}-${VERSION}"
+          RELEASE_NAME="${{ github.ref_name }}"
           DMG_NAME="portix-macos-${RELEASE_NAME}.dmg"
 
           # Create staging directory for DMG layout
@@ -784,13 +779,19 @@ jobs:
           # Create symlink to /Applications for drag-and-drop install
           ln -s /Applications "$DMG_STAGING/Applications"
 
-          # Create a read/write DMG first then convert to compressed read-only
-          hdiutil create \
-            -volname "Portix ${VERSION}" \
-            -srcfolder "$DMG_STAGING" \
-            -ov \
-            -format UDRW \
-            "portix-rw.dmg"
+          # Create a read/write DMG first then convert to compressed read-only.
+          # Retried: hosted runners intermittently fail with "Resource busy".
+          for attempt in 1 2 3 4 5; do
+            hdiutil create \
+              -volname "Portix ${VERSION}" \
+              -srcfolder "$DMG_STAGING" \
+              -ov \
+              -format UDRW \
+              "portix-rw.dmg" && break
+            [ "$attempt" -eq 5 ] && exit 1
+            echo "hdiutil create failed (attempt $attempt), retrying..."
+            sleep $((attempt * 5))
+          done
 
           # Convert to compressed read-only DMG
           hdiutil convert \
@@ -805,12 +806,12 @@ jobs:
           ls -lah "$DMG_NAME"
 
       - name: Upload macOS desktop
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
-          name: portix-macos-${{ github.ref_name }}-${{ steps.version.outputs.version }}
+          name: portix-macos-${{ github.ref_name }}
           path: |
-            portix-macos-${{ github.ref_name }}-${{ steps.version.outputs.version }}.zip
-            portix-macos-${{ github.ref_name }}-${{ steps.version.outputs.version }}.dmg
+            portix-macos-${{ github.ref_name }}.zip
+            portix-macos-${{ github.ref_name }}.dmg
           if-no-files-found: error
 
   # ==========================================================================
@@ -839,16 +840,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download Linux server library
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: linux-lib
           path: portix_serv_lib
 
       - name: Download Linux RDP library
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: linux-rdp-lib
           path: portix_rdp_lib
@@ -885,7 +886,16 @@ jobs:
             liblzma-dev \
             libsecret-1-dev \
             libgcrypt20-dev \
-            libssl-dev
+            libssl-dev \
+            libepoxy-dev \
+            libharfbuzz-dev \
+            libfontconfig1-dev \
+            libfreetype-dev \
+            libatk1.0-dev \
+            libpango1.0-dev \
+            libcairo2-dev \
+            libgdk-pixbuf2.0-dev
+          sudo ldconfig
 
       - name: Flutter pub get
         working-directory: ${{ env.APP_DIR }}
@@ -897,9 +907,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Extract base semver from pubspec.yaml (strip build metadata after +)
           VERSION="$(
             sed -nE \
-              's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' \
+              's/^version:[[:space:]]*([0-9]+\.[0-9]+(\.[0-9]+)?(\.[0-9]+)?).*/\1/p' \
               "${APP_DIR}/pubspec.yaml" |
             head -n 1
           )"
@@ -909,12 +920,8 @@ jobs:
             exit 1
           fi
 
-          if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,3}$ ]]; then
-            echo "ERROR: Invalid application version: $VERSION"
-            exit 1
-          fi
-
-          RELEASE_NAME="${{ github.ref_name }}-${VERSION}"
+          # Use the git tag as-is for release artifact naming
+          RELEASE_NAME="${{ github.ref_name }}"
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
@@ -1101,20 +1108,60 @@ jobs:
 
           mkdir -p "$BUNDLE_LIB"
 
-          for lib in libsecret-1.so.0 libgcrypt.so.20; do
+          # Refresh ldconfig cache so newly installed packages are visible.
+          sudo ldconfig 2>/dev/null || true
+
+          # Bundle only small, self-contained libs. Do NOT bundle the GTK
+          # stack (gtk/gdk/glib/pango/cairo/gdk-pixbuf/harfbuzz/...): Ubuntu's
+          # copies pull in Ubuntu-only sonames (e.g. libjpeg.so.8) and break
+          # on Fedora/openSUSE/Arch. Every desktop distro ships GTK3 already.
+          REQUIRED_LIBS=(
+            libsecret-1.so.0
+            libgcrypt.so.20
+            libgpg-error.so.0
+          )
+
+          for lib in "${REQUIRED_LIBS[@]}"; do
             LIB_PATH="$(
               ldconfig -p 2>/dev/null |
-              grep -m1 -F "$lib" |
+              grep -m1 -F " ${lib} " |
               awk '{print $NF}'
-            )"
+            )" || true
+
+            # fallback: try without spaces (some ldconfig formats differ)
+            if [ -z "$LIB_PATH" ]; then
+              LIB_PATH="$(
+                ldconfig -p 2>/dev/null |
+                grep -m1 -F "${lib}" |
+                awk '{print $NF}'
+              )" || true
+            fi
+
+            # second fallback: search common library directories directly
+            # Use -quit so find exits immediately after first match,
+            # avoiding SIGPIPE from head -n 1 under pipefail.
+            if [ -z "$LIB_PATH" ]; then
+              LIB_PATH="$(
+                find /usr/lib/x86_64-linux-gnu /usr/lib /lib/x86_64-linux-gnu /lib \
+                  -name "${lib}" -type f -print -quit 2>/dev/null
+              )" || true
+            fi
 
             if [ -n "$LIB_PATH" ] && [ -f "$LIB_PATH" ]; then
               cp "$LIB_PATH" "$BUNDLE_LIB/$lib"
-              echo "Bundled $lib from $LIB_PATH"
+              echo "Bundled: $lib  ←  $LIB_PATH"
             else
-              echo "Warning: Could not locate $lib"
+              echo "Warning: Could not locate $lib (may be pulled from system on compatible distros)"
             fi
           done
+
+          echo ""
+          echo "Bundled runtime libraries:"
+          if [ "$(ls -A "$BUNDLE_LIB" 2>/dev/null)" ]; then
+            ls -lah "$BUNDLE_LIB/"
+          else
+            echo "(none bundled — all libs expected to exist on target system)"
+          fi
 
       - name: Package Linux TAR
         shell: bash
@@ -1215,7 +1262,7 @@ jobs:
 
           # Install appimagetool
           curl -fsSL -o appimagetool \
-            "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
           chmod +x appimagetool
 
           # Build AppDir structure
@@ -1227,22 +1274,21 @@ jobs:
           # Copy Flutter bundle into AppDir
           cp -r "${BUNDLE_DIR}/." "${APPDIR}/usr/bin/"
 
-          # Move shared libraries to usr/lib
-          for so in \
-            libportix_serv.so \
-            libportix_rdp.so \
-            libflutter_linux_gtk.so
-          do
-            if [ -f "${APPDIR}/usr/bin/${so}" ]; then
-              mv "${APPDIR}/usr/bin/${so}" "${APPDIR}/usr/lib/${so}"
-            fi
+          # Move all .so files from usr/bin directly into usr/lib
+          find "${APPDIR}/usr/bin" -maxdepth 1 -name "*.so*" -type f | while read -r so; do
+            mv "$so" "${APPDIR}/usr/lib/"
+            echo "Moved $(basename "$so") → usr/lib/"
           done
 
-          # Copy bundled runtime libs if present
+          # Move the bundled runtime lib/ subdirectory into usr/lib/
           if [ -d "${APPDIR}/usr/bin/lib" ]; then
             cp -r "${APPDIR}/usr/bin/lib/." "${APPDIR}/usr/lib/"
             rm -rf "${APPDIR}/usr/bin/lib"
+            echo "Moved bundled lib/ → usr/lib/"
           fi
+
+          echo "usr/lib contents:"
+          ls -lah "${APPDIR}/usr/lib/" || true
 
           # App icon
           cp "${APP_DIR}/assets/icons/portix_launcher.png" \
@@ -1251,26 +1297,33 @@ jobs:
             "${APPDIR}/portix.png"
 
           # Desktop entry
-          cat > "${APPDIR}/usr/share/applications/portix.desktop" <<EOF
-          [Desktop Entry]
-          Name=Portix
-          Exec=portix
-          Icon=portix
-          Type=Application
-          Categories=Network;RemoteAccess;
-          EOF
+          printf '%s\n' \
+            '[Desktop Entry]' \
+            'Name=Portix' \
+            'Exec=portix' \
+            'Icon=portix' \
+            'Type=Application' \
+            'Categories=Network;RemoteAccess;' \
+            "X-AppImage-Version=${VERSION}" \
+            > "${APPDIR}/usr/share/applications/portix.desktop"
+
           cp "${APPDIR}/usr/share/applications/portix.desktop" \
             "${APPDIR}/portix.desktop"
 
-          # AppRun launcher script — sets LD_LIBRARY_PATH so Flutter and Rust
-          # shared libs are found relative to the AppImage mount point
-          cat > "${APPDIR}/AppRun" <<'APPRUN'
-          #!/bin/bash
-          HERE="$(dirname "$(readlink -f "$0")")"
-          export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/bin:${LD_LIBRARY_PATH:-}"
-          exec "${HERE}/usr/bin/portix" "$@"
-          APPRUN
+          # AppRun launcher
+          printf '%s\n' \
+            '#!/bin/bash' \
+            'HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"' \
+            'export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/bin:${LD_LIBRARY_PATH:-}"' \
+            'export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"' \
+            'export GDK_BACKEND="${GDK_BACKEND:-x11}"' \
+            'exec "${HERE}/usr/bin/portix" "$@"' \
+            > "${APPDIR}/AppRun"
+
           chmod +x "${APPDIR}/AppRun"
+
+          echo "AppDir structure:"
+          find "${APPDIR}" -type f | sort
 
           # Build AppImage (FUSE not available in CI — use --appimage-extract-and-run)
           ARCH=x86_64 ./appimagetool \
@@ -1282,7 +1335,7 @@ jobs:
           ls -lah "portix-linux-${RELEASE_NAME}.AppImage"
 
       - name: Upload Linux desktop
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: portix-Linux-${{ steps.version.outputs.release_name }}
           path: |
@@ -1313,16 +1366,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download Windows server library
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: windows-lib
           path: portix_serv_lib
 
       - name: Download Windows RDP library
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: windows-rdp-lib
           path: portix_rdp_lib
@@ -1436,7 +1489,7 @@ jobs:
             throw "Invalid application version: $version"
           }
 
-          $releaseName = "${{ github.ref_name }}-$version"
+          $releaseName = "${{ github.ref_name }}"
 
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "release_name=$releaseName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
@@ -1518,6 +1571,21 @@ jobs:
           Get-Item $required |
             Format-Table Name,Length,FullName
 
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis --no-progress -y
+
+      # Steps, texts and uninstall options live in packaging/windows/portix.nsi.
+      # The script also bundles the VC++ runtime into the release folder, so
+      # it runs before the ZIP is made.
+      - name: Build Windows EXE installer
+        shell: pwsh
+        run: |
+          ./packaging/windows/build-installer.ps1 `
+            -Version "${{ steps.version.outputs.version }}" `
+            -ReleaseName "${{ steps.version.outputs.release_name }}"
+
       - name: Package Windows ZIP
         shell: pwsh
         run: |
@@ -1534,101 +1602,8 @@ jobs:
           Get-Item $destination |
             Format-List Name,Length,FullName
 
-      - name: Install NSIS
-        shell: pwsh
-        run: |
-          choco install nsis --no-progress -y
-
-      - name: Create NSIS installer script
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          $version     = "${{ steps.version.outputs.version }}"
-          $releaseName = "${{ steps.version.outputs.release_name }}"
-
-          # Absolute path to the Flutter release directory.
-          # Use backslashes for the NSIS File command; NSIS !define is fine with
-          # forward slashes but File /r requires backslashes on Windows.
-          $releaseDirAbs = (Resolve-Path "portix_app\build\windows\x64\runner\Release").Path
-          # Backslash form for File /r glob pattern
-          $releaseDirBS  = $releaseDirAbs
-          # Forward slash form for !define (avoids NSIS escape confusion)
-          $releaseDirFS  = $releaseDirAbs.Replace('\', '/')
-
-          $outFile = "portix-windows-${releaseName}.exe"
-
-          # Write each line individually so PowerShell string expansion only
-          # affects tokens we explicitly interpolate, and NSIS-syntax tokens
-          # like $INSTDIR / ${APP_NAME} are written verbatim.
-          $lines = @(
-            'Unicode true',
-            '',
-            '!define APP_NAME    "Portix"',
-            "!define APP_VERSION `"$version`"",
-            '!define APP_EXE     "portix.exe"',
-            "!define OUT_FILE    `"$outFile`"",
-            '',
-            'Name            "${APP_NAME} ${APP_VERSION}"',
-            'OutFile         "${OUT_FILE}"',
-            'InstallDir      "$PROGRAMFILES64\Portix"',
-            'InstallDirRegKey HKCU "Software\Portix" ""',
-            'RequestExecutionLevel admin',
-            'SetCompressor    /SOLID lzma',
-            '',
-            'Page directory',
-            'Page instfiles',
-            '',
-            'Section "Portix (required)"',
-            '  SectionIn RO',
-            '  SetOutPath "$INSTDIR"',
-            # Use the resolved absolute path directly in File /r so NSIS can
-            # find the files regardless of the working directory makensis uses.
-            "  File /r `"$releaseDirBS\*.*`"",
-            '  WriteRegStr HKCU "Software\Portix" "" "$INSTDIR"',
-            '  WriteUninstaller "$INSTDIR\Uninstall.exe"',
-            '  CreateShortcut  "$DESKTOP\Portix.lnk" "$INSTDIR\${APP_EXE}"',
-            '  CreateDirectory "$SMPROGRAMS\Portix"',
-            '  CreateShortcut  "$SMPROGRAMS\Portix\Portix.lnk"    "$INSTDIR\${APP_EXE}"',
-            '  CreateShortcut  "$SMPROGRAMS\Portix\Uninstall.lnk" "$INSTDIR\Uninstall.exe"',
-            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "DisplayName"     "Portix"',
-            "  WriteRegStr HKLM `"Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix`" `"DisplayVersion`"  `"$version`"",
-            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "UninstallString" "$INSTDIR\Uninstall.exe"',
-            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "InstallLocation" "$INSTDIR"',
-            '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix" "Publisher"       "Portix"',
-            'SectionEnd',
-            '',
-            'Section "Uninstall"',
-            '  Delete "$INSTDIR\Uninstall.exe"',
-            '  RMDir  /r "$INSTDIR"',
-            '  Delete "$DESKTOP\Portix.lnk"',
-            '  RMDir  /r "$SMPROGRAMS\Portix"',
-            '  DeleteRegKey HKCU "Software\Portix"',
-            '  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Portix"',
-            'SectionEnd'
-          )
-
-          Set-Content -Path "portix_installer.nsi" -Value $lines -Encoding UTF8
-          Write-Host "=== portix_installer.nsi ==="
-          Get-Content "portix_installer.nsi"
-
-      - name: Build Windows EXE installer
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          & "C:\Program Files (x86)\NSIS\makensis.exe" portix_installer.nsi
-
-          $exe = "portix-windows-${{ steps.version.outputs.release_name }}.exe"
-
-          if (-not (Test-Path $exe)) {
-            throw "NSIS installer was not created: $exe"
-          }
-
-          Get-Item $exe | Format-List Name,Length,FullName
-
       - name: Upload Windows desktop
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: portix-Windows-${{ steps.version.outputs.release_name }}
           path: |
@@ -1653,7 +1628,7 @@ jobs:
 
     steps:
       - name: Download available desktop artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           pattern: portix-*
           path: artifacts/
@@ -1721,7 +1696,7 @@ jobs:
 
     steps:
       - name: Download available libraries
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           pattern: "*-lib"
           path: libs/
@@ -1781,10 +1756,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download Linux bundle
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: portix-Linux-${{ needs.build-desktop-linux.outputs.release_name }}
           path: artifact/
@@ -1884,7 +1859,7 @@ jobs:
           ls -la portix_*.snap
 
       - name: Upload Snap artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: portix-snap-${{ github.ref_name }}
           path: portix_${{ github.ref_name }}.snap
@@ -1917,10 +1892,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download snap artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: portix-snap-${{ github.ref_name }}
           path: snap_artifact/
@@ -1959,10 +1934,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download Linux bundle
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: portix-Linux-${{ needs.build-desktop-linux.outputs.release_name }}
           path: artifact/
@@ -2039,7 +2014,7 @@ jobs:
           cache-key: flatpak-builder-${{ github.sha }}
 
       - name: Upload Flatpak artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: portix-flatpak-${{ github.ref_name }}
           path: portix-${{ github.ref_name }}.flatpak
@@ -2066,12 +2041,12 @@ jobs:
 
     steps:
       - name: Checkout monorepo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           path: portix
 
       - name: Checkout Flathub repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           repository: flathub/com.github.asepimam.Portix
           token: ${{ secrets.FLATHUB_PAT }}
@@ -2109,7 +2084,7 @@ jobs:
           echo "URL: $URL"
 
       - name: Download Linux bundle artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: portix-Linux-${{ github.ref_name }}-${{ steps.vars.outputs.version }}
           path: artifact/

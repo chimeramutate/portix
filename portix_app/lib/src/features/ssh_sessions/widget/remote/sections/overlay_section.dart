@@ -138,16 +138,14 @@ class _TerminalConnectionOverlayState extends State<TerminalConnectionOverlay> {
                           dimension: 36,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: slowConnection
-                                ? AppColors.amber
-                                : null,
+                            color: slowConnection ? AppColors.amber : null,
                           ),
                         ),
                         if (elapsed.isNotEmpty)
                           Text(
                             elapsed,
                             style: TextStyle(
-                              fontSize: 9,
+                              fontSize: 11,
                               color: slowConnection
                                   ? AppColors.amber
                                   : AppColors.muted,
@@ -157,13 +155,13 @@ class _TerminalConnectionOverlayState extends State<TerminalConnectionOverlay> {
                       ],
                     )
                   else if (noNetwork)
-                    const Icon(
+                    Icon(
                       Icons.wifi_off_rounded,
                       color: AppColors.danger,
                       size: 30,
                     )
                   else
-                    const Icon(
+                    Icon(
                       Icons.link_off_rounded,
                       color: AppColors.amber,
                       size: 30,
@@ -174,8 +172,8 @@ class _TerminalConnectionOverlayState extends State<TerminalConnectionOverlay> {
                     child: Text(
                       widget.connecting
                           ? slowConnection
-                              ? 'Connecting (slow)...'
-                              : 'Connecting session'
+                                ? 'Connecting (slow)...'
+                                : 'Connecting session'
                           : noNetwork
                           ? 'No network connection'
                           : 'No terminal connection',

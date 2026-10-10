@@ -1,9 +1,13 @@
 use std::sync::Arc;
 use std::time::Duration;
-use std::{env, path::PathBuf};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 
 use russh::client;
-use russh::keys::{PrivateKeyWithHashAlg, load_secret_key};
+use russh::keys::agent::client::AgentClient;
+use russh::keys::{PrivateKey, PrivateKeyWithHashAlg, load_secret_key};
 use russh::{ChannelMsg, Disconnect};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::time::{interval, timeout};
@@ -12,6 +16,9 @@ use crate::domain::errors::{PortixError, Result};
 use crate::domain::events::{ConnectionStatusEvent, ErrorEvent, TerminalOutputEvent};
 use crate::domain::profile::SshProfile;
 use crate::domain::session::ConnectionStatus;
+use crate::infrastructure::host_keys::{
+    default_known_hosts_path, forget_pending_host_key, verify_host_key,
+};
 
 pub enum SshCommand {
     Input(Vec<u8>),
@@ -34,7 +41,17 @@ pub struct SshRuntime {
     error_tx: broadcast::Sender<ErrorEvent>,
 }
 
-struct Client;
+pub(crate) struct Client {
+    host: String,
+    port: u16,
+    known_hosts: PathBuf,
+    /// Jump host session the connection is tunnelled through; owned here so
+    /// it lives exactly as long as this session.
+    _jump: Option<Arc<client::Handle<Client>>>,
+    /// Where connections to a remote forward (`ssh -R`) go, as seen from
+    /// this machine. None refuses them.
+    forward_to: Option<(String, u16)>,
+}
 
 type ExecRequest = (String, oneshot::Sender<Result<String>>);
 
@@ -56,13 +73,39 @@ const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
 const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(1);
 
 impl client::Handler for Client {
-    type Error = russh::Error;
+    // PortixError (not russh::Error) so host key failures reach the caller of
+    // `client::connect` with their details instead of a generic UnknownKey.
+    type Error = PortixError;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::ssh_key::PublicKey,
+        server_public_key: &russh::keys::ssh_key::PublicKey,
     ) -> std::result::Result<bool, Self::Error> {
+        verify_host_key(&self.host, self.port, server_public_key, &self.known_hosts)?;
         Ok(true)
+    }
+
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<client::Msg>,
+        _connected_address: &str,
+        _connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        _session: &mut client::Session,
+    ) -> std::result::Result<(), Self::Error> {
+        // Without a target the channel is dropped, which closes it.
+        let Some((host, port)) = self.forward_to.clone() else {
+            return Ok(());
+        };
+        tokio::spawn(async move {
+            let Ok(mut target) = tokio::net::TcpStream::connect((host.as_str(), port)).await else {
+                return;
+            };
+            let mut stream = channel.into_stream();
+            let _ = tokio::io::copy_bidirectional(&mut stream, &mut target).await;
+        });
+        Ok(())
     }
 }
 
@@ -239,7 +282,11 @@ async fn run_exec(session: &client::Handle<Client>, command: String) -> Result<S
 }
 
 async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest>) {
-    let mut session = connect_and_authenticate_profile(&profile).await.ok();
+    // KnownOnly: the interactive session has already recorded the host key, and
+    // this worker reconnects silently in the background, so a key that is not
+    // already trusted must never be accepted here.
+    let connect = || connect_and_authenticate_profile(&profile);
+    let mut session = connect().await.ok();
 
     // This dedicated exec connection is used only for SFTP/remote-file
     // commands, so — unlike the interactive terminal session — it carries no
@@ -265,12 +312,16 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
 
                 // Establish the connection if we don't have one yet (with one
                 // retry), preserving the original behaviour.
+                let mut connect_error = None;
                 if session.is_none() {
-                    session = connect_and_authenticate_profile(&profile).await.ok();
+                    session = connect().await.ok();
                     if session.is_none() {
                         // Retry once after a brief delay.
                         tokio::time::sleep(Duration::from_millis(500)).await;
-                        session = connect_and_authenticate_profile(&profile).await.ok();
+                        match connect().await {
+                            Ok(handle) => session = Some(handle),
+                            Err(err) => connect_error = Some(err),
+                        }
                     }
                 }
 
@@ -283,18 +334,21 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
                         // transient failure — this is what makes the first
                         // transfer succeed instead of needing a second attempt.
                         session = None;
-                        match connect_and_authenticate_profile(&profile).await {
+                        match connect().await {
                             Ok(new_handle) => {
                                 session = Some(new_handle);
                                 run_exec(session.as_ref().unwrap(), command).await
                             }
+                            // A host key failure is the more important error to report.
+                            Err(err @ (PortixError::HostKeyChanged { .. }
+                            | PortixError::HostKeyUnknown { .. })) => Err(err),
                             Err(_) => result,
                         }
                     } else {
                         result
                     }
                 } else {
-                    Err(PortixError::ConnectionTimeout)
+                    Err(connect_error.unwrap_or(PortixError::ConnectionTimeout))
                 };
                 let _ = response_tx.send(result);
             }
@@ -336,25 +390,94 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
     }
 }
 
-async fn connect_and_authenticate_profile(profile: &SshProfile) -> Result<client::Handle<Client>> {
+pub(crate) async fn connect_and_authenticate_profile(
+    profile: &SshProfile,
+) -> Result<client::Handle<Client>> {
+    connect_with_known_hosts(profile, &default_known_hosts_path(home_dir())?).await
+}
+
+/// Like [`connect_and_authenticate_profile`], for a remote forward: what
+/// the server forwards back is connected to `forward_to` from here.
+pub(crate) async fn connect_for_remote_forward(
+    profile: &SshProfile,
+    forward_to: (String, u16),
+) -> Result<client::Handle<Client>> {
+    connect_forwarding_to(
+        profile,
+        &default_known_hosts_path(home_dir())?,
+        Some(forward_to),
+    )
+    .await
+}
+
+async fn connect_with_known_hosts(
+    profile: &SshProfile,
+    known_hosts: &Path,
+) -> Result<client::Handle<Client>> {
+    connect_forwarding_to(profile, known_hosts, None).await
+}
+
+async fn connect_forwarding_to(
+    profile: &SshProfile,
+    known_hosts: &Path,
+    forward_to: Option<(String, u16)>,
+) -> Result<client::Handle<Client>> {
+    forget_pending_host_key(&profile.host, profile.port);
+    let jump = match profile.jump_host.as_deref() {
+        Some(jump) => Some(Arc::new(
+            Box::pin(connect_with_known_hosts(jump, known_hosts)).await?,
+        )),
+        None => None,
+    };
+    let handler = Client {
+        host: profile.host.clone(),
+        port: profile.port,
+        known_hosts: known_hosts.to_path_buf(),
+        _jump: jump.clone(),
+        forward_to,
+    };
     let config = Arc::new(client::Config {
         // If the TCP connection goes silent for longer than this, russh closes
         // the session automatically. This catches dead VPN / network drops where
         // the TCP stack never sends a RST/FIN.
         inactivity_timeout: Some(Duration::from_secs(30)),
+        // Keepalives count as activity, so an idle but healthy connection
+        // (an SFTP browser, a quiet tunnel) is never closed by the timeout
+        // above; a dead peer still is, after 3 unanswered probes.
+        keepalive_interval: Some(KEEPALIVE_INTERVAL),
         ..Default::default()
     });
-    let mut session = timeout(
-        CONNECT_TIMEOUT,
-        client::connect(config, profile.socket_addr(), Client),
-    )
-    .await
-    .map_err(|_| PortixError::ConnectionTimeout)??;
+    let connecting = async {
+        match &jump {
+            // The target's host key is still checked against known_hosts as
+            // usual; the jump host only carries the bytes.
+            Some(jump) => {
+                let channel = jump
+                    .channel_open_direct_tcpip(
+                        profile.host.clone(),
+                        profile.port.into(),
+                        "127.0.0.1",
+                        0,
+                    )
+                    .await?;
+                client::connect_stream(config, channel.into_stream(), handler).await
+            }
+            None => client::connect(config, profile.socket_addr(), handler).await,
+        }
+    };
+    let mut session = timeout(CONNECT_TIMEOUT, connecting)
+        .await
+        .map_err(|_| PortixError::ConnectionTimeout)??;
 
-    let auth_result = timeout(AUTH_TIMEOUT, async {
-        if let Some(path) = profile.private_key_path.as_deref() {
-            let key_path = expand_user_path(path);
-            let key_pair = load_secret_key(key_path, None)?;
+    let key_pair = match profile.private_key_path.as_deref() {
+        Some(path) => Some(load_private_key(
+            &expand_user_path(path),
+            profile.key_passphrase.as_deref(),
+        )?),
+        None => None,
+    };
+    let authenticated = timeout(AUTH_TIMEOUT, async {
+        let result = if let Some(key_pair) = key_pair {
             session
                 .authenticate_publickey(
                     profile.username.clone(),
@@ -363,22 +486,75 @@ async fn connect_and_authenticate_profile(profile: &SshProfile) -> Result<client
                         session.best_supported_rsa_hash().await?.flatten(),
                     ),
                 )
-                .await
+                .await?
         } else if let Some(password) = profile.password.clone() {
             session
                 .authenticate_password(profile.username.clone(), password)
-                .await
+                .await?
         } else {
-            Err(russh::Error::NotAuthenticated)
-        }
+            let mut agent = connect_agent().await?;
+            return authenticate_with_agent(&mut session, &profile.username, &mut agent).await;
+        };
+        Ok(result.success())
     })
     .await
     .map_err(|_| PortixError::AuthenticationTimeout)??;
 
-    if !auth_result.success() {
+    if !authenticated {
         return Err(PortixError::AuthenticationFailed);
     }
     Ok(session)
+}
+
+fn agent_error(error: russh::keys::Error) -> PortixError {
+    PortixError::SshAgent(error.to_string())
+}
+
+/// The running ssh-agent: `SSH_AUTH_SOCK` on Unix, OpenSSH's named pipe on
+/// Windows.
+#[cfg(unix)]
+async fn connect_agent() -> Result<AgentClient<tokio::net::UnixStream>> {
+    AgentClient::connect_env().await.map_err(agent_error)
+}
+
+#[cfg(windows)]
+async fn connect_agent() -> Result<AgentClient<tokio::net::windows::named_pipe::NamedPipeClient>> {
+    AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent")
+        .await
+        .map_err(agent_error)
+}
+
+/// Tries each key [agent] offers until the server accepts one.
+async fn authenticate_with_agent<S>(
+    session: &mut client::Handle<Client>,
+    username: &str,
+    agent: &mut AgentClient<S>,
+) -> Result<bool>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let identities = agent.request_identities().await.map_err(agent_error)?;
+    if identities.is_empty() {
+        return Err(PortixError::SshAgent(
+            "no keys loaded (add one with ssh-add)".to_owned(),
+        ));
+    }
+    for identity in identities {
+        let hash_alg = session.best_supported_rsa_hash().await?.flatten();
+        let result = session
+            .authenticate_publickey_with(
+                username,
+                identity.public_key().into_owned(),
+                hash_alg,
+                agent,
+            )
+            .await
+            .map_err(|error| PortixError::SshAgent(error.to_string()))?;
+        if result.success() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn normalize_terminal_size(cols: u32, rows: u32) -> (u32, u32) {
@@ -388,8 +564,21 @@ fn normalize_terminal_size(cols: u32, rows: u32) -> (u32, u32) {
     )
 }
 
+/// Loads a private key, turning "encrypted" and "wrong passphrase" into
+/// errors the UI can act on (ask for the passphrase, or ask again).
+fn load_private_key(path: &Path, passphrase: Option<&str>) -> Result<PrivateKey> {
+    let shown = path.display().to_string();
+    load_secret_key(path, passphrase).map_err(|error| match error {
+        russh::keys::Error::KeyIsEncrypted => PortixError::KeyPassphraseRequired(shown),
+        russh::keys::Error::SshKey(russh::keys::ssh_key::Error::Crypto) => {
+            PortixError::KeyPassphraseIncorrect(shown)
+        }
+        other => PortixError::Russh(other.into()),
+    })
+}
+
 /// Returns the user's home directory, supporting both Unix (HOME) and Windows (USERPROFILE).
-fn home_dir() -> Option<PathBuf> {
+pub(crate) fn home_dir() -> Option<PathBuf> {
     env::var("HOME")
         .or_else(|_| env::var("USERPROFILE"))
         .ok()
@@ -555,3 +744,32 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod key_loading_tests {
+    use super::*;
+
+    // Portix's Flutter app matches these messages (key_passphrase_dialog.dart).
+    #[test]
+    fn encrypted_key_errors_carry_the_messages_the_ui_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("id_enc");
+        let path_str = path.to_string_lossy().into_owned();
+        crate::api::ssh::generate_ed25519_key(path_str, String::new(), Some("right".into())).unwrap();
+
+        let missing = load_private_key(&path, None).unwrap_err();
+        assert!(matches!(missing, PortixError::KeyPassphraseRequired(_)));
+        assert!(missing.to_string().contains("a passphrase is required"));
+
+        let wrong = load_private_key(&path, Some("wrong")).unwrap_err();
+        assert!(matches!(wrong, PortixError::KeyPassphraseIncorrect(_)));
+        assert!(wrong.to_string().contains("wrong passphrase for SSH key"));
+
+        assert!(load_private_key(&path, Some("right")).is_ok());
+    }
+}
+
+// Unix only: the agent test serves the agent on a Unix socket.
+#[cfg(all(test, unix))]
+#[path = "ssh_client_e2e_tests.rs"]
+mod e2e_tests;

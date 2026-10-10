@@ -10,9 +10,6 @@ class TerminalWorkspaceView extends StatelessWidget {
     required this.terminalForSession,
     required this.statusForSession,
     required this.profileForSession,
-    required this.suggestionForSession,
-    required this.suggestionCandidatesForSession,
-    required this.suggestionSuffixForSession,
     required this.idleTerminal,
     required this.controllerForSession,
     required this.scrollControllerForSession,
@@ -36,6 +33,7 @@ class TerminalWorkspaceView extends StatelessWidget {
     required this.onReconnect,
     required this.onToggleBroadcast,
     required this.onToggleSolo,
+    this.themeName,
   });
 
   final SplitNode? root;
@@ -47,10 +45,6 @@ class TerminalWorkspaceView extends StatelessWidget {
   final session_models.ConnectionStatus Function(String sessionId)
   statusForSession;
   final domain.SshProfile? Function(String sessionId) profileForSession;
-  final TerminalSuggestion? Function(String sessionId) suggestionForSession;
-  final List<TerminalSuggestion> Function(String sessionId)
-  suggestionCandidatesForSession;
-  final String? Function(String sessionId) suggestionSuffixForSession;
   final Terminal idleTerminal;
   final TerminalController Function(String sessionId) controllerForSession;
   final ScrollController Function(String sessionId) scrollControllerForSession;
@@ -68,6 +62,7 @@ class TerminalWorkspaceView extends StatelessWidget {
   final Color backgroundColor;
   final String fontFamily;
   final double fontSize;
+  final String? themeName;
   final ValueChanged<String> onFocus;
   final ValueChanged<String> onClosePane;
   final void Function(
@@ -99,6 +94,7 @@ class TerminalWorkspaceView extends StatelessWidget {
         backgroundColor: backgroundColor,
         fontFamily: fontFamily,
         fontSize: fontSize,
+        themeName: themeName,
       );
     }
     return Padding(
@@ -112,9 +108,6 @@ class TerminalWorkspaceView extends StatelessWidget {
         terminalForSession: terminalForSession,
         statusForSession: statusForSession,
         profileForSession: profileForSession,
-        suggestionForSession: suggestionForSession,
-        suggestionCandidatesForSession: suggestionCandidatesForSession,
-        suggestionSuffixForSession: suggestionSuffixForSession,
         controllerForSession: controllerForSession,
         scrollControllerForSession: scrollControllerForSession,
         focusNodeForSession: focusNodeForSession,
@@ -126,6 +119,7 @@ class TerminalWorkspaceView extends StatelessWidget {
         backgroundColor: backgroundColor,
         fontFamily: fontFamily,
         fontSize: fontSize,
+        themeName: themeName,
         onFocus: onFocus,
         onClosePane: onClosePane,
         onSplit: onSplit,
@@ -149,9 +143,6 @@ class SplitTreeView extends StatelessWidget {
     required this.terminalForSession,
     required this.statusForSession,
     required this.profileForSession,
-    required this.suggestionForSession,
-    required this.suggestionCandidatesForSession,
-    required this.suggestionSuffixForSession,
     required this.controllerForSession,
     required this.scrollControllerForSession,
     required this.focusNodeForSession,
@@ -171,6 +162,7 @@ class SplitTreeView extends StatelessWidget {
     required this.onToggleBroadcast,
     required this.onToggleSolo,
     required this.canClosePane,
+    this.themeName,
   });
 
   final SplitNode node;
@@ -182,10 +174,6 @@ class SplitTreeView extends StatelessWidget {
   final session_models.ConnectionStatus Function(String sessionId)
   statusForSession;
   final domain.SshProfile? Function(String sessionId) profileForSession;
-  final TerminalSuggestion? Function(String sessionId) suggestionForSession;
-  final List<TerminalSuggestion> Function(String sessionId)
-  suggestionCandidatesForSession;
-  final String? Function(String sessionId) suggestionSuffixForSession;
   final TerminalController Function(String sessionId) controllerForSession;
   final ScrollController Function(String sessionId) scrollControllerForSession;
   final FocusNode Function(String sessionId) focusNodeForSession;
@@ -198,6 +186,7 @@ class SplitTreeView extends StatelessWidget {
   final Color backgroundColor;
   final String fontFamily;
   final double fontSize;
+  final String? themeName;
   final ValueChanged<String> onFocus;
   final ValueChanged<String> onClosePane;
   final void Function(
@@ -227,24 +216,10 @@ class SplitTreeView extends StatelessWidget {
         terminalViewKey: viewKeyForSession(node.sessionId),
         status: statusForSession(node.sessionId),
         profile: profileForSession(node.sessionId),
-        suggestion: node.sessionId == activeSessionId
-            ? (terminalForSession(node.sessionId).isUsingAltBuffer
-                  ? null
-                  : suggestionForSession(node.sessionId))
-            : null,
-        suggestionCandidates: node.sessionId == activeSessionId
-            ? (terminalForSession(node.sessionId).isUsingAltBuffer
-                  ? const []
-                  : suggestionCandidatesForSession(node.sessionId))
-            : const [],
-        suggestionSuffix: node.sessionId == activeSessionId
-            ? (terminalForSession(node.sessionId).isUsingAltBuffer
-                  ? null
-                  : suggestionSuffixForSession(node.sessionId))
-            : null,
         broadcastTyping: broadcastTyping,
         solo: soloSessionId == node.sessionId,
         active: node.sessionId == activeSessionId,
+        highlightActive: canClosePane,
         keyboardEnabled: keyboardEnabled,
         copyShortcut: copyShortcut,
         pasteShortcut: pasteShortcut,
@@ -253,6 +228,7 @@ class SplitTreeView extends StatelessWidget {
         fontFamily: fontFamily,
         fontSize: fontSize,
         allowPaneDrag: showPaneControls,
+        themeName: themeName,
         onTap: () {
           onFocus(node.sessionId);
           if (keyboardEnabled) focusNode.requestFocus();
@@ -282,9 +258,6 @@ class SplitTreeView extends StatelessWidget {
             terminalForSession: terminalForSession,
             statusForSession: statusForSession,
             profileForSession: profileForSession,
-            suggestionForSession: suggestionForSession,
-            suggestionCandidatesForSession: suggestionCandidatesForSession,
-            suggestionSuffixForSession: suggestionSuffixForSession,
             controllerForSession: controllerForSession,
             scrollControllerForSession: scrollControllerForSession,
             focusNodeForSession: focusNodeForSession,
@@ -296,6 +269,7 @@ class SplitTreeView extends StatelessWidget {
             backgroundColor: backgroundColor,
             fontFamily: fontFamily,
             fontSize: fontSize,
+            themeName: themeName,
             onFocus: onFocus,
             onClosePane: onClosePane,
             onSplit: onSplit,

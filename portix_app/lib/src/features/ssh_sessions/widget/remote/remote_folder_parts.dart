@@ -22,18 +22,6 @@ class _LocalEditSession {
   final String? originalText;
 }
 
-class _TextDiff {
-  const _TextDiff({
-    required this.added,
-    required this.removed,
-    required this.lines,
-  });
-
-  final int added;
-  final int removed;
-  final List<String> lines;
-}
-
 class _TransferJob {
   _TransferJob({
     required this.id,
@@ -168,7 +156,7 @@ class _TransferQueuePanel extends StatelessWidget {
                     width: 24,
                     height: 24,
                   ),
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.close_rounded,
                     size: 14,
                     color: AppColors.muted,
@@ -237,7 +225,7 @@ class _TransferQueueRow extends StatelessWidget {
               Text(
                 job.label,
                 overflow: TextOverflow.ellipsis,
-                style: portixTitle(10),
+                style: portixTitle(11),
               ),
               const SizedBox(height: 3),
               ClipRRect(
@@ -256,14 +244,14 @@ class _TransferQueueRow extends StatelessWidget {
                   job.error!,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: portixMuted(9).copyWith(color: AppColors.danger),
+                  style: portixMuted(11).copyWith(color: AppColors.danger),
                 ),
               ],
             ],
           ),
         ),
         const SizedBox(width: 8),
-        Text(status, style: portixTitle(10).copyWith(color: color)),
+        Text(status, style: portixTitle(11).copyWith(color: color)),
       ],
     );
   }
@@ -278,7 +266,7 @@ class _RemotePanelShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(right: BorderSide(color: AppColors.border)),
       ),
@@ -297,7 +285,7 @@ class _CollapsedRemoteRail extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 30,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(right: BorderSide(color: AppColors.border)),
       ),
@@ -310,7 +298,7 @@ class _CollapsedRemoteRail extends StatelessWidget {
             onPressed: onPressed,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 28, height: 32),
-            icon: const Icon(
+            icon: Icon(
               Icons.chevron_right_rounded,
               color: AppColors.cyan,
               size: 22,
@@ -333,25 +321,16 @@ class _ConnectionCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
       child: Row(
         children: [
-          const Icon(
-            Icons.cloud_sync_outlined,
-            color: AppColors.green,
-            size: 20,
-          ),
+          Icon(Icons.cloud_sync_outlined, color: AppColors.muted, size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  profile?.address ?? 'root@172.24.82.36:22',
+                  profile?.name ?? '',
                   overflow: TextOverflow.ellipsis,
                   style: portixTitle(13),
-                ),
-                Text(
-                  'Mounted from active SSH session',
-                  overflow: TextOverflow.ellipsis,
-                  style: portixMuted(11),
                 ),
               ],
             ),
@@ -362,7 +341,7 @@ class _ConnectionCard extends StatelessWidget {
             onPressed: onClose,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-            icon: const Icon(
+            icon: Icon(
               Icons.keyboard_double_arrow_left_rounded,
               color: AppColors.muted,
               size: 18,
@@ -406,390 +385,6 @@ class _RemoteActionBar extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-class _PathCrumb extends StatefulWidget {
-  const _PathCrumb({
-    required this.path,
-    required this.onSubmit,
-    this.onListPath,
-  });
-
-  final String path;
-  final ValueChanged<String> onSubmit;
-
-  /// Non-navigating directory lister used for Tab autocomplete.
-  /// Returns children of the given directory path.
-  /// When null the path bar skips autocomplete.
-  final Future<List<RemoteFileEntry>> Function(String)? onListPath;
-
-  @override
-  State<_PathCrumb> createState() => _PathCrumbState();
-}
-
-class _PathCrumbState extends State<_PathCrumb> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.path,
-  );
-  late final FocusNode _focusNode = FocusNode();
-
-  // Tab autocomplete state — only populated on demand (Tab / ArrowDown).
-  final List<RemoteFileEntry> _candidates = [];
-  bool _open = false;
-  bool _loading = false;
-  int _highlight = 0;
-  final ScrollController _scrollController = ScrollController();
-
-  /// Caches raw children of a directory so repeated completions in the same
-  /// directory don't re-hit the SSH backend on every Tab press.
-  final Map<String, List<RemoteFileEntry>> _dirCache = {};
-
-  /// (parent, prefix) of the most recent listing so Tab can detect changes.
-  String _lastParent = '';
-  String _lastPrefix = '';
-
-  bool _tearingDown = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _focusNode.onKeyEvent = _onKey;
-    _focusNode.addListener(() {
-      if (!_focusNode.hasFocus) _close();
-    });
-  }
-
-  @override
-  void didUpdateWidget(covariant _PathCrumb oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.path != widget.path && _controller.text == oldWidget.path) {
-      _controller.text = widget.path;
-    }
-  }
-
-  @override
-  void dispose() {
-    _tearingDown = true;
-    _scrollController.dispose();
-    _controller.dispose();
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  void _close() {
-    if (!mounted || _tearingDown) return;
-    setState(() {
-      _open = false;
-      _candidates.clear();
-    });
-  }
-
-  (String, String) _splitDirAndPrefix(String input) {
-    final slash = input.lastIndexOf('/');
-    if (slash < 0) return ('', input);
-    return (input.substring(0, slash + 1), input.substring(slash + 1));
-  }
-
-  Future<void> _fetch() async {
-    final lister = widget.onListPath;
-    if (lister == null) return;
-    final (parent, prefix) = _splitDirAndPrefix(_controller.text);
-    if (parent.isEmpty) return;
-    if (!mounted) return;
-    _lastParent = parent;
-    _lastPrefix = prefix;
-    setState(() => _loading = true);
-    try {
-      final List<RemoteFileEntry> entries;
-      final cached = _dirCache[parent];
-      if (cached != null) {
-        entries = cached;
-      } else {
-        final fetched = await lister(parent);
-        if (!mounted) return;
-        _dirCache[parent] = fetched;
-        entries = fetched;
-      }
-      final pl = prefix.toLowerCase();
-      final filtered =
-          entries
-              .where((e) => e.name != '.' && e.name != '..')
-              .where((e) => e.name.toLowerCase().startsWith(pl))
-              .toList()
-            ..sort(
-              (a, b) => switch (a.isDirectory == b.isDirectory) {
-                true => a.name.compareTo(b.name),
-                _ => a.isDirectory ? -1 : 1,
-              },
-            );
-      if (!mounted) return;
-      setState(() {
-        _candidates
-          ..clear()
-          ..addAll(filtered);
-        _highlight = 0;
-        _open = _candidates.isNotEmpty;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _candidates.clear();
-        _highlight = 0;
-        _open = false;
-      });
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  void _complete(RemoteFileEntry entry) {
-    final (parent, _) = _splitDirAndPrefix(_controller.text);
-    final newText = parent + entry.name + (entry.isDirectory ? '/' : '');
-    _controller
-      ..text = newText
-      ..selection = TextSelection.collapsed(offset: newText.length);
-    _close();
-    _focusNode.requestFocus();
-  }
-
-  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
-    final logical = event.logicalKey;
-
-    if (logical == LogicalKeyboardKey.escape) {
-      if (_open) {
-        _close();
-        return KeyEventResult.handled;
-      }
-      return KeyEventResult.ignored;
-    }
-
-    if (!_open &&
-        (logical == LogicalKeyboardKey.arrowDown ||
-            logical == LogicalKeyboardKey.arrowUp)) {
-      if (!_loading) _fetch();
-      return KeyEventResult.handled;
-    }
-
-    if (_open && logical == LogicalKeyboardKey.tab) {
-      final (p, pf) = _splitDirAndPrefix(_controller.text);
-      if (p.isNotEmpty && (p != _lastParent || pf != _lastPrefix)) {
-        if (!_loading) _fetch();
-        return KeyEventResult.handled;
-      }
-      if (_candidates.isNotEmpty) {
-        if (_highlight < _candidates.length - 1) {
-          setState(() => _highlight++);
-          _scrollToHighlight();
-        } else {
-          _close();
-          return KeyEventResult.ignored;
-        }
-        return KeyEventResult.handled;
-      }
-      _close();
-      return KeyEventResult.ignored;
-    }
-
-    if (_open &&
-        (logical == LogicalKeyboardKey.arrowDown ||
-            logical == LogicalKeyboardKey.arrowUp)) {
-      final (p, pf) = _splitDirAndPrefix(_controller.text);
-      if (p.isNotEmpty && (p != _lastParent || pf != _lastPrefix)) {
-        if (!_loading) _fetch();
-        return KeyEventResult.handled;
-      }
-      if (_candidates.isNotEmpty) {
-        if (logical == LogicalKeyboardKey.arrowDown &&
-            _highlight < _candidates.length - 1) {
-          setState(() => _highlight++);
-          _scrollToHighlight();
-        } else if (logical == LogicalKeyboardKey.arrowUp && _highlight > 0) {
-          setState(() => _highlight--);
-          _scrollToHighlight();
-        }
-      }
-      return KeyEventResult.handled;
-    }
-
-    if (_open &&
-        _candidates.isNotEmpty &&
-        (logical == LogicalKeyboardKey.enter ||
-            logical == LogicalKeyboardKey.numpadEnter)) {
-      _complete(_candidates[_highlight]);
-      return KeyEventResult.handled;
-    }
-
-    if (!_open &&
-        logical == LogicalKeyboardKey.tab &&
-        _controller.text.trim().isNotEmpty) {
-      if (!_loading) _fetch();
-      return KeyEventResult.handled;
-    }
-
-    return KeyEventResult.ignored;
-  }
-
-  void _scrollToHighlight() {
-    const rowHeight = 32.0;
-    final extent = rowHeight * (_highlight + 1);
-    if (_scrollController.hasClients &&
-        _scrollController.position.maxScrollExtent > 0) {
-      if (_scrollController.offset > extent ||
-          extent >
-              _scrollController.offset +
-                  _scrollController.position.viewportDimension) {
-        _scrollController.animateTo(
-          (extent - rowHeight / 2).clamp(
-            0.0,
-            _scrollController.position.maxScrollExtent,
-          ),
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOut,
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AppPanel(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 2),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.folder_outlined,
-                color: AppColors.muted,
-                size: 16,
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: TextField(
-                  controller: _controller,
-                  focusNode: _focusNode,
-                  onSubmitted: (value) {
-                    if (_open && _candidates.isNotEmpty) {
-                      _complete(_candidates[_highlight]);
-                    } else {
-                      widget.onSubmit(value);
-                    }
-                  },
-                  style: const TextStyle(
-                    color: AppColors.text,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 13,
-                  ),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              ),
-              if (widget.onListPath != null) ...[
-                const SizedBox(width: 4),
-                Text(
-                  'Tab',
-                  style: TextStyle(
-                    color: AppColors.muted,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    fontFamily: 'Inter',
-                  ),
-                ),
-              ],
-              const SizedBox(width: 4),
-              IconButton(
-                tooltip: _open ? 'Close suggestions' : 'Open path',
-                onPressed: _open
-                    ? () => _close()
-                    : () => widget.onSubmit(_controller.text),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(
-                  width: 30,
-                  height: 30,
-                ),
-                icon: Icon(
-                  _open ? Icons.close_rounded : Icons.keyboard_return_rounded,
-                  color: AppColors.muted,
-                  size: 17,
-                ),
-              ),
-            ],
-          ),
-          if (_open) ...[
-            const SizedBox(height: 4),
-            SizedBox(
-              height: 160,
-              child: _loading
-                  ? const Center(
-                      child: SizedBox.square(
-                        dimension: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: _scrollController,
-                      itemCount: _candidates.length,
-                      itemBuilder: (context, index) {
-                        final entry = _candidates[index];
-                        final isHighlight = index == _highlight;
-                        return GestureDetector(
-                          onTap: () => _complete(entry),
-                          child: Container(
-                            height: 32,
-                            color: isHighlight
-                                ? AppColors.surfaceCard
-                                : Colors.transparent,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 6,
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  entry.isDirectory
-                                      ? Icons.folder_outlined
-                                      : Icons.insert_drive_file_outlined,
-                                  color: entry.isDirectory
-                                      ? AppColors.amber
-                                      : AppColors.muted,
-                                  size: 15,
-                                ),
-                                const SizedBox(width: 7),
-                                Expanded(
-                                  child: Text(
-                                    entry.name,
-                                    style: TextStyle(
-                                      color: isHighlight
-                                          ? AppColors.text
-                                          : AppColors.muted,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      fontFamily: 'Inter',
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ],
-      ),
     );
   }
 }
@@ -861,10 +456,10 @@ class _RemoteItem extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 6),
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
           decoration: BoxDecoration(
-            color: selected ? const Color(0xFF143B63) : Colors.transparent,
+            color: selected ? AppColors.selected : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: selected ? AppColors.primaryBlue : Colors.transparent,
+              color: selected ? AppColors.cyan : Colors.transparent,
             ),
           ),
           child: Row(
@@ -887,7 +482,7 @@ class _RemoteItem extends StatelessWidget {
                     Text(
                       meta,
                       overflow: TextOverflow.ellipsis,
-                      style: portixMuted(10),
+                      style: portixMuted(11),
                     ),
                   ],
                 ),
@@ -984,11 +579,7 @@ class _RemoteItemMenu extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: AppColors.border),
         ),
-        child: const Icon(
-          Icons.more_horiz_rounded,
-          size: 17,
-          color: AppColors.muted,
-        ),
+        child: Icon(Icons.more_horiz_rounded, size: 17, color: AppColors.muted),
       ),
     );
   }
@@ -1103,7 +694,7 @@ class _OpenWithEditorSheet extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.apps_rounded, color: AppColors.cyan, size: 18),
+                Icon(Icons.apps_rounded, color: AppColors.cyan, size: 18),
                 const SizedBox(width: 10),
                 Text('Open with', style: portixTitle(15)),
               ],
@@ -1124,7 +715,7 @@ class _OpenWithEditorSheet extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
-                      side: const BorderSide(color: AppColors.border),
+                      side: BorderSide(color: AppColors.border),
                     ),
                     tileColor: AppColors.surfaceCard.withValues(alpha: .5),
                     leading: editor.svgAsset != null
@@ -1154,157 +745,6 @@ class _OpenWithEditorSheet extends StatelessWidget {
   }
 }
 
-class _RewriteRemoteDialog extends StatelessWidget {
-  const _RewriteRemoteDialog({required this.fileName, required this.diff});
-
-  final String fileName;
-  final _TextDiff diff;
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: AppColors.surface,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 28),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: AppColors.border),
-      ),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 720, maxHeight: 560),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.sync_alt_rounded,
-                    color: AppColors.cyan,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text('Rewrite remote file?', style: portixTitle(16)),
-                  ),
-                  IconButton(
-                    tooltip: 'Cancel',
-                    onPressed: () => Navigator.of(context).pop(false),
-                    icon: const Icon(Icons.close_rounded, size: 18),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                fileName,
-                overflow: TextOverflow.ellipsis,
-                style: portixMuted(12),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  _DiffBadge(label: '+${diff.added}', color: AppColors.green),
-                  const SizedBox(width: 8),
-                  _DiffBadge(
-                    label: '-${diff.removed}',
-                    color: AppColors.danger,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Flexible(
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: AppColors.terminal,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.all(12),
-                    itemCount: diff.lines.length,
-                    itemBuilder: (context, index) {
-                      final line = diff.lines[index];
-                      final isAdd = line.startsWith('+ ');
-                      final isRemove = line.startsWith('- ');
-                      final isSeparator = line.trim() == '···';
-                      final color = isAdd
-                          ? AppColors.green
-                          : isRemove
-                          ? AppColors.danger
-                          : isSeparator
-                          ? AppColors.muted.withValues(alpha: .5)
-                          : AppColors.text.withValues(alpha: .6);
-                      final bgColor = isAdd
-                          ? AppColors.green.withValues(alpha: .07)
-                          : isRemove
-                          ? AppColors.danger.withValues(alpha: .07)
-                          : Colors.transparent;
-                      return Container(
-                        color: bgColor,
-                        child: Text(
-                          line,
-                          style: TextStyle(
-                            color: color,
-                            fontSize: 11,
-                            height: 1.4,
-                            fontFamily: 'monospace',
-                            fontWeight: (isAdd || isRemove)
-                                ? FontWeight.w700
-                                : FontWeight.normal,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(false),
-                    child: Text('Cancel', style: portixTitle(12)),
-                  ),
-                  const SizedBox(width: 10),
-                  FilledButton.icon(
-                    onPressed: () => Navigator.of(context).pop(true),
-                    icon: const Icon(Icons.upload_file_rounded, size: 16),
-                    label: const Text('Rewrite remote'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DiffBadge extends StatelessWidget {
-  const _DiffBadge({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: .12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: .8)),
-      ),
-      child: Text(label, style: portixTitle(11).copyWith(color: color)),
-    );
-  }
-}
-
 class _InlineRenameItem extends StatelessWidget {
   const _InlineRenameItem({
     required this.entry,
@@ -1327,9 +767,9 @@ class _InlineRenameItem extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0xFF143B63),
+        color: AppColors.selected,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.primaryBlue),
+        border: Border.all(color: AppColors.cyan),
       ),
       child: Row(
         children: [
@@ -1373,11 +813,7 @@ class _InlineRenameItem extends StatelessWidget {
             onPressed: onCancel,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 24, height: 24),
-            icon: const Icon(
-              Icons.close_rounded,
-              color: AppColors.muted,
-              size: 15,
-            ),
+            icon: Icon(Icons.close_rounded, color: AppColors.muted, size: 15),
           ),
         ],
       ),
@@ -1409,7 +845,7 @@ class _InlineCreateItem extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.surfaceCard.withValues(alpha: .55),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.primaryBlue),
+        border: Border.all(color: AppColors.cyan),
       ),
       child: Row(
         children: [
@@ -1453,11 +889,7 @@ class _InlineCreateItem extends StatelessWidget {
             onPressed: onCancel,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 24, height: 24),
-            icon: const Icon(
-              Icons.close_rounded,
-              color: AppColors.muted,
-              size: 15,
-            ),
+            icon: Icon(Icons.close_rounded, color: AppColors.muted, size: 15),
           ),
         ],
       ),

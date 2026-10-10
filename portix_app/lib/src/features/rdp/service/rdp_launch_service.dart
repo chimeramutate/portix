@@ -190,8 +190,8 @@ class RdpLaunchService {
       ], mode: ProcessStartMode.detached);
       if (profile.redirectDrives) {
         debugPrint(
-          '[RDP] WARNING: Microsoft Remote Desktop tidak mendukung '
-          'drive sharing via CLI. Install xfreerdp untuk fitur ini.',
+          '[RDP] WARNING: Microsoft Remote Desktop does not support '
+          'drive sharing from the command line. Install xfreerdp for this.',
         );
       }
       return Right(
@@ -205,9 +205,9 @@ class RdpLaunchService {
     } catch (_) {
       return Left(
         const Failure(
-          'Tidak ada RDP client yang mendukung drive sharing di macOS.\n'
-          'Install xfreerdp via Homebrew: brew install freerdp\n'
-          'atau install Microsoft Remote Desktop dari App Store.',
+          'No RDP client with drive sharing was found on macOS.\n'
+          'Install xfreerdp with Homebrew: brew install freerdp\n'
+          'or install Microsoft Remote Desktop from the App Store.',
         ),
       );
     }
@@ -276,7 +276,7 @@ class RdpLaunchService {
         ),
       );
     } catch (e) {
-      return Left(Failure('Gagal menjalankan $binary: $e'));
+      return Left(Failure('Could not start $binary: $e'));
     }
   }
 

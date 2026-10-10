@@ -25,7 +25,7 @@ class NoTerminalConnection extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(
+                Icon(
                   Icons.power_settings_new_rounded,
                   color: AppColors.muted,
                   size: 36,

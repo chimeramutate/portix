@@ -36,9 +36,8 @@ class AppPill extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontFamily: 'Inter',
                 color: color,
-                fontSize: 9,
+                fontSize: 11,
                 fontWeight: FontWeight.w800,
               ),
             ),

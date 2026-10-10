@@ -5,6 +5,7 @@ import 'dart:ui';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:xterm/src/core/buffer/cell_offset.dart';
+import 'package:xterm/src/core/cell.dart';
 import 'package:xterm/src/core/buffer/range.dart';
 import 'package:xterm/src/core/buffer/segment.dart';
 import 'package:xterm/src/core/mouse/button.dart';
@@ -587,10 +588,6 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
 
     if (_terminal.buffer.absoluteCursorY >= firstLine &&
         _terminal.buffer.absoluteCursorY <= lastLine) {
-      if (_isComposingText) {
-        _paintComposingText(canvas, offset + cursorOffset);
-      }
-
       if (_shouldShowCursor) {
         _painter.paintCursor(
           canvas,
@@ -598,6 +595,27 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
           cursorType: _cursorType,
           hasFocus: _focusNode.hasFocus,
         );
+        // A filled block covers the character under it; draw that character
+        // again on top, in the background color (like other terminals).
+        if (_cursorType == TerminalCursorType.block &&
+            _focusNode.hasFocus &&
+            !_isComposingText) {
+          final buffer = _terminal.buffer;
+          final line = buffer.lines[buffer.absoluteCursorY];
+          if (buffer.cursorX < line.length) {
+            line.getCellData(buffer.cursorX, _cursorCell);
+            _painter.paintCursorCharacter(
+              canvas,
+              offset + cursorOffset,
+              _cursorCell,
+            );
+          }
+        }
+      }
+
+      // After the cursor, so text being typed through an IME stays visible.
+      if (_isComposingText) {
+        _paintComposingText(canvas, offset + cursorOffset);
       }
     }
 
@@ -617,6 +635,8 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
       );
     }
   }
+
+  final _cursorCell = CellData.empty();
 
   /// Paints the text that is currently being composed in IME to [canvas] at
   /// [offset]. [offset] is usually the cursor position.

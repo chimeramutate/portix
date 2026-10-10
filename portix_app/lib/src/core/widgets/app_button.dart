@@ -39,23 +39,57 @@ class AppButton extends StatelessWidget {
 }
 
 class AppIconButton extends StatelessWidget {
-  const AppIconButton({required this.icon, required this.onPressed, super.key});
+  const AppIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    Color? color,
+    this.outlined = true,
+    super.key,
+  }) : _color = color;
 
   final IconData icon;
+
+  /// False draws a plain icon (toolbars, tab strips) instead of a bordered box.
+  final bool outlined;
+
+  /// Shown on hover and read by screen readers; icon-only buttons need a name.
+  final String tooltip;
   final VoidCallback? onPressed;
+  final Color? _color;
+  Color get color => _color ?? AppColors.cyan;
 
   @override
   Widget build(BuildContext context) {
+    if (!outlined) {
+      return SizedBox.square(
+        dimension: 28,
+        child: IconButton(
+          tooltip: tooltip,
+          onPressed: onPressed,
+          padding: EdgeInsets.zero,
+          icon: Icon(icon, color: _color ?? AppColors.text, size: 17),
+        ),
+      );
+    }
     return SizedBox(
       width: 30,
       height: 30,
       child: IconButton.outlined(
+        tooltip: tooltip,
         onPressed: onPressed,
-        icon: Icon(icon, color: AppColors.cyan, size: 15),
-        style: IconButton.styleFrom(
-          side: const BorderSide(color: AppColors.border),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
+        icon: Icon(icon, color: color, size: 15),
+        style:
+            IconButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ).copyWith(
+              side: focusRingSide(
+                focus: AppColors.cyan,
+                rest: BorderSide(color: AppColors.inputBorder),
+              ),
+            ),
       ),
     );
   }

@@ -3,11 +3,13 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
-import 'api.dart';
+import 'api/sftp.dart';
+import 'api/ssh.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'domain/profile.dart';
 import 'domain/session.dart';
+import 'domain/sftp.dart';
 import 'frb_generated.dart';
 import 'frb_generated.io.dart'
     if (dart.library.js_interop) 'frb_generated.web.dart';
@@ -57,7 +59,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 
   @override
   Future<void> executeRustInitializers() async {
-    await api.crateApiInitApp();
+    await api.crateApiSshInitApp();
   }
 
   @override
@@ -68,7 +70,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -392094812;
+  int get rustContentHash => -1466402889;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -80,95 +82,147 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
-  Future<void> crateApiChmodRemotePath({
-    required String sessionId,
-    required String path,
-    required String mode,
-  });
-
-  Future<List<String>> crateApiCommandHelpSuggestions({
-    required String sessionId,
-    required String input,
-  });
-
-  Future<SessionInfo> crateApiConnect({
+  Future<SessionInfo> crateApiSshConnect({
     required SshProfile profile,
     required int cols,
     required int rows,
   });
 
-  Stream<String> crateApiConnectionStatusStream();
+  Stream<String> crateApiSshConnectionStatusStream();
 
-  Future<void> crateApiCreateRemoteDirectory({
-    required String sessionId,
+  Future<void> crateApiSshDisconnect({required String sessionId});
+
+  Stream<String> crateApiSshErrorEventStream();
+
+  Future<String> crateApiSshGenerateEd25519Key({
     required String path,
+    required String comment,
+    String? passphrase,
   });
 
-  Future<void> crateApiCreateRemoteFile({
-    required String sessionId,
-    required String path,
+  Future<void> crateApiSshInitApp();
+
+  Future<List<ForwardInfo>> crateApiSshListLocalForwards();
+
+  Future<HostKeyInfo?> crateApiSshPendingHostKey({
+    required String host,
+    required int port,
   });
 
-  Future<void> crateApiDisconnect({required String sessionId});
-
-  Stream<String> crateApiErrorEventStream();
-
-  Future<String> crateApiExecRemoteCommand({
-    required String sessionId,
-    required String command,
-  });
-
-  Future<void> crateApiInitApp();
-
-  Future<List<RemoteFileEntry>> crateApiListRemoteDirectory({
-    required String sessionId,
-    required String path,
-  });
-
-  Future<String> crateApiReadRemoteFile({
-    required String sessionId,
-    required String path,
-  });
-
-  Future<Uint8List> crateApiReadRemoteFileBytes({
-    required String sessionId,
-    required String path,
-  });
-
-  Future<RemoteSystemSnapshot> crateApiRemoteSystemSnapshot({
+  Future<RemoteSystemSnapshot> crateApiSshRemoteSystemSnapshot({
     required String sessionId,
   });
 
-  Future<void> crateApiResizeTerminal({
+  Future<void> crateApiSshResizeTerminal({
     required String sessionId,
     required int cols,
     required int rows,
   });
 
-  Future<String> crateApiResolveRemoteDirectory({
-    required String sessionId,
-    required String path,
-  });
-
-  Future<void> crateApiSendTerminalInput({
+  Future<void> crateApiSshSendTerminalInput({
     required String sessionId,
     required List<int> data,
   });
 
-  Future<String> crateApiTerminalComplete({required String reqJson});
+  Future<void> crateApiSftpSftpChmod({
+    required String sessionId,
+    required String path,
+    required int mode,
+  });
 
-  Stream<String> crateApiTerminalOutputStream();
+  Future<String> crateApiSftpSftpConnect({required SshProfile profile});
 
-  Future<void> crateApiUploadRemoteFile({
+  Future<void> crateApiSftpSftpCopy({
+    required String sessionId,
+    required String from,
+    required String to,
+  });
+
+  Future<void> crateApiSftpSftpCreateDir({
+    required String sessionId,
+    required String path,
+  });
+
+  Future<void> crateApiSftpSftpCreateFile({
+    required String sessionId,
+    required String path,
+  });
+
+  Future<void> crateApiSftpSftpDisconnect({required String sessionId});
+
+  Stream<TransferProgress> crateApiSftpSftpDownload({
+    required String sessionId,
+    required String remotePath,
+    required String localPath,
+  });
+
+  Future<bool> crateApiSftpSftpIsAlive({required String sessionId});
+
+  Future<List<RemoteFileEntry>> crateApiSftpSftpList({
+    required String sessionId,
+    required String path,
+  });
+
+  Future<Uint8List> crateApiSftpSftpRead({
+    required String sessionId,
+    required String path,
+  });
+
+  Future<void> crateApiSftpSftpRemove({
+    required String sessionId,
+    required String path,
+  });
+
+  Future<void> crateApiSftpSftpRename({
+    required String sessionId,
+    required String from,
+    required String to,
+  });
+
+  Future<String> crateApiSftpSftpResolve({
+    required String sessionId,
+    required String path,
+  });
+
+  Stream<TransferProgress> crateApiSftpSftpUpload({
+    required String sessionId,
+    required String localPath,
+    required String remotePath,
+  });
+
+  Future<void> crateApiSftpSftpWrite({
     required String sessionId,
     required String path,
     required List<int> data,
   });
 
-  Future<void> crateApiWriteRemoteFile({
-    required String sessionId,
-    required String path,
-    required String content,
+  Future<ForwardInfo> crateApiSshStartLocalForward({
+    required SshProfile profile,
+    required int localPort,
+    required String remoteHost,
+    required int remotePort,
+  });
+
+  Future<ForwardInfo> crateApiSshStartRemoteForward({
+    required SshProfile profile,
+    required int remotePort,
+    required String localHost,
+    required int localPort,
+  });
+
+  Future<ForwardInfo> crateApiSshStartSocksProxy({
+    required SshProfile profile,
+    required int localPort,
+  });
+
+  Future<void> crateApiSshStopLocalForward({required String id});
+
+  Stream<String> crateApiSshTerminalOutputStream();
+
+  Future<void> crateApiSshTrustHostKey({
+    required String host,
+    required int port,
+    required String fingerprint,
   });
 }
 
@@ -181,78 +235,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
-  Future<void> crateApiChmodRemotePath({
-    required String sessionId,
-    required String path,
-    required String mode,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(sessionId, serializer);
-          sse_encode_String(path, serializer);
-          sse_encode_String(mode, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 1,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
-        ),
-        constMeta: kCrateApiChmodRemotePathConstMeta,
-        argValues: [sessionId, path, mode],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiChmodRemotePathConstMeta => const TaskConstMeta(
-    debugName: "chmod_remote_path",
-    argNames: ["sessionId", "path", "mode"],
-  );
-
-  @override
-  Future<List<String>> crateApiCommandHelpSuggestions({
-    required String sessionId,
-    required String input,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(sessionId, serializer);
-          sse_encode_String(input, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 2,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_list_String,
-          decodeErrorData: sse_decode_AnyhowException,
-        ),
-        constMeta: kCrateApiCommandHelpSuggestionsConstMeta,
-        argValues: [sessionId, input],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiCommandHelpSuggestionsConstMeta =>
-      const TaskConstMeta(
-        debugName: "command_help_suggestions",
-        argNames: ["sessionId", "input"],
-      );
-
-  @override
-  Future<SessionInfo> crateApiConnect({
+  Future<SessionInfo> crateApiSshConnect({
     required SshProfile profile,
     required int cols,
     required int rows,
@@ -267,7 +250,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 1,
             port: port_,
           );
         },
@@ -275,20 +258,83 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_session_info,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiConnectConstMeta,
+        constMeta: kCrateApiSshConnectConstMeta,
         argValues: [profile, cols, rows],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiConnectConstMeta => const TaskConstMeta(
+  TaskConstMeta get kCrateApiSshConnectConstMeta => const TaskConstMeta(
     debugName: "connect",
     argNames: ["profile", "cols", "rows"],
   );
 
   @override
-  Stream<String> crateApiConnectionStatusStream() {
+  Stream<String> crateApiSshConnectionStatusStream() {
+    final sink = RustStreamSink<String>();
+    unawaited(
+      handler.executeNormal(
+        NormalTask(
+          callFfi: (port_) {
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            sse_encode_StreamSink_String_Sse(sink, serializer);
+            pdeCallFfi(
+              generalizedFrbRustBinding,
+              serializer,
+              funcId: 2,
+              port: port_,
+            );
+          },
+          codec: SseCodec(
+            decodeSuccessData: sse_decode_unit,
+            decodeErrorData: sse_decode_AnyhowException,
+          ),
+          constMeta: kCrateApiSshConnectionStatusStreamConstMeta,
+          argValues: [sink],
+          apiImpl: this,
+        ),
+      ),
+    );
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiSshConnectionStatusStreamConstMeta =>
+      const TaskConstMeta(
+        debugName: "connection_status_stream",
+        argNames: ["sink"],
+      );
+
+  @override
+  Future<void> crateApiSshDisconnect({required String sessionId}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sessionId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSshDisconnectConstMeta,
+        argValues: [sessionId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSshDisconnectConstMeta =>
+      const TaskConstMeta(debugName: "disconnect", argNames: ["sessionId"]);
+
+  @override
+  Stream<String> crateApiSshErrorEventStream() {
     final sink = RustStreamSink<String>();
     unawaited(
       handler.executeNormal(
@@ -307,7 +353,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             decodeSuccessData: sse_decode_unit,
             decodeErrorData: sse_decode_AnyhowException,
           ),
-          constMeta: kCrateApiConnectionStatusStreamConstMeta,
+          constMeta: kCrateApiSshErrorEventStreamConstMeta,
           argValues: [sink],
           apiImpl: this,
         ),
@@ -316,23 +362,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return sink.stream;
   }
 
-  TaskConstMeta get kCrateApiConnectionStatusStreamConstMeta =>
-      const TaskConstMeta(
-        debugName: "connection_status_stream",
-        argNames: ["sink"],
-      );
+  TaskConstMeta get kCrateApiSshErrorEventStreamConstMeta =>
+      const TaskConstMeta(debugName: "error_event_stream", argNames: ["sink"]);
 
   @override
-  Future<void> crateApiCreateRemoteDirectory({
-    required String sessionId,
+  Future<String> crateApiSshGenerateEd25519Key({
     required String path,
+    required String comment,
+    String? passphrase,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(sessionId, serializer);
           sse_encode_String(path, serializer);
+          sse_encode_String(comment, serializer);
+          sse_encode_opt_String(passphrase, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -341,33 +386,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
+          decodeSuccessData: sse_decode_String,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiCreateRemoteDirectoryConstMeta,
-        argValues: [sessionId, path],
+        constMeta: kCrateApiSshGenerateEd25519KeyConstMeta,
+        argValues: [path, comment, passphrase],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiCreateRemoteDirectoryConstMeta =>
+  TaskConstMeta get kCrateApiSshGenerateEd25519KeyConstMeta =>
       const TaskConstMeta(
-        debugName: "create_remote_directory",
-        argNames: ["sessionId", "path"],
+        debugName: "generate_ed25519_key",
+        argNames: ["path", "comment", "passphrase"],
       );
 
   @override
-  Future<void> crateApiCreateRemoteFile({
-    required String sessionId,
-    required String path,
-  }) {
+  Future<void> crateApiSshInitApp() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(sessionId, serializer);
-          sse_encode_String(path, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -377,27 +417,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: null,
         ),
-        constMeta: kCrateApiCreateRemoteFileConstMeta,
-        argValues: [sessionId, path],
+        constMeta: kCrateApiSshInitAppConstMeta,
+        argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiCreateRemoteFileConstMeta => const TaskConstMeta(
-    debugName: "create_remote_file",
-    argNames: ["sessionId", "path"],
-  );
+  TaskConstMeta get kCrateApiSshInitAppConstMeta =>
+      const TaskConstMeta(debugName: "init_app", argNames: []);
 
   @override
-  Future<void> crateApiDisconnect({required String sessionId}) {
+  Future<List<ForwardInfo>> crateApiSshListLocalForwards() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(sessionId, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -406,62 +443,62 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeSuccessData: sse_decode_list_forward_info,
+          decodeErrorData: null,
         ),
-        constMeta: kCrateApiDisconnectConstMeta,
-        argValues: [sessionId],
+        constMeta: kCrateApiSshListLocalForwardsConstMeta,
+        argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiDisconnectConstMeta =>
-      const TaskConstMeta(debugName: "disconnect", argNames: ["sessionId"]);
+  TaskConstMeta get kCrateApiSshListLocalForwardsConstMeta =>
+      const TaskConstMeta(debugName: "list_local_forwards", argNames: []);
 
   @override
-  Stream<String> crateApiErrorEventStream() {
-    final sink = RustStreamSink<String>();
-    unawaited(
-      handler.executeNormal(
-        NormalTask(
-          callFfi: (port_) {
-            final serializer = SseSerializer(generalizedFrbRustBinding);
-            sse_encode_StreamSink_String_Sse(sink, serializer);
-            pdeCallFfi(
-              generalizedFrbRustBinding,
-              serializer,
-              funcId: 8,
-              port: port_,
-            );
-          },
-          codec: SseCodec(
-            decodeSuccessData: sse_decode_unit,
-            decodeErrorData: sse_decode_AnyhowException,
-          ),
-          constMeta: kCrateApiErrorEventStreamConstMeta,
-          argValues: [sink],
-          apiImpl: this,
+  Future<HostKeyInfo?> crateApiSshPendingHostKey({
+    required String host,
+    required int port,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(host, serializer);
+          sse_encode_u_16(port, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 8,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_opt_box_autoadd_host_key_info,
+          decodeErrorData: null,
         ),
+        constMeta: kCrateApiSshPendingHostKeyConstMeta,
+        argValues: [host, port],
+        apiImpl: this,
       ),
     );
-    return sink.stream;
   }
 
-  TaskConstMeta get kCrateApiErrorEventStreamConstMeta =>
-      const TaskConstMeta(debugName: "error_event_stream", argNames: ["sink"]);
+  TaskConstMeta get kCrateApiSshPendingHostKeyConstMeta => const TaskConstMeta(
+    debugName: "pending_host_key",
+    argNames: ["host", "port"],
+  );
 
   @override
-  Future<String> crateApiExecRemoteCommand({
+  Future<RemoteSystemSnapshot> crateApiSshRemoteSystemSnapshot({
     required String sessionId,
-    required String command,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(sessionId, serializer);
-          sse_encode_String(command, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -470,187 +507,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_AnyhowException,
-        ),
-        constMeta: kCrateApiExecRemoteCommandConstMeta,
-        argValues: [sessionId, command],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiExecRemoteCommandConstMeta => const TaskConstMeta(
-    debugName: "exec_remote_command",
-    argNames: ["sessionId", "command"],
-  );
-
-  @override
-  Future<void> crateApiInitApp() {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 10,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
-        ),
-        constMeta: kCrateApiInitAppConstMeta,
-        argValues: [],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiInitAppConstMeta =>
-      const TaskConstMeta(debugName: "init_app", argNames: []);
-
-  @override
-  Future<List<RemoteFileEntry>> crateApiListRemoteDirectory({
-    required String sessionId,
-    required String path,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(sessionId, serializer);
-          sse_encode_String(path, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 11,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_list_remote_file_entry,
-          decodeErrorData: sse_decode_AnyhowException,
-        ),
-        constMeta: kCrateApiListRemoteDirectoryConstMeta,
-        argValues: [sessionId, path],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiListRemoteDirectoryConstMeta =>
-      const TaskConstMeta(
-        debugName: "list_remote_directory",
-        argNames: ["sessionId", "path"],
-      );
-
-  @override
-  Future<String> crateApiReadRemoteFile({
-    required String sessionId,
-    required String path,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(sessionId, serializer);
-          sse_encode_String(path, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 12,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_AnyhowException,
-        ),
-        constMeta: kCrateApiReadRemoteFileConstMeta,
-        argValues: [sessionId, path],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiReadRemoteFileConstMeta => const TaskConstMeta(
-    debugName: "read_remote_file",
-    argNames: ["sessionId", "path"],
-  );
-
-  @override
-  Future<Uint8List> crateApiReadRemoteFileBytes({
-    required String sessionId,
-    required String path,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(sessionId, serializer);
-          sse_encode_String(path, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 13,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_list_prim_u_8_strict,
-          decodeErrorData: sse_decode_AnyhowException,
-        ),
-        constMeta: kCrateApiReadRemoteFileBytesConstMeta,
-        argValues: [sessionId, path],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiReadRemoteFileBytesConstMeta =>
-      const TaskConstMeta(
-        debugName: "read_remote_file_bytes",
-        argNames: ["sessionId", "path"],
-      );
-
-  @override
-  Future<RemoteSystemSnapshot> crateApiRemoteSystemSnapshot({
-    required String sessionId,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(sessionId, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 14,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
           decodeSuccessData: sse_decode_remote_system_snapshot,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiRemoteSystemSnapshotConstMeta,
+        constMeta: kCrateApiSshRemoteSystemSnapshotConstMeta,
         argValues: [sessionId],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiRemoteSystemSnapshotConstMeta =>
+  TaskConstMeta get kCrateApiSshRemoteSystemSnapshotConstMeta =>
       const TaskConstMeta(
         debugName: "remote_system_snapshot",
         argNames: ["sessionId"],
       );
 
   @override
-  Future<void> crateApiResizeTerminal({
+  Future<void> crateApiSshResizeTerminal({
     required String sessionId,
     required int cols,
     required int rows,
@@ -665,6 +539,175 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
+            funcId: 10,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSshResizeTerminalConstMeta,
+        argValues: [sessionId, cols, rows],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSshResizeTerminalConstMeta => const TaskConstMeta(
+    debugName: "resize_terminal",
+    argNames: ["sessionId", "cols", "rows"],
+  );
+
+  @override
+  Future<void> crateApiSshSendTerminalInput({
+    required String sessionId,
+    required List<int> data,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sessionId, serializer);
+          sse_encode_list_prim_u_8_loose(data, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 11,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSshSendTerminalInputConstMeta,
+        argValues: [sessionId, data],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSshSendTerminalInputConstMeta =>
+      const TaskConstMeta(
+        debugName: "send_terminal_input",
+        argNames: ["sessionId", "data"],
+      );
+
+  @override
+  Future<void> crateApiSftpSftpChmod({
+    required String sessionId,
+    required String path,
+    required int mode,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sessionId, serializer);
+          sse_encode_String(path, serializer);
+          sse_encode_u_32(mode, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 12,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSftpSftpChmodConstMeta,
+        argValues: [sessionId, path, mode],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSftpSftpChmodConstMeta => const TaskConstMeta(
+    debugName: "sftp_chmod",
+    argNames: ["sessionId", "path", "mode"],
+  );
+
+  @override
+  Future<String> crateApiSftpSftpConnect({required SshProfile profile}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_ssh_profile(profile, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 13,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSftpSftpConnectConstMeta,
+        argValues: [profile],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSftpSftpConnectConstMeta =>
+      const TaskConstMeta(debugName: "sftp_connect", argNames: ["profile"]);
+
+  @override
+  Future<void> crateApiSftpSftpCopy({
+    required String sessionId,
+    required String from,
+    required String to,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sessionId, serializer);
+          sse_encode_String(from, serializer);
+          sse_encode_String(to, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 14,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSftpSftpCopyConstMeta,
+        argValues: [sessionId, from, to],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSftpSftpCopyConstMeta => const TaskConstMeta(
+    debugName: "sftp_copy",
+    argNames: ["sessionId", "from", "to"],
+  );
+
+  @override
+  Future<void> crateApiSftpSftpCreateDir({
+    required String sessionId,
+    required String path,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sessionId, serializer);
+          sse_encode_String(path, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
             funcId: 15,
             port: port_,
           );
@@ -673,20 +716,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiResizeTerminalConstMeta,
-        argValues: [sessionId, cols, rows],
+        constMeta: kCrateApiSftpSftpCreateDirConstMeta,
+        argValues: [sessionId, path],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiResizeTerminalConstMeta => const TaskConstMeta(
-    debugName: "resize_terminal",
-    argNames: ["sessionId", "cols", "rows"],
+  TaskConstMeta get kCrateApiSftpSftpCreateDirConstMeta => const TaskConstMeta(
+    debugName: "sftp_create_dir",
+    argNames: ["sessionId", "path"],
   );
 
   @override
-  Future<String> crateApiResolveRemoteDirectory({
+  Future<void> crateApiSftpSftpCreateFile({
     required String sessionId,
     required String path,
   }) {
@@ -704,33 +747,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_String,
+          decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiResolveRemoteDirectoryConstMeta,
+        constMeta: kCrateApiSftpSftpCreateFileConstMeta,
         argValues: [sessionId, path],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiResolveRemoteDirectoryConstMeta =>
-      const TaskConstMeta(
-        debugName: "resolve_remote_directory",
-        argNames: ["sessionId", "path"],
-      );
+  TaskConstMeta get kCrateApiSftpSftpCreateFileConstMeta => const TaskConstMeta(
+    debugName: "sftp_create_file",
+    argNames: ["sessionId", "path"],
+  );
 
   @override
-  Future<void> crateApiSendTerminalInput({
-    required String sessionId,
-    required List<int> data,
-  }) {
+  Future<void> crateApiSftpSftpDisconnect({required String sessionId}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(sessionId, serializer);
-          sse_encode_list_prim_u_8_loose(data, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -740,31 +778,242 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: null,
         ),
-        constMeta: kCrateApiSendTerminalInputConstMeta,
-        argValues: [sessionId, data],
+        constMeta: kCrateApiSftpSftpDisconnectConstMeta,
+        argValues: [sessionId],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSendTerminalInputConstMeta => const TaskConstMeta(
-    debugName: "send_terminal_input",
-    argNames: ["sessionId", "data"],
+  TaskConstMeta get kCrateApiSftpSftpDisconnectConstMeta => const TaskConstMeta(
+    debugName: "sftp_disconnect",
+    argNames: ["sessionId"],
   );
 
   @override
-  Future<String> crateApiTerminalComplete({required String reqJson}) {
+  Stream<TransferProgress> crateApiSftpSftpDownload({
+    required String sessionId,
+    required String remotePath,
+    required String localPath,
+  }) {
+    final sink = RustStreamSink<TransferProgress>();
+    unawaited(
+      handler.executeNormal(
+        NormalTask(
+          callFfi: (port_) {
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            sse_encode_String(sessionId, serializer);
+            sse_encode_String(remotePath, serializer);
+            sse_encode_String(localPath, serializer);
+            sse_encode_StreamSink_transfer_progress_Sse(sink, serializer);
+            pdeCallFfi(
+              generalizedFrbRustBinding,
+              serializer,
+              funcId: 18,
+              port: port_,
+            );
+          },
+          codec: SseCodec(
+            decodeSuccessData: sse_decode_unit,
+            decodeErrorData: null,
+          ),
+          constMeta: kCrateApiSftpSftpDownloadConstMeta,
+          argValues: [sessionId, remotePath, localPath, sink],
+          apiImpl: this,
+        ),
+      ),
+    );
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiSftpSftpDownloadConstMeta => const TaskConstMeta(
+    debugName: "sftp_download",
+    argNames: ["sessionId", "remotePath", "localPath", "sink"],
+  );
+
+  @override
+  Future<bool> crateApiSftpSftpIsAlive({required String sessionId}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(reqJson, serializer);
+          sse_encode_String(sessionId, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 19,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSftpSftpIsAliveConstMeta,
+        argValues: [sessionId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSftpSftpIsAliveConstMeta =>
+      const TaskConstMeta(debugName: "sftp_is_alive", argNames: ["sessionId"]);
+
+  @override
+  Future<List<RemoteFileEntry>> crateApiSftpSftpList({
+    required String sessionId,
+    required String path,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sessionId, serializer);
+          sse_encode_String(path, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 20,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_remote_file_entry,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSftpSftpListConstMeta,
+        argValues: [sessionId, path],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSftpSftpListConstMeta => const TaskConstMeta(
+    debugName: "sftp_list",
+    argNames: ["sessionId", "path"],
+  );
+
+  @override
+  Future<Uint8List> crateApiSftpSftpRead({
+    required String sessionId,
+    required String path,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sessionId, serializer);
+          sse_encode_String(path, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 21,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSftpSftpReadConstMeta,
+        argValues: [sessionId, path],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSftpSftpReadConstMeta => const TaskConstMeta(
+    debugName: "sftp_read",
+    argNames: ["sessionId", "path"],
+  );
+
+  @override
+  Future<void> crateApiSftpSftpRemove({
+    required String sessionId,
+    required String path,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sessionId, serializer);
+          sse_encode_String(path, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 22,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSftpSftpRemoveConstMeta,
+        argValues: [sessionId, path],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSftpSftpRemoveConstMeta => const TaskConstMeta(
+    debugName: "sftp_remove",
+    argNames: ["sessionId", "path"],
+  );
+
+  @override
+  Future<void> crateApiSftpSftpRename({
+    required String sessionId,
+    required String from,
+    required String to,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sessionId, serializer);
+          sse_encode_String(from, serializer);
+          sse_encode_String(to, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 23,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSftpSftpRenameConstMeta,
+        argValues: [sessionId, from, to],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSftpSftpRenameConstMeta => const TaskConstMeta(
+    debugName: "sftp_rename",
+    argNames: ["sessionId", "from", "to"],
+  );
+
+  @override
+  Future<String> crateApiSftpSftpResolve({
+    required String sessionId,
+    required String path,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sessionId, serializer);
+          sse_encode_String(path, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 24,
             port: port_,
           );
         },
@@ -772,20 +1021,237 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiTerminalCompleteConstMeta,
-        argValues: [reqJson],
+        constMeta: kCrateApiSftpSftpResolveConstMeta,
+        argValues: [sessionId, path],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiTerminalCompleteConstMeta => const TaskConstMeta(
-    debugName: "terminal_complete",
-    argNames: ["reqJson"],
+  TaskConstMeta get kCrateApiSftpSftpResolveConstMeta => const TaskConstMeta(
+    debugName: "sftp_resolve",
+    argNames: ["sessionId", "path"],
   );
 
   @override
-  Stream<String> crateApiTerminalOutputStream() {
+  Stream<TransferProgress> crateApiSftpSftpUpload({
+    required String sessionId,
+    required String localPath,
+    required String remotePath,
+  }) {
+    final sink = RustStreamSink<TransferProgress>();
+    unawaited(
+      handler.executeNormal(
+        NormalTask(
+          callFfi: (port_) {
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            sse_encode_String(sessionId, serializer);
+            sse_encode_String(localPath, serializer);
+            sse_encode_String(remotePath, serializer);
+            sse_encode_StreamSink_transfer_progress_Sse(sink, serializer);
+            pdeCallFfi(
+              generalizedFrbRustBinding,
+              serializer,
+              funcId: 25,
+              port: port_,
+            );
+          },
+          codec: SseCodec(
+            decodeSuccessData: sse_decode_unit,
+            decodeErrorData: null,
+          ),
+          constMeta: kCrateApiSftpSftpUploadConstMeta,
+          argValues: [sessionId, localPath, remotePath, sink],
+          apiImpl: this,
+        ),
+      ),
+    );
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiSftpSftpUploadConstMeta => const TaskConstMeta(
+    debugName: "sftp_upload",
+    argNames: ["sessionId", "localPath", "remotePath", "sink"],
+  );
+
+  @override
+  Future<void> crateApiSftpSftpWrite({
+    required String sessionId,
+    required String path,
+    required List<int> data,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sessionId, serializer);
+          sse_encode_String(path, serializer);
+          sse_encode_list_prim_u_8_loose(data, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 26,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSftpSftpWriteConstMeta,
+        argValues: [sessionId, path, data],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSftpSftpWriteConstMeta => const TaskConstMeta(
+    debugName: "sftp_write",
+    argNames: ["sessionId", "path", "data"],
+  );
+
+  @override
+  Future<ForwardInfo> crateApiSshStartLocalForward({
+    required SshProfile profile,
+    required int localPort,
+    required String remoteHost,
+    required int remotePort,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_ssh_profile(profile, serializer);
+          sse_encode_u_16(localPort, serializer);
+          sse_encode_String(remoteHost, serializer);
+          sse_encode_u_16(remotePort, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 27,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_forward_info,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSshStartLocalForwardConstMeta,
+        argValues: [profile, localPort, remoteHost, remotePort],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSshStartLocalForwardConstMeta =>
+      const TaskConstMeta(
+        debugName: "start_local_forward",
+        argNames: ["profile", "localPort", "remoteHost", "remotePort"],
+      );
+
+  @override
+  Future<ForwardInfo> crateApiSshStartRemoteForward({
+    required SshProfile profile,
+    required int remotePort,
+    required String localHost,
+    required int localPort,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_ssh_profile(profile, serializer);
+          sse_encode_u_16(remotePort, serializer);
+          sse_encode_String(localHost, serializer);
+          sse_encode_u_16(localPort, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 28,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_forward_info,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSshStartRemoteForwardConstMeta,
+        argValues: [profile, remotePort, localHost, localPort],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSshStartRemoteForwardConstMeta =>
+      const TaskConstMeta(
+        debugName: "start_remote_forward",
+        argNames: ["profile", "remotePort", "localHost", "localPort"],
+      );
+
+  @override
+  Future<ForwardInfo> crateApiSshStartSocksProxy({
+    required SshProfile profile,
+    required int localPort,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_ssh_profile(profile, serializer);
+          sse_encode_u_16(localPort, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 29,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_forward_info,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSshStartSocksProxyConstMeta,
+        argValues: [profile, localPort],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSshStartSocksProxyConstMeta => const TaskConstMeta(
+    debugName: "start_socks_proxy",
+    argNames: ["profile", "localPort"],
+  );
+
+  @override
+  Future<void> crateApiSshStopLocalForward({required String id}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(id, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 30,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSshStopLocalForwardConstMeta,
+        argValues: [id],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSshStopLocalForwardConstMeta =>
+      const TaskConstMeta(debugName: "stop_local_forward", argNames: ["id"]);
+
+  @override
+  Stream<String> crateApiSshTerminalOutputStream() {
     final sink = RustStreamSink<String>();
     unawaited(
       handler.executeNormal(
@@ -796,7 +1262,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 19,
+              funcId: 31,
               port: port_,
             );
           },
@@ -804,7 +1270,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             decodeSuccessData: sse_decode_unit,
             decodeErrorData: sse_decode_AnyhowException,
           ),
-          constMeta: kCrateApiTerminalOutputStreamConstMeta,
+          constMeta: kCrateApiSshTerminalOutputStreamConstMeta,
           argValues: [sink],
           apiImpl: this,
         ),
@@ -813,29 +1279,29 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return sink.stream;
   }
 
-  TaskConstMeta get kCrateApiTerminalOutputStreamConstMeta =>
+  TaskConstMeta get kCrateApiSshTerminalOutputStreamConstMeta =>
       const TaskConstMeta(
         debugName: "terminal_output_stream",
         argNames: ["sink"],
       );
 
   @override
-  Future<void> crateApiUploadRemoteFile({
-    required String sessionId,
-    required String path,
-    required List<int> data,
+  Future<void> crateApiSshTrustHostKey({
+    required String host,
+    required int port,
+    required String fingerprint,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(sessionId, serializer);
-          sse_encode_String(path, serializer);
-          sse_encode_list_prim_u_8_loose(data, serializer);
+          sse_encode_String(host, serializer);
+          sse_encode_u_16(port, serializer);
+          sse_encode_String(fingerprint, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 32,
             port: port_,
           );
         },
@@ -843,52 +1309,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiUploadRemoteFileConstMeta,
-        argValues: [sessionId, path, data],
+        constMeta: kCrateApiSshTrustHostKeyConstMeta,
+        argValues: [host, port, fingerprint],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUploadRemoteFileConstMeta => const TaskConstMeta(
-    debugName: "upload_remote_file",
-    argNames: ["sessionId", "path", "data"],
-  );
-
-  @override
-  Future<void> crateApiWriteRemoteFile({
-    required String sessionId,
-    required String path,
-    required String content,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(sessionId, serializer);
-          sse_encode_String(path, serializer);
-          sse_encode_String(content, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 21,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
-        ),
-        constMeta: kCrateApiWriteRemoteFileConstMeta,
-        argValues: [sessionId, path, content],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiWriteRemoteFileConstMeta => const TaskConstMeta(
-    debugName: "write_remote_file",
-    argNames: ["sessionId", "path", "content"],
+  TaskConstMeta get kCrateApiSshTrustHostKeyConstMeta => const TaskConstMeta(
+    debugName: "trust_host_key",
+    argNames: ["host", "port", "fingerprint"],
   );
 
   @protected
@@ -899,6 +1329,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @protected
   RustStreamSink<String> dco_decode_StreamSink_String_Sse(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError();
+  }
+
+  @protected
+  RustStreamSink<TransferProgress> dco_decode_StreamSink_transfer_progress_Sse(
+    dynamic raw,
+  ) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     throw UnimplementedError();
   }
@@ -916,7 +1354,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  HostKeyInfo dco_decode_box_autoadd_host_key_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_host_key_info(raw);
+  }
+
+  @protected
   SshProfile dco_decode_box_autoadd_ssh_profile(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_ssh_profile(raw);
+  }
+
+  @protected
+  int dco_decode_box_autoadd_u_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
+  SshProfile dco_decode_box_ssh_profile(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_ssh_profile(raw);
   }
@@ -925,6 +1381,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ConnectionStatus dco_decode_connection_status(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return ConnectionStatus.values[raw as int];
+  }
+
+  @protected
+  ForwardInfo dco_decode_forward_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return ForwardInfo(
+      id: dco_decode_String(arr[0]),
+      profileId: dco_decode_String(arr[1]),
+      localPort: dco_decode_u_16(arr[2]),
+      remoteHost: dco_decode_String(arr[3]),
+      remotePort: dco_decode_u_16(arr[4]),
+      socks: dco_decode_bool(arr[5]),
+      reverse: dco_decode_bool(arr[6]),
+    );
+  }
+
+  @protected
+  HostKeyInfo dco_decode_host_key_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return HostKeyInfo(
+      algorithm: dco_decode_String(arr[0]),
+      fingerprint: dco_decode_String(arr[1]),
+      changedLine: dco_decode_opt_box_autoadd_u_32(arr[2]),
+    );
   }
 
   @protected
@@ -940,9 +1426,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  List<String> dco_decode_list_String(dynamic raw) {
+  List<ForwardInfo> dco_decode_list_forward_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
-    return (raw as List<dynamic>).map(dco_decode_String).toList();
+    return (raw as List<dynamic>).map(dco_decode_forward_info).toList();
   }
 
   @protected
@@ -970,17 +1456,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  HostKeyInfo? dco_decode_opt_box_autoadd_host_key_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_host_key_info(raw);
+  }
+
+  @protected
+  int? dco_decode_opt_box_autoadd_u_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_u_32(raw);
+  }
+
+  @protected
+  SshProfile? dco_decode_opt_box_ssh_profile(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_ssh_profile(raw);
+  }
+
+  @protected
   RemoteFileEntry dco_decode_remote_file_entry(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return RemoteFileEntry(
       name: dco_decode_String(arr[0]),
       path: dco_decode_String(arr[1]),
       isDirectory: dco_decode_bool(arr[2]),
       sizeBytes: dco_decode_u_64(arr[3]),
       modifiedUnixSeconds: dco_decode_i_64(arr[4]),
+      mode: dco_decode_u_32(arr[5]),
     );
   }
 
@@ -1022,8 +1527,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SshProfile dco_decode_ssh_profile(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
     return SshProfile(
       id: dco_decode_String(arr[0]),
       name: dco_decode_String(arr[1]),
@@ -1032,6 +1537,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       username: dco_decode_String(arr[4]),
       password: dco_decode_opt_String(arr[5]),
       privateKeyPath: dco_decode_opt_String(arr[6]),
+      keyPassphrase: dco_decode_opt_String(arr[7]),
+      jumpHost: dco_decode_opt_box_ssh_profile(arr[8]),
+    );
+  }
+
+  @protected
+  TransferProgress dco_decode_transfer_progress(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return TransferProgress(
+      done: dco_decode_u_64(arr[0]),
+      total: dco_decode_u_64(arr[1]),
     );
   }
 
@@ -1081,6 +1600,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RustStreamSink<TransferProgress> sse_decode_StreamSink_transfer_progress_Sse(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    throw UnimplementedError('Unreachable ()');
+  }
+
+  @protected
   String sse_decode_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_list_prim_u_8_strict(deserializer);
@@ -1094,7 +1621,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  HostKeyInfo sse_decode_box_autoadd_host_key_info(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_host_key_info(deserializer));
+  }
+
+  @protected
   SshProfile sse_decode_box_autoadd_ssh_profile(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_ssh_profile(deserializer));
+  }
+
+  @protected
+  int sse_decode_box_autoadd_u_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_u_32(deserializer));
+  }
+
+  @protected
+  SshProfile sse_decode_box_ssh_profile(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_ssh_profile(deserializer));
   }
@@ -1104,6 +1651,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_i_32(deserializer);
     return ConnectionStatus.values[inner];
+  }
+
+  @protected
+  ForwardInfo sse_decode_forward_info(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_profileId = sse_decode_String(deserializer);
+    var var_localPort = sse_decode_u_16(deserializer);
+    var var_remoteHost = sse_decode_String(deserializer);
+    var var_remotePort = sse_decode_u_16(deserializer);
+    var var_socks = sse_decode_bool(deserializer);
+    var var_reverse = sse_decode_bool(deserializer);
+    return ForwardInfo(
+      id: var_id,
+      profileId: var_profileId,
+      localPort: var_localPort,
+      remoteHost: var_remoteHost,
+      remotePort: var_remotePort,
+      socks: var_socks,
+      reverse: var_reverse,
+    );
+  }
+
+  @protected
+  HostKeyInfo sse_decode_host_key_info(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_algorithm = sse_decode_String(deserializer);
+    var var_fingerprint = sse_decode_String(deserializer);
+    var var_changedLine = sse_decode_opt_box_autoadd_u_32(deserializer);
+    return HostKeyInfo(
+      algorithm: var_algorithm,
+      fingerprint: var_fingerprint,
+      changedLine: var_changedLine,
+    );
   }
 
   @protected
@@ -1119,13 +1700,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  List<String> sse_decode_list_String(SseDeserializer deserializer) {
+  List<ForwardInfo> sse_decode_list_forward_info(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
     var len_ = sse_decode_i_32(deserializer);
-    var ans_ = <String>[];
+    var ans_ = <ForwardInfo>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
-      ans_.add(sse_decode_String(deserializer));
+      ans_.add(sse_decode_forward_info(deserializer));
     }
     return ans_;
   }
@@ -1170,6 +1751,41 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  HostKeyInfo? sse_decode_opt_box_autoadd_host_key_info(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_host_key_info(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_u_32(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  SshProfile? sse_decode_opt_box_ssh_profile(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_ssh_profile(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   RemoteFileEntry sse_decode_remote_file_entry(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_name = sse_decode_String(deserializer);
@@ -1177,12 +1793,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_isDirectory = sse_decode_bool(deserializer);
     var var_sizeBytes = sse_decode_u_64(deserializer);
     var var_modifiedUnixSeconds = sse_decode_i_64(deserializer);
+    var var_mode = sse_decode_u_32(deserializer);
     return RemoteFileEntry(
       name: var_name,
       path: var_path,
       isDirectory: var_isDirectory,
       sizeBytes: var_sizeBytes,
       modifiedUnixSeconds: var_modifiedUnixSeconds,
+      mode: var_mode,
     );
   }
 
@@ -1240,6 +1858,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_username = sse_decode_String(deserializer);
     var var_password = sse_decode_opt_String(deserializer);
     var var_privateKeyPath = sse_decode_opt_String(deserializer);
+    var var_keyPassphrase = sse_decode_opt_String(deserializer);
+    var var_jumpHost = sse_decode_opt_box_ssh_profile(deserializer);
     return SshProfile(
       id: var_id,
       name: var_name,
@@ -1248,7 +1868,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       username: var_username,
       password: var_password,
       privateKeyPath: var_privateKeyPath,
+      keyPassphrase: var_keyPassphrase,
+      jumpHost: var_jumpHost,
     );
+  }
+
+  @protected
+  TransferProgress sse_decode_transfer_progress(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_done = sse_decode_u_64(deserializer);
+    var var_total = sse_decode_u_64(deserializer);
+    return TransferProgress(done: var_done, total: var_total);
   }
 
   @protected
@@ -1307,6 +1937,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_StreamSink_transfer_progress_Sse(
+    RustStreamSink<TransferProgress> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(
+      self.setupAndSerialize(
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_transfer_progress,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+      ),
+      serializer,
+    );
+  }
+
+  @protected
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
@@ -1319,10 +1966,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_host_key_info(
+    HostKeyInfo self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_host_key_info(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_ssh_profile(
     SshProfile self,
     SseSerializer serializer,
   ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_ssh_profile(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_ssh_profile(SshProfile self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_ssh_profile(self, serializer);
   }
@@ -1334,6 +2002,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_forward_info(ForwardInfo self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.profileId, serializer);
+    sse_encode_u_16(self.localPort, serializer);
+    sse_encode_String(self.remoteHost, serializer);
+    sse_encode_u_16(self.remotePort, serializer);
+    sse_encode_bool(self.socks, serializer);
+    sse_encode_bool(self.reverse, serializer);
+  }
+
+  @protected
+  void sse_encode_host_key_info(HostKeyInfo self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.algorithm, serializer);
+    sse_encode_String(self.fingerprint, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.changedLine, serializer);
   }
 
   @protected
@@ -1349,11 +2037,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_list_String(List<String> self, SseSerializer serializer) {
+  void sse_encode_list_forward_info(
+    List<ForwardInfo> self,
+    SseSerializer serializer,
+  ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
-      sse_encode_String(item, serializer);
+      sse_encode_forward_info(item, serializer);
     }
   }
 
@@ -1402,6 +2093,42 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_host_key_info(
+    HostKeyInfo? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_host_key_info(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_u_32(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_ssh_profile(
+    SshProfile? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_ssh_profile(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_remote_file_entry(
     RemoteFileEntry self,
     SseSerializer serializer,
@@ -1412,6 +2139,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self.isDirectory, serializer);
     sse_encode_u_64(self.sizeBytes, serializer);
     sse_encode_i_64(self.modifiedUnixSeconds, serializer);
+    sse_encode_u_32(self.mode, serializer);
   }
 
   @protected
@@ -1451,6 +2179,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.username, serializer);
     sse_encode_opt_String(self.password, serializer);
     sse_encode_opt_String(self.privateKeyPath, serializer);
+    sse_encode_opt_String(self.keyPassphrase, serializer);
+    sse_encode_opt_box_ssh_profile(self.jumpHost, serializer);
+  }
+
+  @protected
+  void sse_encode_transfer_progress(
+    TransferProgress self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self.done, serializer);
+    sse_encode_u_64(self.total, serializer);
   }
 
   @protected

@@ -21,7 +21,7 @@ class ProfileInspector extends StatelessWidget {
     final status = effectiveProfileStatus(profile);
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(left: BorderSide(color: AppColors.border)),
       ),
@@ -44,8 +44,8 @@ class ProfileInspector extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             AppPanel(
-              color: const Color(0xFF123455),
-              borderColor: AppColors.primaryBlue,
+              color: AppColors.selectedSoft,
+              borderColor: AppColors.cyan,
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
@@ -87,10 +87,12 @@ class ProfileInspector extends StatelessWidget {
                   ? Icons.key_rounded
                   : Icons.lock_outline_rounded,
               label: 'Auth method',
-              value: profile.credentialLabel.isEmpty
+              value: profile.authMethod == AuthMethod.sshKey
+                  ? (profile.credentialLabel.isEmpty
+                        ? 'ssh-agent'
+                        : 'SSH key configured')
+                  : profile.credentialLabel.isEmpty
                   ? 'Not configured'
-                  : profile.authMethod == AuthMethod.sshKey
-                  ? 'SSH key configured'
                   : 'Password saved securely',
             ),
             _DetailBox(
@@ -224,19 +226,23 @@ class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
   Future<void> _measureLatency() async {
     final profile = widget.profile;
     if (profile.host.trim().isEmpty) return;
+    // The panel only renders for online profiles; don't open a socket to a
+    // host whose latency would never be shown.
+    if (effectiveProfileStatus(profile) != ConnectionStatus.online) return;
     final start = DateTime.now();
     try {
       final socket = await RawSocket.connect(
         profile.host,
         profile.port,
-      ).timeout(const Duration(seconds: 5));
+        timeout: const Duration(seconds: 5),
+      );
       socket.close();
       if (!mounted) return;
       setState(() {
         _latencyMs = DateTime.now().difference(start).inMilliseconds;
       });
     } catch (_) {
-      // Latency measurement failed — keep null (will show "—").
+      // Measurement failed: leave null so the panel says "not measured".
     }
   }
 
@@ -246,7 +252,7 @@ class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
     final isOnline = status == ConnectionStatus.online;
     if (!isOnline) return const SizedBox.shrink();
 
-    final latencyText = _latencyMs == null ? '— ms' : '$_latencyMs ms';
+    final latencyText = _latencyMs == null ? 'not measured' : '$_latencyMs ms';
 
     return AppPanel(
       padding: const EdgeInsets.all(14),
@@ -255,7 +261,7 @@ class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
         children: [
           Text('Connection feedback', style: portixTitle(13)),
           const SizedBox(height: 10),
-          const _FeedbackLine(
+          _FeedbackLine(
             icon: Icons.check_circle_outline,
             text: 'Host key verified',
             color: AppColors.green,
@@ -264,11 +270,6 @@ class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
             icon: Icons.monitor_heart_outlined,
             text: 'Latency $latencyText',
             color: AppColors.cyan,
-          ),
-          const _FeedbackLine(
-            icon: Icons.folder_outlined,
-            text: 'Remote folder mounted',
-            color: AppColors.muted,
           ),
         ],
       ),

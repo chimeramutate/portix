@@ -12,6 +12,7 @@ class TerminalSessionTab extends StatelessWidget {
     this.onClose,
     this.onReconnect,
     this.onDuplicate,
+    this.onRename,
     this.reconnectNearClose = false,
   });
 
@@ -25,6 +26,7 @@ class TerminalSessionTab extends StatelessWidget {
   final VoidCallback? onClose;
   final VoidCallback? onReconnect;
   final VoidCallback? onDuplicate;
+  final VoidCallback? onRename;
   final bool reconnectNearClose;
 
   void _showContextMenu(BuildContext context, Offset position) {
@@ -40,22 +42,30 @@ class TerminalSessionTab extends StatelessWidget {
         position.dx + 1,
         position.dy + 1,
       ),
-      color: const Color(0xFF1A2535),
+      color: AppColors.menu,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
-        side: const BorderSide(color: AppColors.border),
+        side: BorderSide(color: AppColors.border),
       ),
       items: [
+        if (onRename != null)
+          PopupMenuItem(
+            value: _TabMenuAction.rename,
+            height: 38,
+            child: Row(
+              children: [
+                Icon(Icons.edit_rounded, color: AppColors.cyan, size: 16),
+                const SizedBox(width: 10),
+                Text('Rename', style: portixTitle(13)),
+              ],
+            ),
+          ),
         PopupMenuItem(
           value: _TabMenuAction.duplicate,
           height: 38,
           child: Row(
             children: [
-              const Icon(
-                Icons.copy_all_rounded,
-                color: AppColors.cyan,
-                size: 16,
-              ),
+              Icon(Icons.copy_all_rounded, color: AppColors.cyan, size: 16),
               const SizedBox(width: 10),
               Text('Duplicate', style: portixTitle(13)),
             ],
@@ -67,11 +77,7 @@ class TerminalSessionTab extends StatelessWidget {
             height: 38,
             child: Row(
               children: [
-                const Icon(
-                  Icons.refresh_rounded,
-                  color: AppColors.amber,
-                  size: 16,
-                ),
+                Icon(Icons.refresh_rounded, color: AppColors.amber, size: 16),
                 const SizedBox(width: 10),
                 Text('Reconnect', style: portixTitle(13)),
               ],
@@ -82,11 +88,7 @@ class TerminalSessionTab extends StatelessWidget {
           height: 38,
           child: Row(
             children: [
-              const Icon(
-                Icons.close_rounded,
-                color: AppColors.muted,
-                size: 16,
-              ),
+              Icon(Icons.close_rounded, color: AppColors.muted, size: 16),
               const SizedBox(width: 10),
               Text('Close', style: portixTitle(13)),
             ],
@@ -96,6 +98,8 @@ class TerminalSessionTab extends StatelessWidget {
     ).then((action) {
       if (action == null) return;
       switch (action) {
+        case _TabMenuAction.rename:
+          onRename?.call();
         case _TabMenuAction.duplicate:
           onDuplicate?.call();
         case _TabMenuAction.reconnect:
@@ -113,84 +117,98 @@ class TerminalSessionTab extends StatelessWidget {
     final canReconnect =
         status == session_models.ConnectionStatus.disconnected ||
         status == session_models.ConnectionStatus.error;
-    final tab = GestureDetector(
-      key: ValueKey('terminal-session-tab-$sessionId'),
-      onTap: onTap,
-      onSecondaryTapUp: onDuplicate == null
-          ? null
-          : (details) => _showContextMenu(context, details.globalPosition),
-      child: Container(
-        height: 36,
-        width: 200,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          color: active ? const Color(0xFF143B63) : AppColors.surface,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: active ? AppColors.primaryBlue : AppColors.border,
+    final tab = _HoverBuilder(
+      builder: (context, hovered) => GestureDetector(
+        key: ValueKey('terminal-session-tab-$sessionId'),
+        onTap: onTap,
+        onSecondaryTapUp: onDuplicate == null
+            ? null
+            : (details) => _showContextMenu(context, details.globalPosition),
+        // Flat tab: the active one takes the panel color and a top marker.
+        child: Container(
+          height: 36,
+          width: 200,
+          padding: const EdgeInsets.only(left: 12, right: 6),
+          decoration: BoxDecoration(
+            color: active ? AppColors.surface : Colors.transparent,
+            border: Border(
+              top: BorderSide(
+                color: active ? AppColors.cyan : Colors.transparent,
+                width: 2,
+              ),
+            ),
           ),
-        ),
-        child: Row(
-          children: [
-            if (canReconnect && onReconnect != null && !reconnectNearClose)
-              SizedBox.square(
-                dimension: 24,
-                child: IconButton(
-                  tooltip: 'Reconnect $label',
-                  onPressed: onReconnect,
-                  padding: EdgeInsets.zero,
-                  icon: const Icon(
-                    Icons.refresh_rounded,
-                    color: AppColors.amber,
-                    size: 17,
+          child: Row(
+            children: [
+              if (canReconnect && onReconnect != null && !reconnectNearClose)
+                SizedBox.square(
+                  dimension: 22,
+                  child: IconButton(
+                    tooltip: 'Reconnect $label',
+                    onPressed: onReconnect,
+                    padding: EdgeInsets.zero,
+                    icon: Icon(
+                      Icons.refresh_rounded,
+                      color: AppColors.amber,
+                      size: 15,
+                    ),
                   ),
+                )
+              else
+                Icon(
+                  leadingIcon ??
+                      (connecting ? Icons.sync_rounded : Icons.circle),
+                  size: leadingIcon == null && !connecting ? 8 : 15,
+                  // The dot is the connection status, active tab or not.
+                  color: connected ? AppColors.green : AppColors.muted,
                 ),
-              )
-            else
-              Icon(
-                leadingIcon ?? (connecting ? Icons.sync_rounded : Icons.circle),
-                size: leadingIcon == null && !connecting ? 9 : 17,
-                color: connected && active ? AppColors.green : AppColors.muted,
-              ),
-            const SizedBox(width: 9),
-            Expanded(
-              child: Text(
-                label,
-                overflow: TextOverflow.ellipsis,
-                style: portixTitle(13),
-              ),
-            ),
-            if (canReconnect && onReconnect != null && reconnectNearClose)
-              SizedBox.square(
-                dimension: 24,
-                child: IconButton(
-                  tooltip: 'Reconnect $label',
-                  onPressed: onReconnect,
-                  padding: EdgeInsets.zero,
-                  icon: const Icon(
-                    Icons.refresh_rounded,
-                    color: AppColors.amber,
-                    size: 17,
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: active ? AppColors.text : AppColors.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
-            if (canReconnect && onReconnect != null && reconnectNearClose)
-              const SizedBox(width: 4),
-            SizedBox.square(
-              dimension: 24,
-              child: IconButton(
-                key: ValueKey('close-tab-$label'),
-                onPressed: onClose,
-                padding: EdgeInsets.zero,
-                tooltip: 'Close $label',
-                icon: const Icon(
-                  Icons.close_rounded,
-                  color: AppColors.muted,
-                  size: 17,
+              if (canReconnect && onReconnect != null && reconnectNearClose)
+                SizedBox.square(
+                  dimension: 22,
+                  child: IconButton(
+                    tooltip: 'Reconnect $label',
+                    onPressed: onReconnect,
+                    padding: EdgeInsets.zero,
+                    icon: Icon(
+                      Icons.refresh_rounded,
+                      color: AppColors.amber,
+                      size: 15,
+                    ),
+                  ),
+                ),
+              // Close shows on the active or hovered tab; it stays in the
+              // tree (and keyboard reachable) so the layout never shifts.
+              _RevealOnFocus(
+                visible: active || hovered,
+                child: SizedBox.square(
+                  dimension: 22,
+                  child: IconButton(
+                    key: ValueKey('close-tab-$label'),
+                    onPressed: onClose,
+                    padding: EdgeInsets.zero,
+                    tooltip: 'Close $label',
+                    icon: Icon(
+                      Icons.close_rounded,
+                      color: AppColors.muted,
+                      size: 15,
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -231,12 +249,10 @@ class SessionProfileOption extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: highlighted
-                ? const Color(0xFF123455)
-                : AppColors.surfaceDark,
+            color: highlighted ? AppColors.selectedSoft : AppColors.surfaceDark,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: highlighted ? AppColors.primaryBlue : AppColors.border,
+              color: highlighted ? AppColors.cyan : AppColors.border,
             ),
           ),
           child: Row(
@@ -247,11 +263,11 @@ class SessionProfileOption extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: AppColors.surfaceCard,
                   borderRadius: BorderRadius.circular(9),
-                  border: Border.all(color: AppColors.primaryBlue),
+                  border: Border.all(color: AppColors.cyan),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.dns_rounded,
-                  color: AppColors.green,
+                  color: AppColors.muted,
                   size: 19,
                 ),
               ),
@@ -280,7 +296,7 @@ class SessionProfileOption extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
+              Icon(Icons.chevron_right_rounded, color: AppColors.muted),
             ],
           ),
         ),
@@ -289,4 +305,50 @@ class SessionProfileOption extends StatelessWidget {
   }
 }
 
-enum _TabMenuAction { duplicate, reconnect, close }
+enum _TabMenuAction { rename, duplicate, reconnect, close }
+
+class _HoverBuilder extends StatefulWidget {
+  const _HoverBuilder({required this.builder});
+
+  final Widget Function(BuildContext context, bool hovered) builder;
+
+  @override
+  State<_HoverBuilder> createState() => _HoverBuilderState();
+}
+
+class _HoverBuilderState extends State<_HoverBuilder> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    onEnter: (_) => setState(() => _hovered = true),
+    onExit: (_) => setState(() => _hovered = false),
+    child: widget.builder(context, _hovered),
+  );
+}
+
+/// Fully visible when [visible] or while its child has keyboard focus.
+class _RevealOnFocus extends StatefulWidget {
+  const _RevealOnFocus({required this.visible, required this.child});
+
+  final bool visible;
+  final Widget child;
+
+  @override
+  State<_RevealOnFocus> createState() => _RevealOnFocusState();
+}
+
+class _RevealOnFocusState extends State<_RevealOnFocus> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) => Focus(
+    canRequestFocus: false,
+    skipTraversal: true,
+    onFocusChange: (focused) => setState(() => _focused = focused),
+    child: Opacity(
+      opacity: widget.visible || _focused ? 1 : 0,
+      child: widget.child,
+    ),
+  );
+}

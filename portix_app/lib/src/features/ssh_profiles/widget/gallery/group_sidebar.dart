@@ -14,7 +14,7 @@ class GroupSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(right: BorderSide(color: AppColors.border)),
       ),
@@ -73,10 +73,10 @@ class _GroupTile extends StatelessWidget {
           height: 34,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            color: selected ? const Color(0xFF143B63) : AppColors.surfaceDark,
+            color: selected ? AppColors.selected : AppColors.surfaceDark,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: selected ? AppColors.primaryBlue : AppColors.border,
+              color: selected ? AppColors.cyan : AppColors.border,
             ),
           ),
           child: Row(
@@ -128,7 +128,7 @@ class _InfoPanel extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, color: AppColors.green, size: 18),
+              Icon(icon, color: AppColors.muted, size: 18),
               const SizedBox(width: 8),
               Expanded(child: Text(title, style: portixTitle(13))),
             ],

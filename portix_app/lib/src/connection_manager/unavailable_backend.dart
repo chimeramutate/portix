@@ -45,72 +45,36 @@ class UnavailableConnectionBackend implements ConnectionBackend {
       _unavailable();
 
   @override
-  Future<List<String>> commandHelpSuggestions(
-    String sessionId,
-    String input,
+  Future<HostKeyInfo?> pendingHostKey(String host, int port) async => null;
+
+  @override
+  Future<void> trustHostKey(String host, int port, String fingerprint) async {}
+
+  @override
+  Future<PortForward> startLocalForward(
+    SshProfile profile,
+    int localPort,
+    String remoteHost,
+    int remotePort,
   ) async => _unavailable();
 
   @override
-  Future<List<TerminalCompletionCandidate>> commandCompletions(
-    String sessionId,
-    String input,
+  Future<PortForward> startSocksProxy(
+    SshProfile profile,
+    int localPort,
   ) async => _unavailable();
 
   @override
-  Future<TerminalCompleteResponse> terminalComplete(
-    TerminalCompleteRequest request,
+  Future<PortForward> startRemoteForward(
+    SshProfile profile,
+    int remotePort,
+    String localHost,
+    int localPort,
   ) async => _unavailable();
 
   @override
-  Future<String> resolveRemoteDirectory(String sessionId, String path) async =>
-      _unavailable();
+  Future<void> stopLocalForward(String id) async {}
 
   @override
-  Future<List<RemoteFileEntry>> listRemoteDirectory(
-    String sessionId,
-    String path,
-  ) async => _unavailable();
-
-  @override
-  Future<String> readRemoteFile(String sessionId, String path) async =>
-      _unavailable();
-
-  @override
-  Future<List<int>> readRemoteFileBytes(String sessionId, String path) async =>
-      _unavailable();
-
-  @override
-  Future<void> writeRemoteFile(
-    String sessionId,
-    String path,
-    String content,
-  ) async => _unavailable();
-
-  @override
-  Future<void> uploadRemoteFile(
-    String sessionId,
-    String path,
-    List<int> data,
-  ) async => _unavailable();
-
-  @override
-  Future<void> createRemoteDirectory(String sessionId, String path) async =>
-      _unavailable();
-
-  @override
-  Future<void> createRemoteFile(String sessionId, String path) async =>
-      _unavailable();
-
-  @override
-  Future<void> chmodRemotePath(
-    String sessionId,
-    String path,
-    String mode,
-  ) async => _unavailable();
-
-  @override
-  Future<String> execRemoteCommand(
-    String sessionId,
-    String command,
-  ) async => _unavailable();
+  Future<List<PortForward>> listLocalForwards() async => const [];
 }

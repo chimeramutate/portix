@@ -25,9 +25,11 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
     on<ProfileFormChanged>(_onProfileFormChanged);
     on<AuthMethodChanged>(_onAuthMethodChanged);
     on<ProfileColorChanged>(_onProfileColorChanged);
+    on<JumpProfileChanged>(_onJumpProfileChanged);
     on<ProfileTestRequested>(_onProfileTestRequested);
     on<ProfileSaved>(_onProfileSaved);
     on<ProfilesImported>(_onProfilesImported);
+    on<QuickProfileSaved>(_onQuickProfileSaved);
     on<ProfileOsDetected>(_onProfileOsDetected);
     on<ProfileDeleted>(_onProfileDeleted);
   }
@@ -226,6 +228,20 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
     );
   }
 
+  void _onJumpProfileChanged(
+    JumpProfileChanged event,
+    Emitter<SshWorkspaceState> emit,
+  ) {
+    final current = state.editingProfile;
+    if (current == null) return;
+    emit(
+      state.copyWith(
+        editingProfile: current.copyWith(jumpProfileId: event.jumpProfileId),
+        message: '',
+      ),
+    );
+  }
+
   void _onProfileColorChanged(
     ProfileColorChanged event,
     Emitter<SshWorkspaceState> emit,
@@ -292,9 +308,10 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
             isBusy: false,
             profiles: profiles,
             selectedId: saved.id,
+            // Clear every filter so the just-saved profile is always visible.
             searchQuery: '',
-            groupFilter: state.groupFilter,
-            tagFilter: state.tagFilter,
+            groupFilter: 'All profiles',
+            tagFilter: '',
             editingProfile: null,
             clearEditingProfile: true,
             activeView: WorkspaceView.gallery,
@@ -341,6 +358,24 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
         activeView: WorkspaceView.gallery,
         message:
             '${savedProfiles.length} profile${savedProfiles.length == 1 ? '' : 's'} imported.',
+      ),
+    );
+  }
+
+  Future<void> _onQuickProfileSaved(
+    QuickProfileSaved event,
+    Emitter<SshWorkspaceState> emit,
+  ) async {
+    final result = await _repository.saveProfile(event.profile);
+    result.fold(
+      (failure) => emit(state.copyWith(message: failure.message)),
+      (saved) => emit(
+        state.copyWith(
+          profiles: [
+            saved,
+            ...state.profiles.where((profile) => profile.id != saved.id),
+          ],
+        ),
       ),
     );
   }
@@ -405,10 +440,10 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
       return 'Port must be between 1 and 65535.';
     }
     if (profile.username.trim().isEmpty) return 'Username is required.';
-    if (profile.credentialLabel.trim().isEmpty) {
-      return profile.authMethod == AuthMethod.password
-          ? 'Password is required.'
-          : 'SSH key path or label is required.';
+    // An empty key path means ssh-agent.
+    if (profile.authMethod == AuthMethod.password &&
+        profile.credentialLabel.trim().isEmpty) {
+      return 'Password is required.';
     }
     return null;
   }

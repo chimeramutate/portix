@@ -4,6 +4,10 @@ import 'package:portix/src/core/theme/app_theme.dart';
 
 import '../bloc/index.dart';
 
+const workspaceRailWidth = 48.0;
+
+/// Icon-only activity bar in the style of VS Code: names live in tooltips,
+/// the active view gets a 2px marker on the left edge.
 class WorkspaceRail extends StatelessWidget {
   const WorkspaceRail({required this.activeView, super.key});
 
@@ -11,64 +15,40 @@ class WorkspaceRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      (WorkspaceView.gallery, Icons.format_list_bulleted_rounded, 'List SSH'),
-      (WorkspaceView.rdp, Icons.computer_outlined, "Connect RDP"),
-      (WorkspaceView.sftp, Icons.cable_rounded, 'SFTP'),
-      (WorkspaceView.settings, Icons.settings_outlined, 'Settings'),
-    ];
+    Widget item(WorkspaceView view, IconData icon, String label) => _RailItem(
+      selected: view == activeView,
+      icon: icon,
+      label: label,
+      onTap: () =>
+          context.read<SshWorkspaceBloc>().add(NavigationChanged(view)),
+    );
+
     return Container(
-      width: 68,
-      decoration: const BoxDecoration(
+      width: workspaceRailWidth,
+      decoration: BoxDecoration(
         color: AppColors.surfaceDark,
         border: Border(right: BorderSide(color: AppColors.border)),
       ),
       child: Column(
         children: [
-          const SizedBox(height: 12),
-          Expanded(
-            child: Column(
-              children: [
-                for (final item in items)
-                  _RailItem(
-                    selected: item.$1 == activeView,
-                    icon: item.$2,
-                    label: item.$3,
-                    onTap: () => context.read<SshWorkspaceBloc>().add(
-                      NavigationChanged(item.$1),
-                    ),
-                  ),
-              ],
-            ),
+          const SizedBox(height: 4),
+          item(
+            WorkspaceView.gallery,
+            Icons.format_list_bulleted_rounded,
+            'SSH profiles',
           ),
-          const Padding(
-            padding: EdgeInsets.only(bottom: 14),
-            child: Column(
-              children: [
-                Icon(
-                  Icons.verified_user_outlined,
-                  color: AppColors.green,
-                  size: 18,
-                ),
-                SizedBox(height: 5),
-                Text(
-                  'Secure',
-                  style: TextStyle(
-                    color: AppColors.green,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          item(WorkspaceView.rdp, Icons.computer_outlined, 'RDP'),
+          item(WorkspaceView.sftp, Icons.cable_rounded, 'SFTP'),
+          const Spacer(),
+          item(WorkspaceView.settings, Icons.settings_outlined, 'Settings'),
+          const SizedBox(height: 4),
         ],
       ),
     );
   }
 }
 
-class _RailItem extends StatelessWidget {
+class _RailItem extends StatefulWidget {
   const _RailItem({
     required this.selected,
     required this.icon,
@@ -82,42 +62,61 @@ class _RailItem extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<_RailItem> createState() => _RailItemState();
+}
+
+class _RailItemState extends State<_RailItem> {
+  bool _hovered = false;
+  bool _focused = false;
+
+  @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          width: 50,
-          height: 54,
-          decoration: BoxDecoration(
-            color: selected ? AppColors.surfaceCard : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: selected ? AppColors.primaryBlue : Colors.transparent,
-            ),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                color: selected ? AppColors.cyan : AppColors.muted,
-                size: 18,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: selected ? AppColors.text : AppColors.muted,
-                  fontSize: 9,
-                  fontWeight: FontWeight.w800,
+    final active = widget.selected || _hovered;
+    return Semantics(
+      selected: widget.selected,
+      child: Tooltip(
+        message: widget.label,
+        preferBelow: false,
+        waitDuration: const Duration(milliseconds: 400),
+        child: InkWell(
+          onTap: widget.onTap,
+          onHover: (value) => setState(() => _hovered = value),
+          onFocusChange: (value) => setState(() => _focused = value),
+          hoverColor: Colors.transparent,
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+          focusColor: Colors.transparent,
+          child: SizedBox(
+            width: workspaceRailWidth,
+            height: 48,
+            child: Stack(
+              children: [
+                if (widget.selected)
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    child: Container(width: 2, color: AppColors.cyan),
+                  ),
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      border: _focused
+                          ? Border.all(color: AppColors.cyan, width: 2)
+                          : null,
+                    ),
+                    child: Icon(
+                      widget.icon,
+                      size: 22,
+                      color: active ? AppColors.text : AppColors.muted,
+                    ),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

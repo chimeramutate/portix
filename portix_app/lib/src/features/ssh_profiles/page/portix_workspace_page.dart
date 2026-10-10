@@ -178,24 +178,24 @@ class _WorkspaceNotice {
   factory _WorkspaceNotice.fromMessage(String message) {
     final normalized = message.toLowerCase();
     if (normalized.contains('saved') || normalized.contains('verified')) {
-      return const _WorkspaceNotice(
+      return _WorkspaceNotice(
         icon: Icons.check_circle_outline_rounded,
-        background: Color(0xFF0B3A27),
+        background: AppColors.greenTint,
         border: AppColors.green,
         foreground: AppColors.green,
       );
     }
     if (normalized.contains('testing') || normalized.contains('saving')) {
-      return const _WorkspaceNotice(
+      return _WorkspaceNotice(
         icon: Icons.timelapse_rounded,
-        background: Color(0xFF123455),
+        background: AppColors.selectedSoft,
         border: AppColors.cyan,
         foreground: AppColors.cyan,
       );
     }
-    return const _WorkspaceNotice(
+    return _WorkspaceNotice(
       icon: Icons.error_outline_rounded,
-      background: Color(0xFF3A1421),
+      background: AppColors.dangerTint,
       border: AppColors.danger,
       foreground: AppColors.danger,
     );

@@ -53,8 +53,12 @@ class LocalFileBrowser {
       );
     }
 
-    await for (final entity in directory.list(followLinks: false)) {
-      final stat = await entity.stat();
+    // Stat all entries concurrently; sequential awaits made large folders
+    // (e.g. a home directory) load one round-trip per entry.
+    final entities = await directory.list(followLinks: false).toList();
+    final stats = await Future.wait(entities.map((entity) => entity.stat()));
+    for (final (index, entity) in entities.indexed) {
+      final stat = stats[index];
       final isDirectory = stat.type == FileSystemEntityType.directory;
       entries.add(
         SftpFileEntry(

@@ -165,7 +165,7 @@ class _FilePane extends StatelessWidget {
                           isRemote
                               ? Icons.dns_outlined
                               : Icons.computer_rounded,
-                          color: isRemote ? AppColors.green : AppColors.cyan,
+                          color: AppColors.muted,
                           size: 18,
                         ),
                       const SizedBox(width: 9),
@@ -177,10 +177,7 @@ class _FilePane extends StatelessWidget {
                           style: portixTitle(16),
                         ),
                       ),
-                      AppPill(
-                        label: countLabel,
-                        color: isRemote ? AppColors.green : AppColors.cyan,
-                      ),
+                      AppPill(label: countLabel, color: AppColors.muted),
                     ],
                   ),
                 ),
@@ -197,10 +194,16 @@ class _FilePane extends StatelessWidget {
                 if (showPathBar && showControls)
                   Skeletonizer(
                     enabled: loading,
-                    child: _PathBar(
+                    child: PathBar(
                       path: path,
-                      onSubmitted: onPathSubmitted,
-                      onListPath: onListPath,
+                      onSubmit: onPathSubmitted,
+                      onListPath: switch (onListPath) {
+                        final list? => (dir) async => [
+                          for (final entry in await list(dir))
+                            (name: entry.name, isDirectory: entry.folder),
+                        ],
+                        null => null,
+                      },
                     ),
                   ),
                 if (showActions && showControls) ...[
@@ -386,15 +389,6 @@ class _FilePane extends StatelessWidget {
   }
 }
 
-/// Labels for each remote-load step. The first element ('Pick profile') is
-/// replaced at runtime with the selected profile name.
-const kRemoteLoadSteps = [
-  'Pick profile',
-  'Loading',
-  'Connecting...',
-  'Connected',
-];
-
 /// Maps a [remoteStatus] string to a step index for the loading indicator.
 /// Returns -1 when the status doesn't correspond to an active step.
 ///
@@ -567,7 +561,7 @@ class _PaneStatus extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               // Loading: EasyStepper step indicator with integrated loading
-              // animation in the active step, or plain loading dots for
+              // animation in the active step, or a plain spinner for
               // non-remote loading.
               if (loading)
                 loadingSteps != null
@@ -607,9 +601,12 @@ class _PaneStatus extends StatelessWidget {
                         ),
                         maxTitleLines: 1,
                       )
-                    : LoadingAnimationWidget.fourRotatingDots(
-                        color: AppColors.cyan,
-                        size: 28,
+                    : SizedBox.square(
+                        dimension: 28,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.cyan,
+                        ),
                       )
               else
                 Icon(icon, color: AppColors.muted, size: 28),
@@ -753,407 +750,6 @@ class _SftpSecurePasswordInputState extends State<_SftpSecurePasswordInput> {
   }
 }
 
-class _PathBar extends StatefulWidget {
-  const _PathBar({
-    required this.path,
-    required this.onSubmitted,
-    this.onListPath,
-  });
-  final String path;
-  final ValueChanged<String> onSubmitted;
-
-  /// Non‑navigating lister used for Tab autocomplete. Returns the children of
-  /// the given absolute directory path. When null, the path bar behaves as
-  /// before (no autocomplete).
-  final Future<List<SftpFileEntry>> Function(String)? onListPath;
-
-  @override
-  State<_PathBar> createState() => _PathBarState();
-}
-
-class _PathBarState extends State<_PathBar> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.path,
-  );
-  late final FocusNode _focusNode = FocusNode();
-
-  // Tab autocomplete state. The list is only populated on demand (Tab /
-  // ArrowDown) — never while the user is typing — so ordinary Tab focus
-  // traversal across the rest of the app is untouched.
-  final List<SftpFileEntry> _candidates = [];
-  bool _open = false;
-  bool _loading = false;
-  int _highlight = 0;
-  final ScrollController _scrollController = ScrollController();
-
-  /// Caches the raw children of a directory path so repeated completions
-  /// within the same directory (e.g. `/opt/m` → `musik`, then editing to
-  /// `/opt/in` → `indonesia`) don't re-hit the SSH/local backend on every Tab.
-  final Map<String, List<SftpFileEntry>> _dirCache = {};
-
-  /// (parent, prefix) of the most recent listing, so Tab can tell whether the
-  /// typed path changed and the suggestions must be refreshed instead of the
-  /// previously‑listed rows being cycled.
-  String _lastParent = '';
-  String _lastPrefix = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _focusNode.onKeyEvent = _onKey;
-    _focusNode.addListener(() {
-      if (!_focusNode.hasFocus) _close();
-    });
-  }
-
-  @override
-  void didUpdateWidget(covariant _PathBar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.path != widget.path && _controller.text == oldWidget.path) {
-      _controller.text = widget.path;
-    }
-  }
-
-  @override
-  void dispose() {
-    // Mark as torn‑down BEFORE releasing resources. _focusNode.dispose() can
-    // still synchronously fire our focus listener, and we must never call
-    // setState on an element that is being unmounted (it asserts
-    // '_lifecycleState != defunct').
-    _tearingDown = true;
-    _scrollController.dispose();
-    _controller.dispose();
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  bool _tearingDown = false;
-
-  /// Closes the suggestion list. Safe to call from focus listeners that may
-  /// fire during disposal.
-  void _close() {
-    if (!mounted || _tearingDown) return;
-    setState(() {
-      _open = false;
-      _candidates.clear();
-    });
-  }
-
-  /// Splits a typed path into the directory part (kept verbatim, trailing `/`
-  /// included) and the partial entry name being completed.
-  (String, String) _splitDirAndPrefix(String input) {
-    final slash = input.lastIndexOf('/');
-    if (slash < 0) return ('', input);
-    return (input.substring(0, slash + 1), input.substring(slash + 1));
-  }
-
-  /// Lists the directory that the currently‑typed path points at and filters it
-  /// by the typed prefix. Only triggered explicitly (Tab / ArrowDown), so it
-  /// never fires while typing.
-  Future<void> _fetch() async {
-    final lister = widget.onListPath;
-    if (lister == null) return;
-    final (parent, prefix) = _splitDirAndPrefix(_controller.text);
-    if (parent.isEmpty) return; // need an absolute path with a directory part
-    if (!mounted) return;
-    // Remember what we are about to list so Tab can detect later edits to the
-    // typed path and re-list instead of cycling stale rows.
-    _lastParent = parent;
-    _lastPrefix = prefix;
-    setState(() => _loading = true);
-    try {
-      final List<SftpFileEntry> entries;
-      final cached = _dirCache[parent];
-      if (cached != null) {
-        entries = cached;
-      } else {
-        final fetched = await lister(parent);
-        if (!mounted) return;
-        _dirCache[parent] = fetched;
-        entries = fetched;
-      }
-      final pl = prefix.toLowerCase();
-      final filtered =
-          entries
-              .where((e) => e.name != '.' && e.name != '..')
-              .where((e) => e.name.toLowerCase().startsWith(pl))
-              .toList()
-            ..sort(
-              (a, b) => switch (a.folder == b.folder) {
-                true => a.name.compareTo(b.name),
-                _ => a.folder ? -1 : 1,
-              },
-            );
-      if (!mounted) return;
-      setState(() {
-        _candidates
-          ..clear()
-          ..addAll(filtered);
-        _highlight = 0;
-        _open = _candidates.isNotEmpty;
-      });
-    } catch (_) {
-      // Disconnected session / unreadable local dir → just hide the list.
-      if (!mounted) return;
-      setState(() {
-        _candidates.clear();
-        _highlight = 0;
-        _open = false;
-      });
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  /// Fills the field with the chosen entry (no navigation). The user still
-  /// presses Enter / the Open Path button to actually open it.
-  void _complete(SftpFileEntry entry) {
-    final (parent, _) = _splitDirAndPrefix(_controller.text);
-    final newText = parent + entry.name + (entry.folder ? '/' : '');
-    final affinity = _controller.selection.affinity;
-    _controller
-      ..text = newText
-      ..selection = TextSelection.collapsed(
-        offset: newText.length,
-        affinity: affinity,
-      );
-    _close();
-    _focusNode.requestFocus();
-  }
-
-  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
-    final logical = event.logicalKey;
-
-    // Escape always closes an open suggestion list.
-    if (logical == LogicalKeyboardKey.escape) {
-      if (_open) {
-        _close();
-        return KeyEventResult.handled;
-      }
-      return KeyEventResult.ignored;
-    }
-
-    // Arrow keys open the list (without stealing Tab navigation elsewhere).
-    if (!_open &&
-        (logical == LogicalKeyboardKey.arrowDown ||
-            logical == LogicalKeyboardKey.arrowUp)) {
-      if (!_loading) _fetch();
-      return KeyEventResult.handled;
-    }
-
-    // Tab (when open): if the typed text changed since the last listing,
-    // refresh first; otherwise cycle the highlight. Tab releases focus
-    // traversal once the last item is highlighted, so focus can leave the
-    // field — this keeps the autocomplete non‑blocking.
-    if (_open && logical == LogicalKeyboardKey.tab) {
-      final (p, pf) = _splitDirAndPrefix(_controller.text);
-      if (p.isNotEmpty && (p != _lastParent || pf != _lastPrefix)) {
-        if (!_loading) _fetch();
-        return KeyEventResult.handled;
-      }
-      if (_candidates.isNotEmpty) {
-        if (_highlight < _candidates.length - 1) {
-          setState(() => _highlight++);
-          _scrollToHighlight();
-        } else {
-          _close();
-          return KeyEventResult.ignored; // let focus move
-        }
-        return KeyEventResult.handled;
-      }
-      _close();
-      return KeyEventResult.ignored;
-    }
-
-    // ArrowDown / ArrowUp while open: refresh if the text changed, else move
-    // the highlight.
-    if (_open &&
-        (logical == LogicalKeyboardKey.arrowDown ||
-            logical == LogicalKeyboardKey.arrowUp)) {
-      final (p, pf) = _splitDirAndPrefix(_controller.text);
-      if (p.isNotEmpty && (p != _lastParent || pf != _lastPrefix)) {
-        if (!_loading) _fetch();
-        return KeyEventResult.handled;
-      }
-      if (_candidates.isNotEmpty) {
-        if (logical == LogicalKeyboardKey.arrowDown &&
-            _highlight < _candidates.length - 1) {
-          setState(() => _highlight++);
-          _scrollToHighlight();
-        } else if (logical == LogicalKeyboardKey.arrowUp && _highlight > 0) {
-          setState(() => _highlight--);
-          _scrollToHighlight();
-        }
-      }
-      return KeyEventResult.handled;
-    }
-
-    // Enter picks the highlighted entry (if open) instead of navigating.
-    if (_open &&
-        _candidates.isNotEmpty &&
-        (logical == LogicalKeyboardKey.enter ||
-            logical == LogicalKeyboardKey.numpadEnter)) {
-      _complete(_candidates[_highlight]);
-      return KeyEventResult.handled;
-    }
-
-    // Tab when closed: open the list (keeping focus in the field) ONLY when
-    // there is text to complete. An empty field falls through to normal focus
-    // traversal -> no conflict with the rest of the app. While a fetch is in
-    // flight we keep claiming Tab so focus doesn't jump away mid-suggestion.
-    if (!_open &&
-        logical == LogicalKeyboardKey.tab &&
-        _controller.text.trim().isNotEmpty) {
-      if (!_loading) _fetch();
-      return KeyEventResult.handled;
-    }
-
-    return KeyEventResult.ignored;
-  }
-
-  void _scrollToHighlight() {
-    final extent = 64.0 * (_highlight + 1);
-    if (_scrollController.hasClients &&
-        _scrollController.position.maxScrollExtent > 0) {
-      if (_scrollController.offset > extent ||
-          extent >
-              _scrollController.offset +
-                  _scrollController.position.viewportDimension) {
-        _scrollController.animateTo(
-          (extent - 32).clamp(0.0, _scrollController.position.maxScrollExtent),
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 36),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceDark,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.folder_outlined,
-                color: AppColors.muted,
-                size: 18,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  focusNode: _focusNode,
-                  controller: _controller,
-                  onSubmitted: (value) {
-                    if (_open && _candidates.isNotEmpty) {
-                      _complete(_candidates[_highlight]);
-                    } else {
-                      widget.onSubmitted(value);
-                    }
-                  },
-                  style: portixTitle(12),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text('Tab', style: portixMuted(11)),
-              const SizedBox(width: 8),
-              // When the suggestion list is open the trailing button becomes a
-              // clear ✕ to cancel/dismiss it (without navigating); otherwise
-              // it stays the "Open path" button. The list is also dismissable
-              // via Escape or by clicking/tapping elsewhere.
-              IconButton(
-                tooltip: _open ? 'Close suggestions' : 'Open path',
-                onPressed: _open
-                    ? () => _close()
-                    : () => widget.onSubmitted(_controller.text),
-                icon: Icon(
-                  _open ? Icons.close : Icons.keyboard_return_rounded,
-                  color: AppColors.muted,
-                  size: 16,
-                ),
-              ),
-            ],
-          ),
-          if (_open) ...[
-            const SizedBox(height: 6),
-            SizedBox(
-              height: 160,
-              child: _loading
-                  ? const Center(
-                      child: SizedBox.square(
-                        dimension: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: _scrollController,
-                      itemCount: _candidates.length,
-                      itemBuilder: (context, index) {
-                        final entry = _candidates[index];
-                        final isHighlight = index == _highlight;
-                        return GestureDetector(
-                          onTap: () => _complete(entry),
-                          child: Container(
-                            color: isHighlight
-                                ? AppColors.surfaceCard
-                                : Colors.transparent,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 6,
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  entry.folder
-                                      ? Icons.folder_outlined
-                                      : Icons.insert_drive_file,
-                                  color: AppColors.muted,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    entry.name,
-                                    style: portixTitle(12).copyWith(
-                                      color: isHighlight
-                                          ? AppColors.text
-                                          : AppColors.muted,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
 class _RemoteFindBar extends StatefulWidget {
   const _RemoteFindBar({
     required this.query,
@@ -1253,11 +849,7 @@ class _RemoteFindBarState extends State<_RemoteFindBar> {
             IconButton(
               tooltip: widget.searching ? 'Cancel find' : 'Clear find',
               onPressed: widget.onCleared,
-              icon: const Icon(
-                Icons.close_rounded,
-                color: AppColors.muted,
-                size: 16,
-              ),
+              icon: Icon(Icons.close_rounded, color: AppColors.muted, size: 16),
             ),
         ],
       ),
@@ -1343,7 +935,7 @@ class _SftpInlineCreateItem extends StatelessWidget {
         color: AppColors.surfaceCard.withValues(alpha: .58),
         border: Border(
           bottom: BorderSide(
-            color: AppColors.primaryBlue.withValues(alpha: .9),
+            color: AppColors.cyan.withValues(alpha: .9),
           ),
         ),
       ),
@@ -1388,11 +980,7 @@ class _SftpInlineCreateItem extends StatelessWidget {
             onPressed: onCancel,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-            icon: const Icon(
-              Icons.close_rounded,
-              color: AppColors.muted,
-              size: 16,
-            ),
+            icon: Icon(Icons.close_rounded, color: AppColors.muted, size: 16),
           ),
         ],
       ),
@@ -1421,9 +1009,9 @@ class _SftpInlineRenameItem extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0xFF143B63),
+        color: AppColors.selected,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.primaryBlue),
+        border: Border.all(color: AppColors.cyan),
       ),
       child: Row(
         children: [
@@ -1469,11 +1057,7 @@ class _SftpInlineRenameItem extends StatelessWidget {
             onPressed: onCancel,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 24, height: 24),
-            icon: const Icon(
-              Icons.close_rounded,
-              color: AppColors.muted,
-              size: 15,
-            ),
+            icon: Icon(Icons.close_rounded, color: AppColors.muted, size: 15),
           ),
         ],
       ),
@@ -1490,7 +1074,7 @@ class _TableHeader extends StatelessWidget {
     return Container(
       height: 32,
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
@@ -1530,7 +1114,7 @@ class _SkeletonFileTable extends StatelessWidget {
         Container(
           height: 32,
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: AppColors.surface,
             border: Border(bottom: BorderSide(color: AppColors.border)),
           ),
@@ -1560,7 +1144,7 @@ class _SkeletonFileTable extends StatelessWidget {
         Container(
           height: 30,
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             border: Border(top: BorderSide(color: AppColors.border)),
           ),
           child: Row(
