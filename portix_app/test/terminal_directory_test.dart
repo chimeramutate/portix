@@ -12,4 +12,10 @@ void main() {
     );
     expect(terminalDirectoryFrom(osc7: 'http://x/y'), isNull);
   });
+
+  test('shell-quoted cd target keeps ~ expandable', () {
+    expect(shellQuotePath('~'), '~');
+    expect(shellQuotePath('~/my app'), "~/'my app'");
+    expect(shellQuotePath("/var/it's"), r"'/var/it'\''s'");
+  });
 }
