@@ -312,12 +312,8 @@ void main() {
     });
 
     test('two controllers on one SftpManager are session-isolated', () async {
-      // Proves the foundation for an independent left-pane SSH session:
-      // two controllers sharing the singleton SftpManager must each own a
-      // distinct SFTP session that the other cannot clear or corrupt. The
-      // controller's change listener (`_handleSftpChanged`) early-returns
-      // when its own `_remoteSessionId` is null and otherwise only inspects
-      // the session matching that id.
+      // Two controllers on the shared SftpManager each own a distinct session
+      // the other can't clear or corrupt; the left pane depends on this.
       final controllerA = SftpWorkspaceController(
         sftpManager: sftpManager,
         localFileBrowser: _FakeLocalFileBrowser(),
@@ -396,20 +392,14 @@ void main() {
 
     test('beginLoading sets step-indicator state so file-pane controls are '
         'hidden during the pre-connection frame', () {
-      // Simulates _selectLeftProfileForActiveTab / _selectProfileForActiveTab
-      // calling controller.beginLoading() before setState. On the rebuild
-      // BEFORE attachRemoteProfile's post-frame callback fires, the file
-      // pane must show the step indicator (showSteps = true) — not the path
-      // bar / actions / find bar — so controls like "Open path", "New file",
-      // "New folder", "Reload" don't flash for one frame.
+      // beginLoading() before setState: the first rebuild must show the step
+      // indicator, not flash the path bar and actions.
       controller.beginLoading();
 
       expect(controller.loadingRemote, isTrue);
       expect(controller.showConnectionSteps, isTrue);
       expect(controller.remoteStatus, equals('connecting'));
-      // _FilePane.build: showSteps comes from controller.showConnectionSteps,
-      // and `if (showSteps) ... else ... [path bar, actions, find bar]`
-      // means showSteps = true hides those controls.
+      // showSteps = true is what hides those controls in _FilePane.build.
       expect(controller.showConnectionSteps, isTrue);
 
       // A second beginLoading is a no-op (already loading).
@@ -467,13 +457,8 @@ void main() {
       final oldSessionId = controller.remoteSessionId;
       expect(oldSessionId, isNotNull);
 
-      // reconnect(): clearRemoteSession → beginLoading → attachRemoteProfile.
-      // Previously, reconnect manually set _loadingRemote + _remoteStatus =
-      // 'connecting' before calling attachRemoteProfile, which tripped the
-      // old loading guard (`_loadingRemote && _remoteStatus == 'connecting'`)
-      // and returned early — the reconnect silently never started.
-      // With the _connectInProgress-based guard, beginLoading's pre-emptive
-      // 'connecting' state does NOT block, and the connect proceeds.
+      // Regression: beginLoading's pre-set 'connecting' used to trip the old
+      // loading guard, so reconnect silently never started.
       const reconnectProfile = domain.SshProfile(
         id: 'profile-1',
         name: 'Remote host',
@@ -501,13 +486,8 @@ void main() {
 
     test('left-pane profile re-select returns to the file table instead of '
         'staying on the profile gate / step indicator', () async {
-      // Mirrors the page's independent LEFT controller — a second controller
-      // on the shared SftpManager. Re-selecting the already-connected
-      // profile must reset showConnectionSteps (via the session-reuse path in
-      // attachRemoteProfile) so the pane's `_leftConnecting` is false, the
-      // profile-gate `contentOverride` is dropped, and the file table renders
-      // — never a stuck step indicator or gate. Saved-password resolution is
-      // a no-op for this sshKey profile, so no password prompt is involved.
+      // Like the page's LEFT controller: re-selecting the connected profile must
+      // reset showConnectionSteps so the file table renders, not a stuck gate.
       final leftController = SftpWorkspaceController(
         sftpManager: sftpManager,
         localFileBrowser: _FakeLocalFileBrowser(),
@@ -565,10 +545,8 @@ void main() {
       localFileBrowser: _FakeLocalFileBrowser(),
       localEditorService: _FakeLocalEditorService(),
     );
-    // The constructor starts an in-flight loadLocalDirectory; disposing while
-    // it is pending (i.e. closing/popping the SFTP tab) must let any resumed
-    // notifyListeners fire safely instead of tripping the
-    // "used after being disposed" ChangeNotifier assert.
+    // Disposing while the constructor's loadLocalDirectory is pending must not
+    // trip the "used after being disposed" assert.
     controller.dispose();
     expect(() => controller.notifyListeners(), returnsNormally);
     sftpManager.dispose();
@@ -599,12 +577,8 @@ void main() {
     await ctrl.loadRemoteDirectory(ctrl.remotePath);
     await Future.delayed(Duration.zero);
 
-    // The session is NOT disconnected at the TCP level, but the listing
-    // failed: loading is false, status is 'failed', and an error is set.
-    // This is the exact precondition that lets the _FilePane widget's
-    // `showControls = isRemote ? (loading || error == null) : true` guard
-    // collapse to false — hiding "Open path", "New file", "New folder",
-    // and "Reload" while the error is surfaced in the pane content area.
+    // TCP is still up but the listing failed: status 'failed' with an error,
+    // which is what makes _FilePane hide its controls.
     expect(ctrl.loadingRemote, isFalse);
     expect(ctrl.remoteStatus, equals('failed'));
     expect(ctrl.remoteError, isNotNull);
@@ -664,19 +638,14 @@ void main() {
     expect(ctrl.pendingProfile, isNull);
     expect(ctrl.remoteStatus, equals('authenticating'));
 
-    // 3) Simulate a scheduled-sync callback (_scheduleLeftSync /
-    //    _scheduleRemoteSync) firing during the saveProfilePassword await.
-    //    This calls attachRemoteProfile with the ORIGINAL (password-less)
-    //    profile — the exact race that re-enters 'authenticating' and
-    //    makes the password form re-appear (the reported bug).
+    // 3) A scheduled sync fires during the save with the ORIGINAL profile:
+    //    the race that re-showed the password form.
     final duplicate = ctrl.attachRemoteProfile(profile, '/');
     await Future.delayed(Duration.zero);
     await Future.delayed(Duration.zero);
     await duplicate;
 
-    // 4) FIX: the duplicate must be suppressed — _pendingProfile must
-    //    stay null and the status must not be re-pushed to 'authenticating'
-    //    with a new pendingProfile (which would re-show the form).
+    // 4) It must be suppressed: no new pending profile, no 'authenticating'.
     expect(
       ctrl.pendingProfile,
       isNull,
@@ -739,10 +708,8 @@ class _FakeLocalFileBrowser extends LocalFileBrowser {
   }
 }
 
-/// Variant of [FakeSftpBackend] whose directory listing can be toggled
-/// to throw, to exercise the controller's listing-failure path — the scenario
-/// where the SFTP channel is alive but unreadable, which is what the
-/// file-pane control-hiding guard must react to.
+/// [FakeSftpBackend] whose listing can be made to throw: the channel is
+/// alive but unreadable.
 class _ListingFailBackend extends FakeSftpBackend {
   bool failListing = false;
 
@@ -755,10 +722,8 @@ class _ListingFailBackend extends FakeSftpBackend {
   }
 }
 
-/// In-memory [ProfileSecretStore] replacement whose `savePassword` can be
-/// delayed via [saveDelay], enabling controller tests to reproduce the race
-/// between `submitPassword`'s `savePassword` await and a scheduled-sync
-/// `attachRemoteProfile(originalProfile)` callback.
+/// In-memory [ProfileSecretStore] whose `savePassword` can be held open
+/// ([saveDelay]) to reproduce the race with a scheduled sync.
 class _MemorySecretStore extends ProfileSecretStore {
   _MemorySecretStore() : super();
 

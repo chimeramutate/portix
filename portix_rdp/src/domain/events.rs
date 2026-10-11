@@ -16,7 +16,6 @@ pub struct RdpLogEvent {
     pub timestamp: i64,
     /// Log level: INFO, WARN, ERROR, DEBUG
     pub level: String,
-    /// Log message
     pub message: String,
     /// Optional session ID if related to a specific session
     pub session_id: Option<String>,

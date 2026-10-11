@@ -206,7 +206,6 @@ impl SessionManager {
     }
 
     async fn detect_remote_platform(&self, session_id: &str) -> RemotePlatform {
-        // Check cache first
         if let Ok(session) = self.session(session_id).await {
             let cached = session.remote_platform.read().await;
             if let Some(platform) = *cached {
@@ -214,10 +213,8 @@ impl SessionManager {
             }
         }
 
-        // Detection strategy:
-        // 1. Try `echo $PSVersionTable.PSVersion` — if it returns a version, it's PowerShell
-        // 2. Try `echo %OS%` — if it returns Windows_NT, it's cmd.exe
-        // 3. Otherwise it's Unix
+        // One command for every shell: cmd.exe expands %OS%, PowerShell $env:OS,
+        // and a Unix shell neither.
         let result = self
             .exec(
                 session_id.to_owned(),
@@ -228,7 +225,6 @@ impl SessionManager {
         let platform = match result {
             Ok(output) => {
                 let lines: Vec<&str> = output.lines().map(str::trim).collect();
-                // Check if %OS% was expanded (cmd.exe) or $env:OS returned value (PowerShell)
                 let has_windows_nt = lines.iter().any(|line| line.contains("Windows_NT"));
                 let has_unexpanded_percent = lines.iter().any(|line| *line == "%OS%");
                 let _has_unexpanded_env = lines.iter().any(|line| *line == "$env:OS");
@@ -246,7 +242,6 @@ impl SessionManager {
             Err(_) => RemotePlatform::Unix,
         };
 
-        // Store in cache
         if let Ok(session) = self.session(session_id).await {
             let mut cached = session.remote_platform.write().await;
             *cached = Some(platform);
@@ -378,7 +373,7 @@ impl Default for SessionManager {
 mod tests {
     use super::*;
 
-    // ── resolve_directory_from_output ────────────────────────────────────────
+    // resolve_directory_from_output
 
     #[test]
     fn parse_remote_system_snapshot_extracts_all_fields() {

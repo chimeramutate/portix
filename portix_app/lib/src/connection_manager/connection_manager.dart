@@ -13,8 +13,6 @@ import 'session_models.dart';
 import 'ssh_profile.dart';
 
 /// How often the Flutter-side heartbeat probes each connected session.
-/// This runs independently of the Rust keepalive so disconnect is detected
-/// as soon as either side notices — whichever fires first.
 const Duration _heartbeatInterval = Duration(seconds: 5);
 
 /// Timeout for a single heartbeat probe. Must be shorter than
@@ -130,9 +128,8 @@ class ConnectionManager extends ChangeNotifier {
           port: entry.port,
         );
       }
-      // Rust enforces CONNECT_TIMEOUT (15s) + AUTH_TIMEOUT (15s) = ~30s.
-      // Add a Flutter-side safety net slightly above that so the UI never
-      // hangs indefinitely when the remote host is unreachable.
+      // Just above Rust's connect + auth timeouts (~30s), so the UI never
+      // hangs on an unreachable host.
       final backendSessionId = await _backend
           .connect(connectProfile)
           .timeout(
@@ -341,11 +338,8 @@ class ConnectionManager extends ChangeNotifier {
   String _backendId(String uiSessionId) =>
       _backendSessionIdForUiSession(uiSessionId) ?? uiSessionId;
 
-  /// Flutter-side heartbeat: probe every connected terminal session by
-  /// attempting a lightweight TCP socket connect to the SSH port. This runs
-  /// independently of the Rust keepalive so UI reflects a lost connection
-  /// within [_heartbeatInterval] + [_heartbeatTimeout] (~9 s worst-case)
-  /// instead of waiting for the Rust keepalive cycle (~17 s).
+  /// Probes every connected terminal session with a TCP connect to its SSH
+  /// port, so a drop shows within ~9 s instead of the Rust keepalive's ~17 s.
   Future<void> _runHeartbeat() async {
     final candidates = _sessions
         .where((s) => s.status == ConnectionStatus.connected)
@@ -376,7 +370,6 @@ class ConnectionManager extends ChangeNotifier {
         port,
         timeout: _heartbeatTimeout,
       );
-      // Connection succeeded — remote is still reachable.
       socket.destroy();
     } on SocketException {
       // TCP refused or timed out — remote is gone.

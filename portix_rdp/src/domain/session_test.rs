@@ -4,9 +4,7 @@
 mod tests {
     use crate::domain::session::{RdpConnectionStatus, RdpSessionInfo};
 
-    // =========================================================
     // RdpConnectionStatus — Display
-    // =========================================================
 
     #[test]
     fn status_display_disconnected() {
@@ -28,9 +26,7 @@ mod tests {
         assert_eq!(RdpConnectionStatus::Error.to_string(), "error");
     }
 
-    // =========================================================
     // RdpConnectionStatus — Equality
-    // =========================================================
 
     #[test]
     fn status_equality_same_variants_are_equal() {
@@ -45,9 +41,7 @@ mod tests {
         );
     }
 
-    // =========================================================
     // RdpSessionInfo::is_active
-    // =========================================================
 
     #[test]
     fn is_active_returns_true_when_connected() {
@@ -89,9 +83,7 @@ mod tests {
         assert!(!info.is_active());
     }
 
-    // =========================================================
     // RdpSessionInfo — Clone & Debug
-    // =========================================================
 
     #[test]
     fn session_info_clone_is_independent() {

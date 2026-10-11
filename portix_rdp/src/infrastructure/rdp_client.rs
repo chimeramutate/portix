@@ -222,13 +222,8 @@ impl RdpRuntime {
             return Err(RdpError::Cancelled);
         }
 
-        // ── Pre-emptive licence cache for CyberArk PAM/PSM ──────────────
-        // When the username matches the CyberArk pattern (PSM@… / PAM@…),
-        // use StubLicenseCache from the very first attempt. This makes the
-        // client send CLIENT_LICENSE_INFO instead of CLIENT_NEW_LICENSE_REQUEST,
-        // which causes the PSM gateway to reply with LicensingErrorMessage(
-        // StatusValidClient) — a well-formed PDU — instead of the malformed
-        // ServerUpgradeLicense that triggers the decode error.
+        // Pre-emptive licence cache for CyberArk PAM/PSM: with the stub cache the
+        // gateway answers with a well-formed PDU, not the malformed ServerUpgradeLicense.
         let is_cyberark = is_cyberark_pam(&self.profile.username);
         if is_cyberark {
             println!(
@@ -255,8 +250,7 @@ impl RdpRuntime {
                 println!("[portix_rdp] connect_begin completed");
                 result
             }
-            // ── CredSSP enabled, license decode error → retry with stub cache,
-            //    still with CredSSP ──
+            // CredSSP enabled, license decode error → retry with stub cache, still with CredSSP
             Err(RdpError::NegotiationFailed(ref msg))
                 if self.profile.enable_cred_ssp && is_license_error(msg) =>
             {
@@ -271,7 +265,7 @@ impl RdpRuntime {
                 self.try_connect(true, Some(Arc::new(StubLicenseCache)), true, &cancel_token)
                     .await?
             }
-            // ── CredSSP enabled, any other negotiation failure → stop ──
+            // CredSSP enabled, any other negotiation failure → stop
             // No silent fallback to TLS-only: someone on the network could
             // break NLA on purpose to get the credentials sent without it
             // (and the server certificate is not pinned). The user can turn
@@ -282,7 +276,7 @@ impl RdpRuntime {
                     "NLA failed: {msg}. If this server does not support NLA, turn off \"Enable CredSSP (NLA)\" in the profile."
                 )));
             }
-            // ── CredSSP disabled, license decode error → retry with stub cache ──
+            // CredSSP disabled, license decode error → retry with stub cache
             Err(RdpError::NegotiationFailed(ref msg))
                 if !self.profile.enable_cred_ssp && is_license_error(msg) =>
             {
@@ -530,19 +524,9 @@ impl RdpRuntime {
         }
     }
 
-    /// Custom `connect_finalize` that pre-validates license-exchange PDUs before
-    /// passing them to `ClientConnector::step()`.  When the connector is in the
-    /// `LicensingExchange` state, each PDU read from the stream is first decoded
-    /// as a `LicensePdu`.  If the decode fails (the server sent a malformed
-    /// `ServerUpgradeLicense`, as CyberArk PAS/PSM does), the PDU is **repaired**
-    /// in-place: a `LicensingErrorMessage(StatusValidClient)` is synthesised,
-    /// wrapped in a `SendDataIndication` with the original channel info, re-encoded
-    /// as an X.224 PDU, and handed to `step()` instead.  This prevents the
-    /// `LicenseExchangeSequence` from consuming its state and lets the connector
-    /// proceed to `LicenseExchanged` → `MultitransportBootstrapping` → … → `Connected`.
-    ///
-    /// This function assumes CredSSP is **disabled** (`enable_credssp = false`),
-    /// which is always the case in the retry tiers that use it.
+    /// `connect_finalize` that swaps a malformed license PDU (CyberArk PAS/PSM's
+    /// `ServerUpgradeLicense`) for `LicensingErrorMessage(StatusValidClient)`, so
+    /// the connector still reaches `Connected`. Assumes CredSSP is disabled.
     async fn connect_finalize_with_license_bypass<S>(
         connector: ClientConnector,
         framed: &mut ironrdp_tokio::Framed<S>,
@@ -559,9 +543,7 @@ impl RdpRuntime {
         let mut connector = connector;
         let mut buf = WriteBuf::new();
 
-        // CredSSP is disabled for this code path; skip perform_credssp_step entirely.
-        // The connector should already be past EnhancedSecurityUpgrade (mark_as_upgraded
-        // was called by the caller).
+        // CredSSP is off on this path; the caller already marked the connector upgraded.
 
         loop {
             buf.clear();
@@ -569,7 +551,6 @@ impl RdpRuntime {
             let next_pdu_hint = connector.next_pdu_hint();
 
             if let Some(hint) = next_pdu_hint {
-                // Read PDU from the stream.
                 let pdu = framed.read_by_hint(hint).await.map_err(|e| {
                     ConnectorError::new("read frame by hint", ConnectorErrorKind::General)
                         .with_source(e)
@@ -640,7 +621,6 @@ impl RdpRuntime {
                     pdu.to_vec()
                 };
 
-                // Call step() with the (possibly repaired) PDU.
                 let written = connector.step(&input, &mut buf)?;
 
                 if let Some(response_len) = written.size() {
@@ -649,7 +629,6 @@ impl RdpRuntime {
                     })?;
                 }
 
-                // Check if connected.
                 if let ClientConnectorState::Connected { result } = mem::take(&mut connector.state)
                 {
                     return Ok(result);
@@ -664,7 +643,6 @@ impl RdpRuntime {
                     })?;
                 }
 
-                // Check if connected.
                 if let ClientConnectorState::Connected { result } = mem::take(&mut connector.state)
                 {
                     return Ok(result);

@@ -5,17 +5,11 @@ import 'package:portix/src/domain/entities/rdp/rdp_profile.dart';
 void main() {
   const parser = RdpFileParser();
 
-  // =========================================================
-  // HELPERS
-  // =========================================================
-
   RdpProfile parse(String content, {String id = 'test-id', String? filePath}) {
     return parser.parse(content, profileId: id, filePath: filePath);
   }
 
-  // =========================================================
-  // BASIC PARSING
-  // =========================================================
+  // Basic parsing
 
   group('basic field parsing', () {
     test('extracts host from full address', () {
@@ -52,9 +46,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // DOMAIN / USERNAME SPLITTING
-  // =========================================================
+  // Domain / username splitting
 
   group('domain\\username splitting', () {
     test('splits DOMAIN\\user into domain and username', () {
@@ -78,9 +70,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // DISPLAY SETTINGS
-  // =========================================================
+  // Display settings
 
   group('display settings', () {
     test('desktop resolution parsed correctly', () {
@@ -117,9 +107,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // CREDENTIAL SSP
-  // =========================================================
+  // CredSSP
 
   group('CredSSP setting', () {
     test('enableCredSsp false when EnableCredSspSupport is 0', () {
@@ -143,9 +131,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // REDIRECT DRIVES
-  // =========================================================
+  // Redirect drives
 
   group('redirect drives', () {
     test('redirectDrives true when redirectdrives is 1', () {
@@ -171,9 +157,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // CYBERARK PSM DETECTION
-  // =========================================================
+  // CyberArk PSM detection
 
   group('CyberArk PSM detection', () {
     test('isCyberArkPsm is true when alternate shell contains psm', () {
@@ -208,9 +192,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // FULL CYBERARK SCENARIO
-  // =========================================================
+  // Full CyberArk scenario
 
   test('parses full CyberArk PSM .rdp file correctly', () {
     const content = '''
@@ -236,9 +218,7 @@ EnableCredSspSupport:i:1''';
     expect(p.enableCredSsp, isTrue);
   });
 
-  // =========================================================
-  // NAME DERIVATION
-  // =========================================================
+  // Name derivation
 
   group('profile name derivation', () {
     test('uses filename without .rdp extension', () {
@@ -276,9 +256,7 @@ EnableCredSspSupport:i:1''';
     });
   });
 
-  // =========================================================
-  // SERIALIZE → PARSE ROUNDTRIP
-  // =========================================================
+  // Serialize → parse roundtrip
 
   group('serialize round-trip', () {
     test('serialize preserves host and port', () {
@@ -390,9 +368,7 @@ EnableCredSspSupport:i:1''';
     });
   });
 
-  // =========================================================
-  // EDGE CASES
-  // =========================================================
+  // Edge cases
 
   group('edge cases', () {
     test('empty content produces default values', () {

@@ -267,9 +267,7 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
 
       final backendResult = await rdpService.connect(profile);
 
-      // ============================================================
-      // EMBEDDED CONNECT
-      // ============================================================
+      // Embedded connect
 
       String? sessionId;
       String? backendFailure;
@@ -283,9 +281,7 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
         },
       );
 
-      // ============================================================
-      // EMBEDDED SUCCESS
-      // ============================================================
+      // Embedded succeeded
 
       if (sessionId != null) {
         print(
@@ -309,9 +305,7 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
         return;
       }
 
-      // ============================================================
-      // EMBEDDED FAILED -> EXTERNAL FALLBACK
-      // ============================================================
+      // Embedded failed: fall back to an external client
 
       print(
         'RDP embedded connect failed: '
@@ -347,9 +341,7 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
         },
       );
 
-      // ============================================================
-      // EXTERNAL SUCCESS
-      // ============================================================
+      // External succeeded
 
       if (externalMethod != null) {
         print(
@@ -371,9 +363,7 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
         return;
       }
 
-      // ============================================================
-      // BOTH FAILED
-      // ============================================================
+      // Both failed
 
       if (!emit.isDone) {
         emit(
@@ -389,9 +379,7 @@ class RdpWorkspaceBloc extends Bloc<RdpWorkspaceEvent, RdpWorkspaceState> {
       print('RDP launch caught unexpected error: $error');
       print(stackTrace);
 
-      // ============================================================
-      // UNEXPECTED ERROR -> EXTERNAL FALLBACK
-      // ============================================================
+      // Unexpected error: fall back to an external client
 
       try {
         if (Platform.isMacOS) {

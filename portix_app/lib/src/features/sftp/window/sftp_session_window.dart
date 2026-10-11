@@ -9,12 +9,8 @@ import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 
 import 'sftp_window_arguments.dart';
 
-/// Home widget for a detached SFTP child-window.
-///
-/// Bootstraps a fresh [SftpWorkspaceBloc], loads the profiles from the
-/// repository, and renders a full [SftpWorkspacePage] that auto-connects
-/// to the profile and opens at the remote path captured at duplication
-/// time (see [SftpWindowArguments]).
+/// Home widget for a detached SFTP child window: loads the profiles and
+/// auto-connects at the remote path captured when it was duplicated.
 class SftpSessionWindow extends StatefulWidget {
   const SftpSessionWindow({super.key, required this.arguments});
 

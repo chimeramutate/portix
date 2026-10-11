@@ -21,17 +21,12 @@ pub struct RdpProfile {
     pub alternate_shell: Option<String>,
     pub source_rdp_content: Option<String>,
 
-    // ─────────────────────────────────────────────────────────────
     // CyberArk PSM specific
-    // ─────────────────────────────────────────────────────────────
     /// Passthru username for CyberArk PSM (the actual RDP username when using PSM)
-    /// This is used when connecting through CyberArk Privileged Session Manager
     #[serde(default)]
     pub passthru_username: Option<String>,
 
-    // ─────────────────────────────────────────────────────────────
     // RDP redirection
-    // ─────────────────────────────────────────────────────────────
     /// Enable RDP drive redirection.
     pub redirect_drives: bool,
 
@@ -206,16 +201,13 @@ pub fn parse_rdp_file(
         .map(|s| s.to_lowercase().contains("psm"))
         .unwrap_or(false);
 
-    // Read CredSSP setting from file
     let original_cred_ssp = settings
         .get("enablecredsspsupport")
         .and_then(|v| v.parse::<i32>().ok())
         .unwrap_or(1) == 1;
 
-    // For CyberArk PSM, force enable CredSSP because:
-    // 1. PAS portals often generate .rdp files with CredSSP disabled by mistake
-    // 2. CyberArk PSM servers require CredSSP for secure privileged sessions
-    // 3. Without CredSSP, CyberArk returns "privileged session could not be established securely" error
+    // Force CredSSP for CyberArk PSM: it requires it, and PAS portals often
+    // generate .rdp files with it disabled by mistake.
     let enable_cred_ssp = if is_cyberark_psm {
         if !original_cred_ssp {
             eprintln!(
@@ -235,9 +227,7 @@ pub fn parse_rdp_file(
 
     let _drivestoredirect = settings.get("drivestoredirect").cloned();
 
-    // ─────────────────────────────────────────────────────────────
     // Parse host / port
-    // ─────────────────────────────────────────────────────────────
 
     let (host, port) = if let Some(port_str) = server_port_str {
         let port = port_str.trim().parse::<u16>().unwrap_or(3389);
@@ -259,9 +249,7 @@ pub fn parse_rdp_file(
         (host, port)
     };
 
-    // ─────────────────────────────────────────────────────────────
     // Parse DOMAIN\USERNAME
-    // ─────────────────────────────────────────────────────────────
 
     let (parsed_domain, parsed_username) = if username.contains('\\') {
         let mut parts = username.splitn(2, '\\');
@@ -278,9 +266,7 @@ pub fn parse_rdp_file(
         (None, username.clone())
     };
 
-    // ─────────────────────────────────────────────────────────────
     // Profile name
-    // ─────────────────────────────────────────────────────────────
 
     let name = if let Some(name) = profile_name {
         name.to_owned()

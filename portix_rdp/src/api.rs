@@ -73,7 +73,6 @@ pub async fn rdp_send_keyboard_input(
         .await?)
 }
 
-// ffib.rs / lib.rs
 pub async fn rdp_frame_stream(sink: StreamSink<RdpFrameEvent>) -> anyhow::Result<()> {
     let mut rx = RDP_MANAGER.frame_stream();
 
