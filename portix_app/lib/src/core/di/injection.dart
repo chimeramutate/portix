@@ -15,7 +15,6 @@ import '../../data/repositories/settings/index.dart';
 import '../../domain/repositories/settings/index.dart';
 import '../../domain/repositories/ssh/index.dart';
 import '../../features/rdp/service/rdp_backend_service.dart';
-import '../../features/settings/bloc/index.dart';
 import '../../features/sftp/bloc/index.dart';
 import '../../features/ssh_profiles/bloc/index.dart';
 import '../../features/ssh_sessions/bloc/index.dart';
@@ -79,7 +78,6 @@ Future<void> configureDependencies() async {
     ..registerLazySingleton<RdpProfileRepository>(() => RdpProfileRepository())
     ..registerFactory(() => SshWorkspaceBloc(repository: sl()))
     ..registerFactory(() => RdpWorkspaceBloc(repository: sl()))
-    ..registerFactory(() => SettingsBloc(repository: sl()))
     ..registerFactory(() => SftpWorkspaceBloc(repository: sl()))
     ..registerFactory(SshSessionBloc.new);
 }

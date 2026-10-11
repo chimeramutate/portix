@@ -6,23 +6,47 @@ import 'package:portix/src/features/ssh_sessions/widget/remote/terminal_shortcut
 import 'package:xterm/xterm.dart';
 
 void main() {
-  test('parses terminal clipboard shortcut settings', () {
+  test('parses saved shortcuts, including the old Settings values', () {
+    final copy = parseBinding('Shift+Ctrl+C')!;
+    expect(copy.trigger, LogicalKeyboardKey.keyC);
+    expect(copy.control && copy.shift && !copy.alt && !copy.meta, isTrue);
+    expect(formatBinding(copy), 'Ctrl+Shift+C');
+    expect(formatBinding(parseBinding('Ctrl+Alt+F5')!), 'Ctrl+Alt+F5');
+    expect(parseBinding('Ctrl++')!.trigger, LogicalKeyboardKey.add);
+    expect(parseBinding('Hyper+C'), isNull);
+    expect(parseBinding(''), isNull);
+  });
+
+  test('falls back to defaults for unset or broken bindings', () {
+    final bindings = terminalBindingsFrom({
+      TerminalCommand.find.settingKey: 'Ctrl+Alt+G',
+      TerminalCommand.snippets.settingKey: 'nonsense+',
+    });
+    expect(formatBinding(bindings[TerminalCommand.find]!), 'Ctrl+Alt+G');
     expect(
-      terminalClipboardShortcutFromValue('Shift+Ctrl+C'),
-      TerminalClipboardShortcut.shiftCtrl,
+      formatBinding(bindings[TerminalCommand.snippets]!),
+      formatBinding(TerminalCommand.snippets.defaultBinding),
     );
-    expect(
-      terminalClipboardShortcutFromValue('Ctrl+C'),
-      TerminalClipboardShortcut.ctrl,
+  });
+
+  test('zoom matches = and + as the same key', () {
+    const zoomIn = SingleActivator(
+      LogicalKeyboardKey.equal,
+      control: true,
+      shift: true,
     );
-    expect(
-      terminalClipboardShortcutFromValue('Ctrl+V'),
-      TerminalClipboardShortcut.ctrl,
+    bool match(LogicalKeyboardKey key, {bool shift = true}) => bindingMatches(
+      zoomIn,
+      key,
+      control: true,
+      shift: shift,
+      alt: false,
+      meta: false,
     );
-    expect(
-      terminalClipboardShortcutFromValue('Shift+Ctrl+V'),
-      TerminalClipboardShortcut.shiftCtrl,
-    );
+    expect(match(LogicalKeyboardKey.equal), isTrue);
+    expect(match(LogicalKeyboardKey.add), isTrue);
+    expect(match(LogicalKeyboardKey.equal, shift: false), isFalse);
+    expect(match(LogicalKeyboardKey.minus), isFalse);
   });
 
   test(
@@ -31,8 +55,8 @@ void main() {
       final controller = TerminalController();
       final terminal = Terminal();
       final shortcuts = terminalShortcutsFor(
-        copyShortcut: TerminalClipboardShortcut.shiftCtrl,
-        pasteShortcut: TerminalClipboardShortcut.ctrl,
+        copyShortcut: terminalDefaultCopyBinding,
+        pasteShortcut: terminalDefaultPasteBinding,
         controller: controller,
         terminal: terminal,
       );

@@ -12,6 +12,7 @@ import 'package:portix/src/sftp_client/sftp_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'src/core/di/injection.dart';
+import 'src/features/app_menu/app_menu.dart';
 import 'src/features/rdp/window/main_window_bootstrap.dart';
 import 'src/features/ssh_profiles/bloc/index.dart';
 import 'src/features/ssh_profiles/page/index.dart';
@@ -120,7 +121,7 @@ class _PortixAppState extends State<PortixApp> with WindowListener {
                   sl<RdpWorkspaceBloc>()..add(const RdpProfilesRequested()),
             ),
           ],
-          child: const PortixWorkspacePage(),
+          child: const AppMenus(child: PortixWorkspacePage()),
         ),
       ),
     );

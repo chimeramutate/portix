@@ -15,7 +15,7 @@ void main() {
 
   testWidgets('icon-only rail names every view in a tooltip', (tester) async {
     await pump(tester, WorkspaceView.gallery);
-    for (final label in ['SSH profiles', 'RDP', 'SFTP', 'Settings']) {
+    for (final label in ['SSH profiles', 'RDP', 'SFTP']) {
       expect(find.byTooltip(label), findsOneWidget);
       expect(find.text(label), findsNothing);
     }

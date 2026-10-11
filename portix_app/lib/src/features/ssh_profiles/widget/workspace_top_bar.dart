@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
+import 'package:portix/src/features/app_menu/app_menu.dart';
 import 'package:portix/src/features/sftp/bloc/index.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -57,7 +58,6 @@ class WorkspaceTopBar extends StatelessWidget {
         _Title(state.selectedProfile?.name ?? 'Terminal'),
         const <Widget>[],
       ),
-      WorkspaceView.settings => (const _Title('Settings'), const <Widget>[]),
       WorkspaceView.rdp => (const _Title('Remote Desktop'), const <Widget>[]),
       _ => (_GallerySearch(state: state), const <Widget>[_NewProfileButton()]),
     };
@@ -77,7 +77,9 @@ class WorkspaceTopBar extends StatelessWidget {
             ),
           Row(
             children: [
-              SizedBox(width: isMac ? _macTrafficLightInset : 14),
+              SizedBox(width: isMac ? _macTrafficLightInset : 8),
+              // macOS shows these menus in the native menu bar (AppMenus).
+              if (desktop && !isMac) const AppMenuBar(),
               Expanded(child: Center(child: center)),
               for (final action in actions) ...[
                 const SizedBox(width: 8),

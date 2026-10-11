@@ -53,9 +53,9 @@ void main() {
     tester,
   ) async {
     for (final platform in [TargetPlatform.linux, TargetPlatform.windows]) {
-      await _pump(tester, WorkspaceView.settings, platform);
+      await _pump(tester, WorkspaceView.rdp, platform);
       expect(find.byType(WindowCaptionButton), findsNWidgets(3));
-      expect(find.text('Settings'), findsOneWidget);
+      expect(find.byKey(const ValueKey('app-menu-terminal')), findsOneWidget);
     }
   });
 
@@ -63,7 +63,7 @@ void main() {
     tester,
   ) async {
     await _pump(tester, WorkspaceView.remoteFolder, TargetPlatform.linux);
-    expect(find.text('Terminal'), findsOneWidget);
+    expect(find.widgetWithText(Center, 'Terminal'), findsOneWidget);
     expect(find.byType(DragToMoveArea), findsOneWidget);
   });
 

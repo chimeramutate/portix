@@ -94,3 +94,7 @@ int terminalFontSizeFromValue(String? value) {
   final parsed = match == null ? null : int.tryParse(match.group(1)!);
   return (parsed ?? 13).clamp(10, 32);
 }
+
+/// Bumped after the app menu or shortcut editor saves, so open terminals
+/// reload their settings.
+final terminalSettingsRevision = ValueNotifier<int>(0);

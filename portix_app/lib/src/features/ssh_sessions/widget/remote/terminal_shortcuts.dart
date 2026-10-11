@@ -1,31 +1,138 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:xterm/xterm.dart';
 
-const terminalCopyShortcutSettingKey = 'general.terminal_copy_shortcut';
-const terminalPasteShortcutSettingKey = 'general.terminal_paste_shortcut';
+/// Commands the user can rebind from Terminal > Keyboard Shortcuts.
+/// [settingKey]s for copy/paste are the old Settings keys, so values saved
+/// there ("Shift+Ctrl+C") still load.
+enum TerminalCommand {
+  copy('Copy', 'general.terminal_copy_shortcut'),
+  paste('Paste', 'general.terminal_paste_shortcut'),
+  find('Find in terminal', 'keybinding.find'),
+  snippets('Snippets', 'keybinding.snippets'),
+  zoomIn('Zoom in', 'keybinding.zoom_in'),
+  zoomOut('Zoom out', 'keybinding.zoom_out'),
+  zoomReset('Reset zoom', 'keybinding.zoom_reset');
 
-enum TerminalClipboardShortcut { shiftCtrl, ctrl }
+  const TerminalCommand(this.label, this.settingKey);
 
-TerminalClipboardShortcut terminalClipboardShortcutFromValue(String? value) {
-  switch (value?.trim().toLowerCase()) {
-    case 'ctrl':
-    case 'ctrl+c':
-    case 'ctrl+v':
-      return TerminalClipboardShortcut.ctrl;
-    case 'shift':
-    case 'shift+ctrl':
-    case 'shift+ctrl+c':
-    case 'shift+ctrl+v':
-      return TerminalClipboardShortcut.shiftCtrl;
-    default:
-      return TerminalClipboardShortcut.shiftCtrl;
+  final String label;
+  final String settingKey;
+
+  /// macOS: Cmd. Elsewhere Ctrl+Shift, because plain Ctrl+F / Ctrl+- belong
+  /// to the shell (readline). Copy/paste are only rebindable on Linux; macOS
+  /// keeps the native Cmd+C / Cmd+V.
+  SingleActivator get defaultBinding {
+    final mac = defaultTargetPlatform == TargetPlatform.macOS;
+    SingleActivator cmd(LogicalKeyboardKey key, {bool shift = false}) => mac
+        ? SingleActivator(key, meta: true, shift: shift)
+        : SingleActivator(key, control: true, shift: true);
+    return switch (this) {
+      copy => terminalDefaultCopyBinding,
+      paste => terminalDefaultPasteBinding,
+      find => cmd(LogicalKeyboardKey.keyF),
+      snippets => cmd(LogicalKeyboardKey.keyP, shift: true),
+      zoomIn => cmd(LogicalKeyboardKey.equal),
+      zoomOut => cmd(LogicalKeyboardKey.minus),
+      zoomReset => cmd(LogicalKeyboardKey.digit0),
+    };
   }
+
+  /// Commands shown in the shortcut editor on this platform.
+  static List<TerminalCommand> get editable =>
+      defaultTargetPlatform == TargetPlatform.linux
+      ? values
+      : values.where((c) => c != copy && c != paste).toList();
 }
 
+const terminalDefaultCopyBinding = SingleActivator(
+  LogicalKeyboardKey.keyC,
+  control: true,
+  shift: true,
+);
+const terminalDefaultPasteBinding = SingleActivator(
+  LogicalKeyboardKey.keyV,
+  control: true,
+);
+
+typedef TerminalBindings = Map<TerminalCommand, SingleActivator>;
+
+TerminalBindings terminalBindingsFrom(Map<String, String> values) => {
+  for (final command in TerminalCommand.values)
+    command: parseBinding(values[command.settingKey]) ?? command.defaultBinding,
+};
+
+/// "Ctrl+Shift+C". The key comes last, so "Ctrl++" is Ctrl and the + key.
+String formatBinding(SingleActivator binding) => [
+  if (binding.control) 'Ctrl',
+  if (binding.shift) 'Shift',
+  if (binding.alt) 'Alt',
+  if (binding.meta) 'Cmd',
+  binding.trigger.keyLabel,
+].join('+');
+
+SingleActivator? parseBinding(String? value) {
+  final text = value?.trim() ?? '';
+  if (text.isEmpty) return null;
+  final plusKey = text.endsWith('+');
+  final parts = (plusKey ? text.substring(0, text.length - 1) : text)
+      .split('+')
+      .where((part) => part.isNotEmpty)
+      .toList();
+  final label = (plusKey ? '+' : parts.removeLast()).toLowerCase();
+  final mods = {for (final part in parts) part.toLowerCase()};
+  if (!mods.every({'ctrl', 'shift', 'alt', 'cmd'}.contains)) return null;
+  for (final key in LogicalKeyboardKey.knownLogicalKeys) {
+    if (key.keyLabel.toLowerCase() != label) continue;
+    return SingleActivator(
+      key,
+      control: mods.contains('ctrl'),
+      shift: mods.contains('shift'),
+      alt: mods.contains('alt'),
+      meta: mods.contains('cmd'),
+    );
+  }
+  return null;
+}
+
+/// Shift turns = into + (and so on) on some layouts; treat them as one key.
+LogicalKeyboardKey _canonicalKey(LogicalKeyboardKey key) => switch (key) {
+  LogicalKeyboardKey.add ||
+  LogicalKeyboardKey.numpadAdd => LogicalKeyboardKey.equal,
+  LogicalKeyboardKey.underscore ||
+  LogicalKeyboardKey.numpadSubtract => LogicalKeyboardKey.minus,
+  LogicalKeyboardKey.parenthesisRight ||
+  LogicalKeyboardKey.numpad0 => LogicalKeyboardKey.digit0,
+  _ => key,
+};
+
+bool bindingMatches(
+  SingleActivator binding,
+  LogicalKeyboardKey key, {
+  required bool control,
+  required bool shift,
+  required bool alt,
+  required bool meta,
+}) =>
+    _canonicalKey(binding.trigger) == _canonicalKey(key) &&
+    binding.control == control &&
+    binding.shift == shift &&
+    binding.alt == alt &&
+    binding.meta == meta;
+
+bool _isPlainCtrlC(SingleActivator binding) => bindingMatches(
+  binding,
+  LogicalKeyboardKey.keyC,
+  control: true,
+  shift: false,
+  alt: false,
+  meta: false,
+);
+
 Map<ShortcutActivator, Intent> terminalShortcutsFor({
-  required TerminalClipboardShortcut copyShortcut,
-  required TerminalClipboardShortcut pasteShortcut,
+  required SingleActivator copyShortcut,
+  required SingleActivator pasteShortcut,
   required TerminalController controller,
   required Terminal terminal,
 }) {
@@ -33,55 +140,23 @@ Map<ShortcutActivator, Intent> terminalShortcutsFor({
   // Many TUI apps (less, vim, emacs, tmux, readline) use Ctrl+A for
   // "go to beginning of line" or other navigation — intercepting it at the
   // Flutter level would break those apps silently.
-  final shortcuts = <ShortcutActivator, Intent>{};
-
-  switch (copyShortcut) {
-    case TerminalClipboardShortcut.shiftCtrl:
-      // Primary copy shortcut: Shift+Ctrl+C — always copies, never conflicts
-      // with TUI app shortcuts.
-      shortcuts[SingleActivator(
-            LogicalKeyboardKey.keyC,
-            control: true,
-            shift: true,
-          )] =
-          CopySelectionTextIntent.copy;
-
-      // Secondary: plain Ctrl+C copies ONLY when text is selected so the user
-      // can copy highlighted text without switching shortcuts.  When nothing is
-      // selected the event falls through so xterm can forward \x03 (SIGINT) to
-      // the running process (shell, less, vim, etc.) as normal.
-      shortcuts[SingleActivator(LogicalKeyboardKey.keyC, control: true)] =
-          const _CtrlCConditionalCopyIntent();
-
-    case TerminalClipboardShortcut.ctrl:
-      // In explicit Ctrl-only mode the user accepts that Ctrl+C always copies
-      // and never sends SIGINT.
-      shortcuts[SingleActivator(LogicalKeyboardKey.keyC, control: true)] =
-          CopySelectionTextIntent.copy;
-  }
-
-  switch (pasteShortcut) {
-    case TerminalClipboardShortcut.shiftCtrl:
-      shortcuts[SingleActivator(
-        LogicalKeyboardKey.keyV,
-        control: true,
-        shift: true,
-      )] = const PasteTextIntent(
-        SelectionChangedCause.keyboard,
-      );
-    case TerminalClipboardShortcut.ctrl:
-      shortcuts[SingleActivator(LogicalKeyboardKey.keyV, control: true)] =
-          const PasteTextIntent(SelectionChangedCause.keyboard);
-  }
-
-  return shortcuts;
+  return {
+    copyShortcut: CopySelectionTextIntent.copy,
+    // Unless Ctrl+C itself is the copy key, it copies ONLY when text is
+    // selected; with no selection it falls through so xterm sends \x03
+    // (SIGINT) to the running process as normal.
+    if (!_isPlainCtrlC(copyShortcut) && !_isPlainCtrlC(pasteShortcut))
+      const SingleActivator(LogicalKeyboardKey.keyC, control: true):
+          const _CtrlCConditionalCopyIntent(),
+    pasteShortcut: const PasteTextIntent(SelectionChangedCause.keyboard),
+  };
 }
 
 /// An intent that copies the current terminal selection when text is selected,
 /// and explicitly does nothing (so the key falls through to xterm) when there
 /// is no selection.
 ///
-/// Used for Ctrl+C in [TerminalClipboardShortcut.shiftCtrl] mode so the same
+/// Used for Ctrl+C when another key copies, so the same
 /// key can both interrupt processes (no selection → \x03 reaches the shell) and
 /// copy highlighted text (selection present → clipboard copy fires).
 class _CtrlCConditionalCopyIntent extends Intent {
@@ -121,30 +196,3 @@ class TerminalCtrlCCopyAction extends Action<_CtrlCConditionalCopyIntent> {
 
 const minTerminalFontSize = 8.0;
 const maxTerminalFontSize = 32.0;
-
-/// Font size after a zoom shortcut, or null when [key] is not one.
-/// macOS: Cmd + `=` / `-` / `0`. Elsewhere Ctrl+Shift, because plain
-/// Ctrl+`-` is `^_` (readline undo) and must reach the shell. `0` returns
-/// to [base], the size from Settings.
-double? terminalZoomFontSize(
-  LogicalKeyboardKey key, {
-  required double current,
-  required double base,
-  required bool meta,
-  required bool control,
-  required bool shift,
-  required bool isMacOS,
-}) {
-  final modifier = isMacOS ? meta && !control : control && shift && !meta;
-  if (!modifier) return null;
-  final next = switch (key) {
-    LogicalKeyboardKey.equal || LogicalKeyboardKey.add => current + 1,
-    LogicalKeyboardKey.numpadAdd => current + 1,
-    LogicalKeyboardKey.minus || LogicalKeyboardKey.underscore => current - 1,
-    LogicalKeyboardKey.numpadSubtract => current - 1,
-    LogicalKeyboardKey.digit0 || LogicalKeyboardKey.parenthesisRight => base,
-    LogicalKeyboardKey.numpad0 => base,
-    _ => null,
-  };
-  return next?.clamp(minTerminalFontSize, maxTerminalFontSize);
-}
