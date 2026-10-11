@@ -1175,17 +1175,24 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
               padding: const EdgeInsets.all(14),
               child: Column(
                 children: [
-                  // Tab bar
-                  SizedBox(
-                    height: 40,
+                  // Tab strip, styled like the terminal tabs: flat tabs,
+                  // the active one lifted with a cyan top marker.
+                  Container(
+                    height: 36,
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: AppColors.border),
+                      ),
+                    ),
                     child: Row(
                       children: [
-                        Expanded(
+                        Flexible(
                           child: ListView.separated(
+                            shrinkWrap: true,
                             scrollDirection: Axis.horizontal,
                             itemCount: _tabs.length,
                             separatorBuilder: (_, _) =>
-                                const SizedBox(width: 8),
+                                const SizedBox(width: 2),
                             itemBuilder: (context, index) {
                               final tab = _tabs[index];
                               final active = index == _activeTabIndex;
@@ -1211,18 +1218,12 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                             },
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        IconButton(
+                        const SizedBox(width: 4),
+                        AppIconButton(
                           tooltip: 'New SFTP tab',
+                          outlined: false,
+                          icon: Icons.add_rounded,
                           onPressed: _addSftpTab,
-                          icon: const Icon(Icons.add_rounded, size: 18),
-                          style: IconButton.styleFrom(
-                            backgroundColor: AppColors.surface,
-                            side: BorderSide(color: AppColors.border),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
                         ),
                       ],
                     ),
