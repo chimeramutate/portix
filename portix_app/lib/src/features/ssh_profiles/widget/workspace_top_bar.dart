@@ -373,9 +373,7 @@ class _ConnectionBadge extends StatelessWidget {
     Color? iconColor,
   }) : _iconColor = iconColor;
 
-  /// Path to an OS-specific SVG icon asset (e.g. 'assets/icons/os/ubuntu-linux.svg').
-  /// When non-empty, the badge renders this SVG with its own colors.
-  /// Falls back to [Icons.dns_outlined] when empty.
+  /// OS SVG icon asset, drawn in its own colors; [Icons.dns_outlined] when empty.
   final String? osIconAsset;
   final String title;
   final Widget? trailing;

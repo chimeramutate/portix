@@ -53,7 +53,6 @@ Future<List<RemoteFileEntry>> findRemoteEntries({
   while (queue.isNotEmpty &&
       results.length < maxResults &&
       visited.length < _maxRemoteSearchDirectories) {
-    // Collect a batch of directories to process in parallel.
     final batch = <_RemoteSearchDirectory>[];
     while (batch.length < batchSize && queue.isNotEmpty) {
       final current = queue.removeFirst();
@@ -66,7 +65,6 @@ Future<List<RemoteFileEntry>> findRemoteEntries({
     }
     if (batch.isEmpty) continue;
 
-    // List all directories in the batch concurrently.
     final futures = batch.map(
       (dir) => _listForFind(
         list,

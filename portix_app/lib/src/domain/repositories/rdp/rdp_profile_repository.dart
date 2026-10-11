@@ -10,9 +10,7 @@ class RdpProfileRepository {
   final List<RdpProfile> _profiles;
   final _parser = const RdpFileParser();
 
-  // ---------------------------------------------------------------------------
   // Storage
-  // ---------------------------------------------------------------------------
 
   static File get _storeFile {
     final home =
@@ -46,10 +44,6 @@ class RdpProfileRepository {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Public API
-  // ---------------------------------------------------------------------------
-
   Future<Either<Failure, List<RdpProfile>>> getProfiles() async {
     await Future<void>.delayed(const Duration(milliseconds: 80));
     return Right(List.unmodifiable(_profiles));
@@ -80,9 +74,7 @@ class RdpProfileRepository {
     return const Right(null);
   }
 
-  // ---------------------------------------------------------------------------
   // .rdp file import
-  // ---------------------------------------------------------------------------
 
   /// Import a .rdp file from [filePath] and return a temporary profile for
   /// session-based connection without persisting it to the saved profile list.
@@ -120,9 +112,7 @@ class RdpProfileRepository {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // JSON serialization
-  // ---------------------------------------------------------------------------
 
   static Map<String, Object?> _profileToJson(RdpProfile p) => {
     'id': p.id,

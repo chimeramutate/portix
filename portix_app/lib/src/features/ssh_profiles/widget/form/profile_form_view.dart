@@ -170,8 +170,6 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                 availableWidth >= 1320 && state.isProfileFormComplete;
             final contentMaxWidth = showSidePanel ? 920.0 : 1080.0;
 
-            // --- Sections ---
-
             final identitySection = _FormSection(
               key: _identityKey,
               icon: Icons.badge_outlined,
@@ -446,9 +444,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Side panel (no TestConnectionPanel)
-// ---------------------------------------------------------------------------
+// Side panel
 
 class _AnimatedSidePanel extends StatelessWidget {
   const _AnimatedSidePanel({required this.state});
@@ -477,9 +473,7 @@ class _AnimatedSidePanel extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Compact header with step pills
-// ---------------------------------------------------------------------------
 
 class _CompactFormHeader extends StatelessWidget {
   const _CompactFormHeader({required this.state});
@@ -558,9 +552,7 @@ class _CompactFormHeader extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Generic form section card
-// ---------------------------------------------------------------------------
+// Form section card
 
 class _FormSection extends StatelessWidget {
   const _FormSection({
@@ -725,9 +717,7 @@ TextStyle get _subtitleStyle => TextStyle(
   fontWeight: FontWeight.w500,
 );
 
-// ---------------------------------------------------------------------------
 // Advanced section with ^ toggle
-// ---------------------------------------------------------------------------
 
 class _AdvancedSection extends StatelessWidget {
   const _AdvancedSection({
@@ -814,9 +804,7 @@ class _AdvancedSection extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Autocomplete text field
-// ---------------------------------------------------------------------------
 
 class _AutocompleteTextField extends StatefulWidget {
   const _AutocompleteTextField({
@@ -920,9 +908,7 @@ class _AutocompleteTextFieldState extends State<_AutocompleteTextField> {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Tag selector
-// ---------------------------------------------------------------------------
 
 class _TagSelector extends StatefulWidget {
   const _TagSelector({
@@ -1121,9 +1107,7 @@ class _TagChip extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Profile color picker
-// ---------------------------------------------------------------------------
 
 class _ProfileColorPicker extends StatelessWidget {
   const _ProfileColorPicker({required this.color});
@@ -1262,9 +1246,7 @@ class _JumpHostPicker extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Auth method segmented control
-// ---------------------------------------------------------------------------
 
 class _AuthSegments extends StatelessWidget {
   const _AuthSegments({required this.profile, super.key});
@@ -1370,9 +1352,7 @@ class _Segment extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
 // SSH key upload box
-// ---------------------------------------------------------------------------
 
 class _UploadBox extends StatelessWidget {
   const _UploadBox({required this.onTap});
@@ -1477,10 +1457,6 @@ class _UploadBoxText extends StatelessWidget {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 String _profileColorLabel(ProfileColor color) {
   return switch (color) {

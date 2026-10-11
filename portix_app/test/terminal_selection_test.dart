@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xterm/xterm.dart';
 
-// terminal testing is a bit tricky because it relies on mouse events and timers, so we have to use the flutter_test package to simulate user interactions and verify the behavior of the terminal selection feature.
 void main() {
   group('Terminal Selection Tests', () {
     test('Selection can be created and cleared', () {

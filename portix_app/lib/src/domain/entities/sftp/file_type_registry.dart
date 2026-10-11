@@ -239,7 +239,7 @@ class FileTypeRegistry {
   };
 
   static const Map<String, String> _extensionIconMap = {
-    // ── Code / programming ──────────────────────────
+    // Code / programming
     'py': 'assets/icons/extension/python.svg',
     'pyw': 'assets/icons/extension/python.svg',
     'js': 'assets/icons/extension/js.svg',
@@ -290,7 +290,7 @@ class FileTypeRegistry {
     'ps1': 'assets/icons/extension/terminal.svg',
     'bat': 'assets/icons/extension/terminal.svg',
     'cmd': 'assets/icons/extension/terminal.svg',
-    // ── Config / environment ────────────────────────
+    // Config / environment
     'env': 'assets/icons/extension/env.svg',
     'yaml': 'assets/icons/extension/yaml.svg',
     'yml': 'assets/icons/extension/yaml.svg',
@@ -302,13 +302,13 @@ class FileTypeRegistry {
     'gradle': 'assets/icons/extension/document-config.svg',
     'dockerfile': 'assets/icons/extension/docker.svg',
     'makefile': 'assets/icons/extension/env.svg',
-    // ── Markdown / GitHub ───────────────────────────
+    // Markdown / GitHub
     'md': 'assets/icons/extension/markdown.svg',
     'markdown': 'assets/icons/extension/markdown.svg',
     'gitignore': 'assets/icons/extension/github.svg',
     'gitattributes': 'assets/icons/extension/github.svg',
     'gitmodules': 'assets/icons/extension/github.svg',
-    // ── Documents ───────────────────────────────────
+    // Documents
     'doc': 'assets/icons/extension/word.svg',
     'docx': 'assets/icons/extension/word.svg',
     'rtf': 'assets/icons/extension/word.svg',
@@ -323,7 +323,7 @@ class FileTypeRegistry {
     'pptx': 'assets/icons/extension/ppt.svg',
     'odp': 'assets/icons/extension/ppt.svg',
     'pdf': 'assets/icons/extension/pdf.svg',
-    // ── Images ──────────────────────────────────────
+    // Images
     'jpg': 'assets/icons/extension/photo.svg',
     'jpeg': 'assets/icons/extension/photo.svg',
     'png': 'assets/icons/extension/photo.svg',
@@ -339,7 +339,7 @@ class FileTypeRegistry {
     'raw': 'assets/icons/extension/photo.svg',
     'cr2': 'assets/icons/extension/photo.svg',
     'nef': 'assets/icons/extension/photo.svg',
-    // ── Audio ───────────────────────────────────────
+    // Audio
     'mp3': 'assets/icons/extension/music.svg',
     'wav': 'assets/icons/extension/music.svg',
     'flac': 'assets/icons/extension/music.svg',
@@ -349,12 +349,12 @@ class FileTypeRegistry {
     'm4a': 'assets/icons/extension/music.svg',
     'opus': 'assets/icons/extension/music.svg',
     'aiff': 'assets/icons/extension/music.svg',
-    // ── Archives ────────────────────────────────────
+    // Archives
     'zip': 'assets/icons/extension/zip.svg',
     'zipx': 'assets/icons/extension/zip.svg',
     'rar': 'assets/icons/extension/rar.svg',
     'rpm': 'assets/icons/extension/rpm.svg',
-    // ── Executables ─────────────────────────────────
+    // Executables
     'exe': 'assets/icons/extension/exe.svg',
     'msi': 'assets/icons/extension/exe.svg',
   };

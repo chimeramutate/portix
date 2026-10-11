@@ -104,7 +104,7 @@ class ProfileSecretStore {
     return 'portix.ssh_profile.$profileId.password';
   }
 
-  // --- macOS Keychain fallback ---
+  // macOS Keychain fallback.
 
   static bool _shouldUseMacKeychainFallback(PlatformException error) {
     if (!Platform.isMacOS) {
@@ -166,17 +166,14 @@ class ProfileSecretStore {
 
   static const String _macKeychainService = 'Portix SSH Profile Password';
 
-  // --- Linux file-based fallback ---
-  // Used when libsecret / D-Bus Secret Service is not available.
-  // Stores credentials as base64-encoded values in a user-only readable file.
-  // This is NOT as secure as a proper keyring but allows the app to function.
+  // Linux fallback when libsecret / Secret Service is missing: base64 values
+  // in an owner-only file, weaker than a real keyring.
 
   static Future<Directory> _linuxSecretDir() async {
     final appDir = await getApplicationSupportDirectory();
     final dir = Directory('${appDir.path}/secrets');
     if (!await dir.exists()) {
       await dir.create(recursive: true);
-      // Set directory permissions to owner-only (700).
       await Process.run('chmod', ['700', dir.path]);
     }
     return dir;

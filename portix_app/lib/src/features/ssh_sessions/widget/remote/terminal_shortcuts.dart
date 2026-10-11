@@ -136,10 +136,7 @@ Map<ShortcutActivator, Intent> terminalShortcutsFor({
   required TerminalController controller,
   required Terminal terminal,
 }) {
-  // NOTE: Ctrl+A (SelectAll) is intentionally NOT registered here.
-  // Many TUI apps (less, vim, emacs, tmux, readline) use Ctrl+A for
-  // "go to beginning of line" or other navigation — intercepting it at the
-  // Flutter level would break those apps silently.
+  // Ctrl+A is left to the shell: readline, tmux, vim and less use it.
   return {
     copyShortcut: CopySelectionTextIntent.copy,
     // Unless Ctrl+C itself is the copy key, it copies ONLY when text is
@@ -152,25 +149,13 @@ Map<ShortcutActivator, Intent> terminalShortcutsFor({
   };
 }
 
-/// An intent that copies the current terminal selection when text is selected,
-/// and explicitly does nothing (so the key falls through to xterm) when there
-/// is no selection.
-///
-/// Used for Ctrl+C when another key copies, so the same
-/// key can both interrupt processes (no selection → \x03 reaches the shell) and
-/// copy highlighted text (selection present → clipboard copy fires).
+/// Copies the terminal selection, or does nothing when there is none so
+/// the key reaches xterm. Lets Ctrl+C both copy and interrupt.
 class _CtrlCConditionalCopyIntent extends Intent {
   const _CtrlCConditionalCopyIntent();
 }
 
-/// Action that handles [_CtrlCConditionalCopyIntent].
-///
-/// * **Selection present** – copies text, returns true from [consumesKey] so
-///   the Shortcuts widget marks the key event as handled and xterm does NOT
-///   also receive \x03.
-/// * **No selection** – does nothing, returns false from [consumesKey] so the
-///   Shortcuts widget marks the event as ignored, allowing xterm to forward
-///   the raw \x03 (SIGINT) to the running process.
+/// Action for [_CtrlCConditionalCopyIntent].
 class TerminalCtrlCCopyAction extends Action<_CtrlCConditionalCopyIntent> {
   TerminalCtrlCCopyAction({required this.controller});
 

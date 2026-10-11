@@ -5,9 +5,7 @@ mod tests {
     use crate::domain::events::{RdpErrorEvent, RdpFrameEvent, RdpStatusEvent};
     use crate::domain::session::RdpConnectionStatus;
 
-    // =========================================================
     // RdpStatusEvent
-    // =========================================================
 
     #[test]
     fn status_event_serializes_and_deserializes() {
@@ -46,9 +44,7 @@ mod tests {
         assert_eq!(event.session_id, "original");
     }
 
-    // =========================================================
     // RdpErrorEvent
-    // =========================================================
 
     #[test]
     fn error_event_deserializes_default_code_when_missing() {
@@ -79,9 +75,7 @@ mod tests {
         assert_eq!(decoded.code, "PROTOCOL_ERROR");
     }
 
-    // =========================================================
     // RdpFrameEvent
-    // =========================================================
 
     #[test]
     fn frame_event_single_chunk_fields() {

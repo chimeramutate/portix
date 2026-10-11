@@ -12,10 +12,8 @@ class _SftpProfileGate extends StatefulWidget {
   final List<SshProfile> profiles;
   final ValueChanged<SshProfile> onSelected;
 
-  /// When true, a **Local** entry is rendered as the first (topmost) pick in
-  /// the list, so the picker always offers "local" as the primary choice —
-  /// matching the requirement that the top-most pick is Local even once a
-  /// remote profile has been attached.
+  /// Puts a **Local** entry first in the list, even once a remote profile
+  /// is attached.
   final bool includeLocal;
   final VoidCallback? onLocalSelected;
   final bool localSelected;
@@ -311,11 +309,8 @@ class _SortToggleState extends State<_SortToggle> {
   }
 }
 
-/// A leading picker row that represents the **Local** filesystem root.
-///
-/// Rendered as the first (topmost) entry whenever [_SftpProfileGate.includeLocal]
-/// is set, so the picker always offers "Local" as the primary choice — keeping
-/// the local root pinned at the top of the server list.
+/// The leading **Local** row, shown when [_SftpProfileGate.includeLocal]
+/// is set.
 class _LocalProfileTile extends StatelessWidget {
   const _LocalProfileTile({required this.selected, this.onTap});
 

@@ -65,11 +65,8 @@ const MAX_ROWS: u32 = 256;
 /// How often to send an SSH keepalive request to the server.
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
 
-/// How long to wait for a keepalive reply before giving up (non-fatal).
-/// Must be shorter than KEEPALIVE_INTERVAL to avoid stacking.
-/// Set to 1 s so the select! loop is never stalled by keepalive I/O —
-/// a truly dead connection is detected via channel closure or the next
-/// operation, not via a blocking keepalive timeout.
+/// How long to wait for a keepalive reply; a timeout is not fatal. Kept at
+/// 1 s so keepalive I/O never stalls the select! loop.
 const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(1);
 
 impl client::Handler for Client {
@@ -183,33 +180,9 @@ impl SshRuntime {
                     }
                 }
                 _ = keepalive_tick.tick() => {
-                    // Send keepalive without blocking the select! loop or
-                    // exiting the runtime on failure.
-                    //
-                    // Previously, a keepalive timeout (7 s) would:
-                    //  1. block the select! loop for up to 7 s, delaying all
-                    //     SFTP command processing (the "glitchy view"), and
-                    //  2. immediately kill the runtime via
-                    //     `return Err(PortixError::ConnectionTimeout)`, marking
-                    //     the session as error/disconnected — even though SFTP
-                    //     file commands run on a *separate* exec channel
-                    //     (`run_exec_worker`) with its own auto-reconnect, so
-                    //     the keepalive timeout was a false positive. This
-                    //     caused false disconnect notifications that kept
-                    //     re-appearing every ~17 s.
-                    //
-                    // With a 1 s non-fatal timeout:
-                    //  - The select! loop is stalled for at most 1 s per tick.
-                    //  - SFTP operations are not blocked for the full 7 s.
-                    //  - The runtime does NOT exit on keepalive failure.
-                    //  - For terminal sessions, a truly dead SSH connection is
-                    //    still detected: the terminal channel closes
-                    //    (channel.wait() → None/Eof/Close → break) or the next
-                    //    channel operation (data/resize) returns an error (?).
-                    //  - For SFTP sessions, file commands work via the exec
-                    //    worker (separate SSH connection with auto-reconnect).
-                    //  - The Rust `inactivity_timeout` (30 s) remains as a
-                    //    backstop for genuinely dead connections.
+                    // Non-fatal with a 1 s timeout: a fatal 7 s one stalled SFTP commands and
+                    // caused false disconnects. A dead connection still surfaces via channel
+                    // close, the next channel op, or the 30 s inactivity_timeout.
                     let _ = timeout(
                         KEEPALIVE_TIMEOUT,
                         session.send_keepalive(false),
@@ -288,17 +261,8 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
     let connect = || connect_and_authenticate_profile(&profile);
     let mut session = connect().await.ok();
 
-    // This dedicated exec connection is used only for SFTP/remote-file
-    // commands, so — unlike the interactive terminal session — it carries no
-    // traffic between operations. Without keepalives the SSH server (or russh's
-    // own `inactivity_timeout`, currently 30s) reaps it while the SFTP panel
-    // sits idle, which is why the first file transfer / directory load after
-    // idle failed and only the second attempt (which reconnects) succeeded.
-    //
-    // Mirror the terminal session: send a keepalive each interval so the
-    // channel stays warm, and — as a safety net for any death that still
-    // slips through between pings — transparently reconnect and retry the
-    // command once instead of surfacing the transient failure.
+    // This exec connection is idle between SFTP commands, so without keepalives
+    // the server reaps it. Keep it warm; if it died anyway, reconnect and retry once.
     let mut keepalive = interval(KEEPALIVE_INTERVAL);
     keepalive.tick().await; // consume the immediate first tick
 
@@ -310,8 +274,7 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
                     break;
                 };
 
-                // Establish the connection if we don't have one yet (with one
-                // retry), preserving the original behaviour.
+                // Connect if there's no connection yet, with one retry.
                 let mut connect_error = None;
                 if session.is_none() {
                     session = connect().await.ok();
@@ -328,11 +291,8 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
                 let result = if let Some(handle) = session.as_ref() {
                     let result = run_exec(handle, command.clone()).await;
                     if result.is_err() {
-                        // Connection dropped between keepalive pings (or the
-                        // connect above just failed). Reconnect once and retry
-                        // the command so the caller never observes the
-                        // transient failure — this is what makes the first
-                        // transfer succeed instead of needing a second attempt.
+                        // Dropped between pings (or the connect above failed): reconnect and
+                        // retry once so the caller never sees the transient failure.
                         session = None;
                         match connect().await {
                             Ok(new_handle) => {
@@ -354,24 +314,8 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
             }
             _ = keepalive.tick() => {
                 if let Some(handle) = session.as_ref() {
-                    // Non-blocking keepalive with a short timeout.
-                    //
-                    // IMPORTANT: do NOT set `session = None` on timeout.
-                    // The keepalive timeout (1 s) can fire on slow-but-alive
-                    // SSH servers (the server is just slow to ACK the
-                    // SSH_MSG_IGNORE packet). Dropping the session here
-                    // would force a full re-connect on the *next* exec
-                    // request, which is wasteful and — if that re-connect
-                    // also hits a slow response — causes cascading failures
-                    // that trigger the Dart-side force-close threshold
-                    // (_recordRemoteFailure after 2 failures), producing a
-                    // false disconnect even though the server is still
-                    // reachable.
-                    //
-                    // Instead, we silently discard the keepalive result.
-                    // If the connection is *truly* dead, the next exec
-                    // request's `run_exec` will fail and the existing retry
-                    // path (connect → retry command) will reconnect cleanly.
+                    // Ignore the result and keep the session: slow-but-alive servers miss the
+                    // 1 s timeout, and a dead one fails the next run_exec, which reconnects.
                     let _ = timeout(
                         KEEPALIVE_TIMEOUT,
                         handle.send_keepalive(false),
@@ -616,7 +560,7 @@ mod tests {
     use super::*;
     use std::env;
 
-    // ── normalize_terminal_size ───────────────────────────────────────────────
+    // normalize_terminal_size
 
     #[test]
     fn normalize_terminal_size_clamps_tiny_values() {
@@ -673,7 +617,7 @@ mod tests {
         assert_eq!(rows, MIN_ROWS);
     }
 
-    // ── expand_user_path ──────────────────────────────────────────────────────
+    // expand_user_path
 
     #[test]
     fn expand_user_path_tilde_slash_expands_to_home() {

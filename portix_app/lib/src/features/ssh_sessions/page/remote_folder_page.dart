@@ -240,8 +240,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
           }
         }
         if (profile == null) {
-          // Don't navigate away automatically - let user decide what to do next
-          // This allows closing all tabs without auto-opening a new connection
+          // Stay put, so closing every tab doesn't auto-open a new connection.
           return const SizedBox.shrink();
         }
         return LayoutBuilder(

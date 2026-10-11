@@ -4,9 +4,7 @@ import 'package:portix/src/domain/entities/rdp/rdp_profile.dart';
 import 'package:portix/src/domain/repositories/rdp/rdp_profile_repository.dart';
 import 'package:portix/src/features/rdp/bloc/rdp_workspace_bloc.dart';
 
-// ---------------------------------------------------------------------------
 // Stub repository — pure in-memory, no file I/O
-// ---------------------------------------------------------------------------
 
 class _StubRdpProfileRepository extends RdpProfileRepository {
   _StubRdpProfileRepository(this._data);
@@ -62,9 +60,7 @@ class _StubRdpProfileRepository extends RdpProfileRepository {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Fixtures
-// ---------------------------------------------------------------------------
 
 RdpProfile _makeProfile({
   String id = 'p1',
@@ -85,10 +81,6 @@ RdpProfile _makeProfile({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 void main() {
   late _StubRdpProfileRepository repo;
   late RdpWorkspaceBloc bloc;
@@ -100,9 +92,7 @@ void main() {
 
   tearDown(() => bloc.close());
 
-  // =========================================================
-  // INITIAL STATE
-  // =========================================================
+  // Initial state
 
   group('initial state', () {
     test('starts with status initial', () {
@@ -122,9 +112,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // PROFILES REQUESTED
-  // =========================================================
+  // Profiles requested
 
   group('RdpProfilesRequested', () {
     test('emits ready with profiles on success', () async {
@@ -184,9 +172,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // PROFILE SELECTION
-  // =========================================================
+  // Profile selection
 
   group('RdpProfileSelected', () {
     test('sets selectedId', () async {
@@ -222,9 +208,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // PROFILE SELECTION CLEARED
-  // =========================================================
+  // Profile selection cleared
 
   group('RdpProfileSelectionCleared', () {
     test('clears selectedId', () async {
@@ -236,9 +220,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // NEW PROFILE REQUESTED
-  // =========================================================
+  // New profile requested
 
   group('RdpNewProfileRequested', () {
     test('switches to form view', () async {
@@ -266,9 +248,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // PROFILE FORM CHANGED
-  // =========================================================
+  // Profile form changed
 
   group('RdpProfileFormChanged', () {
     setUp(() {
@@ -349,9 +329,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // PROFILE SAVED
-  // =========================================================
+  // Profile saved
 
   group('RdpProfileSaved', () {
     test('validates empty name', () async {
@@ -433,9 +411,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // PROFILE DELETED
-  // =========================================================
+  // Profile deleted
 
   group('RdpProfileDeleted', () {
     test('removes profile from list', () async {
@@ -492,9 +468,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // SEARCH & FILTER
-  // =========================================================
+  // Search & filter
 
   group('search and filter', () {
     setUp(() async {
@@ -561,9 +535,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // NAVIGATION
-  // =========================================================
+  // Navigation
 
   group('RdpNavigationChanged', () {
     test('switches to form view', () async {
@@ -581,9 +553,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // PROFILE EDIT REQUESTED
-  // =========================================================
+  // Profile edit requested
 
   group('RdpProfileEditRequested', () {
     setUp(() async {

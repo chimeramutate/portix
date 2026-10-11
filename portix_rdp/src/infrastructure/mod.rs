@@ -10,6 +10,3 @@ pub mod rdpsnd;
 
 // Text clipboard sync over cliprdr (all platforms, via arboard).
 pub mod clipboard;
-
-// MVP fallback implementation kept for reference.
-// pub mod rdp_client_mvp;
