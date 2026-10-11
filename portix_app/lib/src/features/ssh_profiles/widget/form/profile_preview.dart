@@ -14,25 +14,26 @@ class ProfilePreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final profile = state.editingProfile;
     return AppPanel(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Profile Preview',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: portixTitle(19),
+            'PREVIEW',
+            style: TextStyle(
+              color: AppColors.muted,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: .8,
+            ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           if (profile != null) _PreviewProfileCard(profile: profile),
         ],
       ),
     );
   }
 }
-
-// TestConnectionPanel and _StatusLine removed – test connection feature is no longer part of the profile form.
 
 class _PreviewProfileCard extends StatelessWidget {
   const _PreviewProfileCard({required this.profile});
@@ -44,9 +45,9 @@ class _PreviewProfileCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.selectedSoft,
+        color: AppColors.surfaceDark,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.cyan),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -62,20 +63,11 @@ class _PreviewProfileCard extends StatelessWidget {
                   children: [
                     Text(
                       profile.name,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: AppColors.text,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      profile.address,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 12,
+                        fontSize: 15,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -94,31 +86,6 @@ class _PreviewProfileCard extends StatelessWidget {
                 AppPill(label: tag, color: AppColors.muted),
             ],
           ),
-          const SizedBox(height: 12),
-          Container(
-            height: 34,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceCard.withValues(alpha: .55),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.terminal_rounded, color: AppColors.muted, size: 16),
-                SizedBox(width: 8),
-                Text(
-                  'Open after save',
-                  style: TextStyle(
-                    color: AppColors.muted,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );
@@ -131,16 +98,13 @@ class _PreviewIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 42,
-      height: 42,
+      width: 36,
+      height: 36,
       decoration: BoxDecoration(
-        color: AppColors.muted.withValues(alpha: .14),
-        borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: AppColors.muted),
+        color: AppColors.cyan.withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(8),
       ),
-      child: Icon(Icons.dns_rounded, color: AppColors.muted, size: 24),
+      child: Icon(Icons.dns_outlined, color: AppColors.cyan, size: 18),
     );
   }
 }
-
-// _StatusLine removed – no longer needed after TestConnectionPanel was removed.

@@ -155,6 +155,25 @@ void main() {
     expect(find.byTooltip('SSH profiles'), findsOneWidget);
   });
 
+  for (final size in const [Size(1600, 900), Size(820, 900)]) {
+    _appTest('new profile form lays out at ${size.width.toInt()}px', (
+      tester,
+    ) async {
+      await _pumpPortixApp(tester, size);
+      await tester.tap(find.byTooltip('New SSH Profile'));
+      await tester.pumpAndSettle();
+      expect(find.text('Connection'), findsOneWidget);
+      for (final label in ['Password', 'Advanced']) {
+        await tester.ensureVisible(find.text(label));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('Startup command'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   _appTest('terminal tools sit behind one button at the right', (tester) async {
     await _pumpPortixApp(tester, const Size(1600, 900));
     await tester.tap(find.text('Open SSH').first);

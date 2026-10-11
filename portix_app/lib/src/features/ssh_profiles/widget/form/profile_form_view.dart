@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:portix/src/core/theme/app_theme.dart';
@@ -173,9 +174,9 @@ class _ProfileFormViewState extends State<ProfileFormView> {
 
             final identitySection = _FormSection(
               key: _identityKey,
-              title: 'Profile Identity',
-              subtitle:
-                  'Name and group are required. Tags are optional, for filtering.',
+              icon: Icons.badge_outlined,
+              title: 'Identity',
+              subtitle: 'Name and group are required. Tags help filtering.',
               children: [
                 AppTextField(
                   controller: _name,
@@ -204,44 +205,70 @@ class _ProfileFormViewState extends State<ProfileFormView> {
             // Authentication is now embedded inside the endpoint section.
             final endpointSection = _FormSection(
               key: _endpointKey,
-              title: 'Connection Endpoint',
-              subtitle:
-                  'Host, port, username and the SSH authentication method.',
+              icon: Icons.lan_outlined,
+              title: 'Connection',
+              subtitle: 'Where to connect and how to sign in.',
               children: [
-                AppTextField(
-                  controller: _host,
-                  label: 'Host / IP',
-                  icon: Icons.language_rounded,
-                  onChanged: (_) => _changed(context),
+                _FullWidth(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: AppTextField(
+                          controller: _host,
+                          label: 'Host / IP',
+                          hint: 'example.com or 10.0.0.5',
+                          icon: Icons.language_rounded,
+                          onChanged: (_) => _changed(context),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        width: 96,
+                        child: AppTextField(
+                          controller: _port,
+                          label: 'Port',
+                          hint: '22',
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                            LengthLimitingTextInputFormatter(5),
+                          ],
+                          onChanged: (_) => _changed(context),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                AppTextField(
-                  controller: _port,
-                  label: 'Port',
-                  icon: Icons.tag_rounded,
-                  onChanged: (_) => _changed(context),
-                ),
-                AppTextField(
-                  controller: _username,
-                  label: 'Username',
-                  icon: Icons.person_outline,
-                  onChanged: (_) => _changed(context),
+                _FullWidth(
+                  child: AppTextField(
+                    controller: _username,
+                    label: 'Username',
+                    hint: 'root',
+                    icon: Icons.person_outline,
+                    onChanged: (_) => _changed(context),
+                  ),
                 ),
                 // Auth inline – full-width inside the endpoint card
                 _AuthSegments(key: _authKey, profile: profile),
                 if (profile?.authMethod == AuthMethod.password)
-                  AppTextField(
-                    controller: _credential,
-                    label: 'Password',
-                    icon: Icons.lock_outline_rounded,
-                    obscureText: true,
-                    onChanged: (_) => _changed(context),
+                  _FullWidth(
+                    child: AppTextField(
+                      controller: _credential,
+                      label: 'Password',
+                      icon: Icons.lock_outline_rounded,
+                      obscureText: true,
+                      onChanged: (_) => _changed(context),
+                    ),
                   )
                 else ...[
-                  AppTextField(
-                    controller: _credential,
-                    label: 'SSH key path (empty = ssh-agent)',
-                    icon: Icons.key_rounded,
-                    onChanged: (_) => _changed(context),
+                  _FullWidth(
+                    child: AppTextField(
+                      controller: _credential,
+                      label: 'SSH key path',
+                      hint: 'Empty uses ssh-agent',
+                      icon: Icons.key_rounded,
+                      onChanged: (_) => _changed(context),
+                    ),
                   ),
                   _UploadBox(
                     onTap: () async {
@@ -265,6 +292,7 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                 AppTextField(
                   controller: _startup,
                   label: 'Startup command',
+                  hint: 'e.g. cd /var/www && ls',
                   icon: Icons.terminal_rounded,
                   onChanged: (_) => _changed(context),
                 ),
@@ -272,6 +300,11 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                   controller: _fontSize,
                   label: 'Terminal font size',
                   icon: Icons.text_fields_rounded,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(2),
+                  ],
                   onChanged: (_) => _changed(context),
                 ),
                 _JumpHostPicker(
@@ -326,80 +359,52 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                       endpointSection,
                     ],
                     advancedSection,
-                    // Footer – Save only (no Test Connection)
+                    // Footer: hint left, actions right.
                     AppPanel(
-                      margin: const EdgeInsets.only(top: 2),
-                      padding: const EdgeInsets.all(18),
-                      child: LayoutBuilder(
-                        builder: (context, footerConstraints) {
-                          final stackActions = footerConstraints.maxWidth < 760;
-                          final summary = Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Review and save profile',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: portixTitle(16),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Check the host, port, username and authentication before saving.',
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                                style: portixMuted(),
-                              ),
-                            ],
-                          );
-                          final actions = Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            alignment: WrapAlignment.end,
-                            children: [
-                              AppButton(
-                                icon: Icons.close_rounded,
-                                label: 'Cancel',
-                                onPressed: () =>
-                                    context.read<SshWorkspaceBloc>().add(
-                                      const NavigationChanged(
-                                        WorkspaceView.gallery,
-                                      ),
-                                    ),
-                              ),
-                              AppButton(
-                                key: _saveKey,
-                                icon: Icons.save_outlined,
-                                label: stackActions ? 'Save' : 'Save Profile',
-                                primary: true,
-                                onPressed: () => context
-                                    .read<SshWorkspaceBloc>()
-                                    .add(const ProfileSaved()),
-                              ),
-                            ],
-                          );
-
-                          if (stackActions) {
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                summary,
-                                const SizedBox(height: 14),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: actions,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline_rounded,
+                            size: 15,
+                            color: AppColors.muted,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              compact
+                                  ? 'Check before saving.'
+                                  : 'Check the host, port, username and authentication before saving.',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: _subtitleStyle,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          AppButton(
+                            icon: Icons.close_rounded,
+                            label: 'Cancel',
+                            onPressed: () =>
+                                context.read<SshWorkspaceBloc>().add(
+                                  const NavigationChanged(
+                                    WorkspaceView.gallery,
+                                  ),
                                 ),
-                              ],
-                            );
-                          }
-
-                          return Row(
-                            children: [
-                              Expanded(child: summary),
-                              const SizedBox(width: 16),
-                              actions,
-                            ],
-                          );
-                        },
+                          ),
+                          const SizedBox(width: 8),
+                          AppButton(
+                            key: _saveKey,
+                            icon: Icons.save_outlined,
+                            label: compact ? 'Save' : 'Save Profile',
+                            primary: true,
+                            onPressed: () => context
+                                .read<SshWorkspaceBloc>()
+                                .add(const ProfileSaved()),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -516,13 +521,13 @@ class _CompactFormHeader extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('New SSH Profile', style: portixTitle(16)),
+                    Text('SSH Profile', style: _titleStyle),
                     const SizedBox(height: 2),
                     Text(
-                      'Fill in the required fields first. Advanced settings can stay at their defaults.',
+                      'Fill in the required fields. Advanced settings can stay at their defaults.',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: portixMuted(11),
+                      style: _subtitleStyle,
                     ),
                   ],
                 ),
@@ -559,12 +564,14 @@ class _CompactFormHeader extends StatelessWidget {
 
 class _FormSection extends StatelessWidget {
   const _FormSection({
+    required this.icon,
     required this.title,
     required this.subtitle,
     required this.children,
     super.key,
   });
 
+  final IconData icon;
   final String title;
   final String subtitle;
   final List<Widget> children;
@@ -573,37 +580,23 @@ class _FormSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppPanel(
       margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final titleSize = constraints.maxWidth < 340 ? 16.0 : 18.0;
-              return Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: portixTitle(titleSize),
-              );
-            },
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: portixMuted(),
-          ),
-          const SizedBox(height: 14),
+          _SectionHeader(icon: icon, title: title, subtitle: subtitle),
+          const SizedBox(height: 16),
+          Divider(height: 1, color: AppColors.border.withValues(alpha: .6)),
+          const SizedBox(height: 16),
           LayoutBuilder(
             builder: (context, constraints) {
               final twoColumns = constraints.maxWidth > 640;
               return Wrap(
                 spacing: 12,
-                runSpacing: 14,
+                runSpacing: 16,
                 children: children.map((child) {
                   final fullWidth =
+                      child is _FullWidth ||
                       child is _UploadBox ||
                       child is _AuthSegments ||
                       child is _TagSelector;
@@ -622,6 +615,115 @@ class _FormSection extends StatelessWidget {
     );
   }
 }
+
+/// Marks a section child that spans the whole row.
+class _FullWidth extends StatelessWidget {
+  const _FullWidth({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
+}
+
+/// Icon badge, title and one-line description of a form card.
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: AppColors.cyan.withValues(alpha: .12),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, size: 17, color: AppColors.cyan),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _titleStyle,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: _subtitleStyle,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Label above a custom field, matching [AppTextField]'s label.
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel(this.icon, this.label, {this.trailing});
+
+  final IconData icon;
+  final String label;
+  final String? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          Icon(icon, color: AppColors.muted, size: 14),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: appFieldLabelStyle(),
+            ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(width: 6),
+            Text(
+              trailing!,
+              style: appFieldLabelStyle().copyWith(
+                fontWeight: FontWeight.w400,
+                color: AppColors.muted.withValues(alpha: .7),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+TextStyle get _titleStyle =>
+    TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w700);
+
+TextStyle get _subtitleStyle => TextStyle(
+  color: AppColors.muted,
+  fontSize: 12,
+  fontWeight: FontWeight.w500,
+);
 
 // ---------------------------------------------------------------------------
 // Advanced section with ^ toggle
@@ -650,29 +752,17 @@ class _AdvancedSection extends StatelessWidget {
           // Toggle header
           InkWell(
             onTap: onToggle,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+            borderRadius: BorderRadius.circular(8),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              padding: const EdgeInsets.all(18),
               child: Row(
                 children: [
-                  Icon(
-                    Icons.settings_outlined,
-                    color: AppColors.muted,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Advanced', style: portixTitle(16)),
-                        Text(
-                          'Startup command, font size and other advanced settings.',
-                          style: portixMuted(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                  const Expanded(
+                    child: _SectionHeader(
+                      icon: Icons.tune_rounded,
+                      title: 'Advanced',
+                      subtitle:
+                          'Optional: startup command, font size and jump host.',
                     ),
                   ),
                   AnimatedRotation(
@@ -697,13 +787,13 @@ class _AdvancedSection extends StatelessWidget {
                 ? CrossFadeState.showFirst
                 : CrossFadeState.showSecond,
             firstChild: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final twoColumns = constraints.maxWidth > 640;
                   return Wrap(
                     spacing: 12,
-                    runSpacing: 14,
+                    runSpacing: 16,
                     children: children.map((child) {
                       return SizedBox(
                         width: twoColumns
@@ -776,35 +866,18 @@ class _AutocompleteTextFieldState extends State<_AutocompleteTextField> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Icon(widget.icon, color: AppColors.muted, size: 15),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    widget.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: portixLabel(),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 7),
+            _FieldLabel(widget.icon, widget.label),
             SizedBox(
-              height: 40,
+              height: 38,
               child: TextField(
                 controller: textController,
                 focusNode: focusNode,
                 onChanged: widget.onChanged,
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                ),
+                style: appFieldTextStyle(),
                 decoration: InputDecoration(
+                  hintText: 'Pick or type a group',
                   suffixIcon: Icon(
-                    Icons.search_rounded,
+                    Icons.unfold_more_rounded,
                     color: AppColors.muted,
                     size: 18,
                   ),
@@ -833,7 +906,7 @@ class _AutocompleteTextFieldState extends State<_AutocompleteTextField> {
                     for (final value in values)
                       ListTile(
                         dense: true,
-                        title: Text(value, style: portixTitle(13)),
+                        title: Text(value, style: appFieldTextStyle()),
                         onTap: () => onSelected(value),
                       ),
                   ],
@@ -868,10 +941,12 @@ class _TagSelector extends StatefulWidget {
 
 class _TagSelectorState extends State<_TagSelector> {
   final _input = TextEditingController();
+  final _focus = FocusNode();
 
   @override
   void dispose() {
     _input.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
@@ -902,72 +977,146 @@ class _TagSelectorState extends State<_TagSelector> {
     final selected = _selected;
     final available = widget.options
         .where((tag) => !selected.contains(tag))
-        .take(10)
+        .take(12)
         .toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Icon(Icons.sell_outlined, color: AppColors.muted, size: 15),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Tags',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: portixLabel(),
-              ),
+        const _FieldLabel(Icons.sell_outlined, 'Tags', trailing: 'optional'),
+        // Chips and the input share one field, like a token input.
+        GestureDetector(
+          onTap: _focus.requestFocus,
+          child: Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(minHeight: 38),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceDark,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.inputBorder),
             ),
-          ],
-        ),
-        const SizedBox(height: 7),
-        AppPanel(
-          padding: const EdgeInsets.all(10),
-          color: AppColors.surfaceDark,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final tag in selected)
-                    InputChip(
-                      label: Text(tag),
-                      onDeleted: () => _setTags(
-                        selected.where((item) => item != tag).toList(),
-                      ),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                for (final tag in selected)
+                  _TagChip(
+                    label: tag,
+                    selected: true,
+                    onTap: () => _setTags(
+                      selected.where((item) => item != tag).toList(),
                     ),
-                  for (final tag in available)
-                    ActionChip(label: Text(tag), onPressed: () => _addTag(tag)),
-                ],
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                height: 38,
-                child: TextField(
-                  controller: _input,
-                  onSubmitted: _addTag,
-                  style: TextStyle(
-                    color: AppColors.text,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
                   ),
-                  decoration: InputDecoration(
-                    hintText: 'Add tag and press Enter',
-                    prefixIcon: Icon(
-                      Icons.add_rounded,
-                      color: AppColors.muted,
-                      size: 18,
+                SizedBox(
+                  width: 160,
+                  height: 24,
+                  child: TextField(
+                    controller: _input,
+                    focusNode: _focus,
+                    onSubmitted: (value) {
+                      _addTag(value);
+                      _focus.requestFocus();
+                    },
+                    style: appFieldTextStyle(),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      filled: false,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      hintText: selected.isEmpty
+                          ? 'Type a tag, press Enter'
+                          : 'Add tag…',
                     ),
                   ),
                 ),
+              ],
+            ),
+          ),
+        ),
+        if (available.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text('Suggestions', style: _subtitleStyle.copyWith(fontSize: 11)),
+              for (final tag in available)
+                _TagChip(label: tag, onTap: () => _addTag(tag)),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Small tag token: selected ones carry an ×, suggestions a +.
+class _TagChip extends StatelessWidget {
+  const _TagChip({
+    required this.label,
+    required this.onTap,
+    this.selected = false,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? AppColors.cyan : AppColors.muted;
+    return Material(
+      color: selected
+          ? AppColors.cyan.withValues(alpha: .12)
+          : Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(6),
+        side: BorderSide(
+          color: selected
+              ? AppColors.cyan.withValues(alpha: .45)
+              : AppColors.border,
+        ),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            selected ? 8 : 6,
+            3,
+            selected ? 4 : 8,
+            3,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!selected) ...[
+                Icon(Icons.add_rounded, size: 13, color: color),
+                const SizedBox(width: 3),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? AppColors.text : color,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
+              if (selected) ...[
+                const SizedBox(width: 3),
+                Tooltip(
+                  message: 'Remove $label',
+                  child: Icon(Icons.close_rounded, size: 13, color: color),
+                ),
+              ],
             ],
           ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -986,61 +1135,80 @@ class _ProfileColorPicker extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Icon(Icons.palette_outlined, color: AppColors.muted, size: 15),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Terminal color',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: portixLabel(),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 7),
+        const _FieldLabel(Icons.palette_outlined, 'Accent color'),
         SizedBox(
-          height: 40,
-          child: DropdownButtonFormField<ProfileColor>(
-            initialValue: color,
-            dropdownColor: AppColors.surface,
-            decoration: const InputDecoration(
-              contentPadding: EdgeInsets.symmetric(horizontal: 12),
-            ),
-            items: [
+          height: 38,
+          child: Row(
+            children: [
               for (final item in ProfileColor.values)
-                DropdownMenuItem(
-                  value: item,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 10,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          color: _profileColorValue(item),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _profileColorLabel(item),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: _ColorSwatch(
+                    color: _profileColorValue(item),
+                    label: _profileColorLabel(item),
+                    selected: item == color,
+                    onTap: () => context.read<SshWorkspaceBloc>().add(
+                      ProfileColorChanged(item),
+                    ),
                   ),
                 ),
             ],
-            onChanged: (value) {
-              if (value == null) return;
-              context.read<SshWorkspaceBloc>().add(ProfileColorChanged(value));
-            },
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ColorSwatch extends StatelessWidget {
+  const _ColorSwatch({
+    required this.color,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Color color;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: '$label accent',
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            width: 28,
+            height: 28,
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: selected ? color : Colors.transparent,
+                width: 2,
+              ),
+            ),
+            child: Container(
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              child: selected
+                  ? const Icon(
+                      Icons.check_rounded,
+                      size: 13,
+                      color: Colors.black,
+                    )
+                  : null,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1061,23 +1229,9 @@ class _JumpHostPicker extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Icon(Icons.alt_route_rounded, color: AppColors.muted, size: 15),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Jump host (ProxyJump)',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: portixLabel(),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 7),
+        const _FieldLabel(Icons.alt_route_rounded, 'Jump host (ProxyJump)'),
         SizedBox(
-          height: 40,
+          height: 38,
           child: DropdownButtonFormField<String>(
             key: ValueKey(selected),
             initialValue: selected,
@@ -1118,45 +1272,47 @@ class _AuthSegments extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final stack = constraints.maxWidth < 360;
-        final keySegment = _Segment(
-          selected: profile?.authMethod != AuthMethod.password,
-          icon: Icons.key_rounded,
-          label: 'SSH Key',
-          onTap: () => context.read<SshWorkspaceBloc>().add(
-            const AuthMethodChanged(AuthMethod.sshKey),
+    final password = profile?.authMethod == AuthMethod.password;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _FieldLabel(Icons.verified_user_outlined, 'Authentication'),
+        // One segmented control: the selected half is lifted.
+        Container(
+          height: 38,
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceDark,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.inputBorder),
           ),
-        );
-        final passwordSegment = _Segment(
-          selected: profile?.authMethod == AuthMethod.password,
-          icon: Icons.lock_outline_rounded,
-          label: 'Password',
-          onTap: () => context.read<SshWorkspaceBloc>().add(
-            const AuthMethodChanged(AuthMethod.password),
-          ),
-        );
-        if (stack) {
-          return Column(
-            children: [
-              SizedBox(height: 40, child: keySegment),
-              const SizedBox(height: 8),
-              SizedBox(height: 40, child: passwordSegment),
-            ],
-          );
-        }
-        return SizedBox(
-          height: 40,
           child: Row(
             children: [
-              Expanded(child: keySegment),
-              const SizedBox(width: 10),
-              Expanded(child: passwordSegment),
+              Expanded(
+                child: _Segment(
+                  selected: !password,
+                  icon: Icons.key_rounded,
+                  label: 'SSH Key',
+                  onTap: () => context.read<SshWorkspaceBloc>().add(
+                    const AuthMethodChanged(AuthMethod.sshKey),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 3),
+              Expanded(
+                child: _Segment(
+                  selected: password,
+                  icon: Icons.lock_outline_rounded,
+                  label: 'Password',
+                  onTap: () => context.read<SshWorkspaceBloc>().add(
+                    const AuthMethodChanged(AuthMethod.password),
+                  ),
+                ),
+              ),
             ],
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 }
@@ -1176,38 +1332,38 @@ class _Segment extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        decoration: BoxDecoration(
-          color: selected ? AppColors.selected : AppColors.surfaceDark,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: selected ? AppColors.cyan : AppColors.border,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: selected ? AppColors.cyan : AppColors.muted,
-              size: 18,
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: selected ? AppColors.text : AppColors.muted,
-                  fontWeight: FontWeight.w900,
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: selected ? AppColors.selected : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(6),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                color: selected ? AppColors.cyan : AppColors.muted,
+                size: 15,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected ? AppColors.text : AppColors.muted,
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1231,8 +1387,8 @@ class _UploadBox extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(8),
           child: Container(
-            constraints: const BoxConstraints(minHeight: 92),
-            padding: const EdgeInsets.all(14),
+            constraints: const BoxConstraints(minHeight: 72),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: AppColors.surfaceDark,
               borderRadius: BorderRadius.circular(8),
@@ -1284,13 +1440,13 @@ class _UploadIconBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 48,
-      width: 48,
+      height: 40,
+      width: 40,
       decoration: BoxDecoration(
+        color: AppColors.cyan.withValues(alpha: .12),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.cyan),
       ),
-      child: Icon(Icons.upload_rounded, color: AppColors.cyan),
+      child: Icon(Icons.vpn_key_outlined, color: AppColors.cyan, size: 18),
     );
   }
 }
@@ -1308,14 +1464,14 @@ class _UploadBoxText extends StatelessWidget {
           'Select or generate an SSH key',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: portixTitle(14),
+          style: _titleStyle.copyWith(fontSize: 13),
         ),
         const SizedBox(height: 4),
         Text(
           'Pick a key from ~/.ssh, browse for a file, or generate a new ed25519 keypair.',
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: portixMuted(),
+          style: _subtitleStyle,
         ),
       ],
     );
