@@ -32,100 +32,122 @@ class _FileActionMenu extends StatelessWidget {
 
     return PopupMenuButton<_FileAction>(
       tooltip: 'Actions',
-      color: AppColors.surfaceCard,
+      color: AppColors.menu,
+      shape: _menuShape,
+      elevation: 8,
+      menuPadding: _menuPadding,
+      constraints: _menuConstraints,
       icon: Icon(Icons.more_vert_rounded, size: 18, color: AppColors.muted),
       onSelected: onSelected,
-      itemBuilder: (context) => [
-        if (file.folder)
-          const PopupMenuItem(
-            value: _FileAction.open,
-            child: _MenuItem(icon: Icons.folder_open_rounded, label: 'Open'),
-          )
-        else ...const [
-          PopupMenuItem(
-            value: _FileAction.edit,
-            child: _MenuItem(icon: Icons.edit_rounded, label: 'Edit'),
-          ),
-          PopupMenuItem(
-            value: _FileAction.openWith,
-            child: _MenuItem(
-              icon: Icons.open_in_new_rounded,
-              label: 'Open With…',
-            ),
-          ),
-        ],
-        if (isRemote && file.folder) ...const [
-          PopupMenuDivider(),
-          PopupMenuItem(
-            value: _FileAction.newFile,
-            child: _MenuItem(icon: Icons.note_add_outlined, label: 'New file'),
-          ),
-          PopupMenuItem(
-            value: _FileAction.newFolder,
-            child: _MenuItem(
-              icon: Icons.create_new_folder_outlined,
-              label: 'New folder',
-            ),
-          ),
-        ],
-        const PopupMenuDivider(),
-        if (isRemote)
-          const PopupMenuItem(
-            value: _FileAction.download,
-            child: _MenuItem(icon: Icons.download_rounded, label: 'Download'),
-          ),
-        const PopupMenuItem(
-          value: _FileAction.rename,
-          child: _MenuItem(
-            icon: Icons.drive_file_rename_outline_rounded,
-            label: 'Rename',
-          ),
-        ),
-        if (isRemote) ...const [
-          PopupMenuItem(
-            value: _FileAction.duplicate,
-            child: _MenuItem(icon: Icons.copy_rounded, label: 'Duplicate'),
-          ),
-          PopupMenuItem(
-            value: _FileAction.move,
-            child: _MenuItem(
-              icon: Icons.drive_file_move_rounded,
-              label: 'Move',
-            ),
-          ),
-          PopupMenuItem(
-            value: _FileAction.chmod,
-            child: _MenuItem(
-              icon: Icons.lock_outline_rounded,
-              label: 'Permissions (CHMOD)',
-            ),
-          ),
-        ],
-        const PopupMenuDivider(),
-        const PopupMenuItem(
-          value: _FileAction.delete,
-          child: _MenuItem(icon: Icons.delete_outline_rounded, label: 'Delete'),
-        ),
-      ],
+      itemBuilder: (context) => _fileActionItems(file, isRemote),
     );
   }
 }
 
-class _MenuItem extends StatelessWidget {
-  const _MenuItem({required this.icon, required this.label});
-  final IconData icon;
-  final String label;
+/// Shared by the ⋮ button and the right-click menu on a row.
+List<PopupMenuEntry<_FileAction>> _fileActionItems(
+  SftpFileEntry file,
+  bool isRemote,
+) => [
+  if (file.folder)
+    _item(_FileAction.open, Icons.folder_open_rounded, 'Open')
+  else ...[
+    _item(_FileAction.edit, Icons.edit_outlined, 'Edit'),
+    _item(_FileAction.openWith, Icons.open_in_new_rounded, 'Open With…'),
+  ],
+  if (isRemote && file.folder) ...[
+    _divider,
+    _item(_FileAction.newFile, Icons.note_add_outlined, 'New file'),
+    _item(
+      _FileAction.newFolder,
+      Icons.create_new_folder_outlined,
+      'New folder',
+    ),
+  ],
+  _divider,
+  if (isRemote) _item(_FileAction.download, Icons.download_rounded, 'Download'),
+  _item(_FileAction.rename, Icons.drive_file_rename_outline_rounded, 'Rename'),
+  if (isRemote) ...[
+    _item(_FileAction.duplicate, Icons.copy_rounded, 'Duplicate'),
+    _item(_FileAction.move, Icons.drive_file_move_outlined, 'Move'),
+    _item(_FileAction.chmod, Icons.lock_outline_rounded, 'Permissions'),
+  ],
+  _divider,
+  _item(
+    _FileAction.delete,
+    Icons.delete_outline_rounded,
+    'Delete',
+    danger: true,
+  ),
+];
 
-  @override
-  Widget build(BuildContext context) {
-    return Row(
+final _divider = PopupMenuDivider(
+  height: 9,
+  thickness: 1,
+  color: AppColors.border.withValues(alpha: .6),
+);
+
+PopupMenuItem<_FileAction> _item(
+  _FileAction action,
+  IconData icon,
+  String label, {
+  bool danger = false,
+}) {
+  final color = danger ? AppColors.danger : AppColors.text;
+  return PopupMenuItem(
+    value: action,
+    height: 32,
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+    child: Row(
       children: [
-        Icon(icon, color: AppColors.muted, size: 17),
+        Icon(icon, size: 16, color: danger ? color : AppColors.muted),
         const SizedBox(width: 10),
-        Text(label),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
       ],
-    );
-  }
+    ),
+  );
+}
+
+/// Same look for the ⋮ menu and the right-click menu.
+ShapeBorder get _menuShape => RoundedRectangleBorder(
+  borderRadius: BorderRadius.circular(10),
+  side: BorderSide(color: AppColors.border),
+);
+
+const _menuPadding = EdgeInsets.symmetric(vertical: 4);
+const _menuConstraints = BoxConstraints(minWidth: 190);
+
+/// Right-click on a row: the same actions as ⋮, at the pointer.
+Future<void> _showFileActionMenu(
+  BuildContext context,
+  Offset position, {
+  required SftpFileEntry file,
+  required bool isRemote,
+  required ValueChanged<_FileAction> onSelected,
+}) async {
+  final action = await showMenu<_FileAction>(
+    context: context,
+    position: RelativeRect.fromLTRB(
+      position.dx,
+      position.dy,
+      position.dx + 1,
+      position.dy + 1,
+    ),
+    color: AppColors.menu,
+    shape: _menuShape,
+    elevation: 8,
+    menuPadding: _menuPadding,
+    constraints: _menuConstraints,
+    items: _fileActionItems(file, isRemote),
+  );
+  if (action != null) onSelected(action);
 }
 
 class _FileRow extends StatelessWidget {
@@ -152,6 +174,22 @@ class _FileRow extends StatelessWidget {
     final compact = MediaQuery.sizeOf(context).width < 720;
     final row = GestureDetector(
       behavior: HitTestBehavior.opaque,
+      onSecondaryTapUp: data.name == '..'
+          ? null
+          : (details) {
+              // Keep an existing multi-selection; a toggle here would
+              // drop the row (Ctrl+click is a right-click on macOS).
+              if (!selected) onSelected();
+              unawaited(
+                _showFileActionMenu(
+                  context,
+                  details.globalPosition,
+                  file: data,
+                  isRemote: isRemote,
+                  onSelected: (action) => onAction(action, data),
+                ),
+              );
+            },
       onDoubleTap: () {
         if (data.folder || data.name == '..') {
           onOpenFolder(data);

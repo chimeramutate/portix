@@ -55,6 +55,54 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
     super.dispose();
   }
 
+  Widget _searchField() {
+    return Container(
+      height: 36,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceDark,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        children: [
+          Icon(Icons.search_rounded, color: AppColors.muted, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value;
+                });
+              },
+              decoration: InputDecoration(
+                hintText: 'Search profiles (name, address or username)',
+                hintStyle: portixMuted(12),
+                border: InputBorder.none,
+                isDense: true,
+              ),
+              style: portixTitle(13),
+            ),
+          ),
+          if (_searchQuery.isNotEmpty)
+            IconButton(
+              tooltip: 'Clear search',
+              onPressed: () {
+                _searchController.clear();
+                setState(() {
+                  _searchQuery = '';
+                });
+              },
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 24, height: 24),
+              icon: Icon(Icons.close_rounded, color: AppColors.muted, size: 16),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final filteredProfiles = _filteredProfiles;
@@ -81,81 +129,18 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                   ),
                 )
               else ...[
-                // Search field
-                Container(
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceDark,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.search_rounded,
-                        color: AppColors.muted,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: _searchController,
-                          onChanged: (value) {
-                            setState(() {
-                              _searchQuery = value;
-                            });
-                          },
-                          decoration: InputDecoration(
-                            hintText:
-                                'Search profiles (name, address or username)',
-                            hintStyle: portixMuted(12),
-                            border: InputBorder.none,
-                            isDense: true,
-                          ),
-                          style: portixTitle(13),
-                        ),
-                      ),
-                      if (_searchQuery.isNotEmpty)
-                        IconButton(
-                          tooltip: 'Clear search',
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() {
-                              _searchQuery = '';
-                            });
-                          },
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints.tightFor(
-                            width: 24,
-                            height: 24,
-                          ),
-                          icon: Icon(
-                            Icons.close_rounded,
-                            color: AppColors.muted,
-                            size: 16,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // Filter: sort tags A → Z / Z → A
                 Row(
                   children: [
-                    _SortChip(
-                      label: 'A → Z',
-                      selected: _sortAscending,
-                      onTap: () => setState(() => _sortAscending = true),
-                    ),
+                    Expanded(child: _searchField()),
                     const SizedBox(width: 8),
-                    _SortChip(
-                      label: 'Z → A',
-                      selected: !_sortAscending,
-                      onTap: () => setState(() => _sortAscending = false),
+                    _SortToggle(
+                      ascending: _sortAscending,
+                      onTap: () =>
+                          setState(() => _sortAscending = !_sortAscending),
                     ),
                   ],
                 ),
+                const SizedBox(height: 12),
                 const SizedBox(height: 12),
                 // Results count and clear button
                 if (_searchQuery.isNotEmpty && !hasMatches)
@@ -266,36 +251,58 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
   }
 }
 
-/// A small filter "tag" used to toggle profile sort order (A → Z / Z → A).
-class _SortChip extends StatelessWidget {
-  const _SortChip({required this.label, required this.selected, this.onTap});
+/// Square sort button matching the search field: A–Z icon with an arrow
+/// that turns over for Z → A.
+class _SortToggle extends StatefulWidget {
+  const _SortToggle({required this.ascending, required this.onTap});
 
-  final String label;
-  final bool selected;
-  final VoidCallback? onTap;
+  final bool ascending;
+  final VoidCallback onTap;
+
+  @override
+  State<_SortToggle> createState() => _SortToggleState();
+}
+
+class _SortToggleState extends State<_SortToggle> {
+  bool _hover = false;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: selected
-                ? AppColors.cyan.withValues(alpha: .10)
-                : AppColors.surfaceDark,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: selected ? AppColors.cyan : AppColors.border,
+    final color = _hover ? AppColors.cyan : AppColors.muted;
+    return Tooltip(
+      message: widget.ascending ? 'Sorted A → Z' : 'Sorted Z → A',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          key: const ValueKey('sftp-sort-order'),
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceDark,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _hover ? AppColors.cyan : AppColors.border,
+              ),
             ),
-          ),
-          child: Text(
-            label,
-            style: (selected ? portixTitle(12) : portixMuted(11)).copyWith(
-              color: selected ? AppColors.cyan : null,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.sort_by_alpha_rounded, size: 16, color: color),
+                AnimatedRotation(
+                  turns: widget.ascending ? 0 : .5,
+                  duration: const Duration(milliseconds: 180),
+                  child: Icon(
+                    Icons.arrow_downward_rounded,
+                    size: 12,
+                    color: color,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
