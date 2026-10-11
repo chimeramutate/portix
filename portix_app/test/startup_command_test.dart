@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/connection_manager/mock_backend.dart';
 import 'package:portix/src/connection_manager/ssh_profile.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart' as domain;
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart' as domain;
 
 class _InputRecordingBackend extends MockConnectionBackend {
   final inputs = <String>[];

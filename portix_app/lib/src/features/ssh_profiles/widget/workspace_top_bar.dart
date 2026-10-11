@@ -6,10 +6,10 @@ import 'package:flutter_svg/svg.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/features/app_menu/app_menu.dart';
-import 'package:portix/src/features/sftp/bloc/index.dart';
+import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../bloc/index.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 
 const workspaceTitleBarHeight = 38.0;
 

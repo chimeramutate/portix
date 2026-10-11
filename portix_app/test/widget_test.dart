@@ -10,8 +10,8 @@ import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/connection_manager/mock_backend.dart';
 import 'package:portix/src/core/di/injection.dart';
-import 'package:portix/src/domain/repositories/ssh/index.dart';
-import 'package:portix/src/features/ssh_profiles/bloc/index.dart';
+import 'package:portix/src/domain/repositories/ssh/ssh_profile_repository.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 import 'support/refusing_host_key_backend.dart';
 
 const _seedProfiles = [

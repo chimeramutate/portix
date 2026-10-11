@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:portix/src/connection_manager/profile_credentials.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart' as domain;
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart' as domain;
 import 'package:portix/src/features/sftp/controller/sftp_workspace_controller.dart';
 import 'package:portix/src/sftp_client/sftp_manager.dart';
 

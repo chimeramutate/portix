@@ -9,15 +9,17 @@ import 'package:flutter_svg/svg.dart';
 import 'package:easy_stepper/easy_stepper.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/core/di/injection.dart';
+import 'package:portix/src/core/constants/file_extensions.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/utils/text_diff.dart';
 import 'package:portix/src/core/widgets/index.dart';
+import 'package:portix/src/data/services/sftp/local_edit_watcher.dart';
 import 'package:portix/src/domain/entities/sftp/index.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart';
-import 'package:portix/src/features/sftp/bloc/index.dart';
-import 'package:portix/src/features/sftp/controller/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
+import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
+import 'package:portix/src/features/sftp/controller/sftp_workspace_controller.dart';
 import 'package:portix/src/features/sftp/window/index.dart';
-import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/host_key_dialog.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/key_passphrase_dialog.dart';
 import 'package:portix/src/sftp_client/sftp_manager.dart';
@@ -64,7 +66,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   final FocusNode _inlineCreateFocusNode = FocusNode(debugLabel: 'SFTP create');
   final TextEditingController _inlineRenameController = TextEditingController();
   final FocusNode _inlineRenameFocusNode = FocusNode(debugLabel: 'SFTP rename');
-  final Map<String, _SftpLocalEditSession> _localEditSessions = {};
+  final LocalEditWatcher _editWatcher = LocalEditWatcher();
   final Set<String> _selectedLocalPaths = {};
   final Set<String> _selectedRemotePaths = {};
   String? _localSelectionAnchor;
@@ -86,52 +88,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   /// the right, an independent one with its own session on the left.
   SftpWorkspaceController _c(bool isLeft) =>
       isLeft ? _leftController : _controller;
-
-  static const Set<String> _codeFileExtensions = {
-    'astro',
-    'bash',
-    'bat',
-    'c',
-    'cc',
-    'conf',
-    'cpp',
-    'cs',
-    'css',
-    'dart',
-    'env',
-    'go',
-    'gradle',
-    'h',
-    'hpp',
-    'html',
-    'java',
-    'js',
-    'json',
-    'jsx',
-    'kt',
-    'kts',
-    'lua',
-    'm',
-    'md',
-    'php',
-    'plist',
-    'py',
-    'rb',
-    'rs',
-    'scss',
-    'sh',
-    'sql',
-    'swift',
-    'toml',
-    'ts',
-    'tsx',
-    'txt',
-    'vue',
-    'xml',
-    'yaml',
-    'yml',
-    'zsh',
-  };
 
   final _leftPaneKey = GlobalKey();
   final _rightPaneKey = GlobalKey();
@@ -176,9 +132,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   @override
   void dispose() {
-    for (final editSession in _localEditSessions.values) {
-      editSession.timer.cancel();
-    }
+    _editWatcher.dispose();
     _inlineCreateController.dispose();
     _inlineCreateFocusNode.dispose();
     _inlineRenameController.dispose();
@@ -761,7 +715,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       return;
     }
 
-    final isCodeFile = _shouldOpenInCodeEditor(file.name);
+    final isCodeFile = isCodeFileName(file.name);
 
     // Non-code files open in the OS default app (Word for .docx, etc.).
     if (!isCodeFile && preferredDefault) {
@@ -784,7 +738,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     if (isCodeFile) {
       editors = await controller.detectLocalEditors();
     } else {
-      final extension = _fileExtension(file.name);
+      final extension = fileExtension(file.name);
       editors = await controller.detectAppsForExtension(extension);
     }
     if (!mounted) return;
@@ -803,7 +757,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
     final preferCodeEditor = preferredDefault && isCodeFile;
     final editor = preferredDefault
-        ? _preferredLocalEditor(editors, preferCodeEditor: preferCodeEditor)
+        ? preferredLocalEditor(editors, preferCodeEditor: preferCodeEditor)
         : await showModalBottomSheet<LocalEditor>(
             context: context,
             backgroundColor: AppColors.surface,
@@ -825,17 +779,15 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     }
 
     final path = await controller.editablePathFor(file, isRemote);
-    final originalText = isRemote ? await _readFileTextIfPossible(path) : null;
+    final originalText = isRemote ? await readTextIfPossible(path) : null;
 
     try {
       await controller.openEditor(editor, path);
       if (!mounted) return;
       if (isRemote) {
-        await _watchLocalEditForRewrite(
-          file: file,
-          localPath: path,
-          originalText: originalText,
-          isLeft: isLeft,
+        await _editWatcher.watch(
+          path,
+          () => _showRewritePrompt(file, path, originalText, isLeft),
         );
         _showSnack(
           context,
@@ -850,85 +802,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     }
   }
 
-  LocalEditor? _preferredLocalEditor(
-    List<LocalEditor> editors, {
-    required bool preferCodeEditor,
-  }) {
-    if (editors.isEmpty) return null;
-    if (preferCodeEditor) {
-      for (final editor in editors) {
-        if (!_isDefaultSystemEditor(editor)) return editor;
-      }
-    }
-    if (Platform.isMacOS || Platform.isWindows) {
-      for (final editor in editors) {
-        if (_isDefaultSystemEditor(editor)) return editor;
-      }
-    }
-    return editors.first;
-  }
-
-  bool _isDefaultSystemEditor(LocalEditor editor) {
-    if (Platform.isWindows) {
-      return editor.command == 'cmd.exe' && editor.arguments.contains('start');
-    }
-    return editor.command == 'open' && editor.arguments.isEmpty;
-  }
-
-  bool _shouldOpenInCodeEditor(String fileName) {
-    final extension = _fileExtension(fileName);
-    if (extension.isEmpty) {
-      return fileName.startsWith('.') ||
-          const {
-            'dockerfile',
-            'makefile',
-            'gemfile',
-            'rakefile',
-            'procfile',
-            'license',
-            'readme',
-          }.contains(fileName.toLowerCase());
-    }
-    return _codeFileExtensions.contains(extension);
-  }
-
-  Future<void> _watchLocalEditForRewrite({
-    required SftpFileEntry file,
-    required String localPath,
-    required String? originalText,
-    required bool isLeft,
-  }) async {
-    final localFile = File(localPath);
-    final stat = await localFile.stat();
-    _localEditSessions.remove(localPath)?.timer.cancel();
-    var lastPromptedAt = stat.modified;
-    var promptOpen = false;
-    final timer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      try {
-        final currentStat = await localFile.stat();
-        if (!currentStat.modified.isAfter(lastPromptedAt)) return;
-        lastPromptedAt = currentStat.modified;
-        if (promptOpen) return;
-        promptOpen = true;
-        await _showRewritePrompt(file, localPath, originalText, isLeft);
-        promptOpen = false;
-      } catch (_) {
-        timer.cancel();
-        _localEditSessions.remove(localPath);
-      }
-    });
-    _localEditSessions[localPath] = _SftpLocalEditSession(
-      remotePath: file.path ?? file.name,
-      localPath: localPath,
-      timer: timer,
-      originalText: originalText,
-    );
-  }
-
   Future<void> _showRewritePrompt(
     SftpFileEntry file,
     String localPath,
@@ -937,7 +810,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   ) async {
     try {
       if (!mounted) return;
-      final currentText = await _readFileTextIfPossible(localPath);
+      final currentText = await readTextIfPossible(localPath);
       if (!mounted) return;
       final diff = buildTextDiff(originalText, currentText);
       final shouldRewrite = await showDialog<bool>(
@@ -970,22 +843,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       if (!mounted) return;
       _showSnack(context, 'Rewrite failed: $error');
     }
-  }
-
-  Future<String?> _readFileTextIfPossible(String path) async {
-    try {
-      final bytes = await File(path).readAsBytes();
-      if (bytes.contains(0)) return null;
-      return String.fromCharCodes(bytes);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  String _fileExtension(String fileName) {
-    final index = fileName.lastIndexOf('.');
-    if (index < 0 || index == fileName.length - 1) return '';
-    return fileName.substring(index + 1).toLowerCase();
   }
 
   String _duplicateName(String name) {
@@ -1855,20 +1712,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       ),
     );
   }
-}
-
-class _SftpLocalEditSession {
-  const _SftpLocalEditSession({
-    required this.remotePath,
-    required this.localPath,
-    required this.timer,
-    required this.originalText,
-  });
-
-  final String remotePath;
-  final String localPath;
-  final Timer timer;
-  final String? originalText;
 }
 
 enum _SftpInlineCreateKind { folder, file }

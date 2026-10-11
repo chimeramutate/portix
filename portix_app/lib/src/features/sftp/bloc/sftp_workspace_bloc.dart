@@ -1,7 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart';
-import 'package:portix/src/domain/repositories/ssh/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
+import 'package:portix/src/domain/repositories/ssh/ssh_profile_repository.dart';
 
 part 'sftp_workspace_event.dart';
 part 'sftp_workspace_state.dart';

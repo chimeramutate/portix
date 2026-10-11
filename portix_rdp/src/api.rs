@@ -1,5 +1,5 @@
 use flutter_rust_bridge::frb;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 use crate::application::session_manager::RdpSessionManager;
 use crate::domain::events::{RdpErrorEvent, RdpFrameEvent, RdpStatusEvent};
@@ -7,7 +7,7 @@ use crate::domain::profile::RdpProfile;
 use crate::domain::session::RdpSessionInfo;
 use crate::frb_generated::StreamSink;
 
-static RDP_MANAGER: Lazy<RdpSessionManager> = Lazy::new(RdpSessionManager::new);
+static RDP_MANAGER: LazyLock<RdpSessionManager> = LazyLock::new(RdpSessionManager::new);
 
 #[frb(init)]
 pub fn init_rdp_app() {

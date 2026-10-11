@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:get_it/get_it.dart';
-import 'package:portix/src/domain/repositories/rdp/index.dart';
+import 'package:portix/src/domain/repositories/rdp/rdp_profile_repository.dart';
 import 'package:portix/src/features/rdp/bloc/rdp_workspace_bloc.dart';
 
 import '../../connection_manager/connection_backend.dart';
@@ -11,13 +11,12 @@ import '../../connection_manager/profile_credentials.dart';
 import '../../connection_manager/profile_secret_store.dart';
 import '../../connection_manager/rust_bridge_backend.dart';
 import '../../connection_manager/unavailable_backend.dart';
-import '../../data/repositories/settings/index.dart';
-import '../../domain/repositories/settings/index.dart';
-import '../../domain/repositories/ssh/index.dart';
+import 'package:portix/src/domain/repositories/settings/settings_repository.dart';
+import 'package:portix/src/domain/repositories/ssh/ssh_profile_repository.dart';
 import '../../features/rdp/service/rdp_backend_service.dart';
-import '../../features/sftp/bloc/index.dart';
-import '../../features/ssh_profiles/bloc/index.dart';
-import '../../features/ssh_sessions/bloc/index.dart';
+import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 import '../../sftp_client/rust_sftp_backend.dart';
 import '../../sftp_client/sftp_backend.dart';
 import '../../sftp_client/sftp_manager.dart';
@@ -73,7 +72,7 @@ Future<void> configureDependencies() async {
     ..registerLazySingleton<SshProfileRepository>(
       () => SshProfileRepository(secretStore: sl()),
     )
-    ..registerLazySingleton<SettingsRepository>(LocalSettingsRepository.new)
+    ..registerLazySingleton(SettingsRepository.new)
     ..registerLazySingleton<RdpBackendService>(RdpBackendService.new)
     ..registerLazySingleton<RdpProfileRepository>(() => RdpProfileRepository())
     ..registerFactory(() => SshWorkspaceBloc(repository: sl()))

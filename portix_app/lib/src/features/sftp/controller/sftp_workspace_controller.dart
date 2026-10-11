@@ -10,7 +10,7 @@ import 'package:portix/src/sftp_client/sftp_models.dart';
 import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/data/services/sftp/index.dart';
 import 'package:portix/src/domain/entities/sftp/index.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart' as domain;
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart' as domain;
 
 class SftpWorkspaceController extends ChangeNotifier {
   SftpWorkspaceController({

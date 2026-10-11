@@ -4,7 +4,7 @@ import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/domain/entities/rdp/index.dart';
 
-import '../bloc/index.dart';
+import 'package:portix/src/features/rdp/bloc/rdp_workspace_bloc.dart';
 
 class RdpProfileCard extends StatelessWidget {
   const RdpProfileCard({

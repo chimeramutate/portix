@@ -14,14 +14,16 @@ import 'package:portix/src/connection_manager/ssh_profile.dart'
     as manager_profile;
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/result/either.dart';
+import 'package:portix/src/core/constants/file_extensions.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/utils/text_diff.dart';
 import 'package:portix/src/data/services/sftp/local_editor_service.dart';
+import 'package:portix/src/data/services/sftp/local_edit_watcher.dart';
 import 'package:portix/src/domain/entities/sftp/index.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart'
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart'
     hide ConnectionStatus;
-import 'package:portix/src/features/ssh_profiles/bloc/index.dart';
-import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 import 'package:portix/src/sftp_client/sftp_manager.dart';
 import 'package:portix/src/sftp_client/sftp_models.dart';
 
@@ -73,59 +75,13 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
   int _remoteLoadToken = 0;
   int _handledOpenRequestSerial = 0;
   final List<_TransferJob> _transferJobs = [];
-  final Map<String, _LocalEditSession> _localEditSessions = {};
+  final LocalEditWatcher _editWatcher = LocalEditWatcher();
   int _transferSerial = 0;
   Timer? _transferAutoDismissTimer;
 
   static const double _minRemotePanelWidth = 220;
   static const double _maxRemotePanelWidth = 520;
   static const double _collapseThreshold = 140;
-  static const Set<String> _codeFileExtensions = {
-    'astro',
-    'bash',
-    'bat',
-    'c',
-    'cc',
-    'conf',
-    'cpp',
-    'cs',
-    'css',
-    'dart',
-    'env',
-    'go',
-    'gradle',
-    'h',
-    'hpp',
-    'html',
-    'java',
-    'js',
-    'json',
-    'jsx',
-    'kt',
-    'kts',
-    'lua',
-    'm',
-    'md',
-    'php',
-    'plist',
-    'py',
-    'rb',
-    'rs',
-    'scss',
-    'sh',
-    'sql',
-    'swift',
-    'toml',
-    'ts',
-    'tsx',
-    'txt',
-    'vue',
-    'xml',
-    'yaml',
-    'yml',
-    'zsh',
-  };
-
   @override
   void initState() {
     super.initState();
@@ -135,9 +91,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
   @override
   void dispose() {
     _transferAutoDismissTimer?.cancel();
-    for (final editSession in _localEditSessions.values) {
-      editSession.timer.cancel();
-    }
+    _editWatcher.dispose();
     _inlineCreateController.dispose();
     _inlineCreateFocusNode.dispose();
     _inlineRenameController.dispose();
@@ -881,11 +835,11 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
         sizeBytes: entry.sizeBytes,
       );
       if (!ok) return;
-      final originalText = await _readFileTextIfPossible(localPath);
+      final originalText = await readTextIfPossible(localPath);
 
       // For non-code files (documents, images, etc.), always use system default
       // unless an explicit editor override is provided or code editor requested.
-      final isCodeFile = _shouldOpenInCodeEditor(entry.name);
+      final isCodeFile = isCodeFileName(entry.name);
       if (!isCodeFile && !preferCodeEditor && editorOverride == null) {
         await _localEditorService.openWithSystemDefault(localPath);
         return;
@@ -895,7 +849,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
       final useCodeEditor = isCodeFile && preferCodeEditor;
       final editor =
           editorOverride ??
-          _preferredLocalEditor(editors, preferCodeEditor: useCodeEditor);
+          preferredLocalEditor(editors, preferCodeEditor: useCodeEditor);
       if (editor == null) {
         // No code editor detected — fall back to system default handler.
         await _localEditorService.openWithSystemDefault(localPath);
@@ -903,13 +857,11 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
       }
       await _localEditorService.open(editor, localPath);
       final shouldWatchForRewrite =
-          watchForRewrite || (useCodeEditor && !_isDefaultSystemEditor(editor));
+          watchForRewrite || (useCodeEditor && !editor.isSystemDefault);
       if (shouldWatchForRewrite) {
-        await _watchLocalEditForRewrite(
-          sessionId: sessionId,
-          entry: entry,
-          localPath: localPath,
-          originalText: originalText,
+        await _editWatcher.watch(
+          localPath,
+          () => _showRewritePrompt(sessionId, entry, localPath, originalText),
         );
       }
     } catch (error) {
@@ -928,8 +880,8 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
   ) async {
     if (entry.isDirectory || entry.name == '..') return;
 
-    final extension = _fileExtension(entry.name);
-    final isCodeFile = _shouldOpenInCodeEditor(entry.name);
+    final extension = fileExtension(entry.name);
+    final isCodeFile = isCodeFileName(entry.name);
 
     // For non-code files, show extension-specific apps (Word, VLC, etc.)
     // For code files, show code editors + system default.
@@ -1009,85 +961,6 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     await _localEditorService.openWithSystemDefault(localPath);
   }
 
-  LocalEditor? _preferredLocalEditor(
-    List<LocalEditor> editors, {
-    required bool preferCodeEditor,
-  }) {
-    if (editors.isEmpty) return null;
-    if (preferCodeEditor) {
-      for (final editor in editors) {
-        if (!_isDefaultSystemEditor(editor)) return editor;
-      }
-    }
-    if (Platform.isMacOS || Platform.isWindows) {
-      for (final editor in editors) {
-        if (_isDefaultSystemEditor(editor)) return editor;
-      }
-    }
-    return editors.first;
-  }
-
-  bool _isDefaultSystemEditor(LocalEditor editor) {
-    if (Platform.isWindows) {
-      return editor.command == 'cmd.exe' && editor.arguments.contains('start');
-    }
-    return editor.command == 'open' && editor.arguments.isEmpty;
-  }
-
-  bool _shouldOpenInCodeEditor(String fileName) {
-    final extension = _fileExtension(fileName);
-    if (extension.isEmpty) {
-      return fileName.startsWith('.') ||
-          const {
-            'dockerfile',
-            'makefile',
-            'gemfile',
-            'rakefile',
-            'procfile',
-            'license',
-            'readme',
-          }.contains(fileName.toLowerCase());
-    }
-    return _codeFileExtensions.contains(extension);
-  }
-
-  Future<void> _watchLocalEditForRewrite({
-    required String sessionId,
-    required RemoteFileEntry entry,
-    required String localPath,
-    required String? originalText,
-  }) async {
-    final file = File(localPath);
-    final stat = await file.stat();
-    _localEditSessions.remove(localPath)?.timer.cancel();
-    var lastPromptedAt = stat.modified;
-    var promptOpen = false;
-    final timer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      try {
-        final currentStat = await file.stat();
-        if (!currentStat.modified.isAfter(lastPromptedAt)) return;
-        lastPromptedAt = currentStat.modified;
-        if (promptOpen) return;
-        promptOpen = true;
-        await _showRewritePrompt(sessionId, entry, localPath, originalText);
-        promptOpen = false;
-      } catch (_) {
-        timer.cancel();
-        _localEditSessions.remove(localPath);
-      }
-    });
-    _localEditSessions[localPath] = _LocalEditSession(
-      remotePath: entry.path,
-      localPath: localPath,
-      timer: timer,
-      originalText: originalText,
-    );
-  }
-
   Future<void> _showRewritePrompt(
     String sessionId,
     RemoteFileEntry entry,
@@ -1095,7 +968,7 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     String? originalText,
   ) async {
     if (!mounted) return;
-    final currentText = await _readFileTextIfPossible(localPath);
+    final currentText = await readTextIfPossible(localPath);
     if (!mounted) return;
     final diff = buildTextDiff(originalText, currentText);
     final shouldRewrite = await showDialog<bool>(
@@ -1105,16 +978,6 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     );
     if (shouldRewrite == true) {
       await _rewriteEditedRemoteFile(sessionId, entry, localPath);
-    }
-  }
-
-  Future<String?> _readFileTextIfPossible(String path) async {
-    try {
-      final bytes = await File(path).readAsBytes();
-      if (bytes.contains(0)) return null;
-      return String.fromCharCodes(bytes);
-    } catch (_) {
-      return null;
     }
   }
 
@@ -1867,12 +1730,6 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     final normalized = path.replaceAll('\\', '/');
     final parts = normalized.split('/')..removeWhere((part) => part.isEmpty);
     return parts.isEmpty ? normalized : parts.last;
-  }
-
-  String _fileExtension(String fileName) {
-    final index = fileName.lastIndexOf('.');
-    if (index < 0 || index == fileName.length - 1) return '';
-    return fileName.substring(index + 1).toLowerCase();
   }
 
   String _renameTargetPath(String oldPath, String newName) {
