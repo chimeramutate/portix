@@ -106,8 +106,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   String? _sessionId;
   String? _connectedProfileId;
   bool _connectInProgress = false;
-  TerminalClipboardShortcut _copyShortcut = TerminalClipboardShortcut.shiftCtrl;
-  TerminalClipboardShortcut _pasteShortcut = TerminalClipboardShortcut.ctrl;
+  TerminalBindings _bindings = terminalBindingsFrom(const {});
   Color _terminalTextColor = AppColors.text;
   Color _terminalBackgroundColor = AppColors.terminal;
   String _terminalFontFamily = 'monospace';
@@ -148,6 +147,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _bootTerminal();
     _tabScrollController.addListener(_handleTabScrollChanged);
     unawaited(_loadTerminalSettings());
+    terminalSettingsRevision.addListener(_loadTerminalSettings);
     WidgetsBinding.instance.addPostFrameCallback((_) => _connect());
   }
 
@@ -170,6 +170,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   void dispose() {
     _connectionManager.removeListener(_handleConnectionManagerChanged);
     HardwareKeyboard.instance.removeHandler(_handlePanelShortcut);
+    terminalSettingsRevision.removeListener(_loadTerminalSettings);
     _search?.dispose();
     _tabScrollController.dispose();
 
@@ -201,12 +202,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     }
     if (!mounted) return;
     setState(() {
-      _copyShortcut = terminalClipboardShortcutFromValue(
-        values[terminalCopyShortcutSettingKey],
-      );
-      _pasteShortcut = terminalClipboardShortcutFromValue(
-        values[terminalPasteShortcutSettingKey],
-      );
+      _bindings = terminalBindingsFrom(values);
       _terminalThemeName = values[terminalThemeSettingKey];
       _terminalTextColor = terminalTextColorFromValue(
         values[terminalTextColorSettingKey],
@@ -1043,42 +1039,42 @@ class _TerminalPanelState extends State<TerminalPanel> {
     });
   }
 
-  /// Ctrl/Cmd+Shift+P opens snippets; Cmd+F (macOS) or Ctrl+Shift+F finds
-  /// in the terminal (plain Ctrl+F belongs to the shell). Registered on
-  /// [HardwareKeyboard] because xterm's focused view would otherwise consume
-  /// them and send control characters to the shell.
+  /// Snippets, zoom and find, as bound in Terminal > Keyboard Shortcuts.
+  /// Registered on [HardwareKeyboard] because xterm's focused view would
+  /// otherwise consume them and send control characters to the shell.
   bool _handlePanelShortcut(KeyEvent event) {
     final keyboard = HardwareKeyboard.instance;
     if (!mounted || !widget.keyboardEnabled || event is! KeyDownEvent) {
       return false;
     }
-    final key = event.logicalKey;
-    final shift = keyboard.isShiftPressed;
-    final command = keyboard.isControlPressed || keyboard.isMetaPressed;
-    if (key == LogicalKeyboardKey.keyP && shift && command) {
+    // A dialog on top (e.g. the shortcut editor recording keys) owns the keys.
+    if (!(ModalRoute.of(context)?.isCurrent ?? true)) return false;
+    bool pressed(TerminalCommand command) => bindingMatches(
+      _bindings[command]!,
+      event.logicalKey,
+      control: keyboard.isControlPressed,
+      shift: keyboard.isShiftPressed,
+      alt: keyboard.isAltPressed,
+      meta: keyboard.isMetaPressed,
+    );
+    if (pressed(TerminalCommand.snippets)) {
       if (_snippetPaletteOpen) return false;
       unawaited(_openSnippetPalette());
       return true;
     }
-    final zoomed = terminalZoomFontSize(
-      key,
-      current: _terminalFontSize,
-      base: _baseFontSize,
-      meta: keyboard.isMetaPressed,
-      control: keyboard.isControlPressed,
-      shift: shift,
-      isMacOS: Platform.isMacOS,
-    );
+    final zoomed = pressed(TerminalCommand.zoomIn)
+        ? _terminalFontSize + 1
+        : pressed(TerminalCommand.zoomOut)
+        ? _terminalFontSize - 1
+        : pressed(TerminalCommand.zoomReset)
+        ? _baseFontSize
+        : null;
     if (zoomed != null) {
-      if (zoomed != _terminalFontSize) {
-        setState(() => _terminalFontSize = zoomed);
-      }
+      final size = zoomed.clamp(minTerminalFontSize, maxTerminalFontSize);
+      if (size != _terminalFontSize) setState(() => _terminalFontSize = size);
       return true;
     }
-    final find = Platform.isMacOS
-        ? keyboard.isMetaPressed && !shift
-        : keyboard.isControlPressed && shift;
-    if (key == LogicalKeyboardKey.keyF && find && _sessionId != null) {
+    if (pressed(TerminalCommand.find) && _sessionId != null) {
       _openSearch();
       return true;
     }
@@ -2611,8 +2607,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
       idleFocusNode: _idleFocusNode,
       idleViewKey: _terminalUi.idleViewKey,
       keyboardEnabled: widget.keyboardEnabled,
-      copyShortcut: _copyShortcut,
-      pasteShortcut: _pasteShortcut,
+      copyShortcut: _bindings[TerminalCommand.copy]!,
+      pasteShortcut: _bindings[TerminalCommand.paste]!,
       textColor: _terminalTextColor,
       backgroundColor: _terminalBackgroundColor,
       fontFamily: _terminalFontFamily,

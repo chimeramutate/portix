@@ -39,9 +39,6 @@ class WorkspaceRail extends StatelessWidget {
           ),
           item(WorkspaceView.rdp, Icons.computer_outlined, 'RDP'),
           item(WorkspaceView.sftp, Icons.cable_rounded, 'SFTP'),
-          const Spacer(),
-          item(WorkspaceView.settings, Icons.settings_outlined, 'Settings'),
-          const SizedBox(height: 4),
         ],
       ),
     );

@@ -56,8 +56,8 @@ class TerminalWorkspaceView extends StatelessWidget {
   final FocusNode idleFocusNode;
   final GlobalKey<TerminalViewState> idleViewKey;
   final bool keyboardEnabled;
-  final TerminalClipboardShortcut copyShortcut;
-  final TerminalClipboardShortcut pasteShortcut;
+  final SingleActivator copyShortcut;
+  final SingleActivator pasteShortcut;
   final Color textColor;
   final Color backgroundColor;
   final String fontFamily;
@@ -180,8 +180,8 @@ class SplitTreeView extends StatelessWidget {
   final GlobalKey<TerminalViewState> Function(String sessionId)
   viewKeyForSession;
   final bool keyboardEnabled;
-  final TerminalClipboardShortcut copyShortcut;
-  final TerminalClipboardShortcut pasteShortcut;
+  final SingleActivator copyShortcut;
+  final SingleActivator pasteShortcut;
   final Color textColor;
   final Color backgroundColor;
   final String fontFamily;

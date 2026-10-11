@@ -15,8 +15,8 @@ class TerminalPane extends StatefulWidget {
     this.active = false,
     this.highlightActive = false,
     this.keyboardEnabled = true,
-    this.copyShortcut = TerminalClipboardShortcut.shiftCtrl,
-    this.pasteShortcut = TerminalClipboardShortcut.ctrl,
+    this.copyShortcut = terminalDefaultCopyBinding,
+    this.pasteShortcut = terminalDefaultPasteBinding,
     Color? textColor,
     Color? backgroundColor,
     this.fontFamily = 'monospace',
@@ -46,8 +46,8 @@ class TerminalPane extends StatefulWidget {
   /// Outline the active pane; only meaningful when panes are split.
   final bool highlightActive;
   final bool keyboardEnabled;
-  final TerminalClipboardShortcut copyShortcut;
-  final TerminalClipboardShortcut pasteShortcut;
+  final SingleActivator copyShortcut;
+  final SingleActivator pasteShortcut;
   final Color? _textColor;
   Color get textColor => _textColor ?? AppColors.text;
   final Color? _backgroundColor;
@@ -108,8 +108,7 @@ class _TerminalPaneState extends State<TerminalPane>
       },
       child: Actions(
         actions: {
-          if (defaultTargetPlatform == TargetPlatform.linux &&
-              widget.copyShortcut == TerminalClipboardShortcut.shiftCtrl)
+          if (defaultTargetPlatform == TargetPlatform.linux)
             TerminalCtrlCCopyAction: TerminalCtrlCCopyAction(
               controller: widget.controller,
             ),
