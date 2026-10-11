@@ -76,9 +76,12 @@ impl client::Handler for Client {
 
     async fn check_server_key(
         &mut self,
-        server_public_key: &russh::keys::ssh_key::PublicKey,
+        server_key: &russh::keys::PublicKeyOrCertificate,
     ) -> std::result::Result<bool, Self::Error> {
-        verify_host_key(&self.host, self.port, server_public_key, &self.known_hosts)?;
+        // A host certificate is checked by the key it certifies: no
+        // @cert-authority support, same as OpenSSH without a trusted CA.
+        let key = server_key.public_key();
+        verify_host_key(&self.host, self.port, &key, &self.known_hosts)?;
         Ok(true)
     }
 
@@ -89,12 +92,14 @@ impl client::Handler for Client {
         _connected_port: u32,
         _originator_address: &str,
         _originator_port: u32,
+        reply: client::ChannelOpenHandle,
         _session: &mut client::Session,
     ) -> std::result::Result<(), Self::Error> {
-        // Without a target the channel is dropped, which closes it.
+        // Without a target the reply is dropped, which rejects the channel.
         let Some((host, port)) = self.forward_to.clone() else {
             return Ok(());
         };
+        reply.accept().await;
         tokio::spawn(async move {
             let Ok(mut target) = tokio::net::TcpStream::connect((host.as_str(), port)).await else {
                 return;
