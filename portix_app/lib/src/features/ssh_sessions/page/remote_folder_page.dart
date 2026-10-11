@@ -967,17 +967,26 @@ class _RemoteFolderPageState extends State<RemoteFolderPage> {
     String localPath,
     String? originalText,
   ) async {
-    if (!mounted) return;
-    final currentText = await readTextIfPossible(localPath);
-    if (!mounted) return;
-    final diff = buildTextDiff(originalText, currentText);
-    final shouldRewrite = await showDialog<bool>(
-      context: context,
-      builder: (context) =>
-          RewriteRemoteDialog(fileName: entry.name, diff: diff),
-    );
-    if (shouldRewrite == true) {
-      await _rewriteEditedRemoteFile(sessionId, entry, localPath);
+    try {
+      if (!mounted) return;
+      final currentText = await readTextIfPossible(localPath);
+      if (!mounted) return;
+      final diff = buildTextDiff(originalText, currentText);
+      final shouldRewrite = await showDialog<bool>(
+        context: context,
+        builder: (context) =>
+            RewriteRemoteDialog(fileName: entry.name, diff: diff),
+      );
+      if (shouldRewrite == true) {
+        await _rewriteEditedRemoteFile(sessionId, entry, localPath);
+      }
+    } catch (error) {
+      // Must not reach the watcher's catch: it stops watching this file.
+      if (!mounted) return;
+      _showMessage(
+        context,
+        'Could not show rewrite preview: ${_compactErrorMessage('$error')}',
+      );
     }
   }
 

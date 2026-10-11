@@ -21,9 +21,9 @@ const Duration _heartbeatTimeout = Duration(seconds: 4);
 
 class ConnectionManager extends ChangeNotifier {
   ConnectionManager({
-    ConnectionBackend? backend,
+    required ConnectionBackend backend,
     ProfileCredentials? credentials,
-  }) : _backend = backend ?? MockConnectionBackend(),
+  }) : _backend = backend,
        credentials = credentials ?? ProfileCredentials() {
     _statusSub = _backend.connectionStatusStream.listen(_handleStatus);
     _outputSub = _backend.terminalOutputStream.listen(_handleTerminalOutput);
