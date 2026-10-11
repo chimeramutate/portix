@@ -4,7 +4,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/domain/entities/rdp/index.dart';
-import 'package:portix/src/domain/repositories/rdp/index.dart';
+import 'package:portix/src/domain/repositories/rdp/rdp_profile_repository.dart';
 import 'package:portix/src/features/rdp/service/rdp_backend_service.dart';
 import 'package:portix/src/features/rdp/service/rdp_launch_service.dart';
 

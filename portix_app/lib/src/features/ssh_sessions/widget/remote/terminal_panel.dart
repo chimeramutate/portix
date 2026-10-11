@@ -14,10 +14,10 @@ import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart' as domain;
-import 'package:portix/src/domain/repositories/settings/index.dart';
-import 'package:portix/src/features/ssh_profiles/bloc/index.dart';
-import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart' as domain;
+import 'package:portix/src/domain/repositories/settings/settings_repository.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../controller/index.dart';

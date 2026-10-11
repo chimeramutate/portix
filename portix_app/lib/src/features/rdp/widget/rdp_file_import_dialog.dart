@@ -19,7 +19,7 @@ class RdpFileImportDialog {
       );
 
       if (result == null || result.files.isEmpty) {
-        return null; // User cancelled
+        return null;
       }
 
       final filePath = result.files.first.path;

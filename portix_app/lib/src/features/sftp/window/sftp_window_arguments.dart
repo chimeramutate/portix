@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:portix/src/domain/entities/ssh/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
 
 /// Arguments for an SFTP child window, written by [SftpWindowService.openSession];
 /// the profile uses [SshProfileRepository]'s map format.

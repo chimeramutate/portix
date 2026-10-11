@@ -1,4 +1,4 @@
-import 'package:portix/src/domain/entities/ssh/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
 
 /// Keys OpenSSH tries when a host has no IdentityFile, in its default order.
 const defaultIdentityFiles = ['id_ed25519', 'id_ecdsa', 'id_rsa'];

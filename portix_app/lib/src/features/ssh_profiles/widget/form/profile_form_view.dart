@@ -4,8 +4,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart';
-import '../../bloc/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 import 'form_steps.dart';
 import 'profile_preview.dart';
 import 'ssh_key_manager_dialog.dart';

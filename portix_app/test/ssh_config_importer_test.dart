@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
 import 'package:portix/src/features/ssh_profiles/controller/ssh_config_importer.dart';
 
 const _config = '''

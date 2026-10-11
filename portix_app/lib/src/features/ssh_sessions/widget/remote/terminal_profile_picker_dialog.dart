@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart' as domain;
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart' as domain;
 
 import '../../controller/quick_connect.dart';
 import 'terminal_workspace_view.dart';

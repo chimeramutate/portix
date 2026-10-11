@@ -1,5 +1,5 @@
 use flutter_rust_bridge::frb;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use serde::Serialize;
 use tokio::sync::broadcast;
 
@@ -9,7 +9,7 @@ use crate::domain::session::{RemoteSystemSnapshot, SessionInfo};
 use crate::frb_generated::StreamSink;
 use crate::infrastructure::{host_keys, port_forward, ssh_client};
 
-static SESSION_MANAGER: Lazy<SessionManager> = Lazy::new(SessionManager::new);
+static SESSION_MANAGER: LazyLock<SessionManager> = LazyLock::new(SessionManager::new);
 
 #[frb(init)]
 pub fn init_app() {

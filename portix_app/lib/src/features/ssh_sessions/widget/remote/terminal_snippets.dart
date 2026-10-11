@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
-import 'package:portix/src/domain/repositories/settings/index.dart';
+import 'package:portix/src/domain/repositories/settings/settings_repository.dart';
 
 const terminalSnippetsSettingKey = 'terminal.snippets';
 

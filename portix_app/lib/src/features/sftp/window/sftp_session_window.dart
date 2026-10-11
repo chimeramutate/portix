@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
-import 'package:portix/src/features/sftp/bloc/index.dart';
-import 'package:portix/src/features/sftp/page/index.dart';
+import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
+import 'package:portix/src/features/sftp/page/sftp_workspace_page.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 
 import 'sftp_window_arguments.dart';

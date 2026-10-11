@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
-import 'package:portix/src/domain/repositories/settings/index.dart';
+import 'package:portix/src/domain/repositories/settings/settings_repository.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/terminal_shortcuts.dart';
 
 import 'app_menu.dart';
