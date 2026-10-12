@@ -1939,7 +1939,8 @@ jobs:
     needs:
       - build-desktop-linux
 
-    if: startsWith(github.ref, 'refs/tags/')
+    # Off until flatpak/ has a manifest, .desktop and metainfo; none exist yet.
+    if: false
 
     container:
       image: bilelmoussaoui/flatpak-github-actions:gnome-46
