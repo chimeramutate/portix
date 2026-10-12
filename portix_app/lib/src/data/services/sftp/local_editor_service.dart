@@ -248,8 +248,6 @@ class LocalEditorService {
   }
 
   /// Open a file with the OS default application based on file extension.
-  /// This bypasses the editor selection entirely and uses the platform's
-  /// native file association mechanism.
   Future<void> openWithSystemDefault(String path) async {
     // In snap confinement, copy file to accessible location first.
     final accessiblePath = await _ensureAccessiblePath(path);
@@ -273,14 +271,13 @@ class LocalEditorService {
       await Process.start('open', [accessiblePath]);
       return;
     }
-    // Linux: try multiple mechanisms.
-    // 1. gio open — works in snap via xdg-desktop-portal.
+    // gio open works in snap via xdg-desktop-portal.
     final gioResult = await Process.run('gio', ['open', accessiblePath]);
     if (gioResult.exitCode == 0) return;
-    // 2. xdg-open — works in native builds.
+    // xdg-open works in native builds.
     final xdgResult = await Process.run('xdg-open', [accessiblePath]);
     if (xdgResult.exitCode == 0) return;
-    // 3. Direct D-Bus portal call as final fallback.
+    // Direct D-Bus portal call as the last resort.
     final uri = Uri.file(accessiblePath).toString();
     await Process.run('dbus-send', [
       '--session',
@@ -298,13 +295,11 @@ class LocalEditorService {
   /// In snap confinement, /tmp is private so we copy to $HOME/.cache/portix/
   /// which is readable by other apps via the home plug.
   Future<String> _ensureAccessiblePath(String path) async {
-    // Detect snap confinement.
     final snapCommon = Platform.environment['SNAP_USER_COMMON'];
     final isSnap = snapCommon != null && snapCommon.isNotEmpty;
 
     if (!isSnap) return path;
 
-    // In snap: copy file to user-accessible cache directory.
     final home =
         Platform.environment['HOME'] ??
         Platform.environment['SNAP_REAL_HOME'] ??
@@ -341,14 +336,12 @@ class LocalEditorService {
       return Directory.systemTemp.createTemp('portix-remote-open-');
     }
 
-    // In snap: use home cache dir.
     final home =
         Platform.environment['HOME'] ??
         Platform.environment['SNAP_REAL_HOME'] ??
         '/tmp';
     final baseDir = Directory('$home/.cache/portix/open');
     await baseDir.create(recursive: true);
-    // Create a unique subdir.
     final uniqueDir = Directory(
       '${baseDir.path}${Platform.pathSeparator}portix-${DateTime.now().millisecondsSinceEpoch}',
     );
@@ -743,9 +736,7 @@ class LocalEditorService {
       final needsShell =
           editor.command.endsWith('.cmd') || editor.command.endsWith('.bat');
 
-      // Special handling for "Default Windows app" (cmd.exe /c start "")
-      // Detect whether PowerShell or cmd is available and use the appropriate
-      // mechanism to open a file with the system default handler.
+      // "Default Windows app": open with pwsh, powershell or cmd, whichever exists.
       if (editor.command == 'cmd.exe' && editor.arguments.contains('start')) {
         final escaped = path.replaceAll('/', '\\');
 

@@ -1,18 +1,8 @@
-/// Comprehensive unit tests for RDP domain profile parsing and validation.
-///
-/// These tests cover:
-/// - `.rdp` file parsing (CyberArk PSM, standard, edge cases)
-/// - `RdpProfile` validation
-/// - `connection_key` deduplication logic
-/// - `is_cyberark_psm` detection
-/// - `socket_addr` formatting
+/// Tests for `.rdp` parsing, profile validation, `connection_key`,
+/// `is_cyberark_psm` and `socket_addr`.
 #[cfg(test)]
 mod tests {
     use crate::domain::profile::{RdpProfile, parse_rdp_file};
-
-    // =========================================================
-    // HELPERS
-    // =========================================================
 
     fn minimal_valid_profile() -> RdpProfile {
         RdpProfile {
@@ -26,9 +16,7 @@ mod tests {
         }
     }
 
-    // =========================================================
-    // VALIDATION — valid cases
-    // =========================================================
+    // Validation — valid cases
 
     #[test]
     fn validate_accepts_minimal_valid_profile() {
@@ -60,9 +48,7 @@ mod tests {
         assert!(profile.validate().is_ok());
     }
 
-    // =========================================================
-    // VALIDATION — invalid cases
-    // =========================================================
+    // Validation — invalid cases
 
     #[test]
     fn validate_rejects_empty_id() {
@@ -113,9 +99,7 @@ mod tests {
         assert!(p.validate().is_err());
     }
 
-    // =========================================================
-    // SOCKET ADDRESS
-    // =========================================================
+    // Socket address
 
     #[test]
     fn socket_addr_formats_host_and_port() {
@@ -137,9 +121,7 @@ mod tests {
         assert_eq!(p.socket_addr(), "rdp.example.com:3390");
     }
 
-    // =========================================================
-    // IS CYBERARK PSM
-    // =========================================================
+    // Is CyberArk PSM
 
     #[test]
     fn is_cyberark_psm_returns_true_when_alternate_shell_contains_psm() {
@@ -177,9 +159,7 @@ mod tests {
         assert!(!p.is_cyberark_psm());
     }
 
-    // =========================================================
-    // CONNECTION KEY — deduplication
-    // =========================================================
+    // Connection key — deduplication
 
     #[test]
     fn connection_key_same_for_different_profile_ids() {
@@ -245,9 +225,7 @@ mod tests {
         assert_ne!(p1.connection_key(), p2.connection_key());
     }
 
-    // =========================================================
-    // PARSE RDP FILE — standard cases
-    // =========================================================
+    // Parse RDP file — standard cases
 
     #[test]
     fn parse_standard_rdp_uses_default_port_when_not_specified() {
@@ -401,9 +379,7 @@ mod tests {
         assert_eq!(profile.username, "admin");
     }
 
-    // =========================================================
-    // PARSE RDP FILE — CyberArk PSM (full scenario)
-    // =========================================================
+    // Parse RDP file — CyberArk PSM (full scenario)
 
     #[test]
     fn parse_cyberark_full_scenario() {
@@ -430,9 +406,7 @@ EnableCredSspSupport:i:1"#;
         assert!(!profile.full_screen); // screen mode id not set → default false
     }
 
-    // =========================================================
-    // DEFAULT VALUES
-    // =========================================================
+    // Default values
 
     #[test]
     fn default_profile_has_port_3389() {

@@ -15,8 +15,8 @@ class TerminalPane extends StatefulWidget {
     this.active = false,
     this.highlightActive = false,
     this.keyboardEnabled = true,
-    this.copyShortcut = TerminalClipboardShortcut.shiftCtrl,
-    this.pasteShortcut = TerminalClipboardShortcut.ctrl,
+    this.copyShortcut = terminalDefaultCopyBinding,
+    this.pasteShortcut = terminalDefaultPasteBinding,
     Color? textColor,
     Color? backgroundColor,
     this.fontFamily = 'monospace',
@@ -46,8 +46,8 @@ class TerminalPane extends StatefulWidget {
   /// Outline the active pane; only meaningful when panes are split.
   final bool highlightActive;
   final bool keyboardEnabled;
-  final TerminalClipboardShortcut copyShortcut;
-  final TerminalClipboardShortcut pasteShortcut;
+  final SingleActivator copyShortcut;
+  final SingleActivator pasteShortcut;
   final Color? _textColor;
   Color get textColor => _textColor ?? AppColors.text;
   final Color? _backgroundColor;
@@ -86,8 +86,6 @@ class _TerminalPaneState extends State<TerminalPane>
     super.dispose();
   }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -108,8 +106,7 @@ class _TerminalPaneState extends State<TerminalPane>
       },
       child: Actions(
         actions: {
-          if (defaultTargetPlatform == TargetPlatform.linux &&
-              widget.copyShortcut == TerminalClipboardShortcut.shiftCtrl)
+          if (defaultTargetPlatform == TargetPlatform.linux)
             TerminalCtrlCCopyAction: TerminalCtrlCCopyAction(
               controller: widget.controller,
             ),
@@ -141,15 +138,8 @@ class _TerminalPaneState extends State<TerminalPane>
                   focusNode: widget.focusNode,
                   autofocus: widget.keyboardEnabled && widget.active,
                   readOnly: !widget.keyboardEnabled,
-                  // On desktop there is no soft keyboard to drive, so the
-                  // hidden `TextInputConnection` from `CustomTextEdit` only
-                  // serves to track an invisible caret/rect on the terminal
-                  // cursor. In full-screen TUI apps (vi/nano) the cursor is
-                  // repainted constantly, which makes the platform IME reposition
-                  // the viewport / flicker the view and can double-deliver keys.
-                  // `hardwareKeyboardOnly` uses `CustomKeyboardListener` (raw
-                  // hardware keys, no hidden text field, single delivery) which is
-                  // the correct input path for a desktop SSH terminal.
+                  // Desktop has no soft keyboard: the hidden text input only made the IME
+                  // flicker in TUI apps and double-deliver keys, so read raw hardware keys.
                   hardwareKeyboardOnly:
                       !kIsWeb &&
                       defaultTargetPlatform != TargetPlatform.android &&
@@ -251,8 +241,6 @@ class _TerminalPaneState extends State<TerminalPane>
     return pane;
   }
 }
-
-// ── TerminalSelectionToolbar ─────────────────────────────────────────────
 
 class TerminalSelectionToolbar extends StatefulWidget {
   const TerminalSelectionToolbar({

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 
-import '../bloc/index.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 
 const workspaceRailWidth = 48.0;
 
@@ -39,9 +39,6 @@ class WorkspaceRail extends StatelessWidget {
           ),
           item(WorkspaceView.rdp, Icons.computer_outlined, 'RDP'),
           item(WorkspaceView.sftp, Icons.cable_rounded, 'SFTP'),
-          const Spacer(),
-          item(WorkspaceView.settings, Icons.settings_outlined, 'Settings'),
-          const SizedBox(height: 4),
         ],
       ),
     );

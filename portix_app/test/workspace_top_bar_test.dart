@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:portix/src/features/ssh_profiles/bloc/index.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 import 'package:portix/src/features/ssh_profiles/widget/workspace_top_bar.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -53,9 +53,9 @@ void main() {
     tester,
   ) async {
     for (final platform in [TargetPlatform.linux, TargetPlatform.windows]) {
-      await _pump(tester, WorkspaceView.settings, platform);
+      await _pump(tester, WorkspaceView.rdp, platform);
       expect(find.byType(WindowCaptionButton), findsNWidgets(3));
-      expect(find.text('Settings'), findsOneWidget);
+      expect(find.byKey(const ValueKey('app-menu-terminal')), findsOneWidget);
     }
   });
 
@@ -63,7 +63,7 @@ void main() {
     tester,
   ) async {
     await _pump(tester, WorkspaceView.remoteFolder, TargetPlatform.linux);
-    expect(find.text('Terminal'), findsOneWidget);
+    expect(find.widgetWithText(Center, 'Terminal'), findsOneWidget);
     expect(find.byType(DragToMoveArea), findsOneWidget);
   });
 

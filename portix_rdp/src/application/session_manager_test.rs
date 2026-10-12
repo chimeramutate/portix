@@ -9,10 +9,6 @@ mod tests {
     use crate::domain::profile::RdpProfile;
     use crate::domain::session::RdpConnectionStatus;
 
-    // =========================================================
-    // HELPERS
-    // =========================================================
-
     fn valid_profile(id: &str) -> RdpProfile {
         RdpProfile {
             id: id.into(),
@@ -45,9 +41,7 @@ mod tests {
         }
     }
 
-    // =========================================================
-    // CONSTRUCTION
-    // =========================================================
+    // Construction
 
     #[test]
     fn new_manager_has_no_active_sessions() {
@@ -68,9 +62,7 @@ mod tests {
         let _b = RdpSessionManager::default();
     }
 
-    // =========================================================
-    // FRAME ID COUNTER
-    // =========================================================
+    // Frame ID counter
 
     #[test]
     fn frame_id_counter_starts_at_one() {
@@ -96,9 +88,7 @@ mod tests {
         assert_eq!(mgr_a.next_frame_id(), mgr_b.next_frame_id());
     }
 
-    // =========================================================
-    // CONNECT — validation
-    // =========================================================
+    // Connect — validation
 
     #[tokio::test]
     async fn connect_rejects_profile_with_empty_host() {
@@ -128,9 +118,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // =========================================================
-    // CONNECT — session spawning (non-network path)
-    // =========================================================
+    // Connect — session spawning (non-network path)
 
     #[tokio::test]
     async fn connect_returns_session_info_in_connecting_state() {
@@ -151,9 +139,7 @@ mod tests {
         assert!(!info.id.is_empty(), "session id must be non-empty UUID");
     }
 
-    // =========================================================
-    // CONNECT — deduplication
-    // =========================================================
+    // Connect — deduplication
 
     #[tokio::test]
     async fn second_connect_for_same_profile_returns_same_session_id() {
@@ -173,9 +159,7 @@ mod tests {
         );
     }
 
-    // =========================================================
-    // DISCONNECT — unknown session is a no-op
-    // =========================================================
+    // Disconnect — unknown session is a no-op
 
     #[tokio::test]
     async fn disconnect_nonexistent_session_returns_ok() {
@@ -184,9 +168,7 @@ mod tests {
         assert!(result.is_ok(), "disconnecting unknown session must not error");
     }
 
-    // =========================================================
-    // DISCONNECT ALL — clears everything
-    // =========================================================
+    // Disconnect all — clears everything
 
     #[tokio::test]
     async fn disconnect_all_does_not_panic_on_empty_manager() {
@@ -194,9 +176,7 @@ mod tests {
         mgr.disconnect_all().await; // must not panic
     }
 
-    // =========================================================
-    // PARSE RDP FILE CONTENT
-    // =========================================================
+    // Parse RDP file content
 
     #[tokio::test]
     async fn parse_rdp_file_content_returns_session_info_with_disconnected_status() {
@@ -223,9 +203,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    // =========================================================
-    // STREAMS — subscriptions don't panic
-    // =========================================================
+    // Streams — subscriptions don't panic
 
     #[test]
     fn subscribing_to_streams_does_not_panic() {
@@ -235,9 +213,7 @@ mod tests {
         let _error = mgr.error_stream();
     }
 
-    // =========================================================
-    // INPUT COMMANDS — no session → silent no-op
-    // =========================================================
+    // Input commands — no session → silent no-op
 
     #[tokio::test]
     async fn send_mouse_move_to_nonexistent_session_returns_ok() {

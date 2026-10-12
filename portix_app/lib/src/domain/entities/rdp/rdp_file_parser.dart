@@ -153,7 +153,6 @@ class RdpFileParser {
     if (filePath != null && filePath.isNotEmpty) {
       // Use the filename without extension, strip UUIDs at the end
       final fileName = filePath.split('/').last.split('\\').last;
-      // Remove .rdp extension
       final withoutExt = fileName.endsWith('.rdp')
           ? fileName.substring(0, fileName.length - 4)
           : fileName;

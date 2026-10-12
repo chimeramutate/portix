@@ -8,7 +8,7 @@ import 'package:portix/src/connection_manager/session_models.dart'
     as session_models;
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart' as domain;
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart' as domain;
 import 'package:xterm/xterm.dart';
 
 import '../../controller/index.dart';

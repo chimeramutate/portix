@@ -62,3 +62,6 @@ target
 
 # rustc will dump stack traces when hitting an internal compiler error to PWD
 rustc-ice-*.txt
+
+# Native libraries are built by CI, never committed.
+*.so

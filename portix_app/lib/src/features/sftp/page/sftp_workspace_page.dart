@@ -9,15 +9,17 @@ import 'package:flutter_svg/svg.dart';
 import 'package:easy_stepper/easy_stepper.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/core/di/injection.dart';
+import 'package:portix/src/core/constants/file_extensions.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/utils/text_diff.dart';
 import 'package:portix/src/core/widgets/index.dart';
+import 'package:portix/src/data/services/sftp/local_edit_watcher.dart';
 import 'package:portix/src/domain/entities/sftp/index.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart';
-import 'package:portix/src/features/sftp/bloc/index.dart';
-import 'package:portix/src/features/sftp/controller/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
+import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
+import 'package:portix/src/features/sftp/controller/sftp_workspace_controller.dart';
 import 'package:portix/src/features/sftp/window/index.dart';
-import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/host_key_dialog.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/key_passphrase_dialog.dart';
 import 'package:portix/src/sftp_client/sftp_manager.dart';
@@ -47,12 +49,8 @@ class SftpWorkspacePage extends StatefulWidget {
 class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   late SftpWorkspaceController _controller;
   late SftpWorkspaceController _leftController;
-  // Profile attached to the LEFT pane's independent controller. `null` means
-  // the left pane shows the Local filesystem — so the left side can be Local
-  // (local-vs-server) or any server (server-vs-server), independently of the
-  // right pane. The SSH controller code is unchanged and proven
-  // session-isolated, so two controllers on the shared ConnectionManager never
-  // cross-talk (see the two-controller independence test).
+  // Profile of the LEFT pane's own controller; null means Local. Either side
+  // can be Local or any server, independently of the other.
   SshProfile? _leftSelectedProfile;
   String? _leftSyncKey;
   // When true, the LEFT pane renders the inline Local-first profile gate
@@ -68,7 +66,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   final FocusNode _inlineCreateFocusNode = FocusNode(debugLabel: 'SFTP create');
   final TextEditingController _inlineRenameController = TextEditingController();
   final FocusNode _inlineRenameFocusNode = FocusNode(debugLabel: 'SFTP rename');
-  final Map<String, _SftpLocalEditSession> _localEditSessions = {};
+  final LocalEditWatcher _editWatcher = LocalEditWatcher();
   final Set<String> _selectedLocalPaths = {};
   final Set<String> _selectedRemotePaths = {};
   String? _localSelectionAnchor;
@@ -86,60 +84,10 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   _SftpTab get _activeTab => _tabs[_activeTabIndex];
 
-  /// The controller backing the pane on [isLeft]. The right pane keeps the
-  /// per-tab controller verbatim; the left pane uses a single independent
-  /// controller that owns its own SSH/SFTP session (proven session-isolated
-  /// by the two-controller test). Routing every handler through this keeps the
-  /// right pane byte-for-byte current while the left pane reuses the identical,
-  /// proven code paths.
+  /// The controller behind the pane on [isLeft]: the per-tab controller on
+  /// the right, an independent one with its own session on the left.
   SftpWorkspaceController _c(bool isLeft) =>
       isLeft ? _leftController : _controller;
-
-  static const Set<String> _codeFileExtensions = {
-    'astro',
-    'bash',
-    'bat',
-    'c',
-    'cc',
-    'conf',
-    'cpp',
-    'cs',
-    'css',
-    'dart',
-    'env',
-    'go',
-    'gradle',
-    'h',
-    'hpp',
-    'html',
-    'java',
-    'js',
-    'json',
-    'jsx',
-    'kt',
-    'kts',
-    'lua',
-    'm',
-    'md',
-    'php',
-    'plist',
-    'py',
-    'rb',
-    'rs',
-    'scss',
-    'sh',
-    'sql',
-    'swift',
-    'toml',
-    'ts',
-    'tsx',
-    'txt',
-    'vue',
-    'xml',
-    'yaml',
-    'yml',
-    'zsh',
-  };
 
   final _leftPaneKey = GlobalKey();
   final _rightPaneKey = GlobalKey();
@@ -173,11 +121,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     _leftController = _newController();
     _tabs.add(_SftpTab(controller: _controller, label: 'SFTP 1'));
 
-    // When opened as a detached window (duplicate as new window),
-    // auto-select the profile and start connecting so the new
-    // window mirrors the original's session state. The actual
-    // connection is triggered on the first build via
-    // [_scheduleRemoteSync], which calls [_controller.attachRemoteProfile].
+    // A duplicated window connects on its first build via [_scheduleRemoteSync],
+    // mirroring the original tab's session.
     final initialProfile = widget.initialProfile;
     if (initialProfile != null) {
       _activeTab.selectedProfile = initialProfile;
@@ -187,9 +132,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   @override
   void dispose() {
-    for (final editSession in _localEditSessions.values) {
-      editSession.timer.cancel();
-    }
+    _editWatcher.dispose();
     _inlineCreateController.dispose();
     _inlineCreateFocusNode.dispose();
     _inlineRenameController.dispose();
@@ -327,20 +270,12 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   void _scheduleRemoteSync(SshProfile? profile, String remotePath) {
     final key = profile == null ? 'none' : '${profile.id}|$remotePath';
-    // Always re-attach when the controller signals that the current session
-    // needs re-validation (no session, disconnected, or has a remote error).
-    // This handles the "silent stale" case where the SSH/SFTP channel has
-    // died but TCP port-22 is still reachable (so ConnectionStatus stays
-    // "connected" and no disconnect event is ever fired).
-    // Without a profile there is no session to revalidate; forcing a sync
-    // would clear the session, notify, rebuild and reschedule every frame.
+    // Re-attach whenever re-validation is due, which covers a channel that died
+    // behind a live port 22. Skip without a profile or it reschedules every frame.
     final forceSync = profile != null && _controller.needsRevalidation;
     if (!forceSync && _remoteSyncKey == key) return;
     _remoteSyncKey = key;
-    // When a session is already active, re-attach to the directory the user
-    // is currently viewing rather than the profile's initial path. This keeps
-    // a drop-triggered refresh (or any revalidation) from jumping back to the
-    // profile's root/initial path.
+    // Re-attach at the directory being viewed, not the profile's initial path.
     final targetPath = _controller.hasRemoteSession
         ? _controller.remotePath
         : remotePath;
@@ -391,8 +326,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         ..removeListener(_handleControllerChanged)
         ..dispose();
       if (_tabs.isEmpty) {
-        // When the last tab is closed, create a fresh blank tab so the
-        // user always has at least one tab to work with.
+        // Always keep at least one tab.
         final newController = _newController();
         _tabs.add(_SftpTab(controller: newController, label: 'SFTP 1'));
       }
@@ -446,9 +380,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     });
   }
 
-  /// Duplicates the tab at [index], creating a new tab with a fresh
-  /// [SftpWorkspaceController] that points to the same profile and remote
-  /// path as the source tab.
+  /// Duplicates the tab at [index] with a fresh controller on the same
+  /// profile and remote path.
   void _duplicateSftpTab(int index) {
     if (index < 0 || index >= _tabs.length) return;
     final sourceTab = _tabs[index];
@@ -482,13 +415,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     }
   }
 
-  /// Opens the tab at [index] in a new detached SFTP window via
-  /// [SftpWindowService.openSession].
-  ///
-  /// If the profile is password-based and a password is saved in secure
-  /// storage, the password is resolved and embedded in the profile's
-  /// `credentialLabel` so the child window can connect immediately
-  /// without re-prompting.
+  /// Opens the tab at [index] in a detached SFTP window. A saved password is
+  /// embedded in the profile so the child window doesn't re-prompt.
   Future<void> _openInNewWindow(int index) async {
     if (index < 0 || index >= _tabs.length) return;
     final tab = _tabs[index];
@@ -518,17 +446,10 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     BuildContext context,
     SshProfile profile,
   ) async {
-    // The password (if needed) is now collected during the 4-step
-    // connection flow — specifically at step 1 ('authenticating')
-    // — rather than prompting before the connection starts. This
-    // keeps the step indicator visible so the user can follow:
-    //   0 Pick profile → 1 Loading (password) → 2 Connecting → 3 Connected
+    // The password is asked at the 'authenticating' step, not before connecting.
     if (!mounted) return;
-    // Pre-emptively mark the remote pane as loading BEFORE setState so
-    // that on the very first rebuild the step indicator is shown —
-    // not a one-frame flash of the file-table controls (Open Path,
-    // New File, New Folder, Reload).  beginLoading() is a no-op if a
-    // connection is already in flight.
+    // Before setState, so the first rebuild shows the step indicator instead of
+    // flashing the file-table controls.
     _controller.beginLoading();
     setState(() {
       _activeTab.selectedProfile = profile;
@@ -539,14 +460,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   Future<void> _selectLeftProfileForActiveTab(SshProfile? profile) async {
     if (!mounted) return;
-    // Pre-emptively mark the left pane as loading BEFORE setState so
-    // that on the very first rebuild the step indicator is shown —
-    // not a one-frame flash of the file-table controls (Open Path,
-    // New File, New Folder, Reload).  This is the left-pane analogue
-    // of the same fix applied in [_selectProfileForActiveTab] for the
-    // right pane.  beginLoading() is a no-op if a connection is already
-    // in flight, and the session-reuse path in attachRemoteProfile resets
-    // the state when the profile is already connected.
+    // Left-pane twin of the beginLoading() call in [_selectProfileForActiveTab].
     if (profile != null) {
       _leftController.beginLoading();
     }
@@ -579,7 +493,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (existingIndex >= 0) {
-        // Switch to existing tab.
         _switchSftpTab(existingIndex);
       } else {
         // Select profile in current tab if it's empty, otherwise create new tab.
@@ -782,10 +695,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           );
       }
     } catch (error) {
-      // Opening/editing files may throw while the SFTP session is down
-      // (e.g. `editablePathFor` raises StateError('Remote SFTP session is
-      // not connected.')) or when showing the editor picker on a stale
-      // context. Surface as a snack instead of tearing down the isolate.
+      // Opening may throw while the session is down or on a stale context; show
+      // a snack instead of crashing.
       if (!mounted) return;
       _showSnack(context, 'Failed: $error');
     }
@@ -804,10 +715,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       return;
     }
 
-    final isCodeFile = _shouldOpenInCodeEditor(file.name);
+    final isCodeFile = isCodeFileName(file.name);
 
-    // For non-code files opened with default action,
-    // always use the OS system default application (Word for .docx, etc.)
+    // Non-code files open in the OS default app (Word for .docx, etc.).
     if (!isCodeFile && preferredDefault) {
       final path = await controller.editablePathFor(file, isRemote);
       try {
@@ -828,7 +738,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     if (isCodeFile) {
       editors = await controller.detectLocalEditors();
     } else {
-      final extension = _fileExtension(file.name);
+      final extension = fileExtension(file.name);
       editors = await controller.detectAppsForExtension(extension);
     }
     if (!mounted) return;
@@ -847,7 +757,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
     final preferCodeEditor = preferredDefault && isCodeFile;
     final editor = preferredDefault
-        ? _preferredLocalEditor(editors, preferCodeEditor: preferCodeEditor)
+        ? preferredLocalEditor(editors, preferCodeEditor: preferCodeEditor)
         : await showModalBottomSheet<LocalEditor>(
             context: context,
             backgroundColor: AppColors.surface,
@@ -869,17 +779,15 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     }
 
     final path = await controller.editablePathFor(file, isRemote);
-    final originalText = isRemote ? await _readFileTextIfPossible(path) : null;
+    final originalText = isRemote ? await readTextIfPossible(path) : null;
 
     try {
       await controller.openEditor(editor, path);
       if (!mounted) return;
       if (isRemote) {
-        await _watchLocalEditForRewrite(
-          file: file,
-          localPath: path,
-          originalText: originalText,
-          isLeft: isLeft,
+        await _editWatcher.watch(
+          path,
+          () => _showRewritePrompt(file, path, originalText, isLeft),
         );
         _showSnack(
           context,
@@ -894,85 +802,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     }
   }
 
-  LocalEditor? _preferredLocalEditor(
-    List<LocalEditor> editors, {
-    required bool preferCodeEditor,
-  }) {
-    if (editors.isEmpty) return null;
-    if (preferCodeEditor) {
-      for (final editor in editors) {
-        if (!_isDefaultSystemEditor(editor)) return editor;
-      }
-    }
-    if (Platform.isMacOS || Platform.isWindows) {
-      for (final editor in editors) {
-        if (_isDefaultSystemEditor(editor)) return editor;
-      }
-    }
-    return editors.first;
-  }
-
-  bool _isDefaultSystemEditor(LocalEditor editor) {
-    if (Platform.isWindows) {
-      return editor.command == 'cmd.exe' && editor.arguments.contains('start');
-    }
-    return editor.command == 'open' && editor.arguments.isEmpty;
-  }
-
-  bool _shouldOpenInCodeEditor(String fileName) {
-    final extension = _fileExtension(fileName);
-    if (extension.isEmpty) {
-      return fileName.startsWith('.') ||
-          const {
-            'dockerfile',
-            'makefile',
-            'gemfile',
-            'rakefile',
-            'procfile',
-            'license',
-            'readme',
-          }.contains(fileName.toLowerCase());
-    }
-    return _codeFileExtensions.contains(extension);
-  }
-
-  Future<void> _watchLocalEditForRewrite({
-    required SftpFileEntry file,
-    required String localPath,
-    required String? originalText,
-    required bool isLeft,
-  }) async {
-    final localFile = File(localPath);
-    final stat = await localFile.stat();
-    _localEditSessions.remove(localPath)?.timer.cancel();
-    var lastPromptedAt = stat.modified;
-    var promptOpen = false;
-    final timer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      try {
-        final currentStat = await localFile.stat();
-        if (!currentStat.modified.isAfter(lastPromptedAt)) return;
-        lastPromptedAt = currentStat.modified;
-        if (promptOpen) return;
-        promptOpen = true;
-        await _showRewritePrompt(file, localPath, originalText, isLeft);
-        promptOpen = false;
-      } catch (_) {
-        timer.cancel();
-        _localEditSessions.remove(localPath);
-      }
-    });
-    _localEditSessions[localPath] = _SftpLocalEditSession(
-      remotePath: file.path ?? file.name,
-      localPath: localPath,
-      timer: timer,
-      originalText: originalText,
-    );
-  }
-
   Future<void> _showRewritePrompt(
     SftpFileEntry file,
     String localPath,
@@ -981,7 +810,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   ) async {
     try {
       if (!mounted) return;
-      final currentText = await _readFileTextIfPossible(localPath);
+      final currentText = await readTextIfPossible(localPath);
       if (!mounted) return;
       final diff = buildTextDiff(originalText, currentText);
       final shouldRewrite = await showDialog<bool>(
@@ -993,9 +822,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         await _rewriteEditedRemoteFile(file, localPath, isLeft);
       }
     } catch (error) {
-      // A dialog/context glitch here must not propagate into the file-watch
-      // timer's catch (which cancels the timer), otherwise subsequent saves
-      // silently stop showing the diff/rewrite prompt.
+      // Must not reach the file-watch timer's catch: it cancels the timer and
+      // later saves silently stop showing the diff prompt.
       if (!mounted) return;
       _showSnack(context, 'Could not show rewrite preview: $error');
     }
@@ -1015,22 +843,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       if (!mounted) return;
       _showSnack(context, 'Rewrite failed: $error');
     }
-  }
-
-  Future<String?> _readFileTextIfPossible(String path) async {
-    try {
-      final bytes = await File(path).readAsBytes();
-      if (bytes.contains(0)) return null;
-      return String.fromCharCodes(bytes);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  String _fileExtension(String fileName) {
-    final index = fileName.lastIndexOf('.');
-    if (index < 0 || index == fileName.length - 1) return '';
-    return fileName.substring(index + 1).toLowerCase();
   }
 
   String _duplicateName(String name) {
@@ -1156,9 +968,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
             final profiles = state.connectableProfiles;
             final activeTab = _activeTab;
             final selectedProfile = activeTab.selectedProfile;
-            // In a detached window, use the initialRemotePath (the path the
-            // original tab was viewing) instead of re-deriving from the
-            // profile, so the duplicate window opens at the same location.
+            // A detached window opens at the original tab's path.
             final remotePath = selectedProfile != null
                 ? (widget.initialRemotePath != null
                       ? widget.initialRemotePath!
@@ -1175,17 +985,24 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
               padding: const EdgeInsets.all(14),
               child: Column(
                 children: [
-                  // Tab bar
-                  SizedBox(
-                    height: 40,
+                  // Tab strip, styled like the terminal tabs: flat tabs,
+                  // the active one lifted with a cyan top marker.
+                  Container(
+                    height: 36,
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: AppColors.border),
+                      ),
+                    ),
                     child: Row(
                       children: [
-                        Expanded(
+                        Flexible(
                           child: ListView.separated(
+                            shrinkWrap: true,
                             scrollDirection: Axis.horizontal,
                             itemCount: _tabs.length,
                             separatorBuilder: (_, _) =>
-                                const SizedBox(width: 8),
+                                const SizedBox(width: 2),
                             itemBuilder: (context, index) {
                               final tab = _tabs[index];
                               final active = index == _activeTabIndex;
@@ -1211,24 +1028,17 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                             },
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        IconButton(
+                        const SizedBox(width: 4),
+                        AppIconButton(
                           tooltip: 'New SFTP tab',
+                          outlined: false,
+                          icon: Icons.add_rounded,
                           onPressed: _addSftpTab,
-                          icon: const Icon(Icons.add_rounded, size: 18),
-                          style: IconButton.styleFrom(
-                            backgroundColor: AppColors.surface,
-                            side: BorderSide(color: AppColors.border),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 12),
-                  // Content
                   Expanded(
                     child: _buildSftpContent(
                       context,
@@ -1254,13 +1064,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     required String remotePath,
     required SshProfile? leftSelectedProfile,
   }) {
-    // The LEFT pane is independent: Local when no left profile is selected, or
-    // whatever server the user picked for the left side. The RIGHT pane keeps
-    // the original behavior verbatim (same controller) — zero regression on the
-    // existing remote path. Tapping the LEFT pane's header swaps its content
-    // area for an inline Local-first profile gate (search + A→Z/Z→A); picking a
-    // profile attaches it to the left controller, choosing Local stays Local.
-    // No popup is used for choosing the left profile.
+    // The LEFT pane is Local or its own server; the RIGHT pane keeps the tab
+    // controller. Tapping the left header swaps in an inline profile gate.
     final leftPickGate = _leftPicking ? _leftPickGate(context, profiles) : null;
     Widget leftPane = leftSelectedProfile == null
         ? _buildLocalFilePane(
@@ -1342,9 +1147,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     );
   }
 
-  /// Inline (non-popup) Local-first profile gate used to (re-)pick the LEFT
-  /// pane's profile. Tapping a profile attaches it to the left controller;
-  /// choosing Local keeps (or returns) the left pane on the local filesystem.
+  /// Inline Local-first profile gate for (re-)picking the LEFT pane's profile.
   Widget _leftPickGate(BuildContext context, List<SshProfile> profiles) {
     return _SftpProfileGate(
       profiles: profiles,
@@ -1359,24 +1162,15 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
         unawaited(_leftController.clearRemoteSession());
       },
       onSelected: (profile) {
-        // Pre-emptively mark the left pane as connecting BEFORE setState so the
-        // step indicator renders on the very first rebuild (mirroring
-        // [_selectProfileForActiveTab] for the right pane) instead of a
-        // one-frame flash of empty file-table controls. beginLoading() is a
-        // no-op if a connection is already in flight; the session-reuse path
-        // in attachRemoteProfile resets the state when the profile is already
-        // connected, so the step indicator does not get stuck.
+        // Same beginLoading() call as in [_selectProfileForActiveTab].
         _leftController.beginLoading();
         setState(() {
           _leftPicking = false;
           _leftSelectedProfile = profile;
           _leftSyncKey = null;
         });
-        // Klik profil di picker kiri: hanya buka SFTP ke pane kiri.
-        // Koneksi SFTP dilakukan oleh SftpWorkspaceController melalui
-        // _scheduleLeftSync -> attachRemoteProfile -> SftpManager.connect.
-        // Jangan membuka sesi SSH terminal (remoteFolder) karena picker
-        // ini khusus SFTP, bukan terminal.
+        // SFTP only: the left controller connects via [_scheduleLeftSync]; don't
+        // open a terminal session.
       },
     );
   }
@@ -1560,12 +1354,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
                     } else {
                       unawaited(_selectProfileForActiveTab(context, profile));
                     }
-                    // Klik profil di picker: hanya buka SFTP ke pane yang
-                    // bersangkutan. Koneksi SFTP dilakukan oleh
-                    // SftpWorkspaceController melalui _scheduleRemoteSync /
-                    // _scheduleLeftSync -> attachRemoteProfile -> SftpManager.connect.
-                    // Jangan membuka sesi SSH terminal (remoteFolder) karena
-                    // picker ini khusus SFTP, bukan terminal.
+                    // SFTP only: the pane's controller connects on the next sync; don't open
+                    // a terminal session.
                   },
                 )
               : controller.isRemoteDisconnected
@@ -1752,18 +1542,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       return;
     }
 
-    // Remote → Local: the *source* of the transfer is a remote pane.
-    // The target pane (`controller`) owns the LOCAL filesystem we save into.
-    // The remote session lives in whichever controller was the DRAG SOURCE —
-    // that is the other side: if isLeft (drop on local-left) the source is the
-    // right remote controller; if !isLeft (drop on local-right, unusual but
-    // possible) the source is the left controller.
-    //
-    // We cannot use `controller` (the drop target) to perform the download
-    // because it may not have an active remote session (e.g. the left pane is
-    // in Local mode). Instead we pick the controller that currently holds a
-    // valid remote SFTP session and use the target controller's localPath as
-    // the download destination.
+    // Remote → Local: download through whichever controller holds the remote
+    // session (the drop target may be Local), into the target's localPath.
     final remoteController = _remoteControllerForTransfer(isLeft);
     if (remoteController == null) {
       if (mounted) {
@@ -1772,8 +1552,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       return;
     }
 
-    // Use the DROP-TARGET controller's localPath so the files land in the
-    // directory the user is currently viewing on the local side.
     final destinationDir = controller.localPath;
 
     for (final entry in transfer.entries) {
@@ -1806,23 +1584,15 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     }
   }
 
-  /// Returns the [SftpWorkspaceController] that owns the active remote SFTP
-  /// session that is the *source* of the current drag.
-  ///
-  /// When the drop target is the LEFT pane ([isLeft] == true) the drag source
-  /// is the RIGHT pane's controller, and vice-versa.  If neither side has a
-  /// live remote session (disconnected / not connected yet) this returns null.
+  /// The controller whose remote session started the drag: the pane opposite
+  /// the drop target, or null when neither side is connected.
   SftpWorkspaceController? _remoteControllerForTransfer(bool targetIsLeft) {
-    // The source pane is always the opposite side from the drop target.
     final sourceController = targetIsLeft ? _controller : _leftController;
     if (sourceController.hasRemoteSession &&
         !sourceController.isRemoteDisconnected) {
       return sourceController;
     }
-    // Fallback: try the target controller itself (e.g. both panes are remote,
-    // or the source is on the same side). This keeps single-pane scenarios
-    // working even though the guard at the top of _handleDroppedTransfer
-    // already blocks same-direction transfers.
+    // Fall back to the target controller itself (e.g. both panes remote).
     final fallback = targetIsLeft ? _leftController : _controller;
     if (fallback.hasRemoteSession && !fallback.isRemoteDisconnected) {
       return fallback;
@@ -1942,20 +1712,6 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       ),
     );
   }
-}
-
-class _SftpLocalEditSession {
-  const _SftpLocalEditSession({
-    required this.remotePath,
-    required this.localPath,
-    required this.timer,
-    required this.originalText,
-  });
-
-  final String remotePath;
-  final String localPath;
-  final Timer timer;
-  final String? originalText;
 }
 
 enum _SftpInlineCreateKind { folder, file }

@@ -41,7 +41,7 @@ TerminalTheme terminalThemeByName(String? name) {
   };
 }
 
-// ── Portix (default) ──────────────────────────────────────────────────────
+// Portix (default)
 
 const portixBuiltinTheme = TerminalTheme(
   cursor: Color(0xFF39D353),
@@ -69,7 +69,7 @@ const portixBuiltinTheme = TerminalTheme(
   searchHitForeground: Color(0xFFD0E3FF),
 );
 
-// ── Dracula ───────────────────────────────────────────────────────────────
+// Dracula
 // https://draculatheme.com/contribute
 
 const _dracula = TerminalTheme(
@@ -98,7 +98,7 @@ const _dracula = TerminalTheme(
   searchHitForeground: Color(0xFF282A36),
 );
 
-// ── Nord ──────────────────────────────────────────────────────────────────
+// Nord
 // https://www.nordtheme.com
 
 const _nord = TerminalTheme(
@@ -127,7 +127,7 @@ const _nord = TerminalTheme(
   searchHitForeground: Color(0xFF2E3440),
 );
 
-// ── Solarized Dark ────────────────────────────────────────────────────────
+// Solarized Dark
 // https://ethanschoonover.com/solarized
 
 const _solarizedDark = TerminalTheme(
@@ -158,7 +158,7 @@ const _solarizedDark = TerminalTheme(
   searchHitForeground: Color(0xFFFDF6E3),
 );
 
-// ── Solarized Light ───────────────────────────────────────────────────────
+// Solarized Light
 
 const _solarizedLight = TerminalTheme(
   cursor: Color(0xFF657B83),
@@ -186,7 +186,7 @@ const _solarizedLight = TerminalTheme(
   searchHitForeground: Color(0xFF002B36),
 );
 
-// ── One Dark ──────────────────────────────────────────────────────────────
+// One Dark
 // Atom One Dark — https://github.com/atom/atom
 
 const _oneDark = TerminalTheme(
@@ -215,7 +215,7 @@ const _oneDark = TerminalTheme(
   searchHitForeground: Color(0xFF282C34),
 );
 
-// ── Gruvbox Dark ──────────────────────────────────────────────────────────
+// Gruvbox Dark
 // https://github.com/morhetz/gruvbox
 
 const _gruvboxDark = TerminalTheme(
@@ -244,7 +244,7 @@ const _gruvboxDark = TerminalTheme(
   searchHitForeground: Color(0xFF282828),
 );
 
-// ── Monokai ───────────────────────────────────────────────────────────────
+// Monokai
 // https://monokai.pro
 
 const _monokai = TerminalTheme(
@@ -273,7 +273,7 @@ const _monokai = TerminalTheme(
   searchHitForeground: Color(0xFF272822),
 );
 
-// ── Tokyo Night ───────────────────────────────────────────────────────────
+// Tokyo Night
 // https://github.com/enkia/tokyo-night-vscode-theme
 
 const _tokyoNight = TerminalTheme(
@@ -302,7 +302,7 @@ const _tokyoNight = TerminalTheme(
   searchHitForeground: Color(0xFF1A1B26),
 );
 
-// ── Catppuccin Mocha ──────────────────────────────────────────────────────
+// Catppuccin Mocha
 // https://github.com/catppuccin/catppuccin
 
 const _catppuccinMocha = TerminalTheme(
@@ -331,7 +331,7 @@ const _catppuccinMocha = TerminalTheme(
   searchHitForeground: Color(0xFF1E1E2E),
 );
 
-// ── Adwaita / Adwaita Dark ────────────────────────────────────────────────
+// Adwaita / Adwaita Dark
 // GNOME Console palette — https://gitlab.gnome.org/GNOME/console
 
 const _adwaita = TerminalTheme(
@@ -386,7 +386,7 @@ const _adwaitaDark = TerminalTheme(
   searchHitForeground: Color(0xFF1E1E1E),
 );
 
-// ── Andromeda ─────────────────────────────────────────────────────────────
+// Andromeda
 // https://github.com/mbadolato/iTerm2-Color-Schemes
 
 const _andromeda = TerminalTheme(
@@ -415,7 +415,7 @@ const _andromeda = TerminalTheme(
   searchHitForeground: Color(0xFF262A33),
 );
 
-// ── Argonaut ──────────────────────────────────────────────────────────────
+// Argonaut
 // https://github.com/mbadolato/iTerm2-Color-Schemes
 
 const _argonaut = TerminalTheme(

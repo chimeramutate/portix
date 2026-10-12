@@ -3,13 +3,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/features/rdp/widget/rdp_workspace_view.dart';
-import 'package:portix/src/features/settings/page/setting_page.dart';
-import 'package:portix/src/features/sftp/bloc/index.dart';
-import 'package:portix/src/features/sftp/page/index.dart';
-import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
-import 'package:portix/src/features/ssh_sessions/page/index.dart';
+import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
+import 'package:portix/src/features/sftp/page/sftp_workspace_page.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
+import 'package:portix/src/features/ssh_sessions/page/remote_folder_page.dart';
 
-import '../bloc/index.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 import '../widget/form/index.dart';
 import '../widget/gallery/index.dart';
 import '../widget/index.dart';
@@ -110,7 +109,6 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
                       const RemoteFolderPage(),
                     ),
                     _lazyView(WorkspaceView.sftp, const SftpWorkspacePage()),
-                    _lazyView(WorkspaceView.settings, const SettingsView()),
                     _lazyView(WorkspaceView.rdp, const RdpWorkspaceView()),
                   ],
                 ),

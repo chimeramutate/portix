@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
-import 'app_panel.dart';
 
 class AppTextField extends StatefulWidget {
   const AppTextField({
@@ -13,6 +13,8 @@ class AppTextField extends StatefulWidget {
     this.onChanged,
     this.readOnly = false,
     this.obscureText = false,
+    this.keyboardType,
+    this.inputFormatters,
   });
 
   final TextEditingController controller;
@@ -22,6 +24,8 @@ class AppTextField extends StatefulWidget {
   final ValueChanged<String>? onChanged;
   final bool readOnly;
   final bool obscureText;
+  final TextInputType? keyboardType;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   State<AppTextField> createState() => _AppTextFieldState();
@@ -55,32 +59,30 @@ class _AppTextFieldState extends State<AppTextField> {
           Row(
             children: [
               if (widget.icon != null) ...[
-                Icon(widget.icon, color: AppColors.muted, size: 15),
-                const SizedBox(width: 8),
+                Icon(widget.icon, color: AppColors.muted, size: 14),
+                const SizedBox(width: 6),
               ],
               Flexible(
                 child: Text(
                   widget.label,
-                  style: portixLabel(),
+                  style: appFieldLabelStyle(),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 7),
+          const SizedBox(height: 6),
         ],
         SizedBox(
-          height: 40,
+          height: 38,
           child: TextField(
             controller: widget.controller,
             readOnly: widget.readOnly,
             obscureText: _obscured,
             onChanged: widget.onChanged,
-            style: TextStyle(
-              color: AppColors.text,
-              fontWeight: FontWeight.w800,
-              fontSize: 13,
-            ),
+            keyboardType: widget.keyboardType,
+            inputFormatters: widget.inputFormatters,
+            style: appFieldTextStyle(),
             decoration: InputDecoration(
               hintText: widget.hint,
               prefixIcon: widget.label.isEmpty && widget.icon != null
@@ -88,6 +90,7 @@ class _AppTextFieldState extends State<AppTextField> {
                   : null,
               suffixIcon: widget.obscureText
                   ? IconButton(
+                      tooltip: _obscured ? 'Show' : 'Hide',
                       padding: EdgeInsets.zero,
                       onPressed: () => setState(() => _obscured = !_obscured),
                       icon: Icon(
@@ -106,3 +109,14 @@ class _AppTextFieldState extends State<AppTextField> {
     );
   }
 }
+
+/// Field label above inputs: quieter than titles so the values stand out.
+TextStyle appFieldLabelStyle() => TextStyle(
+  color: AppColors.muted,
+  fontSize: 12,
+  fontWeight: FontWeight.w600,
+);
+
+/// Text typed into form fields.
+TextStyle appFieldTextStyle() =>
+    TextStyle(color: AppColors.text, fontSize: 13, fontWeight: FontWeight.w500);

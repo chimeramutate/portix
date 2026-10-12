@@ -63,3 +63,14 @@ String fileExtension(String fileName) {
   if (index < 0 || index == fileName.length - 1) return '';
   return fileName.substring(index + 1).toLowerCase();
 }
+
+/// Whether [fileName] opens in a code editor by default: a known extension,
+/// a dotfile, or a name like `Dockerfile`.
+bool isCodeFileName(String fileName) {
+  final extension = fileExtension(fileName);
+  if (extension.isEmpty) {
+    return fileName.startsWith('.') ||
+        kCodeFileNames.contains(fileName.toLowerCase());
+  }
+  return kCodeFileExtensions.contains(extension);
+}

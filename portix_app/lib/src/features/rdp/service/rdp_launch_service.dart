@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/domain/entities/rdp/index.dart';
-import 'package:portix/src/domain/repositories/rdp/index.dart';
+import 'package:portix/src/domain/repositories/rdp/rdp_profile_repository.dart';
 
 class RdpLaunchService {
   const RdpLaunchService({

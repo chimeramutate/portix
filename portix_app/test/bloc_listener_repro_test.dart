@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
-import 'package:portix/src/features/ssh_profiles/bloc/index.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 import 'package:portix/src/domain/repositories/ssh/ssh_profile_repository.dart';
 
 void main() {

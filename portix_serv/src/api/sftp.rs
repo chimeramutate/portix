@@ -3,14 +3,14 @@
 
 use std::path::PathBuf;
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 use crate::application::sftp_manager::SftpManager;
 use crate::domain::profile::SshProfile;
 use crate::domain::sftp::{RemoteFileEntry, TransferProgress};
 use crate::frb_generated::StreamSink;
 
-static SFTP_MANAGER: Lazy<SftpManager> = Lazy::new(SftpManager::default);
+static SFTP_MANAGER: LazyLock<SftpManager> = LazyLock::new(SftpManager::default);
 
 /// Opens an SFTP connection and returns its id.
 pub async fn sftp_connect(profile: SshProfile) -> anyhow::Result<String> {

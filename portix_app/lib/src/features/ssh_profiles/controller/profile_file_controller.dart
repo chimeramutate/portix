@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
 
 class ProfileFileController {
   const ProfileFileController();

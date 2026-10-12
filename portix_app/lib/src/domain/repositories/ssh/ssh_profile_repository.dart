@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:portix/src/connection_manager/profile_secret_store.dart';
 import 'package:portix/src/core/result/either.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
 
 class SshProfileRepository {
   /// [storeFile] defaults to `~/.portix/profiles.json`; tests pass a temp file.

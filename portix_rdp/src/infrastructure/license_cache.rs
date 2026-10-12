@@ -18,19 +18,8 @@ pub(crate) fn is_license_error(msg: &str) -> bool {
         || msg.contains("ClientPlatformChallengeResponse")
 }
 
-/// Detect whether the given username follows a CyberArk PAM/PSM format.
-///
-/// CyberArk PSM usernames have the format:
-/// - `PSM@<session-token>` (PAS/PSM web portal login)
-/// - `PSM\@<session-token>` (PSM .rdp file with backslash domain separator)
-/// - `PAM@<session-token>` (CyberArk Privileged Access Management)
-/// - `PAM\@<session-token>` (PAM .rdp file with backslash domain separator)
-///
-/// When a CyberArk PAM/PSM username is detected, the client should
-/// pre-emptively use [`StubLicenseCache`] to send `CLIENT_LICENSE_INFO`
-/// instead of `CLIENT_NEW_LICENSE_REQUEST`, avoiding the malformed
-/// `ServerUpgradeLicense` PDU that PSM gateways send during the
-/// `UpgradeLicense` state.
+/// Whether `username` is a CyberArk PAM/PSM login: `PSM@<token>` or
+/// `PAM@<token>`, also with the `\@` separator .rdp files use.
 pub(crate) fn is_cyberark_pam(username: &str) -> bool {
     let lower = username.to_lowercase();
     lower.starts_with("psm@")
@@ -72,25 +61,11 @@ fn default_cache_dir() -> PathBuf {
     PathBuf::from("/tmp/portix_cache/licenses")
 }
 
-// ──────────────────────────────── Stub ──────────────────────────────────
-
 /// A license cache that always returns a stub (empty) license.
 ///
-/// When this cache is installed, the RDP client sends `CLIENT_LICENSE_INFO`
-/// (preamble type `0x12`) instead of `CLIENT_NEW_LICENSE_REQUEST`
-/// (preamble type `0x13`) during the license-exchange phase.
-///
-/// Some RDP servers — particularly CyberArk PAS/PSM gateways — respond to
-/// `CLIENT_LICENSE_INFO` with a `LicensingErrorMessage(StatusValidClient)`,
-/// a well-formed license PDU that **completes** the exchange without ever
-/// entering the `SERVER_UPGRADE_LICENSE` step. That step is where the
-/// server sends a malformed/unrecognised PDU that ironrdp cannot decode,
-/// producing the
-/// `"decode during SERVER_NEW_LICENSE/LicenseExchangeState::UpgradeLicense"`
-/// error.
-///
-/// Using this cache as a fallback retry is therefore the primary mitigation
-/// for the CyberArk PSM license-decode failure.
+/// Makes the client send `CLIENT_LICENSE_INFO` instead of
+/// `CLIENT_NEW_LICENSE_REQUEST`, so CyberArk PAS/PSM gateways finish the
+/// exchange before the malformed `SERVER_UPGRADE_LICENSE` ironrdp cannot decode.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct StubLicenseCache;
 
@@ -111,8 +86,6 @@ impl LicenseCache for StubLicenseCache {
         Ok(())
     }
 }
-
-// ────────────────────────────── File cache ──────────────────────────────
 
 /// A license cache that persists licenses on disk as JSON files.
 ///
@@ -244,8 +217,6 @@ impl LicenseCache for FileLicenseCache {
     }
 }
 
-// ───────────────────────────────── Tests ─────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,7 +265,6 @@ mod tests {
             .expect("get_license should succeed");
         assert_eq!(result, None, "cache should be empty initially");
 
-        // Store the license
         cache
             .store_license(sample_license_info())
             .expect("store_license should succeed");
@@ -303,7 +273,6 @@ mod tests {
         let result = cache.get_license(info).expect("get_license should succeed");
         assert_eq!(result, Some(vec![0xDE, 0xAD, 0xBE, 0xEF]));
 
-        // Clean up
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -317,7 +286,6 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&tmp);
 
-        // Store a license
         cache
             .store_license(sample_license_info())
             .expect("store_license should succeed");

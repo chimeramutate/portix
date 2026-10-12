@@ -8,20 +8,6 @@ enum _InlineCreateKind { folder, file }
 
 enum _RemoteEntryAction { open, edit, openWith, rename, delete }
 
-class _LocalEditSession {
-  const _LocalEditSession({
-    required this.remotePath,
-    required this.localPath,
-    required this.timer,
-    required this.originalText,
-  });
-
-  final String remotePath;
-  final String localPath;
-  final Timer timer;
-  final String? originalText;
-}
-
 class _TransferJob {
   _TransferJob({
     required this.id,
@@ -584,17 +570,11 @@ class _RemoteItemMenu extends StatelessWidget {
     );
   }
 
-  static String _extension(String fileName) {
-    final index = fileName.lastIndexOf('.');
-    if (index < 0 || index == fileName.length - 1) return '';
-    return fileName.substring(index + 1).toLowerCase();
-  }
-
   static String _openLabel(bool isDirectory, String fileName) {
     if (isDirectory) return 'Open folder';
-    final extension = _extension(fileName);
+    final extension = fileExtension(fileName);
     if ((extension.isEmpty && fileName.startsWith('.')) ||
-        _RemoteFolderPageState._codeFileExtensions.contains(extension)) {
+        kCodeFileExtensions.contains(extension)) {
       return 'Open in editor';
     }
     if (const {
@@ -623,9 +603,9 @@ class _RemoteItemMenu extends StatelessWidget {
 
   static IconData _openIcon(bool isDirectory, String fileName) {
     if (isDirectory) return Icons.folder_open_rounded;
-    final extension = _extension(fileName);
+    final extension = fileExtension(fileName);
     if ((extension.isEmpty && fileName.startsWith('.')) ||
-        _RemoteFolderPageState._codeFileExtensions.contains(extension)) {
+        kCodeFileExtensions.contains(extension)) {
       return Icons.code_rounded;
     }
     if (const {

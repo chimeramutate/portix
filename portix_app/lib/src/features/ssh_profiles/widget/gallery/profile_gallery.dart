@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart';
-import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 
-import '../../bloc/index.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 import '../../controller/index.dart';
 import 'profile_card.dart';
 
@@ -655,7 +655,7 @@ class _ProfileGrid extends StatelessWidget {
           itemCount: profiles.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: count,
-            mainAxisExtent: 230,
+            mainAxisExtent: 184,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
           ),
@@ -671,12 +671,8 @@ class _ProfileGrid extends StatelessWidget {
     );
   }
 
-  int _columnCount(double width) {
-    if (width >= 1400) return 4;
-    if (width >= 1000) return 3;
-    if (width >= 700) return 2;
-    return 1;
-  }
+  /// Cards stay roughly 300–400px wide; more columns on wider windows.
+  int _columnCount(double width) => (width / 320).floor().clamp(1, 6);
 }
 
 class _ProfileList extends StatelessWidget {

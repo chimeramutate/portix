@@ -2,9 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:portix/src/domain/entities/rdp/rdp_profile.dart';
 
 void main() {
-  // =========================================================
-  // HELPERS
-  // =========================================================
 
   RdpProfile makeProfile({
     String id = 'p1',
@@ -26,9 +23,7 @@ void main() {
     );
   }
 
-  // =========================================================
-  // COMPUTED PROPERTIES
-  // =========================================================
+  // Computed properties
 
   group('address getter', () {
     test('formats host:port', () {
@@ -76,9 +71,7 @@ void main() {
     });
   });
 
-  // =========================================================
   // copyWith
-  // =========================================================
 
   group('copyWith', () {
     test('updates host', () {
@@ -143,9 +136,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // EQUALITY (Equatable)
-  // =========================================================
+  // Equality (Equatable)
 
   group('equality', () {
     test('same fields are equal', () {
@@ -203,9 +194,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // STATUS ENUM
-  // =========================================================
+  // Status enum
 
   group('RdpProfileStatus', () {
     test('offline is default status', () {
@@ -226,9 +215,7 @@ void main() {
     });
   });
 
-  // =========================================================
-  // COLOR ENUM
-  // =========================================================
+  // Color enum
 
   group('RdpProfileColor', () {
     test('all colors exist', () {

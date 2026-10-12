@@ -12,7 +12,7 @@ class _SftpTab {
   SshProfile? selectedProfile;
 }
 
-class _SftpTabChip extends StatelessWidget {
+class _SftpTabChip extends StatefulWidget {
   const _SftpTabChip({
     required this.label,
     required this.active,
@@ -32,53 +32,80 @@ class _SftpTabChip extends StatelessWidget {
   final VoidCallback? onDuplicateWindow;
 
   @override
+  State<_SftpTabChip> createState() => _SftpTabChipState();
+}
+
+class _SftpTabChipState extends State<_SftpTabChip> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    final shape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(8),
-      side: BorderSide(color: active ? AppColors.cyan : AppColors.border),
-    );
+    final active = widget.active;
+    final lit = active || _hovered;
     return FocusRing(
-      child: Material(
-        color: active ? AppColors.selected : AppColors.surface,
-        shape: shape,
-        child: InkWell(
-          customBorder: shape,
-          onTap: onTap,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
           onSecondaryTapDown: (details) => _showContextMenu(context, details),
-          child: Container(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
             height: 36,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
+            constraints: const BoxConstraints(minWidth: 120, maxWidth: 200),
+            padding: const EdgeInsets.only(left: 12, right: 6),
+            decoration: BoxDecoration(
+              color: active
+                  ? AppColors.surface
+                  : _hovered
+                  ? AppColors.surface.withValues(alpha: .5)
+                  : Colors.transparent,
+              border: Border(
+                top: BorderSide(
+                  color: active ? AppColors.cyan : Colors.transparent,
+                  width: 2,
+                ),
+              ),
+            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
                   Icons.folder_open_rounded,
                   size: 14,
-                  color: AppColors.cyan,
+                  color: active ? AppColors.cyan : AppColors.muted,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: active ? AppColors.text : AppColors.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                Flexible(
+                  child: Text(
+                    widget.label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: active ? AppColors.text : AppColors.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-                if (closable) ...[
-                  const SizedBox(width: 8),
-                  IconButton(
-                    tooltip: 'Close tab',
-                    onPressed: onClose,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 22,
-                      height: 22,
-                    ),
-                    icon: Icon(
-                      Icons.close_rounded,
-                      size: 14,
-                      color: AppColors.muted,
+                if (widget.closable) ...[
+                  const SizedBox(width: 6),
+                  // Shown on the active or hovered tab; kept in the tree so
+                  // the width never jumps and it stays keyboard reachable.
+                  Opacity(
+                    opacity: lit ? 1 : 0,
+                    child: SizedBox.square(
+                      dimension: 22,
+                      child: IconButton(
+                        tooltip: 'Close ${widget.label}',
+                        onPressed: widget.onClose,
+                        padding: EdgeInsets.zero,
+                        icon: Icon(
+                          Icons.close_rounded,
+                          size: 15,
+                          color: AppColors.muted,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -104,9 +131,9 @@ class _SftpTabChip extends StatelessWidget {
         offset.dy,
       ),
       items: [
-        if (onDuplicate != null)
+        if (widget.onDuplicate != null)
           PopupMenuItem(
-            onTap: onDuplicate,
+            onTap: widget.onDuplicate,
             child: const Row(
               children: [
                 Icon(Icons.content_copy_rounded, size: 16),
@@ -115,9 +142,9 @@ class _SftpTabChip extends StatelessWidget {
               ],
             ),
           ),
-        if (onDuplicateWindow != null)
+        if (widget.onDuplicateWindow != null)
           PopupMenuItem(
-            onTap: onDuplicateWindow,
+            onTap: widget.onDuplicateWindow,
             child: const Row(
               children: [
                 Icon(Icons.open_in_new_rounded, size: 16),
@@ -126,9 +153,9 @@ class _SftpTabChip extends StatelessWidget {
               ],
             ),
           ),
-        if (closable)
+        if (widget.closable)
           PopupMenuItem(
-            onTap: onClose,
+            onTap: widget.onClose,
             child: const Row(
               children: [
                 Icon(Icons.close_rounded, size: 16),

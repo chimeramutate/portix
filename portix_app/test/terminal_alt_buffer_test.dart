@@ -639,13 +639,8 @@ void main() {
     test(
       'width-change resizes after scrollback overflow keep all lines addressable',
       () {
-        // Regression for the crash in the rendering library:
-        // "Null check operator used on a null value" thrown from
-        // IndexAwareCircularBuffer.[] via reflow during Terminal.resize.
-        // The terminal overflows past maxLines (so the buffer wraps, i.e.
-        // startIndex != 0), is then scrolled back to the viewport, and finally
-        // resized with a width change twice. The buffer must keep every
-        // addressable line valid across both reflows.
+        // Regression: IndexAwareCircularBuffer.[] threw "Null check operator" in
+        // reflow after the buffer wrapped, scrolled back and was resized twice.
         final terminal = Terminal(maxLines: 50);
         // The buffers are created lazily on first access. Initialize them at the
         // default size first so a following shrink resize doesn't pop more lines
