@@ -704,7 +704,8 @@ mod key_loading_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("id_enc");
         let path_str = path.to_string_lossy().into_owned();
-        crate::api::ssh::generate_ed25519_key(path_str, String::new(), Some("right".into())).unwrap();
+        crate::api::ssh::generate_ed25519_key(path_str, String::new(), Some("right".into()))
+            .unwrap();
 
         let missing = load_private_key(&path, None).unwrap_err();
         assert!(matches!(missing, PortixError::KeyPassphraseRequired(_)));
