@@ -14,10 +14,10 @@ import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/result/either.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart' as domain;
-import 'package:portix/src/domain/repositories/settings/index.dart';
-import 'package:portix/src/features/ssh_profiles/bloc/index.dart';
-import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart' as domain;
+import 'package:portix/src/domain/repositories/settings/settings_repository.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../controller/index.dart';
@@ -66,11 +66,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
   late final FocusNode _idleFocusNode;
   late final TerminalSessionUiController _terminalUi;
 
-  /// Tracks, per session, whether the terminal is currently "following"
-  /// output (i.e. the viewport is at or near the bottom).  This is updated
-  /// by a persistent scroll-listener so that the check remains accurate
-  /// even across layout cycles where `maxScrollExtent` has not yet been
-  /// refreshed after new text blocks are written.
+  /// Per session, whether the view follows output (at or near the bottom);
+  /// kept by a scroll listener so it stays right across layouts.
   final Map<String, bool> _isFollowingOutput = {};
 
   /// Guards one-time registration of scroll listeners per session.
@@ -106,8 +103,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   String? _sessionId;
   String? _connectedProfileId;
   bool _connectInProgress = false;
-  TerminalClipboardShortcut _copyShortcut = TerminalClipboardShortcut.shiftCtrl;
-  TerminalClipboardShortcut _pasteShortcut = TerminalClipboardShortcut.ctrl;
+  TerminalBindings _bindings = terminalBindingsFrom(const {});
   Color _terminalTextColor = AppColors.text;
   Color _terminalBackgroundColor = AppColors.terminal;
   String _terminalFontFamily = 'monospace';
@@ -148,6 +144,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _bootTerminal();
     _tabScrollController.addListener(_handleTabScrollChanged);
     unawaited(_loadTerminalSettings());
+    terminalSettingsRevision.addListener(_loadTerminalSettings);
     WidgetsBinding.instance.addPostFrameCallback((_) => _connect());
   }
 
@@ -170,15 +167,11 @@ class _TerminalPanelState extends State<TerminalPanel> {
   void dispose() {
     _connectionManager.removeListener(_handleConnectionManagerChanged);
     HardwareKeyboard.instance.removeHandler(_handlePanelShortcut);
+    terminalSettingsRevision.removeListener(_loadTerminalSettings);
     _search?.dispose();
     _tabScrollController.dispose();
 
-    // Jangan close session di sini.
-    // Session harus hidup walaupun TerminalPanel tidak sedang tampil.
-    // final sessionId = _sessionId;
-    // if (sessionId != null) {
-    //   unawaited(_connectionManager.closeSession(sessionId));
-    // }
+    // Sessions outlive this panel, so they are not closed here.
 
     unawaited(_outputSubscription?.cancel());
     unawaited(_errorSubscription?.cancel());
@@ -201,12 +194,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     }
     if (!mounted) return;
     setState(() {
-      _copyShortcut = terminalClipboardShortcutFromValue(
-        values[terminalCopyShortcutSettingKey],
-      );
-      _pasteShortcut = terminalClipboardShortcutFromValue(
-        values[terminalPasteShortcutSettingKey],
-      );
+      _bindings = terminalBindingsFrom(values);
       _terminalThemeName = values[terminalThemeSettingKey];
       _terminalTextColor = terminalTextColorFromValue(
         values[terminalTextColorSettingKey],
@@ -427,7 +415,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
       );
       return;
     }
-    // Don't auto-connect if all tabs were closed - user needs to explicitly request a new connection
+    // After all tabs were closed, wait for an explicit new connection.
     if (_activeTabClosed) {
       _activeTerminal.write(
         '\r\n\x1b[33mAll sessions closed. Click "Connect" to start a new session.\x1b[0m\r\n',
@@ -466,24 +454,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _outputSubscription ??= _connectionManager.terminalOutputStream.listen(
       (event) {
         final sessionId = event.sessionId;
-        // Capture whether the terminal was "following" output *before*
-        // writing new text.  `terminal.write` triggers `markNeedsLayout`
-        // (asynchronous), so the ScrollController still reflects the state
-        // from the last committed frame.  Checking after `write` would test
-        // a stale position that hasn't been updated for the new content,
-        // causing the auto-scroll to be skipped at the upper/lower scroll
-        // boundaries ("batas atas/bawah") when a full text block has just
-        // been added.
+        // Check before `write`: the scroll position only updates on the next
+        // layout, so checking after would skip auto-scroll at the boundaries.
         final wasFollowing =
             _isFollowingOutput[sessionId] ?? _isScrollAtBottom(sessionId);
         _ensureScrollListenerRegistered(sessionId);
         _terminalForSession(sessionId).write(event.data);
-        // Auto-scroll to follow the text block (terminal output) when the
-        // user is viewing the bottom.  This mirrors the xterm
-        // `RenderTerminal._stickToBottom` behaviour but is invoked explicitly
-        // so that scroll reliably follows every incoming block of text —
-        // including command-output that arrives after the initial Enter
-        // auto-scroll (which the built-in layout pass does not always catch).
+        // Follow output explicitly; xterm's own stick-to-bottom misses blocks that
+        // arrive after the initial Enter.
         if (wasFollowing) {
           _scrollTerminalToBottom(sessionId);
         }
@@ -547,12 +525,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     }
   }
 
-  /// Registers a scroll-listener on the session's [ScrollController] that
-  /// continuously tracks whether the viewport is at (or near) the bottom.
-  /// This state is used by [_listenToConnectionManager] to decide whether
-  /// new output blocks should trigger auto-scroll, replacing the fragile
-  /// point-in-time `_isScrollAtBottom` check that could go stale between
-  /// layout cycles at the scroll boundaries.
+  /// Keeps [_isFollowingOutput] in step with the session's scroll position.
   void _ensureScrollListenerRegistered(String sessionId) {
     if (!_scrollListenersRegistered.add(sessionId)) return;
     _isFollowingOutput.putIfAbsent(sessionId, () => true);
@@ -797,26 +770,18 @@ class _TerminalPanelState extends State<TerminalPanel> {
       }
     }
 
-    // Attempt an immediate jump first — this catches the case where the
-    // RenderTerminal has already laid out with the new content (maxScrollExtent
-    // is already updated) in the current frame.
+    // Jump now, in case layout already has the new content.
     performScroll();
 
-    // Then schedule a post-frame jump — this catches the case where
-    // `terminal.write` triggered `markNeedsLayout` and the new maxScrollExtent
-    // is only available after the next frame's layout pass.  This is the
-    // critical timing for "block text + scroll" at the upper/lower boundaries:
-    // the scroll must wait for layout to complete before jumping to the
-    // updated maxScrollExtent, otherwise `jumpTo` uses a stale value and the
-    // terminal appears "stuck".
+    // And again after the next layout: `write` only marks layout dirty, so an
+    // earlier jump uses a stale maxScrollExtent.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       performScroll();
     });
   }
 
-  /// Returns `true` when the terminal for [sessionId] is scrolled to (or
-  /// within 10px of) the bottom, meaning it is safe to auto-follow new output
-  /// without stealing focus from a user who has scrolled up to read history.
+  /// Whether [sessionId]'s terminal is within 10px of the bottom, so new
+  /// output can be followed without yanking someone reading history.
   bool _isScrollAtBottom(String sessionId) {
     final scrollController = _scrollControllerForSession(sessionId);
     if (!scrollController.hasClients) return false;
@@ -833,17 +798,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
     if (targetSessionId == null) return;
     if (!_isSessionConnected(targetSessionId)) return;
 
-    // Auto-scroll to the bottom on every keystroke so the cursor / prompt and
-    // the just-typed input stay visible while typing.  Previously this only
-    // ran for Enter ('\r'), so ordinary characters did not bring the viewport
-    // back to the bottom and the cursor drifted off-screen until Enter was
-    // pressed.
-    //
-    // `_scrollTerminalToBottom` is a no-op when the viewport is already at the
-    // bottom, so in the common (following) case this adds no extra scrolling.
-    // It only moves the viewport back to the prompt when the user had scrolled
-    // up to read history and starts typing again — which is the standard
-    // terminal behaviour (the prompt lives at the bottom).
+    // Typing brings the prompt back into view, like any terminal; a no-op
+    // when already at the bottom.
     _scrollTerminalToBottom(targetSessionId);
 
     if (_broadcastTyping && _visibleSessionIds.contains(targetSessionId)) {
@@ -1043,42 +999,42 @@ class _TerminalPanelState extends State<TerminalPanel> {
     });
   }
 
-  /// Ctrl/Cmd+Shift+P opens snippets; Cmd+F (macOS) or Ctrl+Shift+F finds
-  /// in the terminal (plain Ctrl+F belongs to the shell). Registered on
-  /// [HardwareKeyboard] because xterm's focused view would otherwise consume
-  /// them and send control characters to the shell.
+  /// Snippets, zoom and find, as bound in Terminal > Keyboard Shortcuts.
+  /// Registered on [HardwareKeyboard] because xterm's focused view would
+  /// otherwise consume them and send control characters to the shell.
   bool _handlePanelShortcut(KeyEvent event) {
     final keyboard = HardwareKeyboard.instance;
     if (!mounted || !widget.keyboardEnabled || event is! KeyDownEvent) {
       return false;
     }
-    final key = event.logicalKey;
-    final shift = keyboard.isShiftPressed;
-    final command = keyboard.isControlPressed || keyboard.isMetaPressed;
-    if (key == LogicalKeyboardKey.keyP && shift && command) {
+    // A dialog on top (e.g. the shortcut editor recording keys) owns the keys.
+    if (!(ModalRoute.of(context)?.isCurrent ?? true)) return false;
+    bool pressed(TerminalCommand command) => bindingMatches(
+      _bindings[command]!,
+      event.logicalKey,
+      control: keyboard.isControlPressed,
+      shift: keyboard.isShiftPressed,
+      alt: keyboard.isAltPressed,
+      meta: keyboard.isMetaPressed,
+    );
+    if (pressed(TerminalCommand.snippets)) {
       if (_snippetPaletteOpen) return false;
       unawaited(_openSnippetPalette());
       return true;
     }
-    final zoomed = terminalZoomFontSize(
-      key,
-      current: _terminalFontSize,
-      base: _baseFontSize,
-      meta: keyboard.isMetaPressed,
-      control: keyboard.isControlPressed,
-      shift: shift,
-      isMacOS: Platform.isMacOS,
-    );
+    final zoomed = pressed(TerminalCommand.zoomIn)
+        ? _terminalFontSize + 1
+        : pressed(TerminalCommand.zoomOut)
+        ? _terminalFontSize - 1
+        : pressed(TerminalCommand.zoomReset)
+        ? _baseFontSize
+        : null;
     if (zoomed != null) {
-      if (zoomed != _terminalFontSize) {
-        setState(() => _terminalFontSize = zoomed);
-      }
+      final size = zoomed.clamp(minTerminalFontSize, maxTerminalFontSize);
+      if (size != _terminalFontSize) setState(() => _terminalFontSize = size);
       return true;
     }
-    final find = Platform.isMacOS
-        ? keyboard.isMetaPressed && !shift
-        : keyboard.isControlPressed && shift;
-    if (key == LogicalKeyboardKey.keyF && find && _sessionId != null) {
+    if (pressed(TerminalCommand.find) && _sessionId != null) {
       _openSearch();
       return true;
     }
@@ -1723,11 +1679,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
     final wasActive = sessionId == _sessionId;
 
     await _connectionManager.closeSession(sessionId);
-    // `closeSession` notifies listeners synchronously (the session status
-    // drops and `onLastSessionClosed` fires from that listener), which can
-    // dispose this widget before we resume. Skip the post-close UI update to
-    // avoid `setState() called after dispose()` when disconnecting the last
-    // session.
+    // closeSession can synchronously dispose this widget (via
+    // onLastSessionClosed), so skip the UI update once unmounted.
     if (!mounted) return;
     _sessionOrder.remove(sessionId);
     _splitRoot = _splitController.removeSession(_splitRoot, sessionId);
@@ -1912,9 +1865,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
       _sessionOrder.remove(sessionId);
       _scheduleSessionUiDisposal(sessionId);
     }
-    // Each `closeSession` can synchronously notify listeners and dispose this
-    // widget (via `onLastSessionClosed`) before we resume. Skip the post-close
-    // UI update to avoid `setState() called after dispose()` when disconnecting.
+    // closeSession may dispose this widget (via onLastSessionClosed) before
+    // we resume; skip the UI update then.
     if (!mounted) return;
     final remaining = _sshSessions
         .where((session) => !sessionIds.contains(session.id))
@@ -2611,8 +2563,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
       idleFocusNode: _idleFocusNode,
       idleViewKey: _terminalUi.idleViewKey,
       keyboardEnabled: widget.keyboardEnabled,
-      copyShortcut: _copyShortcut,
-      pasteShortcut: _pasteShortcut,
+      copyShortcut: _bindings[TerminalCommand.copy]!,
+      pasteShortcut: _bindings[TerminalCommand.paste]!,
       textColor: _terminalTextColor,
       backgroundColor: _terminalBackgroundColor,
       fontFamily: _terminalFontFamily,

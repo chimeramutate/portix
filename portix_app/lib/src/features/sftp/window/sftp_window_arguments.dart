@@ -1,13 +1,9 @@
 import 'dart:convert';
 
-import 'package:portix/src/domain/entities/ssh/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
 
-/// Parsed arguments for an SFTP session child-window.
-///
-/// Created on the parent side by [SftpWindowService.openSession] and
-/// deserialised on the child-window side by [SftpWindowArguments.fromJsonString].
-/// The profile is serialised via the same map format used by
-/// [SshProfileRepository] so the two can evolve in lock-step.
+/// Arguments for an SFTP child window, written by [SftpWindowService.openSession];
+/// the profile uses [SshProfileRepository]'s map format.
 class SftpWindowArguments {
   SftpWindowArguments({required this.profile, required this.remotePath});
 

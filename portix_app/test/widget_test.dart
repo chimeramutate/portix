@@ -10,8 +10,8 @@ import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/connection_manager/mock_backend.dart';
 import 'package:portix/src/core/di/injection.dart';
-import 'package:portix/src/domain/repositories/ssh/index.dart';
-import 'package:portix/src/features/ssh_profiles/bloc/index.dart';
+import 'package:portix/src/domain/repositories/ssh/ssh_profile_repository.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 import 'support/refusing_host_key_backend.dart';
 
 const _seedProfiles = [
@@ -154,6 +154,25 @@ void main() {
     expect(find.byKey(const ValueKey('close-tab-prod-api-01')), findsNothing);
     expect(find.byTooltip('SSH profiles'), findsOneWidget);
   });
+
+  for (final size in const [Size(1600, 900), Size(820, 900)]) {
+    _appTest('new profile form lays out at ${size.width.toInt()}px', (
+      tester,
+    ) async {
+      await _pumpPortixApp(tester, size);
+      await tester.tap(find.byTooltip('New SSH Profile'));
+      await tester.pumpAndSettle();
+      expect(find.text('Connection'), findsOneWidget);
+      for (final label in ['Password', 'Advanced']) {
+        await tester.ensureVisible(find.text(label));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('Startup command'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   _appTest('terminal tools sit behind one button at the right', (tester) async {
     await _pumpPortixApp(tester, const Size(1600, 900));

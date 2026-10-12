@@ -4,9 +4,7 @@
 mod tests {
     use crate::domain::errors::RdpError;
 
-    // =========================================================
-    // ERROR CODES
-    // =========================================================
+    // Error codes
 
     #[test]
     fn invalid_profile_has_correct_code() {
@@ -76,9 +74,7 @@ mod tests {
         assert_eq!(err.code(), "IO_ERROR");
     }
 
-    // =========================================================
-    // USER VISIBILITY
-    // =========================================================
+    // User visibility
 
     #[test]
     fn invalid_profile_is_user_visible() {
@@ -120,9 +116,7 @@ mod tests {
         assert!(!RdpError::SessionNotFound("s".into()).is_user_visible());
     }
 
-    // =========================================================
-    // TRANSIENCE
-    // =========================================================
+    // Transience
 
     #[test]
     fn session_not_found_is_transient() {
@@ -149,9 +143,7 @@ mod tests {
         assert!(!RdpError::InvalidProfile("x".into()).is_transient());
     }
 
-    // =========================================================
-    // CLONE
-    // =========================================================
+    // Clone
 
     #[test]
     fn clone_preserves_message_for_string_variants() {
@@ -182,9 +174,7 @@ mod tests {
         }
     }
 
-    // =========================================================
-    // DISPLAY
-    // =========================================================
+    // Display
 
     #[test]
     fn display_includes_message_for_invalid_profile() {

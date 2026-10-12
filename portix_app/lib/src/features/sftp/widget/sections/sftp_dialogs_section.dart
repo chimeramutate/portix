@@ -22,10 +22,8 @@ class _EditorPickerSheet extends StatelessWidget {
       height: 22,
       fit: BoxFit.contain,
 
-      // kalau sedang loading
       placeholderBuilder: (_) => fallbackIcon,
 
-      // kalau asset tidak ada / gagal load
       errorBuilder: (_, __, ___) => fallbackIcon,
     );
   }
@@ -154,8 +152,7 @@ class _SftpDisconnectedOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Just the icon + a one-line title + reconnect button.
-    // No container, no border, no description text — keeps it simple.
+    // Icon, one-line title and reconnect button only.
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,

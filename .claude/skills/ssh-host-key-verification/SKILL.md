@@ -75,7 +75,13 @@ Always re-read the current code before acting; this section may be out of date.
 
 Use `~/.ssh/known_hosts` so Portix shares trust with the user's OpenSSH setup.
 
-## russh 0.61.2 API (verified in the cargo registry)
+## russh 0.63 API (verified in the cargo registry)
+
+Since 0.63 (CVE-2026-102823 fix), `check_server_key` receives
+`&russh::keys::PublicKeyOrCertificate`. Portix checks `server_key.public_key()`, so a host
+certificate is verified by the key it certifies (no `@cert-authority` support). Channel-open
+callbacks take a `ChannelOpenHandle`: call `reply.accept().await`; dropping it rejects.
+
 
 ```rust
 use russh::keys::check_known_hosts;                    // re-exported

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart' as domain;
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart' as domain;
 
 import '../../controller/index.dart';
 

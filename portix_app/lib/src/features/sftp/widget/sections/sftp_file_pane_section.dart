@@ -98,16 +98,14 @@ class _FilePane extends StatelessWidget {
   final void Function(_FileAction action, SftpFileEntry file) onFileAction;
   final ValueChanged<String> onPathSubmitted;
 
-  /// Non‑navigating directory lister used by the path bar's Tab autocomplete.
-  /// Returns children of the given directory path. When null the path bar
-  /// skips autocomplete (e.g. when the pane shows the profile gate).
+  /// Lists a directory for the path bar's Tab autocomplete; null turns it
+  /// off (e.g. while the pane shows the profile gate).
   final Future<List<SftpFileEntry>> Function(String)? onListPath;
   final Set<String> selectedPaths;
   final void Function(SftpFileEntry file, int index, List<SftpFileEntry> rows)
   onItemSelected;
   final List<SftpFileEntry> Function(SftpFileEntry file)
   selectedTransferEntries;
-  // final ValueChanged<String> onOpenFolder;
   final void Function(SftpFileEntry data) onOpenFolder;
   @override
   Widget build(BuildContext context) {
@@ -116,17 +114,8 @@ class _FilePane extends StatelessWidget {
       onAcceptWithDetails: (details) => onTransferDropped(details.data),
       builder: (context, candidateData, rejectedData) {
         final isDropTarget = candidateData.isNotEmpty;
-        // Hide the path bar, actions bar, and find bar whenever the page
-        // substitutes the full profile-selection gate (or a connection
-        // overlay) for the body via `contentOverride` — for BOTH the local
-        // and remote panes. This is what makes "pick profile" show only the
-        // full profile list (like the right-side gallery) with no Open Path /
-        // Add File / Add Folder / Reload / Find / table in the way. Once the
-        // gate is gone (contentOverride == null) the normal chrome rules
-        // apply: remote panes hide controls while loading or on error; local
-        // panes always keep controls visible. Local panes also pass
-        // `showSteps: false` (see [_buildLocalFilePane]) so this `else`
-        // (chrome) branch is taken rather than the step-only spacer branch.
+        // Hide the bars while `contentOverride` replaces the body; otherwise remote
+        // panes hide them while loading or failed, local panes always show them.
         final showControls = contentOverride != null
             ? false
             : (isRemote ? (loading || error == null) : true);
@@ -138,7 +127,6 @@ class _FilePane extends StatelessWidget {
               : AppColors.surface,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            // beatwen,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               MouseRegion(
@@ -183,11 +171,7 @@ class _FilePane extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              // Show skeleton placeholders while loading instead of
-              // hiding the path bar, actions, and find bar entirely.
-              // This keeps the layout structure visible so the user
-              // sees the frame of the UI rather than a bare step
-              // indicator with empty space around it.
+              // Skeletons instead of hiding the bars, so the layout stays in place.
               if (showSteps) ...[
                 const SizedBox(height: 12),
               ] else ...[
@@ -423,9 +407,7 @@ int _remoteLoadStep(String? status, {bool showPasswordStep = true}) {
   }
 }
 
-/// Returns a human-readable status message for the given [remoteStatus].
-/// Used as the default (sub-title) text inside [_PaneStatus] when the
-/// parent does not supply its own [statusMessage].
+/// Default subtitle for [_PaneStatus] when no [statusMessage] is given.
 String? _defaultStatusMessage(bool isRemote, String? remoteStatus) {
   if (!isRemote) return null; // local folders have no step-specific messages
   return switch (remoteStatus) {
@@ -438,18 +420,7 @@ String? _defaultStatusMessage(bool isRemote, String? remoteStatus) {
   };
 }
 
-/// Builds the list of [EasyStep] objects for the remote connection flow.
-///
-/// Each step gets a custom icon:
-///   - Step 0: OS icon from the profile's [osIconAsset] (SVG image).
-///   - Step 1 (4-step): lock icon (secure password input).
-///   - Step 1 (3-step): cable icon (connecting).
-///   - Step 2 (4-step): wifi icon (connecting).
-///   - Step 2/3 (3-step/4-step): wifi tower icon (connected).
-///
-/// All steps receive a check-mark [finishIcon] so EasyStepper renders ✓
-/// for completed steps. When [showLoadingAnimation] is enabled by the
-/// parent, the active step automatically shows a Lottie loading animation.
+/// Steps of the remote connection flow; done steps show a ✓ via [finishIcon].
 List<EasyStep> _buildConnectionSteps({
   required List<String> titles,
   required bool showPasswordStep,
@@ -480,7 +451,6 @@ List<EasyStep> _buildConnectionSteps({
       );
     }
 
-    // Steps 1+: Icon-based icons
     final IconData iconData;
     if (showPasswordStep) {
       // 4-step flow: 0 Profile → 1 Password → 2 Connecting → 3 Connected
@@ -625,10 +595,7 @@ class _PaneStatus extends StatelessWidget {
                   style: portixMuted(12),
                 ),
               ],
-              // Inline input form (e.g. password field) shown only during
-              // the 'authenticating' loading step (step 1 of the 4-step
-              // remote flow). After the password is submitted and the
-              // status advances to 'connecting' (step 2), the form is hidden.
+              // The password form, shown only at the 'authenticating' step.
               if (loading && inputForm != null && currentStep == 1) ...[
                 const SizedBox(height: 12),
                 SizedBox(width: double.infinity, child: inputForm!),

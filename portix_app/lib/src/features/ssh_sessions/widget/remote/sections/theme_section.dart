@@ -13,12 +13,12 @@ TerminalTheme terminalThemeForProfile(
   Color? background,
   String? themeName,
 }) {
-  // ── Preset path ────────────────────────────────────────────────────────
+  // Preset
   if (isTerminalThemePreset(themeName)) {
     return terminalThemeByName(themeName);
   }
 
-  // ── Custom / legacy path ───────────────────────────────────────────────
+  // Custom / legacy colors
   final textColor = foreground ?? AppColors.text;
   final terminalBackground = background ?? AppColors.terminal;
 

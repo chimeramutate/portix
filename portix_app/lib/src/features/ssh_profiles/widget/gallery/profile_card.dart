@@ -7,10 +7,10 @@ import 'package:portix/src/connection_manager/session_models.dart'
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart';
-import 'package:portix/src/features/ssh_sessions/bloc/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 
-import '../../bloc/index.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 
 class ProfileCard extends StatelessWidget {
   const ProfileCard({
@@ -36,7 +36,7 @@ class ProfileCard extends StatelessWidget {
             ),
       borderRadius: BorderRadius.circular(10),
       child: AppPanel(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         color: selected ? AppColors.selectedSoft : AppColors.surface,
         borderColor: selected ? AppColors.cyan : AppColors.border,
         child: Column(
@@ -44,28 +44,47 @@ class ProfileCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                ProfileOsIcon(profile: profile, size: 34),
+                ProfileOsIcon(profile: profile, size: 36),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        profile.name.isEmpty ? 'new profile' : profile.name,
-                        overflow: TextOverflow.ellipsis,
-                        style: portixTitle(17),
-                      ),
-                    ],
+                  child: Text(
+                    profile.name.isEmpty ? 'new profile' : profile.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 if (!previewMode)
+                  Tooltip(
+                    message: statusLabelFor(status),
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: BoxDecoration(
+                        color: statusColor,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                if (!previewMode)
                   PopupMenuButton<_ProfileAction>(
                     tooltip: 'Profile actions',
-                    color: AppColors.surfaceCard,
+                    color: AppColors.menu,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      side: BorderSide(color: AppColors.border),
+                    ),
+                    menuPadding: const EdgeInsets.symmetric(vertical: 4),
+                    constraints: const BoxConstraints(minWidth: 170),
                     icon: Icon(
                       Icons.more_horiz_rounded,
                       color: AppColors.muted,
-                      size: 20,
+                      size: 18,
                     ),
                     onSelected: (action) {
                       switch (action) {
@@ -83,43 +102,32 @@ class ProfileCard extends StatelessWidget {
                           );
                       }
                     },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(
-                        value: _ProfileAction.edit,
-                        child: Row(
-                          children: [
-                            Icon(Icons.edit_rounded, size: 17),
-                            SizedBox(width: 10),
-                            Text('Edit'),
-                          ],
-                        ),
+                    itemBuilder: (context) => [
+                      _menuItem(
+                        _ProfileAction.edit,
+                        Icons.edit_outlined,
+                        'Edit',
                       ),
-                      PopupMenuItem(
-                        value: _ProfileAction.duplicate,
-                        child: Row(
-                          children: [
-                            Icon(Icons.copy_rounded, size: 17),
-                            SizedBox(width: 10),
-                            Text('Duplicate'),
-                          ],
-                        ),
+                      _menuItem(
+                        _ProfileAction.duplicate,
+                        Icons.copy_rounded,
+                        'Duplicate',
                       ),
-                      PopupMenuDivider(),
-                      PopupMenuItem(
-                        value: _ProfileAction.delete,
-                        child: Row(
-                          children: [
-                            Icon(Icons.delete_outline_rounded, size: 17),
-                            SizedBox(width: 10),
-                            Text('Delete'),
-                          ],
-                        ),
+                      PopupMenuDivider(
+                        height: 9,
+                        color: AppColors.border.withValues(alpha: .6),
+                      ),
+                      _menuItem(
+                        _ProfileAction.delete,
+                        Icons.delete_outline_rounded,
+                        'Delete',
+                        danger: true,
                       ),
                     ],
                   ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             MetaLine(
               icon: profile.authMethod == AuthMethod.sshKey
                   ? Icons.key_rounded
@@ -133,18 +141,23 @@ class ProfileCard extends StatelessWidget {
                   : 'Password saved securely',
             ),
             const Spacer(),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                AppPill(label: profile.group, color: AppColors.cyan),
-                for (final tag in profile.tags.take(previewMode ? 3 : 1))
-                  AppPill(label: tag, color: AppColors.muted),
-                if (!previewMode)
-                  AppPill(label: statusLabelFor(status), color: statusColor),
-              ],
+            // One line of pills; extra tags are cut rather than wrapped so
+            // every card keeps the same height.
+            SizedBox(
+              height: 20,
+              child: ClipRect(
+                child: Wrap(
+                  spacing: 6,
+                  clipBehavior: Clip.hardEdge,
+                  children: [
+                    AppPill(label: profile.group, color: AppColors.cyan),
+                    for (final tag in profile.tags.take(previewMode ? 3 : 2))
+                      AppPill(label: tag, color: AppColors.muted),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             if (previewMode)
               SizedBox(
                 height: 34,
@@ -192,16 +205,16 @@ class MetaLine extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 3),
       child: Row(
         children: [
-          Icon(icon, color: AppColors.muted, size: 15),
-          const SizedBox(width: 10),
+          Icon(icon, color: AppColors.muted, size: 14),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               text,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: AppColors.text,
+                color: AppColors.muted,
                 fontSize: 12,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
@@ -314,3 +327,31 @@ Color profileColorFor(ProfileColor color) {
 }
 
 enum _ProfileAction { edit, duplicate, delete }
+
+PopupMenuItem<_ProfileAction> _menuItem(
+  _ProfileAction action,
+  IconData icon,
+  String label, {
+  bool danger = false,
+}) {
+  final color = danger ? AppColors.danger : AppColors.text;
+  return PopupMenuItem(
+    value: action,
+    height: 32,
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+    child: Row(
+      children: [
+        Icon(icon, size: 16, color: danger ? color : AppColors.muted),
+        const SizedBox(width: 10),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    ),
+  );
+}

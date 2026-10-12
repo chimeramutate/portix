@@ -1,7 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:portix/src/domain/entities/ssh/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
 
 part 'ssh_session_event.dart';
 part 'ssh_session_state.dart';

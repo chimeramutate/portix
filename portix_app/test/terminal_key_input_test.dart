@@ -1,15 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xterm/xterm.dart';
 
-/// Verifies the escape sequences that `Terminal.keyInput` emits for the cursor
-/// movement keys and Backspace when the terminal is running a full-screen TUI
-/// such as vi/vim/nano (alternate screen buffer, with vi's requested "application
-/// cursor keys" mode enabled).
-///
-/// These tests pin down the exact bytes sent to the remote PTY for a single
-/// key press, which is the level where the reported "arrows make the view
-/// disappear / auto-delete" and "backspace jumps and deletes random lines"
-/// symptoms have to be diagnosed.
+/// Exact bytes `Terminal.keyInput` sends for cursor keys and Backspace in
+/// a full-screen TUI (alt buffer, optionally DECCKM).
 void main() {
   /// Drives the terminal into the alternate screen buffer (the mode vi/nano
   /// use) and optionally into application cursor-keys mode (`\x1b[?1h`, a.k.a.
@@ -95,10 +88,8 @@ void main() {
   });
 
   group('single emission per press', () {
-    // Each Backspace press must produce exactly one DEL, regardless of being
-    // in the alt buffer. This guards against the reported "backspace jumps /
-    // deletes random characters / moves lines" symptom that would result from
-    // the key being delivered twice.
+    // One DEL per press, alt buffer or not; a double delivery was the
+    // reported "backspace jumps" bug.
     test('Backspace emits exactly one DEL (\\x7f) in the alt buffer', () {
       final output = captureKeyInput(TerminalKey.backspace);
       expect(output, ['\x7f']);

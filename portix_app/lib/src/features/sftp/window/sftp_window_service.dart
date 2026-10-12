@@ -1,16 +1,12 @@
 import 'dart:convert';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
 
 import 'sftp_window_arguments.dart';
 
-/// Opens SFTP sessions in detached child windows.
-///
-/// Mirrors [RdpWindowService] — the parent process serialises the profile
-/// plus the current remote path into JSON arguments; the child engine reads
-/// them via [MainWindowBootstrap.runPortixWindowIfNeeded] and renders an
-/// [SftpSessionWindow].
+/// Opens SFTP sessions in detached child windows, like [RdpWindowService]:
+/// the profile and remote path travel as JSON window arguments.
 class SftpWindowService {
   const SftpWindowService._();
 

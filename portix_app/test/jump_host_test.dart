@@ -7,7 +7,7 @@ import 'package:portix/src/connection_manager/profile_credentials.dart';
 import 'package:portix/src/connection_manager/mock_backend.dart';
 import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/connection_manager/ssh_profile.dart';
-import 'package:portix/src/domain/entities/ssh/index.dart' as domain;
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart' as domain;
 import 'package:portix/src/features/ssh_sessions/widget/remote/host_key_dialog.dart';
 
 class _JumpBackend extends MockConnectionBackend {

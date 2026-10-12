@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use russh::keys::{Algorithm, PrivateKey};
-use russh::server::{self, Auth, Msg, Session};
+use russh::server::{self, Auth, ChannelOpenHandle, Msg, Session};
 use russh::{Channel, ChannelId};
 use tokio::net::{TcpListener, TcpStream, UnixListener};
 
@@ -47,10 +47,12 @@ impl server::Handler for TestServer {
     async fn channel_open_session(
         &mut self,
         channel: Channel<Msg>,
+        reply: ChannelOpenHandle,
         _: &mut Session,
-    ) -> std::result::Result<bool, Self::Error> {
+    ) -> std::result::Result<(), Self::Error> {
         self.channels.insert(channel.id(), channel);
-        Ok(true)
+        reply.accept().await;
+        Ok(())
     }
 
     async fn subsystem_request(
@@ -91,15 +93,17 @@ impl server::Handler for TestServer {
         port: u32,
         _: &str,
         _: u32,
+        reply: ChannelOpenHandle,
         _: &mut Session,
-    ) -> std::result::Result<bool, Self::Error> {
+    ) -> std::result::Result<(), Self::Error> {
         let mut target = TcpStream::connect((host, port as u16)).await?;
+        reply.accept().await;
         self.forwards.fetch_add(1, Ordering::SeqCst);
         tokio::spawn(async move {
             let mut stream = channel.into_stream();
             let _ = tokio::io::copy_bidirectional(&mut stream, &mut target).await;
         });
-        Ok(true)
+        Ok(())
     }
 
     /// `ssh -R`: listens on loopback and opens a forwarded-tcpip channel

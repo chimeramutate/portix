@@ -5,17 +5,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
-import 'package:portix/src/features/rdp/bloc/index.dart';
+import 'package:portix/src/features/rdp/bloc/rdp_workspace_bloc.dart';
 import 'package:portix/src/features/rdp/service/rdp_backend_service.dart';
 import 'package:portix/src/features/rdp/service/rdp_window_service.dart';
 import 'package:portix/src/sftp_client/sftp_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'src/core/di/injection.dart';
+import 'src/features/app_menu/app_menu.dart';
 import 'src/features/rdp/window/main_window_bootstrap.dart';
-import 'src/features/ssh_profiles/bloc/index.dart';
-import 'src/features/ssh_profiles/page/index.dart';
-import 'src/features/ssh_sessions/bloc/index.dart';
+import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
+import 'package:portix/src/features/ssh_profiles/page/portix_workspace_page.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -120,7 +121,7 @@ class _PortixAppState extends State<PortixApp> with WindowListener {
                   sl<RdpWorkspaceBloc>()..add(const RdpProfilesRequested()),
             ),
           ],
-          child: const PortixWorkspacePage(),
+          child: const AppMenus(child: PortixWorkspacePage()),
         ),
       ),
     );

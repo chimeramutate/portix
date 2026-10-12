@@ -1,4 +1,4 @@
-import 'package:portix/src/domain/entities/ssh/index.dart' as domain;
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart' as domain;
 
 typedef QuickConnectTarget = ({String user, String host, int port});
 

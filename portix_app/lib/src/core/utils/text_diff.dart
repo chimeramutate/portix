@@ -12,7 +12,6 @@ class TextDiffResult {
 }
 
 /// Build a unified diff between [before] and [after] text content.
-/// Returns null-safe result with context lines around changes.
 TextDiffResult buildTextDiff(String? before, String? after) {
   if (before == null || after == null) {
     return const TextDiffResult(
