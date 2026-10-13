@@ -18,6 +18,8 @@ struct TestServer {
     /// Folder the `sftp` subsystem starts in; None refuses the subsystem.
     sftp_root: Option<PathBuf>,
     channels: HashMap<ChannelId, Channel<Msg>>,
+    /// Keyboard-interactive rounds answered so far (password, then OTP).
+    kbd_step: u8,
 }
 
 impl server::Handler for TestServer {
@@ -32,6 +34,35 @@ impl server::Handler for TestServer {
             Auth::Accept
         } else {
             Auth::reject()
+        })
+    }
+
+    /// PAM-like: "Password:" (kbd-pw), then "Verification code:" (123456).
+    async fn auth_keyboard_interactive<'a>(
+        &'a mut self,
+        _: &str,
+        _: &str,
+        response: Option<server::Response<'a>>,
+    ) -> std::result::Result<Auth, Self::Error> {
+        let answer = response.and_then(|mut r| r.next());
+        let expected: &[u8] = match self.kbd_step {
+            0 => b"",
+            1 => b"kbd-pw",
+            _ => b"123456",
+        };
+        if self.kbd_step > 0 && answer.as_deref() != Some(expected) {
+            return Ok(Auth::reject());
+        }
+        self.kbd_step += 1;
+        let prompt = match self.kbd_step {
+            1 => "Password: ",
+            2 => "Verification code: ",
+            _ => return Ok(Auth::Accept),
+        };
+        Ok(Auth::Partial {
+            name: "".into(),
+            instructions: "".into(),
+            prompts: vec![(prompt.into(), false)].into(),
         })
     }
 
@@ -167,6 +198,7 @@ async fn start_server_with(
                 forwards: forwards.clone(),
                 sftp_root: sftp_root.clone(),
                 channels: HashMap::new(),
+                kbd_step: 0,
             };
             let config = config.clone();
             tokio::spawn(async move {
@@ -244,6 +276,44 @@ async fn target_host_key_is_still_verified_behind_a_jump_host() {
         .unwrap();
 
     assert!(matches!(error, PortixError::HostKeyUnknown { port, .. } if port == target_port));
+}
+
+#[tokio::test]
+async fn keyboard_interactive_fills_the_password_and_asks_for_the_code() {
+    let dir = tempfile::tempdir().unwrap();
+    let known_hosts = dir.path().join("known_hosts");
+    let (port, key) = start_server(Arc::default()).await;
+    trust(&known_hosts, port, &key);
+    let mut target = profile(port);
+    // Refused by password auth, so the server falls back to its PAM prompts.
+    target.password = Some("kbd-pw".to_owned());
+
+    let error = connect_with_known_hosts(&target, &known_hosts)
+        .await
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error,
+        PortixError::KeyboardInteractiveRequired { .. }
+    ));
+    let pending = keyboard_interactive::pending_prompts("127.0.0.1", port).unwrap();
+    assert_eq!(pending.round, 0);
+    assert_eq!(
+        pending.prompts,
+        vec![("Verification code: ".to_owned(), false)]
+    );
+
+    keyboard_interactive::set_answers("127.0.0.1", port, vec![vec!["000000".to_owned()]]);
+    let error = connect_with_known_hosts(&target, &known_hosts)
+        .await
+        .err()
+        .unwrap();
+    assert!(matches!(error, PortixError::AuthenticationFailed));
+
+    keyboard_interactive::set_answers("127.0.0.1", port, vec![vec!["123456".to_owned()]]);
+    connect_with_known_hosts(&target, &known_hosts)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

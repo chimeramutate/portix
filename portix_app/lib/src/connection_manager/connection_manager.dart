@@ -255,6 +255,17 @@ class ConnectionManager extends ChangeNotifier {
     }
   }
 
+  /// The keyboard-interactive round the last connect to [profile] could not
+  /// answer. Lookup failures read as none, like [pendingHostKey].
+  Future<AuthPromptRound?> pendingAuthPrompts(SshProfile profile) => _backend
+      .pendingAuthPrompts(profile.host, profile.port)
+      .then<AuthPromptRound?>((round) => round, onError: (Object _) => null);
+
+  Future<void> answerAuthPrompts(
+    SshProfile profile,
+    List<List<String>> rounds,
+  ) => _backend.answerAuthPrompts(profile.host, profile.port, rounds);
+
   /// Log file the session's output is being appended to, if recording.
   String? recordingPath(String sessionId) => _recordings[sessionId]?.path;
 

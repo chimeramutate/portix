@@ -47,4 +47,15 @@ abstract interface class ConnectionBackend {
   /// Records the refused key of an unknown host after the user confirmed
   /// [fingerprint]. Throws for a changed key or a stale fingerprint.
   Future<void> trustHostKey(String host, int port, String fingerprint);
+
+  /// The keyboard-interactive round the last connect to [host]:[port] could
+  /// not answer, if any.
+  Future<AuthPromptRound?> pendingAuthPrompts(String host, int port);
+
+  /// Answers (one list per round, in order) for the next connect.
+  Future<void> answerAuthPrompts(
+    String host,
+    int port,
+    List<List<String>> rounds,
+  );
 }

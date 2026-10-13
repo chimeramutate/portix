@@ -51,6 +51,17 @@ class UnavailableConnectionBackend implements ConnectionBackend {
   Future<void> trustHostKey(String host, int port, String fingerprint) async {}
 
   @override
+  Future<AuthPromptRound?> pendingAuthPrompts(String host, int port) async =>
+      null;
+
+  @override
+  Future<void> answerAuthPrompts(
+    String host,
+    int port,
+    List<List<String>> rounds,
+  ) async {}
+
+  @override
   Future<PortForward> startLocalForward(
     SshProfile profile,
     int localPort,
