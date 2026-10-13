@@ -71,12 +71,12 @@ fn wire__crate__api__ssh__answer_auth_prompts_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_host = <String>::sse_decode(&mut deserializer);
             let api_port = <u16>::sse_decode(&mut deserializer);
-            let api_rounds = <Vec<Vec<String>>>::sse_decode(&mut deserializer);
+            let api_answers = <Vec<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Ok::<_, ()>({
-                        crate::api::ssh::answer_auth_prompts(api_host, api_port, api_rounds);
+                        crate::api::ssh::answer_auth_prompts(api_host, api_port, api_answers);
                     })?;
                     std::result::Result::Ok(output_ok)
                 })())
@@ -1421,12 +1421,10 @@ impl SseDecode for crate::api::ssh::AuthPrompt {
 impl SseDecode for crate::api::ssh::AuthPromptRound {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut var_round = <u32>::sse_decode(deserializer);
         let mut var_name = <String>::sse_decode(deserializer);
         let mut var_instructions = <String>::sse_decode(deserializer);
         let mut var_prompts = <Vec<crate::api::ssh::AuthPrompt>>::sse_decode(deserializer);
         return crate::api::ssh::AuthPromptRound {
-            round: var_round,
             name: var_name,
             instructions: var_instructions,
             prompts: var_prompts,
@@ -1545,18 +1543,6 @@ impl SseDecode for Vec<crate::api::ssh::ForwardInfo> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::api::ssh::ForwardInfo>::sse_decode(deserializer));
-        }
-        return ans_;
-    }
-}
-
-impl SseDecode for Vec<Vec<String>> {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut len_ = <i32>::sse_decode(deserializer);
-        let mut ans_ = Vec::with_capacity(len_ as usize);
-        for idx_ in 0..len_ {
-            ans_.push(<Vec<String>>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -1868,7 +1854,6 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::ssh::AuthPrompt>
 impl flutter_rust_bridge::IntoDart for crate::api::ssh::AuthPromptRound {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.round.into_into_dart().into_dart(),
             self.name.into_into_dart().into_dart(),
             self.instructions.into_into_dart().into_dart(),
             self.prompts.into_into_dart().into_dart(),
@@ -2124,7 +2109,6 @@ impl SseEncode for crate::api::ssh::AuthPrompt {
 impl SseEncode for crate::api::ssh::AuthPromptRound {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <u32>::sse_encode(self.round, serializer);
         <String>::sse_encode(self.name, serializer);
         <String>::sse_encode(self.instructions, serializer);
         <Vec<crate::api::ssh::AuthPrompt>>::sse_encode(self.prompts, serializer);
@@ -2225,16 +2209,6 @@ impl SseEncode for Vec<crate::api::ssh::ForwardInfo> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::ssh::ForwardInfo>::sse_encode(item, serializer);
-        }
-    }
-}
-
-impl SseEncode for Vec<Vec<String>> {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <i32>::sse_encode(self.len() as _, serializer);
-        for item in self {
-            <Vec<String>>::sse_encode(item, serializer);
         }
     }
 }

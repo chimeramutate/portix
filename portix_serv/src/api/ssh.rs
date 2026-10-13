@@ -111,9 +111,8 @@ pub struct AuthPrompt {
 }
 
 /// The keyboard-interactive round (OTP, 2FA, PAM questions) the last connect
-/// to `host:port` could not answer. `round` is how many rounds came before it.
+/// to `host:port` could not answer.
 pub struct AuthPromptRound {
-    pub round: u32,
     pub name: String,
     pub instructions: String,
     pub prompts: Vec<AuthPrompt>,
@@ -121,7 +120,6 @@ pub struct AuthPromptRound {
 
 pub fn pending_auth_prompts(host: String, port: u16) -> Option<AuthPromptRound> {
     keyboard_interactive::pending_prompts(&host, port).map(|pending| AuthPromptRound {
-        round: pending.round as u32,
         name: pending.name,
         instructions: pending.instructions,
         prompts: pending
@@ -132,9 +130,10 @@ pub fn pending_auth_prompts(host: String, port: u16) -> Option<AuthPromptRound> 
     })
 }
 
-/// Answers (one list per round, in order) for the next connect to `host:port`.
-pub fn answer_auth_prompts(host: String, port: u16, rounds: Vec<Vec<String>>) {
-    keyboard_interactive::set_answers(&host, port, rounds);
+/// Answers the pending round (one answer per prompt) for the next connect to
+/// `host:port`; earlier rounds' answers are kept on this side.
+pub fn answer_auth_prompts(host: String, port: u16, answers: Vec<String>) {
+    keyboard_interactive::answer_pending(&host, port, answers);
 }
 
 /// An active tunnel on 127.0.0.1:`local_port`: a local forward

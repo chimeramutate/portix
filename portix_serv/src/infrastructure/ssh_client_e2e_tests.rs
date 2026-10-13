@@ -321,20 +321,19 @@ async fn keyboard_interactive_fills_the_password_and_asks_for_the_code() {
         PortixError::KeyboardInteractiveRequired { .. }
     ));
     let pending = keyboard_interactive::pending_prompts("127.0.0.1", port).unwrap();
-    assert_eq!(pending.round, 0);
     assert_eq!(
         pending.prompts,
         vec![("Verification code: ".to_owned(), false)]
     );
 
-    keyboard_interactive::set_answers("127.0.0.1", port, vec![vec!["000000".to_owned()]]);
+    keyboard_interactive::answer_pending("127.0.0.1", port, vec!["000000".to_owned()]);
     let error = connect_with_known_hosts(&target, &known_hosts)
         .await
         .err()
         .unwrap();
     assert!(matches!(error, PortixError::AuthenticationFailed));
 
-    keyboard_interactive::set_answers("127.0.0.1", port, vec![vec!["123456".to_owned()]]);
+    keyboard_interactive::answer_pending("127.0.0.1", port, vec!["123456".to_owned()]);
     connect_with_known_hosts(&target, &known_hosts)
         .await
         .unwrap();

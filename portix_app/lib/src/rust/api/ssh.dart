@@ -88,15 +88,16 @@ Future<AuthPromptRound?> pendingAuthPrompts({
 }) =>
     RustLib.instance.api.crateApiSshPendingAuthPrompts(host: host, port: port);
 
-/// Answers (one list per round, in order) for the next connect to `host:port`.
+/// Answers the pending round (one answer per prompt) for the next connect to
+/// `host:port`; earlier rounds' answers are kept on this side.
 Future<void> answerAuthPrompts({
   required String host,
   required int port,
-  required List<List<String>> rounds,
+  required List<String> answers,
 }) => RustLib.instance.api.crateApiSshAnswerAuthPrompts(
   host: host,
   port: port,
-  rounds: rounds,
+  answers: answers,
 );
 
 /// Starts forwarding 127.0.0.1:`local_port` (0 = any free port) to
@@ -175,30 +176,26 @@ class AuthPrompt {
 }
 
 /// The keyboard-interactive round (OTP, 2FA, PAM questions) the last connect
-/// to `host:port` could not answer. `round` is how many rounds came before it.
+/// to `host:port` could not answer.
 class AuthPromptRound {
-  final int round;
   final String name;
   final String instructions;
   final List<AuthPrompt> prompts;
 
   const AuthPromptRound({
-    required this.round,
     required this.name,
     required this.instructions,
     required this.prompts,
   });
 
   @override
-  int get hashCode =>
-      round.hashCode ^ name.hashCode ^ instructions.hashCode ^ prompts.hashCode;
+  int get hashCode => name.hashCode ^ instructions.hashCode ^ prompts.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is AuthPromptRound &&
           runtimeType == other.runtimeType &&
-          round == other.round &&
           name == other.name &&
           instructions == other.instructions &&
           prompts == other.prompts;

@@ -129,7 +129,6 @@ class RustBridgeBackend implements ConnectionBackend {
     final round = await rust_api.pendingAuthPrompts(host: host, port: port);
     if (round == null) return null;
     return AuthPromptRound(
-      round: round.round,
       name: round.name,
       instructions: round.instructions,
       prompts: [
@@ -139,11 +138,8 @@ class RustBridgeBackend implements ConnectionBackend {
   }
 
   @override
-  Future<void> answerAuthPrompts(
-    String host,
-    int port,
-    List<List<String>> rounds,
-  ) => rust_api.answerAuthPrompts(host: host, port: port, rounds: rounds);
+  Future<void> answerAuthPrompts(String host, int port, List<String> answers) =>
+      rust_api.answerAuthPrompts(host: host, port: port, answers: answers);
 
   @override
   Future<PortForward> startLocalForward(

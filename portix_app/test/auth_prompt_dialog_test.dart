@@ -8,7 +8,7 @@ import 'package:portix/src/features/ssh_sessions/widget/remote/auth_prompt_dialo
 
 class _PromptBackend extends MockConnectionBackend {
   AuthPromptRound? pending;
-  final List<List<List<String>>> answered = [];
+  final List<List<String>> answered = [];
 
   @override
   Future<AuthPromptRound?> pendingAuthPrompts(String host, int port) async =>
@@ -18,8 +18,8 @@ class _PromptBackend extends MockConnectionBackend {
   Future<void> answerAuthPrompts(
     String host,
     int port,
-    List<List<String>> rounds,
-  ) async => answered.add(rounds);
+    List<String> answers,
+  ) async => answered.add(answers);
 }
 
 const _profile = SshProfile(
@@ -30,8 +30,7 @@ const _profile = SshProfile(
   username: 'u',
 );
 
-AuthPromptRound _round(int round, String prompt) => AuthPromptRound(
-  round: round,
+AuthPromptRound _round(String prompt) => AuthPromptRound(
   name: '',
   instructions: '',
   prompts: [(prompt: prompt, echo: false)],
@@ -80,44 +79,29 @@ void main() {
     manager.dispose();
   });
 
-  testWidgets('answers accumulate per round and reset on round 0', (
-    tester,
-  ) async {
-    final backend = _PromptBackend()..pending = _round(0, 'Code 1:');
+  testWidgets('sends only the answers to the pending round', (tester) async {
+    final backend = _PromptBackend()..pending = _round('Code 1:');
     final manager = ConnectionManager(backend: backend);
 
     expect(
       await _resolve(tester, manager, code: '111', tapLabel: 'Continue'),
       isTrue,
     );
-    backend.pending = _round(1, 'Code 2:');
+    backend.pending = _round('Code 2:');
     expect(
       await _resolve(tester, manager, code: '222', tapLabel: 'Continue'),
       isTrue,
     );
-    backend.pending = _round(0, 'Code 1:');
-    expect(
-      await _resolve(tester, manager, code: '333', tapLabel: 'Continue'),
-      isTrue,
-    );
 
     expect(backend.answered, [
-      [
-        ['111'],
-      ],
-      [
-        ['111'],
-        ['222'],
-      ],
-      [
-        ['333'],
-      ],
+      ['111'],
+      ['222'],
     ]);
     manager.dispose();
   });
 
   testWidgets('cancel returns false and sends nothing', (tester) async {
-    final backend = _PromptBackend()..pending = _round(0, 'Code:');
+    final backend = _PromptBackend()..pending = _round('Code:');
     final manager = ConnectionManager(backend: backend);
     expect(await _resolve(tester, manager, tapLabel: 'Cancel'), isFalse);
     expect(backend.answered, isEmpty);

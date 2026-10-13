@@ -28,16 +28,14 @@ class PortForward {
 }
 
 /// A keyboard-interactive round (OTP, 2FA, PAM questions) the last connect
-/// could not answer. [round] is how many answered rounds came before it.
+/// could not answer.
 class AuthPromptRound {
   const AuthPromptRound({
-    required this.round,
     required this.name,
     required this.instructions,
     required this.prompts,
   });
 
-  final int round;
   final String name;
   final String instructions;
 
