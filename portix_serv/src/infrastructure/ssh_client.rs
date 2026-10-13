@@ -52,6 +52,8 @@ pub(crate) struct Client {
     /// Where connections to a remote forward (`ssh -R`) go, as seen from
     /// this machine. None refuses them.
     forward_to: Option<(String, u16)>,
+    /// Accept the server's agent channels (`ssh -A`), see [SshProfile].
+    forward_agent: bool,
 }
 
 type ExecRequest = (String, oneshot::Sender<Result<String>>);
@@ -110,6 +112,27 @@ impl client::Handler for Client {
         });
         Ok(())
     }
+
+    async fn server_channel_open_agent_forward(
+        &mut self,
+        channel: russh::Channel<client::Msg>,
+        reply: client::ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> std::result::Result<(), Self::Error> {
+        // Never asked for (or not wanted): drop the reply to refuse it.
+        if !self.forward_agent {
+            return Ok(());
+        }
+        reply.accept().await;
+        tokio::spawn(async move {
+            let Ok(mut agent) = agent_stream().await else {
+                return;
+            };
+            let mut stream = channel.into_stream();
+            let _ = tokio::io::copy_bidirectional(&mut stream, &mut agent).await;
+        });
+        Ok(())
+    }
 }
 
 impl SshRuntime {
@@ -141,6 +164,9 @@ impl SshRuntime {
         channel
             .request_pty(false, "xterm-256color", cols, rows, 0, 0, &[])
             .await?;
+        if self.profile.forward_agent {
+            channel.agent_forward(false).await?;
+        }
         channel.request_shell(true).await?;
         let (exec_tx, exec_rx) = mpsc::channel::<ExecRequest>(64);
         tokio::spawn(run_exec_worker(self.profile.clone(), exec_rx));
@@ -385,6 +411,7 @@ async fn connect_forwarding_to(
         known_hosts: known_hosts.to_path_buf(),
         _jump: jump.clone(),
         forward_to,
+        forward_agent: profile.forward_agent,
     };
     let config = Arc::new(client::Config {
         // If the TCP connection goes silent for longer than this, russh closes
@@ -488,6 +515,19 @@ async fn connect_agent() -> Result<AgentClient<tokio::net::windows::named_pipe::
     AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent")
         .await
         .map_err(agent_error)
+}
+
+/// A raw connection to the local ssh-agent, for a forwarded agent channel.
+#[cfg(unix)]
+async fn agent_stream() -> std::io::Result<tokio::net::UnixStream> {
+    let socket = env::var_os("SSH_AUTH_SOCK")
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "SSH_AUTH_SOCK"))?;
+    tokio::net::UnixStream::connect(socket).await
+}
+
+#[cfg(windows)]
+async fn agent_stream() -> std::io::Result<tokio::net::windows::named_pipe::NamedPipeClient> {
+    tokio::net::windows::named_pipe::ClientOptions::new().open(r"\\.\pipe\openssh-ssh-agent")
 }
 
 /// Tries each key [agent] offers until the server accepts one.

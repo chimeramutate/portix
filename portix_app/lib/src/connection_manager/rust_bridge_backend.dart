@@ -219,6 +219,7 @@ rust_profile.SshProfile toRustProfile(SshProfile profile) {
     privateKeyPath: _blankToNull(profile.privateKeyPath),
     keyPassphrase: _blankToNull(profile.keyPassphrase),
     jumpHost: jumpHost == null ? null : toRustProfile(jumpHost),
+    forwardAgent: profile.forwardAgent,
   );
 }
 

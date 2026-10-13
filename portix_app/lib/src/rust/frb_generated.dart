@@ -1666,8 +1666,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SshProfile dco_decode_ssh_profile(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 9)
-      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
     return SshProfile(
       id: dco_decode_String(arr[0]),
       name: dco_decode_String(arr[1]),
@@ -1678,6 +1678,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       privateKeyPath: dco_decode_opt_String(arr[6]),
       keyPassphrase: dco_decode_opt_String(arr[7]),
       jumpHost: dco_decode_opt_box_ssh_profile(arr[8]),
+      forwardAgent: dco_decode_bool(arr[9]),
     );
   }
 
@@ -2079,6 +2080,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_privateKeyPath = sse_decode_opt_String(deserializer);
     var var_keyPassphrase = sse_decode_opt_String(deserializer);
     var var_jumpHost = sse_decode_opt_box_ssh_profile(deserializer);
+    var var_forwardAgent = sse_decode_bool(deserializer);
     return SshProfile(
       id: var_id,
       name: var_name,
@@ -2089,6 +2091,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       privateKeyPath: var_privateKeyPath,
       keyPassphrase: var_keyPassphrase,
       jumpHost: var_jumpHost,
+      forwardAgent: var_forwardAgent,
     );
   }
 
@@ -2474,6 +2477,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.privateKeyPath, serializer);
     sse_encode_opt_String(self.keyPassphrase, serializer);
     sse_encode_opt_box_ssh_profile(self.jumpHost, serializer);
+    sse_encode_bool(self.forwardAgent, serializer);
   }
 
   @protected

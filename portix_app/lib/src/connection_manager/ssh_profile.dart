@@ -19,6 +19,7 @@ class SshProfile {
     this.group,
     this.tags = const <String>[],
     this.startupCommand,
+    this.forwardAgent = false,
   });
 
   final String id;
@@ -48,6 +49,9 @@ class SshProfile {
   /// Typed into the shell once the terminal session is up.
   final String? startupCommand;
 
+  /// Let the server use the local ssh-agent (`ssh -A`).
+  final bool forwardAgent;
+
   /// Connection view of a saved profile. The domain stores either the key
   /// path or the password in `credentialLabel`, depending on `authMethod`;
   /// 'Saved password' is a placeholder meaning "read it from the keychain".
@@ -76,6 +80,7 @@ class SshProfile {
       startupCommand: profile.startupCommand.trim().isEmpty
           ? null
           : profile.startupCommand.trim(),
+      forwardAgent: profile.forwardAgent,
     );
   }
 
@@ -112,6 +117,7 @@ class SshProfile {
       group: group ?? this.group,
       tags: tags ?? this.tags,
       startupCommand: startupCommand,
+      forwardAgent: forwardAgent,
     );
   }
 
