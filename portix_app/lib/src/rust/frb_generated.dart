@@ -85,7 +85,7 @@ abstract class RustLibApi extends BaseApi {
   Future<void> crateApiSshAnswerAuthPrompts({
     required String host,
     required int port,
-    required List<List<String>> rounds,
+    required List<String> answers,
   });
 
   Future<SessionInfo> crateApiSshConnect({
@@ -249,7 +249,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Future<void> crateApiSshAnswerAuthPrompts({
     required String host,
     required int port,
-    required List<List<String>> rounds,
+    required List<String> answers,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -257,7 +257,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(host, serializer);
           sse_encode_u_16(port, serializer);
-          sse_encode_list_list_String(rounds, serializer);
+          sse_encode_list_String(answers, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -270,7 +270,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: null,
         ),
         constMeta: kCrateApiSshAnswerAuthPromptsConstMeta,
-        argValues: [host, port, rounds],
+        argValues: [host, port, answers],
         apiImpl: this,
       ),
     );
@@ -279,7 +279,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiSshAnswerAuthPromptsConstMeta =>
       const TaskConstMeta(
         debugName: "answer_auth_prompts",
-        argNames: ["host", "port", "rounds"],
+        argNames: ["host", "port", "answers"],
       );
 
   @override
@@ -1446,13 +1446,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   AuthPromptRound dco_decode_auth_prompt_round(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
     return AuthPromptRound(
-      round: dco_decode_u_32(arr[0]),
-      name: dco_decode_String(arr[1]),
-      instructions: dco_decode_String(arr[2]),
-      prompts: dco_decode_list_auth_prompt(arr[3]),
+      name: dco_decode_String(arr[0]),
+      instructions: dco_decode_String(arr[1]),
+      prompts: dco_decode_list_auth_prompt(arr[2]),
     );
   }
 
@@ -1556,12 +1555,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<ForwardInfo> dco_decode_list_forward_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_forward_info).toList();
-  }
-
-  @protected
-  List<List<String>> dco_decode_list_list_String(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return (raw as List<dynamic>).map(dco_decode_list_String).toList();
   }
 
   @protected
@@ -1765,12 +1758,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   AuthPromptRound sse_decode_auth_prompt_round(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_round = sse_decode_u_32(deserializer);
     var var_name = sse_decode_String(deserializer);
     var var_instructions = sse_decode_String(deserializer);
     var var_prompts = sse_decode_list_auth_prompt(deserializer);
     return AuthPromptRound(
-      round: var_round,
       name: var_name,
       instructions: var_instructions,
       prompts: var_prompts,
@@ -1902,18 +1893,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <ForwardInfo>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_forward_info(deserializer));
-    }
-    return ans_;
-  }
-
-  @protected
-  List<List<String>> sse_decode_list_list_String(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    var len_ = sse_decode_i_32(deserializer);
-    var ans_ = <List<String>>[];
-    for (var idx_ = 0; idx_ < len_; ++idx_) {
-      ans_.add(sse_decode_list_String(deserializer));
     }
     return ans_;
   }
@@ -2194,7 +2173,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_u_32(self.round, serializer);
     sse_encode_String(self.name, serializer);
     sse_encode_String(self.instructions, serializer);
     sse_encode_list_auth_prompt(self.prompts, serializer);
@@ -2316,18 +2294,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_forward_info(item, serializer);
-    }
-  }
-
-  @protected
-  void sse_encode_list_list_String(
-    List<List<String>> self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_32(self.length, serializer);
-    for (final item in self) {
-      sse_encode_list_String(item, serializer);
     }
   }
 

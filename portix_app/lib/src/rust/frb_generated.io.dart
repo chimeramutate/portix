@@ -85,9 +85,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ForwardInfo> dco_decode_list_forward_info(dynamic raw);
 
   @protected
-  List<List<String>> dco_decode_list_list_String(dynamic raw);
-
-  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
 
   @protected
@@ -208,9 +205,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ForwardInfo> sse_decode_list_forward_info(SseDeserializer deserializer);
-
-  @protected
-  List<List<String>> sse_decode_list_list_String(SseDeserializer deserializer);
 
   @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
@@ -361,12 +355,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_forward_info(
     List<ForwardInfo> self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_list_list_String(
-    List<List<String>> self,
     SseSerializer serializer,
   );
 

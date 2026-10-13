@@ -261,10 +261,8 @@ class ConnectionManager extends ChangeNotifier {
       .pendingAuthPrompts(profile.host, profile.port)
       .then<AuthPromptRound?>((round) => round, onError: (Object _) => null);
 
-  Future<void> answerAuthPrompts(
-    SshProfile profile,
-    List<List<String>> rounds,
-  ) => _backend.answerAuthPrompts(profile.host, profile.port, rounds);
+  Future<void> answerAuthPrompts(SshProfile profile, List<String> answers) =>
+      _backend.answerAuthPrompts(profile.host, profile.port, answers);
 
   /// Log file the session's output is being appended to, if recording.
   String? recordingPath(String sessionId) => _recordings[sessionId]?.path;

@@ -752,6 +752,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
   void _disposeSessionUi(String sessionId) {
     _isFollowingOutput.remove(sessionId);
     _scrollListenersRegistered.remove(sessionId);
+    _sessionDirectories.remove(sessionId);
+    _pendingDirectories.remove(sessionId);
     _terminalUi.disposeSession(sessionId);
   }
 

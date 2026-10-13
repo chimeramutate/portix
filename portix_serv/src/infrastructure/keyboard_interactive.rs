@@ -1,8 +1,9 @@
 //! Keyboard-interactive auth (OTP / 2FA / PAM prompts) without a callback
 //! into Dart: a connect that meets prompts it cannot answer records them and
 //! fails with [`PortixError::KeyboardInteractiveRequired`]; the UI reads them
-//! with [`pending_prompts`], stores the answers with [`set_answers`] and
-//! connects again. Answers are per round, in the order the server asks.
+//! with [`pending_prompts`], answers them with [`answer_pending`] and
+//! connects again. Earlier rounds' answers stay here, not in Dart, and every
+//! connect attempt takes them, so nothing is kept after a login ends.
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
@@ -15,9 +16,6 @@ use crate::domain::profile::SshProfile;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PendingPrompts {
-    /// How many rounds were answered before this one; the UI keeps that many
-    /// of its answers and appends the answer to this round.
-    pub round: usize,
     pub name: String,
     pub instructions: String,
     /// (prompt text, echo the typed answer)
@@ -26,7 +24,8 @@ pub struct PendingPrompts {
 
 type HostPort = (String, u16);
 
-static PENDING: LazyLock<Mutex<HashMap<HostPort, PendingPrompts>>> =
+/// The unanswered round, and the answers to the rounds before it.
+static PENDING: LazyLock<Mutex<HashMap<HostPort, (PendingPrompts, Vec<Vec<String>>)>>> =
     LazyLock::new(Default::default);
 static ANSWERS: LazyLock<Mutex<HashMap<HostPort, Vec<Vec<String>>>>> =
     LazyLock::new(Default::default);
@@ -36,15 +35,21 @@ pub fn pending_prompts(host: &str, port: u16) -> Option<PendingPrompts> {
         .lock()
         .unwrap()
         .get(&(host.to_owned(), port))
-        .cloned()
+        .map(|(prompts, _)| prompts.clone())
 }
 
-/// Answers for the next connect to `host:port`, used once.
-pub fn set_answers(host: &str, port: u16, rounds: Vec<Vec<String>>) {
-    ANSWERS
+/// Answers the pending round; the next connect to `host:port` replays the
+/// earlier rounds and this one.
+pub fn answer_pending(host: &str, port: u16, answers: Vec<String>) {
+    let id = (host.to_owned(), port);
+    let mut rounds = PENDING
         .lock()
         .unwrap()
-        .insert((host.to_owned(), port), rounds);
+        .remove(&id)
+        .map(|(_, answered)| answered)
+        .unwrap_or_default();
+    rounds.push(answers);
+    ANSWERS.lock().unwrap().insert(id, rounds);
 }
 
 fn take_answers(host: &str, port: u16) -> Vec<Vec<String>> {
@@ -66,7 +71,7 @@ pub(crate) async fn authenticate<H: client::Handler>(
     step_timeout: std::time::Duration,
 ) -> Result<bool> {
     let mut answers = take_answers(&profile.host, profile.port).into_iter();
-    let mut round = 0;
+    let mut answered = Vec::new();
     let mut response = timeout(
         step_timeout,
         session.authenticate_keyboard_interactive_start(profile.username.clone(), None),
@@ -95,19 +100,19 @@ pub(crate) async fn authenticate<H: client::Handler>(
             Some(password) if is_password_prompt(&prompts) => vec![password.clone()],
             _ => match answers.next() {
                 Some(reply) => {
-                    round += 1;
+                    answered.push(reply.clone());
                     reply
                 }
                 None => {
-                    PENDING.lock().unwrap().insert(
-                        (profile.host.clone(), profile.port),
-                        PendingPrompts {
-                            round,
-                            name,
-                            instructions,
-                            prompts,
-                        },
-                    );
+                    let prompts = PendingPrompts {
+                        name,
+                        instructions,
+                        prompts,
+                    };
+                    PENDING
+                        .lock()
+                        .unwrap()
+                        .insert((profile.host.clone(), profile.port), (prompts, answered));
                     return Err(PortixError::KeyboardInteractiveRequired {
                         host: profile.host.clone(),
                         port: profile.port,
@@ -146,23 +151,34 @@ mod tests {
         ]));
     }
 
+    fn pend(host: &str, answered: Vec<Vec<String>>) {
+        let prompts = PendingPrompts {
+            name: String::new(),
+            instructions: String::new(),
+            prompts: vec![("Code: ".into(), false)],
+        };
+        PENDING
+            .lock()
+            .unwrap()
+            .insert((host.into(), 22), (prompts, answered));
+    }
+
     #[test]
-    fn answers_are_used_once_and_clear_pending() {
-        set_answers("kbd.test", 22, vec![vec!["123456".into()]]);
-        PENDING.lock().unwrap().insert(
-            ("kbd.test".into(), 22),
-            PendingPrompts {
-                round: 0,
-                name: String::new(),
-                instructions: String::new(),
-                prompts: vec![("Code: ".into(), false)],
-            },
-        );
+    fn answering_appends_to_earlier_rounds_and_is_used_once() {
+        pend("kbd.test", vec![vec!["111".into()]]);
+        answer_pending("kbd.test", 22, vec!["222".into()]);
+        assert!(pending_prompts("kbd.test", 22).is_none());
         assert_eq!(
             take_answers("kbd.test", 22),
-            vec![vec!["123456".to_owned()]]
+            vec![vec!["111".to_owned()], vec!["222".to_owned()]]
         );
-        assert!(pending_prompts("kbd.test", 22).is_none());
         assert!(take_answers("kbd.test", 22).is_empty());
+    }
+
+    #[test]
+    fn a_cancelled_round_is_dropped_by_the_next_connect() {
+        pend("cancel.test", vec![vec!["111".into()]]);
+        assert!(take_answers("cancel.test", 22).is_empty());
+        assert!(pending_prompts("cancel.test", 22).is_none());
     }
 }

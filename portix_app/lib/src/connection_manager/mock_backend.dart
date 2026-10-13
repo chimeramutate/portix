@@ -114,7 +114,7 @@ class MockConnectionBackend implements ConnectionBackend {
   Future<void> answerAuthPrompts(
     String host,
     int port,
-    List<List<String>> rounds,
+    List<String> answers,
   ) async {}
 
   final List<PortForward> _forwards = [];

@@ -5,10 +5,6 @@ import 'package:portix/src/connection_manager/ssh_profile.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
 
-/// Answers given so far per `host:port`, one list per keyboard-interactive
-/// round; each failed connect asks only for the round it got stuck on.
-final Map<String, List<List<String>>> _answeredRounds = {};
-
 /// After a failed connect, asks the keyboard-interactive questions (OTP,
 /// 2FA, PAM) the server sent, if that was the cause. Same contract as
 /// `resolveRefusedHostKey`: null when it was not the cause, true when
@@ -39,10 +35,7 @@ Future<bool?> resolveAuthPrompts(
     builder: (_) => _AuthPromptDialog(profile: profile, round: round),
   );
   if (answers == null) return false;
-  final key = '${profile.host}:${profile.port}';
-  final rounds = [...?_answeredRounds[key]?.take(round.round), answers];
-  _answeredRounds[key] = rounds;
-  await manager.answerAuthPrompts(profile, rounds);
+  await manager.answerAuthPrompts(profile, answers);
   return true;
 }
 

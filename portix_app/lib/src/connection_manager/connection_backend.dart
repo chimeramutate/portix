@@ -52,10 +52,7 @@ abstract interface class ConnectionBackend {
   /// not answer, if any.
   Future<AuthPromptRound?> pendingAuthPrompts(String host, int port);
 
-  /// Answers (one list per round, in order) for the next connect.
-  Future<void> answerAuthPrompts(
-    String host,
-    int port,
-    List<List<String>> rounds,
-  );
+  /// Answers the pending round (one per prompt) for the next connect; the
+  /// backend keeps the earlier rounds' answers.
+  Future<void> answerAuthPrompts(String host, int port, List<String> answers);
 }
