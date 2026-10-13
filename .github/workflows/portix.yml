@@ -1278,28 +1278,15 @@ jobs:
 
           # Build AppDir structure
           mkdir -p "${APPDIR}/usr/bin"
-          mkdir -p "${APPDIR}/usr/lib"
           mkdir -p "${APPDIR}/usr/share/applications"
           mkdir -p "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
 
-          # Copy Flutter bundle into AppDir
+          # Copy the Flutter bundle unchanged: the runner resolves lib/libapp.so
+          # and data/ relative to the executable, and the Dart side loads
+          # libportix_serv.so / libportix_rdp.so from the executable's directory.
           cp -r "${BUNDLE_DIR}/." "${APPDIR}/usr/bin/"
-
-          # Move all .so files from usr/bin directly into usr/lib
-          find "${APPDIR}/usr/bin" -maxdepth 1 -name "*.so*" -type f | while read -r so; do
-            mv "$so" "${APPDIR}/usr/lib/"
-            echo "Moved $(basename "$so") → usr/lib/"
-          done
-
-          # Move the bundled runtime lib/ subdirectory into usr/lib/
-          if [ -d "${APPDIR}/usr/bin/lib" ]; then
-            cp -r "${APPDIR}/usr/bin/lib/." "${APPDIR}/usr/lib/"
-            rm -rf "${APPDIR}/usr/bin/lib"
-            echo "Moved bundled lib/ → usr/lib/"
-          fi
-
-          echo "usr/lib contents:"
-          ls -lah "${APPDIR}/usr/lib/" || true
+          test -f "${APPDIR}/usr/bin/lib/libapp.so"
+          test -f "${APPDIR}/usr/bin/libportix_serv.so"
 
           # App icon
           cp "${APP_DIR}/assets/icons/portix_launcher.png" \
@@ -1325,7 +1312,7 @@ jobs:
           printf '%s\n' \
             '#!/bin/bash' \
             'HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"' \
-            'export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/bin:${LD_LIBRARY_PATH:-}"' \
+            'export LD_LIBRARY_PATH="${HERE}/usr/bin/lib:${HERE}/usr/bin:${LD_LIBRARY_PATH:-}"' \
             'export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"' \
             'export GDK_BACKEND="${GDK_BACKEND:-x11}"' \
             'exec "${HERE}/usr/bin/portix" "$@"' \
