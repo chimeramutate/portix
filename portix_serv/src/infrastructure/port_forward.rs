@@ -323,6 +323,7 @@ mod tests {
             private_key_path: None,
             key_passphrase: None,
             jump_host: None,
+            forward_agent: false,
         }
     }
 
