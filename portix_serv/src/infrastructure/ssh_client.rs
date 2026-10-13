@@ -19,6 +19,7 @@ use crate::domain::session::ConnectionStatus;
 use crate::infrastructure::host_keys::{
     default_known_hosts_path, forget_pending_host_key, verify_host_key,
 };
+use crate::infrastructure::keyboard_interactive;
 
 pub enum SshCommand {
     Input(Vec<u8>),
@@ -425,7 +426,7 @@ async fn connect_forwarding_to(
         )?),
         None => None,
     };
-    let authenticated = timeout(AUTH_TIMEOUT, async {
+    let primary = timeout(AUTH_TIMEOUT, async {
         let result = if let Some(key_pair) = key_pair {
             session
                 .authenticate_publickey(
@@ -447,7 +448,23 @@ async fn connect_forwarding_to(
         Ok(result.success())
     })
     .await
-    .map_err(|_| PortixError::AuthenticationTimeout)??;
+    .map_err(|_| PortixError::AuthenticationTimeout)?;
+
+    // A refused or partial (publickey + OTP) login, or no agent keys, may
+    // still pass with keyboard-interactive.
+    let authenticated = match primary {
+        Ok(true) => true,
+        Ok(false) => {
+            keyboard_interactive::authenticate(&mut session, profile, AUTH_TIMEOUT).await?
+        }
+        Err(error @ PortixError::SshAgent(_)) => {
+            if !keyboard_interactive::authenticate(&mut session, profile, AUTH_TIMEOUT).await? {
+                return Err(error);
+            }
+            true
+        }
+        Err(error) => return Err(error),
+    };
 
     if !authenticated {
         return Err(PortixError::AuthenticationFailed);

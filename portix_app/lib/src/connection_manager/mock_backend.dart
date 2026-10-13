@@ -106,6 +106,17 @@ class MockConnectionBackend implements ConnectionBackend {
   @override
   Future<void> trustHostKey(String host, int port, String fingerprint) async {}
 
+  @override
+  Future<AuthPromptRound?> pendingAuthPrompts(String host, int port) async =>
+      null;
+
+  @override
+  Future<void> answerAuthPrompts(
+    String host,
+    int port,
+    List<List<String>> rounds,
+  ) async {}
+
   final List<PortForward> _forwards = [];
 
   @override

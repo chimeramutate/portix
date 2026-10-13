@@ -82,6 +82,23 @@ Future<void> trustHostKey({
   fingerprint: fingerprint,
 );
 
+Future<AuthPromptRound?> pendingAuthPrompts({
+  required String host,
+  required int port,
+}) =>
+    RustLib.instance.api.crateApiSshPendingAuthPrompts(host: host, port: port);
+
+/// Answers (one list per round, in order) for the next connect to `host:port`.
+Future<void> answerAuthPrompts({
+  required String host,
+  required int port,
+  required List<List<String>> rounds,
+}) => RustLib.instance.api.crateApiSshAnswerAuthPrompts(
+  host: host,
+  port: port,
+  rounds: rounds,
+);
+
 /// Starts forwarding 127.0.0.1:`local_port` (0 = any free port) to
 /// `remote_host:remote_port` as seen from the SSH server, over a dedicated
 /// connection. Returns once listening and connected.
@@ -137,6 +154,55 @@ Stream<String> connectionStatusStream() =>
 
 Stream<String> errorEventStream() =>
     RustLib.instance.api.crateApiSshErrorEventStream();
+
+/// One prompt of a keyboard-interactive round; `echo` false means hide input.
+class AuthPrompt {
+  final String prompt;
+  final bool echo;
+
+  const AuthPrompt({required this.prompt, required this.echo});
+
+  @override
+  int get hashCode => prompt.hashCode ^ echo.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AuthPrompt &&
+          runtimeType == other.runtimeType &&
+          prompt == other.prompt &&
+          echo == other.echo;
+}
+
+/// The keyboard-interactive round (OTP, 2FA, PAM questions) the last connect
+/// to `host:port` could not answer. `round` is how many rounds came before it.
+class AuthPromptRound {
+  final int round;
+  final String name;
+  final String instructions;
+  final List<AuthPrompt> prompts;
+
+  const AuthPromptRound({
+    required this.round,
+    required this.name,
+    required this.instructions,
+    required this.prompts,
+  });
+
+  @override
+  int get hashCode =>
+      round.hashCode ^ name.hashCode ^ instructions.hashCode ^ prompts.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AuthPromptRound &&
+          runtimeType == other.runtimeType &&
+          round == other.round &&
+          name == other.name &&
+          instructions == other.instructions &&
+          prompts == other.prompts;
+}
 
 /// An active tunnel on 127.0.0.1:`local_port`: a local forward
 /// (`ssh -L local_port:remote_host:remote_port`), or a SOCKS5 proxy

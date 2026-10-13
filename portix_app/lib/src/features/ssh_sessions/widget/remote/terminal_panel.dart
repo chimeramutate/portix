@@ -23,6 +23,7 @@ import 'package:xterm/xterm.dart';
 import '../../controller/index.dart';
 import 'terminal_settings.dart';
 import 'terminal_shortcuts.dart';
+import 'auth_prompt_dialog.dart';
 import 'host_key_dialog.dart';
 import 'key_passphrase_dialog.dart';
 import 'port_forward_dialog.dart';
@@ -566,6 +567,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
       );
       if (hostKey == true && mounted) return _reconnectSession(sessionId);
       if (hostKey != null || !mounted) return;
+
+      final prompts = await resolveAuthPrompts(
+        context,
+        _connectionManager,
+        managerProfile,
+      );
+      if (prompts == true && mounted) return _reconnectSession(sessionId);
+      if (prompts != null || !mounted) return;
 
       final retry = await resolveKeyPassphrase(
         context,

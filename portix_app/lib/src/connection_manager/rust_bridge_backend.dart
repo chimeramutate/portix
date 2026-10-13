@@ -125,6 +125,27 @@ class RustBridgeBackend implements ConnectionBackend {
       rust_api.trustHostKey(host: host, port: port, fingerprint: fingerprint);
 
   @override
+  Future<AuthPromptRound?> pendingAuthPrompts(String host, int port) async {
+    final round = await rust_api.pendingAuthPrompts(host: host, port: port);
+    if (round == null) return null;
+    return AuthPromptRound(
+      round: round.round,
+      name: round.name,
+      instructions: round.instructions,
+      prompts: [
+        for (final p in round.prompts) (prompt: p.prompt, echo: p.echo),
+      ],
+    );
+  }
+
+  @override
+  Future<void> answerAuthPrompts(
+    String host,
+    int port,
+    List<List<String>> rounds,
+  ) => rust_api.answerAuthPrompts(host: host, port: port, rounds: rounds);
+
+  @override
   Future<PortForward> startLocalForward(
     SshProfile profile,
     int localPort,
