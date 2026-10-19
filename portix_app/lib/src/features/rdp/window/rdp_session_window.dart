@@ -1,5 +1,6 @@
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/features/rdp/page/rdp_session_page.dart';
@@ -16,15 +17,28 @@ class RdpSessionWindow extends StatefulWidget {
   State<RdpSessionWindow> createState() => _RdpSessionWindowState();
 }
 
-class _RdpSessionWindowState extends State<RdpSessionWindow> {
+class _RdpSessionWindowState extends State<RdpSessionWindow>
+    with WindowListener {
   bool _ready = false;
+  bool _closed = false;
   Object? _error;
 
   @override
   void initState() {
     super.initState();
+    windowManager.addListener(this);
     _initialize();
   }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  // Title-bar close (Linux only; elsewhere the plugin never emits it here).
+  @override
+  void onWindowClose() => _closeThisWindow();
 
   Future<void> _initialize() async {
     try {
@@ -47,22 +61,24 @@ class _RdpSessionWindowState extends State<RdpSessionWindow> {
     }
   }
 
-  /// Closes this OS-level window via desktop_multi_window.
+  /// Ends the session and hides this window. The window is never destroyed:
+  /// tearing down a child engine can crash Flutter's Linux task runner.
+  // ponytail: hidden windows keep their idle engine until the app quits;
+  // reuse them for new sessions if that memory starts to matter.
   Future<void> _closeThisWindow() async {
+    if (_closed || !mounted) return;
+    // Dropping RdpSessionPage runs its dispose, which disconnects the session.
+    setState(() => _closed = true);
     try {
       final controller = await WindowController.fromCurrentEngine();
-      await controller.invokeMethod('window_close');
-    } catch (_) {
-      // Fallback: hide the window if close is not available.
-      try {
-        final controller = await WindowController.fromCurrentEngine();
-        await controller.hide();
-      } catch (_) {}
-    }
+      await controller.hide();
+    } catch (_) {}
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_closed) return const SizedBox.shrink();
+
     if (_error != null) {
       return Scaffold(
         backgroundColor: Colors.black,
