@@ -105,6 +105,10 @@ class RustBridgeBackend implements ConnectionBackend {
     return snapshot.toAppSnapshot();
   }
 
+  @override
+  Future<String> execOnProfile(SshProfile profile, String command) =>
+      rust_api.execOnProfile(profile: toRustProfile(profile), command: command);
+
   void dispose() {
     RustLib.dispose();
   }

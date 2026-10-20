@@ -47,6 +47,17 @@ Future<RemoteSystemSnapshot> remoteSystemSnapshot({
 }) =>
     RustLib.instance.api.crateApiSshRemoteSystemSnapshot(sessionId: sessionId);
 
+/// Runs [command] on [profile]'s server over a background connection that is
+/// reused across calls; returns stdout+stderr. Fails with the last output
+/// line when the command exits non-zero.
+Future<String> execOnProfile({
+  required SshProfile profile,
+  required String command,
+}) => RustLib.instance.api.crateApiSshExecOnProfile(
+  profile: profile,
+  command: command,
+);
+
 /// Generates an unencrypted ed25519 keypair: the private key at `path` (0600
 /// on unix) and the public key at `path.pub`. Refuses to overwrite either
 /// file. Returns the OpenSSH public key line (for `authorized_keys`).

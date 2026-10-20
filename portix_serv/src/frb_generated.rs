@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1989010089;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1445248016;
 
 // Section: executor
 
@@ -229,6 +229,44 @@ fn wire__crate__api__ssh__error_event_stream_impl(
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::ssh::error_event_stream(api_sink).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__ssh__exec_on_profile_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "exec_on_profile",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_profile = <crate::domain::profile::SshProfile>::sse_decode(&mut deserializer);
+            let api_command = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::ssh::exec_on_profile(api_profile, api_command).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1785,35 +1823,36 @@ fn pde_ffi_dispatcher_primary_impl(
         }
         4 => wire__crate__api__ssh__disconnect_impl(port, ptr, rust_vec_len, data_len),
         5 => wire__crate__api__ssh__error_event_stream_impl(port, ptr, rust_vec_len, data_len),
-        6 => wire__crate__api__ssh__generate_ed25519_key_impl(port, ptr, rust_vec_len, data_len),
-        7 => wire__crate__api__ssh__init_app_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__ssh__list_local_forwards_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__ssh__pending_auth_prompts_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__ssh__pending_host_key_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__ssh__remote_system_snapshot_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__ssh__resize_terminal_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__ssh__send_terminal_input_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__sftp__sftp_chmod_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__sftp__sftp_connect_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__sftp__sftp_copy_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__sftp__sftp_create_dir_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__sftp__sftp_create_file_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__sftp__sftp_disconnect_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__sftp__sftp_download_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__sftp__sftp_is_alive_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__sftp__sftp_list_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__sftp__sftp_read_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__sftp__sftp_remove_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__sftp__sftp_rename_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__sftp__sftp_resolve_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__sftp__sftp_upload_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__sftp__sftp_write_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__ssh__start_local_forward_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__ssh__start_remote_forward_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__api__ssh__start_socks_proxy_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__ssh__stop_local_forward_impl(port, ptr, rust_vec_len, data_len),
-        33 => wire__crate__api__ssh__terminal_output_stream_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__api__ssh__trust_host_key_impl(port, ptr, rust_vec_len, data_len),
+        6 => wire__crate__api__ssh__exec_on_profile_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__ssh__generate_ed25519_key_impl(port, ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__ssh__init_app_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__ssh__list_local_forwards_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__ssh__pending_auth_prompts_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__ssh__pending_host_key_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__ssh__remote_system_snapshot_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__ssh__resize_terminal_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__ssh__send_terminal_input_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__sftp__sftp_chmod_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__sftp__sftp_connect_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__sftp__sftp_copy_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__sftp__sftp_create_dir_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__sftp__sftp_create_file_impl(port, ptr, rust_vec_len, data_len),
+        20 => wire__crate__api__sftp__sftp_disconnect_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__sftp__sftp_download_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__sftp__sftp_is_alive_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__sftp__sftp_list_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__sftp__sftp_read_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__sftp__sftp_remove_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__sftp__sftp_rename_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__sftp__sftp_resolve_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__sftp__sftp_upload_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__sftp__sftp_write_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__ssh__start_local_forward_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__ssh__start_remote_forward_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__ssh__start_socks_proxy_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__ssh__stop_local_forward_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__ssh__terminal_output_stream_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__api__ssh__trust_host_key_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }

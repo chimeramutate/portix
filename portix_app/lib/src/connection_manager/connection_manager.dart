@@ -330,6 +330,19 @@ class ConnectionManager extends ChangeNotifier {
         _backend.remoteSystemSnapshot,
       );
 
+  Future<Result<String>> execOnProfile(
+    SshProfile profile,
+    String command,
+  ) async {
+    try {
+      return Right(
+        await _backend.execOnProfile(await credentials.resolve(profile), command),
+      );
+    } catch (error) {
+      return Left(AppFailure('Remote command failed', cause: error));
+    }
+  }
+
   /// Runs [operation] against the backend session behind UI [sessionId],
   /// turning any thrown error into a [Left] carrying [failureMessage].
   Future<Result<T>> _call<T>(

@@ -45,6 +45,10 @@ class UnavailableConnectionBackend implements ConnectionBackend {
       _unavailable();
 
   @override
+  Future<String> execOnProfile(SshProfile profile, String command) async =>
+      _unavailable();
+
+  @override
   Future<HostKeyInfo?> pendingHostKey(String host, int port) async => null;
 
   @override
