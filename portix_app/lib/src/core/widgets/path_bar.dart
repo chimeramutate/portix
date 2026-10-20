@@ -8,7 +8,7 @@ import 'app_panel.dart';
 typedef PathEntry = ({String name, bool isDirectory});
 
 /// Editable path field with on-demand Tab/arrow autocomplete of the typed
-/// directory. Used by the SFTP panes and the SSH remote folder view.
+/// directory. Used by the SFTP panes.
 class PathBar extends StatefulWidget {
   const PathBar({
     required this.path,
