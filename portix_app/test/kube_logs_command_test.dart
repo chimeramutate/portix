@@ -117,6 +117,15 @@ void main() {
       expect(m('error -"read timeout"', 'error: write timeout'), isTrue);
     });
 
+    test('JSON fragments match literally, quotes included', () {
+      const line = '14:06:01 sent: {"responseCode":"00","response":"06"}';
+      expect(m('"response":"06"', line), isTrue);
+      expect(m('"response":"06"', '14:06 {"response":"00"}'), isFalse);
+      expect(m('"responseCode":"06"', line), isFalse);
+      expect(m('-"response":"06"', line), isFalse);
+      expect(LogQuery('"response":"06"').highlights, ['"response":"06"']);
+    });
+
     test('OR', () {
       expect(m('ERROR OR WARN', '[ WARN] slow'), isTrue);
       expect(m('ERROR OR WARN', '[ INFO] ok'), isFalse);
@@ -179,5 +188,114 @@ void main() {
       'error',
       'receive from',
     ]);
+  });
+
+  group('appendNewLines', () {
+    LogLine at(int second, String text, [int micro = 0]) =>
+        LogLine(DateTime.utc(2026, 10, 20, 9, 0, second, 0, micro), text);
+
+    test('skips the re-read boundary second, keeps new lines', () {
+      final existing = [at(1, 'a'), at(2, 'b', 300), at(2, 'c', 900)];
+      // --since-time floors to 09:00:02, so b and c come back again.
+      final fetched = [
+        at(2, 'b', 300),
+        at(2, 'c', 900),
+        at(2, 'd', 950),
+        at(3, 'e'),
+      ];
+      expect(appendNewLines(existing, fetched).map((l) => l.text), [
+        'a',
+        'b',
+        'c',
+        'd',
+        'e',
+      ]);
+    });
+
+    test('keepFrom drops lines that slid out of a relative range', () {
+      final merged = appendNewLines(
+        [at(1, 'old'), at(5, 'kept')],
+        [at(9, 'new')],
+        keepFrom: DateTime.utc(2026, 10, 20, 9, 0, 3),
+      );
+      expect(merged.map((l) => l.text), ['kept', 'new']);
+    });
+
+    test('empty existing takes everything', () {
+      expect(appendNewLines(const [], [at(1, 'x')]).length, 1);
+      expect(lastStamp(const []), isNull);
+    });
+  });
+
+  group('huge lines', () {
+    test('clipForDisplay keeps short text and counts what it cuts', () {
+      expect(clipForDisplay('abc', 5), (shown: 'abc', hidden: 0));
+      final huge = '/' * 1000000;
+      final clip = clipForDisplay(huge, 2000);
+      expect(clip.shown.length, 2000);
+      expect(clip.hidden, 998000);
+    });
+
+    test('matchesLine agrees with matches and caches per line', () {
+      final line = LogLine(null, 'ERROR: ${'/' * 100000} Timeout');
+      final query = LogQuery('timeout');
+      expect(query.matchesLine(line), isTrue);
+      expect(query.matchesLine(line), query.matches(line.text));
+      expect(LogQuery('-timeout').matchesLine(line), isFalse);
+    });
+
+    test('displayOf is splitLogText, cached', () {
+      final line = LogLine(null, '2026-10-19 14:19:03.465 [ INFO] - hi');
+      expect(displayOf(line), splitLogText(line.text));
+      expect(displayOf(line).message, 'hi');
+    });
+  });
+
+  group('workloads', () {
+    test('workloadOf reads the controller from the pod name', () {
+      expect(workloadOf('transport-core-system-75f95b665f-5zzfm'), (
+        name: 'transport-core-system',
+        kind: WorkloadKind.deployment,
+      ));
+      expect(workloadOf('postgres-0'), (
+        name: 'postgres',
+        kind: WorkloadKind.statefulSet,
+      ));
+      expect(workloadOf('fluentd-x7k2p'), (
+        name: 'fluentd',
+        kind: WorkloadKind.other,
+      ));
+      expect(workloadOf('standalone'), isNull);
+    });
+
+    test('replacementFor picks the healthy pod of the same workload', () {
+      KubePod pod(String name, String status, [String ready = '1/1']) =>
+          (name: name, ready: ready, status: status, restarts: 0, age: '1m');
+      final pods = [
+        pod('api-worker-6d5f8c9b7-aaaaa', 'Running'),
+        pod('api-6d5f8c9b7-bbbbb', 'CrashLoopBackOff', '0/1'),
+        pod('api-6d5f8c9b7-ccccc', 'Running'),
+      ];
+      expect(
+        replacementFor('api-6d5f8c9b7-gone1', pods)?.name,
+        'api-6d5f8c9b7-ccccc',
+      );
+      expect(replacementFor('db-0', pods), isNull);
+    });
+
+    test('command filters the pod list to the workload', () {
+      final cmd = kubeLogsCommand(
+        'prod',
+        null,
+        workload: (name: 'api', kind: WorkloadKind.deployment),
+      );
+      expect(
+        cmd,
+        contains(
+          r"for p in $(printf '%s\n' $pods | grep -E "
+          r"'^pod/api-[a-z0-9]{6,10}-[a-z0-9]{5}$');",
+        ),
+      );
+    });
   });
 }

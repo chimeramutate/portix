@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/connection_manager/ssh_profile.dart'
@@ -51,6 +54,11 @@ class _KubernetesPageState extends State<KubernetesPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Only the visible tab of the visible page auto-refreshes.
+    final pageVisible = context.select(
+      (SshWorkspaceBloc bloc) =>
+          bloc.state.activeView == WorkspaceView.kubernetes,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -91,9 +99,10 @@ class _KubernetesPageState extends State<KubernetesPage> {
           child: IndexedStack(
             index: _active,
             children: [
-              for (final tab in _tabs)
+              for (final (i, tab) in _tabs.indexed)
                 _KubeLogView(
                   key: ValueKey(tab.id),
+                  active: pageVisible && i == _active,
                   onTitle: (title) => setState(() => tab.title = title),
                 ),
             ],
@@ -169,6 +178,18 @@ const _relativeRanges = {
   'Last 7 days': Duration(days: 7),
 };
 
+const _refreshIntervals = <Duration?>[
+  null, // off
+  Duration(seconds: 5),
+  Duration(seconds: 10),
+  Duration(seconds: 30),
+  Duration(minutes: 1),
+  Duration(minutes: 5),
+];
+
+String _intervalLabel(Duration every) =>
+    every.inSeconds < 60 ? '${every.inSeconds}s' : '${every.inMinutes}m';
+
 String _two(int n) => n.toString().padLeft(2, '0');
 
 const _months = [
@@ -193,8 +214,10 @@ String _formatShort(DateTime time) =>
 const _controlHeight = 36.0;
 
 class _KubeLogView extends StatefulWidget {
-  const _KubeLogView({required this.onTitle, super.key});
+  const _KubeLogView({required this.active, required this.onTitle, super.key});
 
+  /// On screen; auto-refresh only runs while true.
+  final bool active;
   final ValueChanged<String> onTitle;
 
   @override
@@ -204,13 +227,36 @@ class _KubeLogView extends StatefulWidget {
 class _KubeLogViewState extends State<_KubeLogView> {
   final _manager = sl<ConnectionManager>();
   final _search = TextEditingController();
+  final _searchFocus = FocusNode(debugLabel: 'Log search');
   final _scroll = ScrollController();
+
+  /// Hide lines that don't match the search (else highlight them in place).
+  bool _onlyMatches = true;
+
+  /// The match the ↑/↓ buttons are on, by identity: it stays put while
+  /// auto-refresh appends or trims lines. Null = none picked yet.
+  LogLine? _current;
+
+  /// Row the view is scrolling to; carries [_targetKey] once built.
+  int? _targetIndex;
+  final _targetKey = GlobalKey();
 
   String? _profileId;
   List<KubeNamespace> _namespaces = const [];
   List<KubePod> _pods = const [];
   String? _namespace;
-  String? _pod; // null = all pods in the namespace
+  String? _pod; // null = all pods in the namespace (or [_workload]'s)
+
+  /// Follow every pod of one controller, so rollouts and replaced pods
+  /// keep streaming. Only set while [_pod] is null.
+  Workload? _workload;
+
+  /// The picked pod vanished during auto-refresh (deleted, evicted, rolled
+  /// out); refresh pauses until the user switches. [_replacement] is the
+  /// same workload's pod to offer, if any.
+  String? _gonePod;
+  KubePod? _replacement;
+
   /// A [_relativeRanges] key, or null for the absolute [_from]..[_to].
   String? _relative = _relativeRanges.keys.first;
   DateTime? _from;
@@ -219,9 +265,70 @@ class _KubeLogViewState extends State<_KubeLogView> {
   String? _error;
   bool _loading = false;
 
+  Duration? _refreshEvery;
+  Timer? _timer;
+  bool _ticking = false;
+  DateTime? _lastRefresh;
+
+  /// Bumped by every full load or selection change, so a background
+  /// refresh that was in flight doesn't append to the wrong lines.
+  int _generation = 0;
+
+  /// The list is scrolled to its end (following the newest lines).
+  bool _atBottom = true;
+
+  /// Lines auto-refresh added while the reader was scrolled up.
+  int _newBelow = 0;
+
+  /// Long lines the user opened past the first 2,000 characters.
+  final _expanded = <LogLine>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    final position = _scroll.position;
+    final atBottom = position.pixels >= position.maxScrollExtent - 48;
+    if (atBottom != _atBottom) {
+      setState(() {
+        _atBottom = atBottom;
+        if (atBottom) _newBelow = 0;
+      });
+    }
+  }
+
+  /// Back to the newest line, and to following it.
+  void _jumpToLatest() {
+    setState(() {
+      _current = null;
+      _newBelow = 0;
+    });
+    if (_scroll.hasClients) {
+      _scroll.animateTo(
+        _scroll.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  @override
+  void didUpdateWidget(_KubeLogView old) {
+    super.didUpdateWidget(old);
+    if (old.active != widget.active) {
+      _syncTimer();
+      if (widget.active) unawaited(_tick()); // catch up on return
+    }
+  }
+
   @override
   void dispose() {
+    _timer?.cancel();
     _search.dispose();
+    _searchFocus.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -273,12 +380,17 @@ class _KubeLogViewState extends State<_KubeLogView> {
   }
 
   Future<void> _selectProfile(String id) async {
+    _generation++;
     setState(() {
       _profileId = id;
+      _current = null;
+      _lines = const [];
       _namespaces = const [];
       _namespace = null;
       _pods = const [];
       _pod = null;
+      _workload = null;
+      _gonePod = null;
     });
     final output = await _run('kubectl get namespaces --no-headers');
     if (output == null || _profileId != id) return;
@@ -294,9 +406,13 @@ class _KubeLogViewState extends State<_KubeLogView> {
   }
 
   Future<void> _selectNamespace(String namespace) async {
+    _generation++;
     setState(() {
       _namespace = namespace;
+      _current = null;
       _pod = null;
+      _workload = null;
+      _gonePod = null;
       _pods = const [];
     });
     final output = await _run(
@@ -310,6 +426,77 @@ class _KubeLogViewState extends State<_KubeLogView> {
 
   KubePod? get _selectedPod => _pods.where((p) => p.name == _pod).firstOrNull;
 
+  /// What the logs are read from, for the title and the pod button.
+  String get _targetLabel => _pod ?? _workload?.name ?? 'All pods';
+
+  /// Pods grouped by their controller, in first-seen order.
+  Map<Workload, List<KubePod>> get _workloads {
+    final groups = <Workload, List<KubePod>>{};
+    for (final pod in _pods) {
+      final workload = workloadOf(pod.name);
+      if (workload != null) (groups[workload] ??= []).add(pod);
+    }
+    return groups;
+  }
+
+  /// Switches what the logs are read from. [keepLines] continues the
+  /// current lines (a replaced pod); otherwise the view starts empty.
+  void _setTarget({String? pod, Workload? workload, bool keepLines = false}) {
+    _generation++;
+    setState(() {
+      _pod = pod;
+      _workload = pod == null ? workload : null;
+      _gonePod = null;
+      _replacement = null;
+      _current = null;
+      if (!keepLines) _lines = const [];
+    });
+    final namespace = _namespace;
+    if (keepLines && namespace != null) {
+      widget.onTitle('$_targetLabel · $namespace');
+      _syncTimer();
+      unawaited(_tick()); // pick up from the newest line right away
+    }
+  }
+
+  /// The single pod being followed is gone: refresh the pod list, look for
+  /// its replacement and pause auto-refresh until the user picks.
+  Future<void> _handlePodGone(String gone) async {
+    final profile = _profile();
+    final namespace = _namespace;
+    if (profile == null || namespace == null) return;
+    final result = await _manager.execOnProfile(
+      profile,
+      'kubectl get pods -n ${shellQuote(namespace)} --no-headers',
+    );
+    if (!mounted || _pod != gone) return;
+    final pods = result.fold((_) => null, parsePods);
+    setState(() {
+      if (pods != null) _pods = pods;
+      _gonePod = gone;
+      _replacement = pods == null ? null : replacementFor(gone, pods);
+      _error = null;
+    });
+    _syncTimer(); // pauses
+  }
+
+  /// e.g. "Deployment · 3 pods · 2 healthy · 1 failing".
+  static String _workloadSummary(Workload workload, List<KubePod> pods) {
+    final health = pods.map(podHealth).toList();
+    final ok = health.where((h) => h == PodHealth.ok).length;
+    final failing = health.where((h) => h == PodHealth.failing).length;
+    return [
+      switch (workload.kind) {
+        WorkloadKind.deployment => 'Deployment',
+        WorkloadKind.statefulSet => 'StatefulSet',
+        WorkloadKind.other => 'DaemonSet / Job',
+      },
+      '${pods.length} pod${pods.length == 1 ? '' : 's'}',
+      if (ok > 0) '$ok healthy',
+      if (failing > 0) '$failing failing',
+    ].join(' · ');
+  }
+
   /// e.g. "14 pods merged by time · 12 healthy · 2 failing".
   String get _podSummary {
     final health = _pods.map(podHealth).toList();
@@ -322,23 +509,201 @@ class _KubeLogViewState extends State<_KubeLogView> {
     ].join(' · ');
   }
 
+  /// What [_view] last computed, and from what: rebuilds (scrolling, the
+  /// jump button, auto-refresh notes) reuse it instead of refiltering.
+  Object? _viewKey;
+  ({List<LogLine> shown, List<int> matches})? _viewCache;
+
+  /// Lines to show and, among them, the indices matching the search.
+  /// kubectl applies the start of the range; an absolute end is cut here.
+  ({List<LogLine> shown, List<int> matches}) _view() {
+    final to = _relative == null ? _to : null;
+    final key = (_lines, _search.text, _onlyMatches, to);
+    if (key == _viewKey) return _viewCache!;
+    _viewKey = key;
+    return _viewCache = _computeView(LogQuery(_search.text), to);
+  }
+
+  ({List<LogLine> shown, List<int> matches}) _computeView(
+    LogQuery query,
+    DateTime? to,
+  ) {
+    if (query.isEmpty) {
+      return (shown: filterLogLines(_lines, to: to), matches: const []);
+    }
+    if (_onlyMatches) {
+      final shown = filterLogLines(_lines, to: to, query: query);
+      return (
+        shown: shown,
+        matches: [for (var i = 0; i < shown.length; i++) i],
+      );
+    }
+    final shown = filterLogLines(_lines, to: to);
+    return (
+      shown: shown,
+      matches: [
+        for (final (i, line) in shown.indexed)
+          if (query.matchesLine(line)) i,
+      ],
+    );
+  }
+
+  /// Where [_current] sits in [matches], or -1.
+  int _cursorIn(List<LogLine> shown, List<int> matches) {
+    final current = _current;
+    if (current == null) return -1;
+    return matches.indexWhere((i) => identical(shown[i], current));
+  }
+
+  /// Steps to the next ([delta] 1) or previous (-1) match, wrapping.
+  void _goto(int delta) {
+    final (:shown, :matches) = _view();
+    if (matches.isEmpty) return;
+    final cursor = _cursorIn(shown, matches);
+    final next = cursor < 0
+        ? (delta > 0 ? 0 : matches.length - 1)
+        : (cursor + delta) % matches.length;
+    setState(() => _current = shown[matches[next]]);
+    unawaited(_scrollToIndex(matches[next], shown.length));
+  }
+
+  /// ListView can't jump to a row of unknown height: jump to an estimate,
+  /// then, once the row is built, settle it a third of the way down.
+  Future<void> _scrollToIndex(int index, int count) async {
+    setState(() => _targetIndex = index);
+    for (var attempt = 0; attempt < 6; attempt++) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted || !_scroll.hasClients || _targetIndex != index) return;
+      final row = _targetKey.currentContext;
+      if (row != null && row.mounted) {
+        await Scrollable.ensureVisible(
+          row,
+          alignment: .33,
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+        );
+        return;
+      }
+      final position = _scroll.position;
+      final average =
+          (position.maxScrollExtent + position.viewportDimension) / count;
+      _scroll.jumpTo(
+        (index * average - position.viewportDimension * .33).clamp(
+          0,
+          position.maxScrollExtent,
+        ),
+      );
+    }
+  }
+
+  /// An absolute range whose end has passed: nothing new can arrive.
+  bool get _rangeEnded =>
+      _relative == null && _to != null && DateTime.now().isAfter(_to!);
+
+  void _syncTimer() {
+    _timer?.cancel();
+    _timer = null;
+    final every = _refreshEvery;
+    if (every == null || !widget.active || _rangeEnded || _gonePod != null) {
+      return;
+    }
+    _timer = Timer.periodic(every, (_) => _tick());
+  }
+
+  void _setRefreshEvery(Duration? every) {
+    setState(() => _refreshEvery = every);
+    _syncTimer();
+  }
+
+  /// Background refresh: fetches only what arrived after the newest line
+  /// and appends it, without the spinner or connection prompts.
+  Future<void> _tick() async {
+    final namespace = _namespace;
+    final profile = _profile();
+    if (_ticking || _loading || namespace == null || profile == null) return;
+    final generation = _generation;
+    final last = lastStamp(_lines);
+    _ticking = true;
+    final result = await _manager.execOnProfile(
+      profile,
+      kubeLogsCommand(
+        namespace,
+        _pod,
+        workload: _workload,
+        since: last == null ? _relativeRanges[_relative] : null,
+        sinceTime: last ?? (_relative == null ? _from : null),
+      ),
+    );
+    _ticking = false;
+    if (!mounted || generation != _generation) return;
+    final pod = _pod;
+    if (pod != null &&
+        result.fold(
+          (failure) => '$failure'.contains('NotFound'),
+          (_) => false,
+        )) {
+      await _handlePodGone(pod);
+      return;
+    }
+    // Follow (scroll down, and let a relative range drop old lines) only
+    // while the reader sits at the bottom and isn't stepping through
+    // matches; otherwise just append, so nothing moves under them.
+    final following =
+        _current == null &&
+        (!_scroll.hasClients ||
+            _scroll.position.pixels >= _scroll.position.maxScrollExtent - 48);
+    final range = following ? _relativeRanges[_relative] : null;
+    setState(() {
+      result.fold((failure) => _error = '$failure', (output) {
+        _error = null;
+        _lastRefresh = DateTime.now();
+        final before = _lines.length;
+        _lines = appendNewLines(
+          _lines,
+          parseLogLines(output),
+          keepFrom: range == null ? null : DateTime.now().subtract(range),
+        );
+        // Not following means nothing was trimmed: the growth is new lines.
+        if (!following) _newBelow += _lines.length - before;
+      });
+    });
+    if (following) _scrollToEnd();
+    if (_rangeEnded) _syncTimer(); // stops it
+  }
+
+  void _scrollToEnd() => WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
+  });
+
   Future<void> _loadLogs() async {
     final namespace = _namespace;
     if (namespace == null) return;
+    _generation++;
     final output = await _run(
       kubeLogsCommand(
         namespace,
         _pod,
+        workload: _workload,
         since: _relativeRanges[_relative],
         sinceTime: _relative == null ? _from : null,
       ),
     );
-    if (output == null) return;
-    widget.onTitle('${_pod ?? 'all pods'} · $namespace');
-    setState(() => _lines = parseLogLines(output));
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
+    if (output == null) {
+      final pod = _pod;
+      if (pod != null && (_error?.contains('NotFound') ?? false)) {
+        await _handlePodGone(pod);
+      }
+      return;
+    }
+    widget.onTitle('$_targetLabel · $namespace');
+    setState(() {
+      _lines = parseLogLines(output);
+      _gonePod = null;
+      _current = null;
+      _lastRefresh = DateTime.now();
     });
+    _scrollToEnd();
+    _syncTimer();
   }
 
   Future<void> _pickAbsolute() async {
@@ -359,6 +724,21 @@ class _KubeLogViewState extends State<_KubeLogView> {
     if (_namespace != null) await _loadLogs();
   }
 
+  /// "Auto-refresh every 10s · updated 14:21:05", or why it stopped.
+  String? get _refreshNote {
+    final every = _refreshEvery;
+    if (every == null) return null;
+    if (_rangeEnded) return 'Range ended · auto-refresh stopped';
+    if (_gonePod != null) return 'Auto-refresh paused · pod is gone';
+    final last = _lastRefresh;
+    return [
+      'Auto-refresh every ${_intervalLabel(every)}',
+      if (last != null)
+        'updated ${_two(last.hour)}:${_two(last.minute)}:${_two(last.second)}',
+      if (_current != null) 'holding position on a search match',
+    ].join(' · ');
+  }
+
   String get _rangeLabel => _relative != null
       ? _relative!
       : '${_formatShort(_from!)}  →  ${_formatShort(_to!)}';
@@ -370,12 +750,8 @@ class _KubeLogViewState extends State<_KubeLogView> {
     );
     final profile = profiles.where((p) => p.id == _profileId).firstOrNull;
     final query = LogQuery(_search.text);
-    // kubectl applies the start; an absolute end and the query cut here.
-    final shown = filterLogLines(
-      _lines,
-      to: _relative == null ? _to : null,
-      query: query,
-    );
+    final (:shown, :matches) = _view();
+    final cursor = _cursorIn(shown, matches);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
@@ -403,6 +779,7 @@ class _KubeLogViewState extends State<_KubeLogView> {
                         label: p.name,
                         subtitle: p.group,
                         leading: ProfileOsIcon(profile: p, size: 24),
+                        section: null,
                       ),
                   ],
                   selected: _profileId,
@@ -426,6 +803,7 @@ class _KubeLogViewState extends State<_KubeLogView> {
                         label: ns.name,
                         subtitle: '${ns.status} · ${ns.age}',
                         leading: _NamespaceIcon(system: _isSystem(ns.name)),
+                        section: null,
                       ),
                   ],
                   selected: _namespace,
@@ -435,11 +813,17 @@ class _KubeLogViewState extends State<_KubeLogView> {
               const SizedBox(width: 8),
               Expanded(
                 flex: 4,
-                child: _SelectButton<String?>(
+                child: _SelectButton<_Target>(
                   icon: Icons.view_in_ar_outlined,
                   label: 'Pod',
-                  value: _pod ?? 'All pods',
-                  leading: _selectedPod == null
+                  value: _targetLabel,
+                  leading: _workload != null
+                      ? Icon(
+                          Icons.account_tree_outlined,
+                          size: 16,
+                          color: AppColors.cyan,
+                        )
+                      : _selectedPod == null
                       ? null
                       : _PodDot(podHealth(_selectedPod!)),
                   placeholder: '—',
@@ -447,7 +831,7 @@ class _KubeLogViewState extends State<_KubeLogView> {
                   noun: 'pods',
                   options: [
                     (
-                      value: null,
+                      value: (pod: null, workload: null),
                       label: 'All pods',
                       subtitle: _podSummary,
                       leading: Icon(
@@ -455,10 +839,27 @@ class _KubeLogViewState extends State<_KubeLogView> {
                         size: 18,
                         color: AppColors.cyan,
                       ),
+                      section: null,
                     ),
+                    for (final MapEntry(key: workload, value: pods)
+                        in _workloads.entries)
+                      (
+                        value: (pod: null, workload: workload),
+                        label: workload.name,
+                        subtitle: _workloadSummary(workload, pods),
+                        leading: Icon(
+                          Icons.account_tree_outlined,
+                          size: 18,
+                          color:
+                              pods.any((p) => podHealth(p) == PodHealth.failing)
+                              ? AppColors.danger
+                              : AppColors.cyan,
+                        ),
+                        section: 'Workloads · follow new pods automatically',
+                      ),
                     for (final pod in _pods)
                       (
-                        value: pod.name,
+                        value: (pod: pod.name, workload: null),
                         label: pod.name,
                         subtitle: [
                           pod.status,
@@ -468,10 +869,12 @@ class _KubeLogViewState extends State<_KubeLogView> {
                           pod.age,
                         ].join(' · '),
                         leading: _PodDot(podHealth(pod)),
+                        section: 'Pods · this pod only',
                       ),
                   ],
-                  selected: _pod,
-                  onSelected: (pod) => setState(() => _pod = pod),
+                  selected: (pod: _pod, workload: _workload),
+                  onSelected: (target) =>
+                      _setTarget(pod: target.pod, workload: target.workload),
                 ),
               ),
             ],
@@ -484,7 +887,12 @@ class _KubeLogViewState extends State<_KubeLogView> {
                   height: _controlHeight,
                   child: TextField(
                     controller: _search,
-                    onChanged: (_) => setState(() {}),
+                    focusNode: _searchFocus,
+                    onChanged: (_) => setState(() => _current = null),
+                    onSubmitted: (_) {
+                      _goto(1);
+                      _searchFocus.requestFocus();
+                    },
                     style: appFieldTextStyle(),
                     decoration: InputDecoration(
                       isDense: true,
@@ -501,16 +909,22 @@ class _KubeLogViewState extends State<_KubeLogView> {
                         color: AppColors.muted,
                       ),
                       prefixIconConstraints: const BoxConstraints(minWidth: 36),
-                      suffixIcon: _search.text.isEmpty
+                      suffixIcon: query.isEmpty
                           ? null
-                          : IconButton(
-                              tooltip: 'Clear search',
-                              iconSize: 16,
-                              onPressed: () => setState(() => _search.clear()),
-                              icon: Icon(
-                                Icons.close_rounded,
-                                color: AppColors.muted,
-                              ),
+                          : _SearchNav(
+                              position: cursor,
+                              total: matches.length,
+                              onlyMatches: _onlyMatches,
+                              onPrevious: () => _goto(-1),
+                              onNext: () => _goto(1),
+                              onToggleFilter: () => setState(() {
+                                _onlyMatches = !_onlyMatches;
+                                _current = null;
+                              }),
+                              onClear: () => setState(() {
+                                _search.clear();
+                                _current = null;
+                              }),
                             ),
                     ),
                   ),
@@ -519,8 +933,14 @@ class _KubeLogViewState extends State<_KubeLogView> {
               const SizedBox(width: 8),
               _TimeRangeButton(
                 label: _rangeLabel,
+                absolute: _relative == null ? _rangeLabel : null,
                 ranges: _relativeRanges.keys.toList(),
                 selected: _relative,
+                refreshEvery: _refreshEvery,
+                refreshDisabled: _rangeEnded
+                    ? 'The range has ended; no new logs can arrive.'
+                    : null,
+                onRefreshEvery: _setRefreshEvery,
                 onRelative: (range) {
                   setState(() => _relative = range);
                   if (_namespace != null) _loadLogs();
@@ -563,11 +983,42 @@ class _KubeLogViewState extends State<_KubeLogView> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _StatusBar(
+                    note: _refreshNote,
                     error: _error,
                     shown: shown.length,
                     total: _lines.length,
                   ),
-                  Expanded(child: _buildLines(shown, query.highlights)),
+                  if (_gonePod case final gone?)
+                    _PodGoneBanner(
+                      gone: gone,
+                      replacement: _replacement?.name,
+                      workload: workloadOf(gone),
+                      onSwitch: (pod) => _setTarget(pod: pod, keepLines: true),
+                      onFollow: (workload) =>
+                          _setTarget(workload: workload, keepLines: true),
+                    ),
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: _buildLines(
+                            shown,
+                            query.highlights,
+                            cursor < 0 ? null : matches[cursor],
+                          ),
+                        ),
+                        Positioned(
+                          right: 16,
+                          bottom: 14,
+                          child: _JumpToLatest(
+                            visible: !_atBottom && shown.isNotEmpty,
+                            newLines: _newBelow,
+                            onPressed: _jumpToLatest,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -577,7 +1028,11 @@ class _KubeLogViewState extends State<_KubeLogView> {
     );
   }
 
-  Widget _buildLines(List<LogLine> shown, List<String> highlights) {
+  Widget _buildLines(
+    List<LogLine> shown,
+    List<String> highlights,
+    int? current,
+  ) {
     if (shown.isEmpty) {
       final (icon, message) = _lines.isNotEmpty
           ? (Icons.filter_alt_off_outlined, 'No lines match the search.')
@@ -601,8 +1056,17 @@ class _KubeLogViewState extends State<_KubeLogView> {
         child: ListView.builder(
           controller: _scroll,
           itemCount: shown.length,
-          itemBuilder: (_, i) =>
-              _LogRow(line: shown[i], highlights: highlights, odd: i.isOdd),
+          itemBuilder: (_, i) => _LogRow(
+            key: i == _targetIndex ? _targetKey : null,
+            line: shown[i],
+            highlights: highlights,
+            odd: i.isOdd,
+            current: i == current,
+            expanded: _expanded.contains(shown[i]),
+            onToggleExpanded: () => setState(() {
+              if (!_expanded.remove(shown[i])) _expanded.add(shown[i]);
+            }),
+          ),
         ),
       ),
     );
@@ -639,11 +1103,32 @@ class _LogRow extends StatelessWidget {
     required this.line,
     required this.highlights,
     required this.odd,
+    required this.expanded,
+    required this.onToggleExpanded,
+    this.current = false,
+    super.key,
   });
 
   final LogLine line;
   final List<String> highlights;
   final bool odd;
+
+  /// The search match the ↑/↓ buttons are on.
+  final bool current;
+
+  /// Shows up to [_expandedChars] of a long message instead of
+  /// [_collapsedChars].
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
+
+  static const _collapsedChars = 2000;
+  static const _expandedChars = 50000;
+
+  static String _size(int chars) => chars >= 1000000
+      ? '${(chars / 1000000).toStringAsFixed(1)}M'
+      : chars >= 1000
+      ? '${(chars / 1000).toStringAsFixed(chars >= 10000 ? 0 : 1)}k'
+      : '$chars';
 
   static Color? _levelColor(LogLevel? level) => switch (level) {
     LogLevel.error => AppColors.danger,
@@ -655,18 +1140,27 @@ class _LogRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (:level, :message) = splitLogText(line.text);
+    final (:level, :message) = displayOf(line);
+    final clip = clipForDisplay(
+      message,
+      expanded ? _expandedChars : _collapsedChars,
+    );
+    final long = message.length > _collapsedChars;
     final color = _levelColor(level);
     final time = line.time;
     return Container(
       decoration: BoxDecoration(
-        color: level == LogLevel.error
+        color: current
+            ? AppColors.cyan.withValues(alpha: .14)
+            : level == LogLevel.error
             ? AppColors.dangerTint.withValues(alpha: .35)
             : odd
             ? AppColors.surface.withValues(alpha: .45)
             : null,
         border: Border(
-          left: BorderSide(color: color ?? Colors.transparent, width: 2),
+          left: current
+              ? BorderSide(color: AppColors.cyan, width: 3)
+              : BorderSide(color: color ?? Colors.transparent, width: 2),
           bottom: BorderSide(color: AppColors.border.withValues(alpha: .45)),
         ),
       ),
@@ -715,25 +1209,113 @@ class _LogRow extends StatelessWidget {
                   ),
           ),
           Expanded(
-            child: Text.rich(
-              TextSpan(
-                children: _highlight(
-                  message,
-                  highlights,
-                  TextStyle(
-                    color: AppColors.text,
-                    backgroundColor: AppColors.amber.withValues(alpha: .28),
-                    fontWeight: FontWeight.w600,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      ..._highlight(
+                        clip.shown,
+                        highlights,
+                        TextStyle(
+                          color: AppColors.text,
+                          backgroundColor: AppColors.amber.withValues(
+                            alpha: .28,
+                          ),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (clip.hidden > 0)
+                        TextSpan(
+                          text: ' …',
+                          style: TextStyle(color: AppColors.muted),
+                        ),
+                    ],
+                  ),
+                  style: _mono.copyWith(
+                    fontSize: 12.5,
+                    height: 1.6,
+                    color: AppColors.text.withValues(alpha: .92),
                   ),
                 ),
-              ),
-              style: _mono.copyWith(
-                fontSize: 12.5,
-                height: 1.6,
-                color: AppColors.text.withValues(alpha: .92),
-              ),
+                if (long)
+                  _LongLineBar(
+                    hidden: clip.hidden,
+                    total: message.length,
+                    expanded: expanded,
+                    size: _size,
+                    onToggle: onToggleExpanded,
+                    onCopy: () =>
+                        Clipboard.setData(ClipboardData(text: line.text)),
+                  ),
+              ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Under a clipped long line: how much is hidden, more/less, copy all.
+class _LongLineBar extends StatelessWidget {
+  const _LongLineBar({
+    required this.hidden,
+    required this.total,
+    required this.expanded,
+    required this.size,
+    required this.onToggle,
+    required this.onCopy,
+  });
+
+  final int hidden;
+  final int total;
+  final bool expanded;
+  final String Function(int chars) size;
+  final VoidCallback onToggle;
+  final VoidCallback onCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget link(String text, IconData icon, VoidCallback onTap) => InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: AppColors.cyan),
+            const SizedBox(width: 4),
+            Text(
+              text,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: AppColors.cyan,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Wrap(
+        spacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(
+            hidden > 0
+                ? '+${size(hidden)} more of ${size(total)} chars'
+                : '${size(total)} chars',
+            style: portixMuted(11),
+          ),
+          if (hidden > 0 && !expanded)
+            link('Show more', Icons.unfold_more_rounded, onToggle),
+          if (expanded) link('Show less', Icons.unfold_less_rounded, onToggle),
+          link('Copy line', Icons.copy_rounded, onCopy),
         ],
       ),
     );
@@ -765,14 +1347,252 @@ List<TextSpan> _highlight(String text, List<String> terms, TextStyle style) {
   return spans;
 }
 
+/// Floating pill over the log list while scrolled up: back to the newest
+/// line, counting what auto-refresh added meanwhile.
+class _JumpToLatest extends StatelessWidget {
+  const _JumpToLatest({
+    required this.visible,
+    required this.newLines,
+    required this.onPressed,
+  });
+
+  final bool visible;
+  final int newLines;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: !visible,
+      child: AnimatedSlide(
+        offset: visible ? Offset.zero : const Offset(0, .4),
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        child: AnimatedOpacity(
+          opacity: visible ? 1 : 0,
+          duration: const Duration(milliseconds: 160),
+          child: Material(
+            color: newLines > 0 ? AppColors.cyan : AppColors.surface,
+            elevation: 6,
+            shadowColor: Colors.black54,
+            shape: StadiumBorder(
+              side: BorderSide(
+                color: newLines > 0 ? AppColors.cyan : AppColors.border,
+              ),
+            ),
+            child: InkWell(
+              onTap: onPressed,
+              customBorder: const StadiumBorder(),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 7, 14, 7),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.arrow_downward_rounded,
+                      size: 15,
+                      color: newLines > 0 ? AppColors.onAccent : AppColors.text,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      newLines > 0
+                          ? '$newLines new line${newLines == 1 ? '' : 's'}'
+                          : 'Jump to latest',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: newLines > 0
+                            ? AppColors.onAccent
+                            : AppColors.text,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// What a tab reads logs from: one pod, one workload's pods, or (both null)
+/// every pod in the namespace.
+typedef _Target = ({String? pod, Workload? workload});
+
+/// Shown when the followed pod disappeared: offers its replacement and
+/// following the whole workload, so restarts and rollouts don't matter.
+class _PodGoneBanner extends StatelessWidget {
+  const _PodGoneBanner({
+    required this.gone,
+    required this.replacement,
+    required this.workload,
+    required this.onSwitch,
+    required this.onFollow,
+  });
+
+  final String gone;
+  final String? replacement;
+  final Workload? workload;
+  final ValueChanged<String> onSwitch;
+  final ValueChanged<Workload> onFollow;
+
+  @override
+  Widget build(BuildContext context) {
+    final replacement = this.replacement;
+    final workload = this.workload;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 9, 8, 9),
+      decoration: BoxDecoration(
+        color: AppColors.amberTint,
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.sync_problem_rounded, size: 18, color: AppColors.amber),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: gone,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const TextSpan(text: ' no longer exists'),
+                  if (replacement != null) ...[
+                    const TextSpan(text: ' — replaced by '),
+                    TextSpan(
+                      text: replacement,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                  const TextSpan(text: '. Lines so far are kept.'),
+                ],
+              ),
+              style: TextStyle(fontSize: 12, color: AppColors.text),
+            ),
+          ),
+          if (replacement != null) ...[
+            const SizedBox(width: 8),
+            AppButton(
+              icon: Icons.swap_horiz_rounded,
+              label: 'Switch',
+              primary: true,
+              onPressed: () => onSwitch(replacement),
+            ),
+          ],
+          if (workload != null) ...[
+            const SizedBox(width: 6),
+            AppButton(
+              icon: Icons.account_tree_outlined,
+              label: 'Follow ${workload.name}',
+              onPressed: () => onFollow(workload),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// In the search field: "3 / 42", ↑ ↓, the only-matching-lines toggle and
+/// clear.
+class _SearchNav extends StatelessWidget {
+  const _SearchNav({
+    required this.position,
+    required this.total,
+    required this.onlyMatches,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onToggleFilter,
+    required this.onClear,
+  });
+
+  final int position;
+  final int total;
+  final bool onlyMatches;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+  final VoidCallback onToggleFilter;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget button(
+      String tooltip,
+      IconData icon,
+      VoidCallback? onPressed, {
+      Color? color,
+    }) => IconButton(
+      tooltip: tooltip,
+      iconSize: 16,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+      padding: EdgeInsets.zero,
+      onPressed: onPressed,
+      icon: Icon(icon, color: color ?? AppColors.muted),
+    );
+    final has = total > 0;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          !has
+              ? 'No results'
+              : position < 0
+              ? '$total'
+              : '${position + 1} / $total',
+          style: portixMuted(12).copyWith(
+            color: has ? null : AppColors.danger,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        const SizedBox(width: 4),
+        button(
+          'Previous match',
+          Icons.keyboard_arrow_up_rounded,
+          has ? onPrevious : null,
+        ),
+        button(
+          'Next match (Enter)',
+          Icons.keyboard_arrow_down_rounded,
+          has ? onNext : null,
+        ),
+        Container(
+          width: 1,
+          height: 16,
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          color: AppColors.border,
+        ),
+        button(
+          onlyMatches
+              ? 'Showing only matching lines'
+              : 'Showing all lines, matches highlighted',
+          onlyMatches
+              ? Icons.filter_alt_rounded
+              : Icons.filter_alt_off_outlined,
+          onToggleFilter,
+          color: onlyMatches ? AppColors.cyan : null,
+        ),
+        button('Clear search', Icons.close_rounded, onClear),
+        const SizedBox(width: 4),
+      ],
+    );
+  }
+}
+
 /// Line count and the last error, above the log lines.
 class _StatusBar extends StatelessWidget {
   const _StatusBar({
+    required this.note,
     required this.error,
     required this.shown,
     required this.total,
   });
 
+  final String? note;
   final String? error;
   final int shown;
   final int total;
@@ -800,6 +1620,16 @@ class _StatusBar extends StatelessWidget {
                 error!,
                 overflow: TextOverflow.ellipsis,
                 style: portixMuted(12).copyWith(color: AppColors.danger),
+              ),
+            ),
+          ] else if (note != null) ...[
+            Icon(Icons.autorenew_rounded, size: 14, color: AppColors.cyan),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                note!,
+                overflow: TextOverflow.ellipsis,
+                style: portixMuted(12),
               ),
             ),
           ] else
@@ -857,12 +1687,76 @@ class _NamespaceIcon extends StatelessWidget {
   );
 }
 
-/// One choice in a [_SelectButton].
+/// Opens [builder]'s panel just under the widget of [context] (a button),
+/// kept on screen; returns what the panel pops with.
+Future<R?> _showAnchored<R>(
+  BuildContext context, {
+  required String label,
+  required double Function(Rect anchor) width,
+  required Widget Function(double maxHeight) builder,
+}) {
+  final box = context.findRenderObject()! as RenderBox;
+  final anchor = box.localToGlobal(Offset.zero) & box.size;
+  return showGeneralDialog<R>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: label,
+    barrierColor: Colors.transparent,
+    transitionDuration: const Duration(milliseconds: 120),
+    transitionBuilder: (_, animation, _, child) => FadeTransition(
+      opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+      child: child,
+    ),
+    pageBuilder: (dialogContext, _, _) {
+      final screen = MediaQuery.sizeOf(dialogContext);
+      final w = width(anchor);
+      // Right-aligned to the button when it would run off screen.
+      final left =
+          (anchor.left + w > screen.width - 8 ? anchor.right - w : anchor.left)
+              .clamp(8.0, screen.width - w - 8);
+      final top = anchor.bottom + 6;
+      return Stack(
+        children: [
+          Positioned(
+            left: left,
+            top: top,
+            width: w,
+            child: builder((screen.height - top - 16).clamp(160.0, 460.0)),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+/// The popup surface shared by the select and time panels.
+class _PopupSurface extends StatelessWidget {
+  const _PopupSurface({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: AppColors.surface,
+    elevation: 12,
+    shadowColor: Colors.black54,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(10),
+      side: BorderSide(color: AppColors.border),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: child,
+  );
+}
+
+/// One choice in a [_SelectButton]; a change of [section] between options
+/// starts a titled group in the popup.
 typedef _Option<T> = ({
   T value,
   String label,
   String? subtitle,
   Widget? leading,
+  String? section,
 });
 
 /// A compact 36px select: small muted [label], bold value. Opens a popup
@@ -897,39 +1791,16 @@ class _SelectButton<T> extends StatelessWidget {
   final String noun;
 
   Future<void> _open(BuildContext context) async {
-    final box = context.findRenderObject()! as RenderBox;
-    final anchor = box.localToGlobal(Offset.zero) & box.size;
-    final picked = await showGeneralDialog<_Picked<T>>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: label,
-      barrierColor: Colors.transparent,
-      transitionDuration: const Duration(milliseconds: 120),
-      transitionBuilder: (_, animation, _, child) => FadeTransition(
-        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-        child: child,
+    final picked = await _showAnchored<_Picked<T>>(
+      context,
+      label: label,
+      width: (anchor) => anchor.width.clamp(300.0, 460.0),
+      builder: (maxHeight) => _PickerPanel<T>(
+        options: options,
+        selected: selected,
+        noun: noun,
+        maxHeight: maxHeight,
       ),
-      pageBuilder: (dialogContext, _, _) {
-        final screen = MediaQuery.sizeOf(dialogContext);
-        final width = anchor.width.clamp(300.0, 460.0);
-        final left = anchor.left.clamp(8.0, screen.width - width - 8);
-        final top = anchor.bottom + 6;
-        return Stack(
-          children: [
-            Positioned(
-              left: left,
-              top: top,
-              width: width,
-              child: _PickerPanel<T>(
-                options: options,
-                selected: selected,
-                noun: noun,
-                maxHeight: (screen.height - top - 16).clamp(160.0, 460.0),
-              ),
-            ),
-          ],
-        );
-      },
     );
     if (picked != null) onSelected(picked.value);
   }
@@ -1024,15 +1895,7 @@ class _PickerPanelState<T> extends State<_PickerPanel<T>> {
   Widget build(BuildContext context) {
     final filtered = _filtered;
     final searchable = widget.options.length > 6;
-    return Material(
-      color: AppColors.surface,
-      elevation: 12,
-      shadowColor: Colors.black54,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: AppColors.border),
-      ),
-      clipBehavior: Clip.antiAlias,
+    return _PopupSurface(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: widget.maxHeight),
         child: Column(
@@ -1090,11 +1953,38 @@ class _PickerPanelState<T> extends State<_PickerPanel<T>> {
                       shrinkWrap: true,
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       itemCount: filtered.length,
-                      itemBuilder: (_, i) => _PickerRow(
-                        option: filtered[i],
-                        selected: filtered[i].value == widget.selected,
-                        onTap: () => _pick(filtered[i]),
-                      ),
+                      itemBuilder: (_, i) {
+                        final section = filtered[i].section;
+                        final row = _PickerRow(
+                          option: filtered[i],
+                          selected: filtered[i].value == widget.selected,
+                          onTap: () => _pick(filtered[i]),
+                        );
+                        if (section == null ||
+                            (i > 0 && filtered[i - 1].section == section)) {
+                          return row;
+                        }
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (i > 0)
+                              Divider(height: 9, color: AppColors.border),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
+                              child: Text(
+                                section.toUpperCase(),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: .7,
+                                  color: AppColors.muted,
+                                ),
+                              ),
+                            ),
+                            row,
+                          ],
+                        );
+                      },
                     ),
             ),
           ],
@@ -1171,53 +2061,46 @@ class _PickerRow<T> extends StatelessWidget {
   }
 }
 
-/// Kibana-style time picker: quick relative ranges or an absolute range.
+/// Kibana-style time picker: quick relative ranges, an absolute range and
+/// the auto-refresh interval, in one panel.
 class _TimeRangeButton extends StatelessWidget {
   const _TimeRangeButton({
     required this.label,
+    required this.absolute,
     required this.ranges,
     required this.selected,
     required this.onRelative,
     required this.onAbsolute,
+    required this.refreshEvery,
+    required this.refreshDisabled,
+    required this.onRefreshEvery,
   });
 
   final String label;
+
+  /// The absolute range as text when one is in use.
+  final String? absolute;
   final List<String> ranges;
   final String? selected;
   final ValueChanged<String> onRelative;
   final VoidCallback onAbsolute;
+  final Duration? refreshEvery;
+
+  /// Why auto-refresh can't run now, or null when it can.
+  final String? refreshDisabled;
+  final ValueChanged<Duration?> onRefreshEvery;
 
   @override
   Widget build(BuildContext context) {
-    Widget check(bool on) => SizedBox(
-      width: 18,
-      child: on
-          ? Icon(Icons.check_rounded, size: 16, color: AppColors.cyan)
-          : null,
-    );
-    return MenuAnchor(
-      alignmentOffset: const Offset(0, 4),
-      menuChildren: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-          child: Text('Commonly used', style: portixMuted(11)),
+    final refreshing = refreshEvery != null && refreshDisabled == null;
+    return Builder(
+      builder: (context) => _ControlShell(
+        onTap: () => _showAnchored<void>(
+          context,
+          label: 'Time range',
+          width: (_) => 340,
+          builder: (_) => _TimePanel(button: this),
         ),
-        for (final range in ranges)
-          MenuItemButton(
-            leadingIcon: check(range == selected),
-            onPressed: () => onRelative(range),
-            child: Text(range),
-          ),
-        const Divider(height: 1),
-        MenuItemButton(
-          leadingIcon: check(selected == null),
-          trailingIcon: const Icon(Icons.edit_calendar_outlined, size: 16),
-          onPressed: onAbsolute,
-          child: const Text('Absolute range…'),
-        ),
-      ],
-      builder: (context, controller, _) => _ControlShell(
-        onTap: () => controller.isOpen ? controller.close() : controller.open(),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1227,8 +2110,287 @@ class _TimeRangeButton extends StatelessWidget {
               label,
               style: appFieldTextStyle().copyWith(fontWeight: FontWeight.w700),
             ),
+            if (refreshing) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: AppColors.cyan.withValues(alpha: .14),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.autorenew_rounded,
+                      size: 12,
+                      color: AppColors.cyan,
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      _intervalLabel(refreshEvery!),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.cyan,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(width: 6),
             Icon(Icons.expand_more_rounded, size: 18, color: AppColors.muted),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TimePanel extends StatelessWidget {
+  const _TimePanel({required this.button});
+
+  final _TimeRangeButton button;
+
+  @override
+  Widget build(BuildContext context) {
+    final b = button;
+    void close() => Navigator.of(context).pop();
+    Widget heading(IconData icon, String text) => Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 13, color: AppColors.muted),
+          const SizedBox(width: 6),
+          Text(
+            text.toUpperCase(),
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: .8,
+              color: AppColors.muted,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return _PopupSurface(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                heading(Icons.bolt_rounded, 'Commonly used'),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final range in b.ranges)
+                      _Chip(
+                        label: range.replaceFirst('Last ', ''),
+                        selected: range == b.selected,
+                        onTap: () {
+                          close();
+                          b.onRelative(range);
+                        },
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: AppColors.border),
+          Material(
+            color: b.absolute != null
+                ? AppColors.cyan.withValues(alpha: .08)
+                : Colors.transparent,
+            child: InkWell(
+              onTap: () {
+                close();
+                b.onAbsolute();
+              },
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 11, 10, 11),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.edit_calendar_outlined,
+                      size: 18,
+                      color: b.absolute != null
+                          ? AppColors.cyan
+                          : AppColors.muted,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Absolute range',
+                            style: appFieldTextStyle().copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: b.absolute != null
+                                  ? AppColors.cyan
+                                  : AppColors.text,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            b.absolute ?? 'Pick a start and end date & time',
+                            overflow: TextOverflow.ellipsis,
+                            style: portixMuted(11),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 18,
+                      color: AppColors.muted,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Divider(height: 1, color: AppColors.border),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                heading(Icons.autorenew_rounded, 'Auto-refresh'),
+                _Segmented(
+                  items: [
+                    for (final every in _refreshIntervals)
+                      (every == null ? 'Off' : _intervalLabel(every), every),
+                  ],
+                  selected: b.refreshDisabled == null ? b.refreshEvery : null,
+                  enabled: b.refreshDisabled == null,
+                  onSelected: (every) {
+                    close();
+                    b.onRefreshEvery(every);
+                  },
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  b.refreshDisabled ??
+                      'Fetches only new lines; works with any range.',
+                  style: portixMuted(11).copyWith(
+                    color: b.refreshDisabled != null ? AppColors.amber : null,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A pill choice: cyan outline and tint when selected.
+class _Chip extends StatelessWidget {
+  const _Chip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected
+          ? AppColors.cyan.withValues(alpha: .14)
+          : AppColors.surfaceDark,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: selected ? AppColors.cyan : AppColors.border),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              color: selected ? AppColors.cyan : AppColors.text,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A joined row of equal-width choices, like a segmented control.
+class _Segmented<T> extends StatelessWidget {
+  const _Segmented({
+    required this.items,
+    required this.selected,
+    required this.enabled,
+    required this.onSelected,
+  });
+
+  final List<(String, T)> items;
+  final T? selected;
+  final bool enabled;
+  final ValueChanged<T> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: enabled ? 1 : .45,
+      child: Container(
+        height: 32,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceDark,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.border),
+        ),
+        padding: const EdgeInsets.all(2),
+        child: Row(
+          children: [
+            for (final (text, value) in items)
+              Expanded(
+                child: Material(
+                  color: value == selected
+                      ? AppColors.cyan.withValues(alpha: .18)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(6),
+                  child: InkWell(
+                    onTap: enabled ? () => onSelected(value) : null,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Center(
+                      child: Text(
+                        text,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: value == selected
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                          color: value == selected
+                              ? AppColors.cyan
+                              : AppColors.text,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
