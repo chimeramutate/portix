@@ -227,8 +227,7 @@ impl RdpRuntime {
         let is_cyberark = is_cyberark_pam(&self.profile.username);
         if is_cyberark {
             println!(
-                "[portix_rdp] CyberArk PAM/PSM detected (username={}), using stub license cache to skip license upgrade",
-                self.profile.username
+                "[portix_rdp] CyberArk PAM/PSM detected, using stub license cache to skip license upgrade"
             );
         }
         let pre_emptive_cache: Option<Arc<dyn LicenseCache>> = if is_cyberark {
@@ -379,7 +378,7 @@ impl RdpRuntime {
                 }
 
                 _ = cancel_token.cancelled() => {
-                    println!("[portix_rdp] session {} cancelled, initiating graceful shutdown", self.session_id);
+                    println!("[portix_rdp] session cancelled, initiating graceful shutdown");
                     let _ = active_stage.graceful_shutdown();
                     return Err(RdpError::Cancelled);
                 }
@@ -407,7 +406,7 @@ impl RdpRuntime {
                                         frame_dirty = true;
                                     }
                                     ActiveStageOutput::Terminate(_) => {
-                                        println!("[portix_rdp] session {} terminated by server", self.session_id);
+                                        println!("[portix_rdp] session terminated by server");
                                         return Ok(());
                                     }
                                     _ => {}
@@ -438,7 +437,7 @@ impl RdpRuntime {
                 cmd = command_rx.recv() => {
                     match cmd {
                         Some(RdpCommand::Disconnect) | None => {
-                            println!("[portix_rdp] session {} disconnect requested", self.session_id);
+                            println!("[portix_rdp] session disconnect requested");
 
                             let shutdown_outputs = active_stage
                                 .graceful_shutdown()
@@ -797,9 +796,10 @@ impl RdpRuntime {
             }
             Ok(Err(e)) => {
                 eprintln!("[portix_rdp] ERROR: connect_begin FAILED: {}", e);
+                // No username: stdout/stderr end up in system logs.
                 eprintln!(
-                    "[portix_rdp] connection details: host={}, credssp={}, user={}",
-                    self.profile.host, enable_credssp, self.profile.username
+                    "[portix_rdp] connection details: host={}, credssp={}",
+                    self.profile.host, enable_credssp
                 );
                 return Err(RdpError::NegotiationFailed(e.to_string()));
             }
