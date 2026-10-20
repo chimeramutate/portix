@@ -21,6 +21,10 @@ class SshProfile {
   /// Server to tunnel through first (`ssh -J`); may itself have a jump host.
   final SshProfile? jumpHost;
 
+  /// Let the server use the local ssh-agent (`ssh -A`). Only for servers
+  /// you trust: their root can use your keys while you are connected.
+  final bool forwardAgent;
+
   const SshProfile({
     required this.id,
     required this.name,
@@ -31,6 +35,7 @@ class SshProfile {
     this.privateKeyPath,
     this.keyPassphrase,
     this.jumpHost,
+    required this.forwardAgent,
   });
 
   @override
@@ -43,7 +48,8 @@ class SshProfile {
       password.hashCode ^
       privateKeyPath.hashCode ^
       keyPassphrase.hashCode ^
-      jumpHost.hashCode;
+      jumpHost.hashCode ^
+      forwardAgent.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -58,5 +64,6 @@ class SshProfile {
           password == other.password &&
           privateKeyPath == other.privateKeyPath &&
           keyPassphrase == other.keyPassphrase &&
-          jumpHost == other.jumpHost;
+          jumpHost == other.jumpHost &&
+          forwardAgent == other.forwardAgent;
 }

@@ -255,6 +255,15 @@ class ConnectionManager extends ChangeNotifier {
     }
   }
 
+  /// The keyboard-interactive round the last connect to [profile] could not
+  /// answer. Lookup failures read as none, like [pendingHostKey].
+  Future<AuthPromptRound?> pendingAuthPrompts(SshProfile profile) => _backend
+      .pendingAuthPrompts(profile.host, profile.port)
+      .then<AuthPromptRound?>((round) => round, onError: (Object _) => null);
+
+  Future<void> answerAuthPrompts(SshProfile profile, List<String> answers) =>
+      _backend.answerAuthPrompts(profile.host, profile.port, answers);
+
   /// Log file the session's output is being appended to, if recording.
   String? recordingPath(String sessionId) => _recordings[sessionId]?.path;
 
@@ -320,6 +329,19 @@ class ConnectionManager extends ChangeNotifier {
         'Failed to load remote telemetry',
         _backend.remoteSystemSnapshot,
       );
+
+  Future<Result<String>> execOnProfile(
+    SshProfile profile,
+    String command,
+  ) async {
+    try {
+      return Right(
+        await _backend.execOnProfile(await credentials.resolve(profile), command),
+      );
+    } catch (error) {
+      return Left(AppFailure('Remote command failed', cause: error));
+    }
+  }
 
   /// Runs [operation] against the backend session behind UI [sessionId],
   /// turning any thrown error into a [Left] carrying [failureMessage].

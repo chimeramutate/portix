@@ -27,6 +27,22 @@ class PortForward {
   final bool reverse;
 }
 
+/// A keyboard-interactive round (OTP, 2FA, PAM questions) the last connect
+/// could not answer.
+class AuthPromptRound {
+  const AuthPromptRound({
+    required this.name,
+    required this.instructions,
+    required this.prompts,
+  });
+
+  final String name;
+  final String instructions;
+
+  /// `echo` false means hide what the user types.
+  final List<({String prompt, bool echo})> prompts;
+}
+
 /// A server host key the backend refused during the last connect.
 class HostKeyInfo {
   const HostKeyInfo({

@@ -207,6 +207,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.
       'lastUsedLabel': profile.lastUsedLabel,
       'osIconAsset': profile.osIconAsset,
       'jumpProfileId': profile.jumpProfileId,
+      'forwardAgent': profile.forwardAgent,
     };
   }
 
@@ -248,6 +249,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.
       lastUsedLabel: json['lastUsedLabel']?.toString() ?? 'recently',
       osIconAsset: json['osIconAsset']?.toString() ?? '',
       jumpProfileId: json['jumpProfileId']?.toString() ?? '',
+      forwardAgent: json['forwardAgent'] == true,
     );
   }
 }

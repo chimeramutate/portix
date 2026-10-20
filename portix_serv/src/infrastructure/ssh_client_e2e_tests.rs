@@ -18,6 +18,8 @@ struct TestServer {
     /// Folder the `sftp` subsystem starts in; None refuses the subsystem.
     sftp_root: Option<PathBuf>,
     channels: HashMap<ChannelId, Channel<Msg>>,
+    /// Keyboard-interactive rounds answered so far (password, then OTP).
+    kbd_step: u8,
 }
 
 impl server::Handler for TestServer {
@@ -33,6 +35,55 @@ impl server::Handler for TestServer {
         } else {
             Auth::reject()
         })
+    }
+
+    /// PAM-like: "Password:" (kbd-pw), then "Verification code:" (123456).
+    async fn auth_keyboard_interactive<'a>(
+        &'a mut self,
+        _: &str,
+        _: &str,
+        response: Option<server::Response<'a>>,
+    ) -> std::result::Result<Auth, Self::Error> {
+        let answer = response.and_then(|mut r| r.next());
+        let expected: &[u8] = match self.kbd_step {
+            0 => b"",
+            1 => b"kbd-pw",
+            _ => b"123456",
+        };
+        if self.kbd_step > 0 && answer.as_deref() != Some(expected) {
+            return Ok(Auth::reject());
+        }
+        self.kbd_step += 1;
+        let prompt = match self.kbd_step {
+            1 => "Password: ",
+            2 => "Verification code: ",
+            _ => return Ok(Auth::Accept),
+        };
+        Ok(Auth::Partial {
+            name: "".into(),
+            instructions: "".into(),
+            prompts: vec![(prompt.into(), false)].into(),
+        })
+    }
+
+    /// `ssh -A`: open an agent channel back to the client right away and
+    /// record how many keys the forwarded agent lists.
+    async fn agent_request(
+        &mut self,
+        _: ChannelId,
+        session: &mut Session,
+    ) -> std::result::Result<bool, Self::Error> {
+        let handle = session.handle();
+        tokio::spawn(async move {
+            let Ok(channel) = handle.channel_open_agent().await else {
+                return;
+            };
+            let mut agent = AgentClient::connect(channel.into_stream());
+            if let Ok(keys) = agent.request_identities().await {
+                FORWARDED_AGENT_KEYS.store(keys.len() + 1, Ordering::SeqCst);
+            }
+        });
+        Ok(true)
     }
 
     async fn auth_publickey(
@@ -142,6 +193,9 @@ impl server::Handler for TestServer {
     }
 }
 
+/// Keys seen through a forwarded agent, plus one (0 = never reached).
+static FORWARDED_AGENT_KEYS: AtomicUsize = AtomicUsize::new(0);
+
 const SFTP_SERVER: &str = "/usr/libexec/sftp-server";
 
 /// Starts a server on 127.0.0.1 and returns its port and host key.
@@ -167,6 +221,7 @@ async fn start_server_with(
                 forwards: forwards.clone(),
                 sftp_root: sftp_root.clone(),
                 channels: HashMap::new(),
+                kbd_step: 0,
             };
             let config = config.clone();
             tokio::spawn(async move {
@@ -200,6 +255,7 @@ fn profile(port: u16) -> SshProfile {
         private_key_path: None,
         key_passphrase: None,
         jump_host: None,
+        forward_agent: false,
     }
 }
 
@@ -247,6 +303,43 @@ async fn target_host_key_is_still_verified_behind_a_jump_host() {
 }
 
 #[tokio::test]
+async fn keyboard_interactive_fills_the_password_and_asks_for_the_code() {
+    let dir = tempfile::tempdir().unwrap();
+    let known_hosts = dir.path().join("known_hosts");
+    let (port, key) = start_server(Arc::default()).await;
+    trust(&known_hosts, port, &key);
+    let mut target = profile(port);
+    // Refused by password auth, so the server falls back to its PAM prompts.
+    target.password = Some("kbd-pw".to_owned());
+
+    let error = connect_with_known_hosts(&target, &known_hosts)
+        .await
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error,
+        PortixError::KeyboardInteractiveRequired { .. }
+    ));
+    let pending = keyboard_interactive::pending_prompts("127.0.0.1", port).unwrap();
+    assert_eq!(
+        pending.prompts,
+        vec![("Verification code: ".to_owned(), false)]
+    );
+
+    keyboard_interactive::answer_pending("127.0.0.1", port, vec!["000000".to_owned()]);
+    let error = connect_with_known_hosts(&target, &known_hosts)
+        .await
+        .err()
+        .unwrap();
+    assert!(matches!(error, PortixError::AuthenticationFailed));
+
+    keyboard_interactive::answer_pending("127.0.0.1", port, vec!["123456".to_owned()]);
+    connect_with_known_hosts(&target, &known_hosts)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn authenticates_with_a_key_held_by_the_agent() {
     let dir = tempfile::tempdir().unwrap();
     let known_hosts = dir.path().join("known_hosts");
@@ -267,6 +360,7 @@ async fn authenticates_with_a_key_held_by_the_agent() {
         known_hosts: known_hosts.clone(),
         _jump: None,
         forward_to: None,
+        forward_agent: false,
     };
     let mut session = client::connect(Arc::default(), ("127.0.0.1", port), handler)
         .await
@@ -285,6 +379,46 @@ async fn authenticates_with_a_key_held_by_the_agent() {
             .await
             .unwrap()
     );
+}
+
+#[tokio::test]
+async fn forwards_the_local_agent_to_the_server_when_enabled() {
+    let dir = tempfile::tempdir().unwrap();
+    let known_hosts = dir.path().join("known_hosts");
+    let (port, key) = start_server(Arc::default()).await;
+    trust(&known_hosts, port, &key);
+
+    let socket = dir.path().join("agent.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let incoming = futures::stream::unfold(listener, |listener| async {
+        Some((listener.accept().await.map(|(stream, _)| stream), listener))
+    });
+    tokio::spawn(russh::keys::agent::server::serve(Box::pin(incoming), ()));
+    let user_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
+    AgentClient::connect_uds(&socket)
+        .await
+        .unwrap()
+        .add_identity(&user_key, &[])
+        .await
+        .unwrap();
+    // SAFETY: no other test reads SSH_AUTH_SOCK (their profiles use passwords).
+    unsafe { env::set_var("SSH_AUTH_SOCK", &socket) };
+
+    let mut target = profile(port);
+    target.forward_agent = true;
+    let session = connect_with_known_hosts(&target, &known_hosts)
+        .await
+        .unwrap();
+    let channel = session.channel_open_session().await.unwrap();
+    channel.agent_forward(false).await.unwrap();
+
+    for _ in 0..100 {
+        if FORWARDED_AGENT_KEYS.load(Ordering::SeqCst) > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(FORWARDED_AGENT_KEYS.load(Ordering::SeqCst), 2, "one key");
 }
 
 mod sftp {

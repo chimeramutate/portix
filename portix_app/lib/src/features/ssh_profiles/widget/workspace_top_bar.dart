@@ -59,6 +59,10 @@ class WorkspaceTopBar extends StatelessWidget {
         const <Widget>[],
       ),
       WorkspaceView.rdp => (const _Title('Remote Desktop'), const <Widget>[]),
+      WorkspaceView.kubernetes => (
+        const _Title('Kubernetes logs'),
+        const <Widget>[],
+      ),
       _ => (_GallerySearch(state: state), const <Widget>[_NewProfileButton()]),
     };
 

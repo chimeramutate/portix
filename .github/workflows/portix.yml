@@ -218,8 +218,14 @@ jobs:
   # ==========================================================================
 
   build-rust-linux:
-    name: "Rust Libraries [Linux] @ ${{ github.ref_name }}"
-    runs-on: ubuntu-latest
+    name: "Rust Libraries [Linux ${{ matrix.arch }}] @ ${{ github.ref_name }}"
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, runner: ubuntu-latest, deb: amd64, appimage: x86_64, suffix: "" }
+          - { arch: arm64, runner: ubuntu-24.04-arm, deb: arm64, appimage: aarch64, suffix: "-arm64" }
 
     # ✅ FIX: Only run on tag push or manual workflow_dispatch
     if: |
@@ -227,7 +233,7 @@ jobs:
       startsWith(github.ref, 'refs/tags/')
 
     concurrency:
-      group: build-rust-linux-${{ github.ref_name }}
+      group: build-rust-linux-${{ matrix.arch }}-${{ github.ref_name }}
       cancel-in-progress: true
 
     steps:
@@ -243,7 +249,7 @@ jobs:
           workspaces: |
             portix_serv
             portix_rdp
-          key: linux
+          key: linux-${{ matrix.arch }}
 
       - name: Install Linux dependencies
         run: |
@@ -342,14 +348,14 @@ jobs:
       - name: Upload Linux server library
         uses: actions/upload-artifact@v4
         with:
-          name: linux-lib
+          name: linux-lib${{ matrix.suffix }}
           path: dist-serv/libportix_serv.so
           if-no-files-found: error
 
       - name: Upload Linux RDP library
         uses: actions/upload-artifact@v4
         with:
-          name: linux-rdp-lib
+          name: linux-rdp-lib${{ matrix.suffix }}
           path: dist-rdp/libportix_rdp.so
           if-no-files-found: error
 
@@ -825,8 +831,14 @@ jobs:
   # ==========================================================================
 
   build-desktop-linux:
-    name: "Desktop [Linux] @ ${{ github.ref_name }}"
-    runs-on: ubuntu-latest
+    name: "Desktop [Linux ${{ matrix.arch }}] @ ${{ github.ref_name }}"
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, runner: ubuntu-latest, deb: amd64, appimage: x86_64, suffix: "" }
+          - { arch: arm64, runner: ubuntu-24.04-arm, deb: arm64, appimage: aarch64, suffix: "-arm64" }
 
     needs:
       - build-rust-linux
@@ -841,7 +853,7 @@ jobs:
       release_name: ${{ steps.version.outputs.release_name }}
 
     concurrency:
-      group: build-desktop-linux-${{ github.ref_name }}
+      group: build-desktop-linux-${{ matrix.arch }}-${{ github.ref_name }}
       cancel-in-progress: true
 
     steps:
@@ -851,13 +863,13 @@ jobs:
       - name: Download Linux server library
         uses: actions/download-artifact@v4
         with:
-          name: linux-lib
+          name: linux-lib${{ matrix.suffix }}
           path: portix_serv_lib
 
       - name: Download Linux RDP library
         uses: actions/download-artifact@v4
         with:
-          name: linux-rdp-lib
+          name: linux-rdp-lib${{ matrix.suffix }}
           path: portix_rdp_lib
 
       - name: Verify native libraries
@@ -875,10 +887,21 @@ jobs:
           ls -lah "$RDP"
 
       - name: Setup Flutter
+        if: matrix.arch == 'x64'
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+
+      # flutter-action only ships x64 Linux SDK archives; a git checkout
+      # downloads the arm64 engine artifacts on first run.
+      - name: Setup Flutter (arm64)
+        if: matrix.arch == 'arm64'
+        shell: bash
+        run: |
+          git clone --depth 1 -b stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
 
       - name: Install Linux Flutter dependencies
         run: |
@@ -1022,7 +1045,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          BUNDLE_DIR="${APP_DIR}/build/linux/x64/release/bundle"
+          BUNDLE_DIR="${APP_DIR}/build/linux/${{ matrix.arch }}/release/bundle"
 
           if [ ! -d "$BUNDLE_DIR" ]; then
             echo "ERROR: Flutter bundle directory not found: $BUNDLE_DIR"
@@ -1042,7 +1065,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          BUNDLE_DIR="${APP_DIR}/build/linux/x64/release/bundle"
+          BUNDLE_DIR="${APP_DIR}/build/linux/${{ matrix.arch }}/release/bundle"
 
           if [ ! -d "$BUNDLE_DIR" ]; then
             echo "ERROR: Linux bundle not found: $BUNDLE_DIR"
@@ -1072,7 +1095,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          BUNDLE_DIR="${APP_DIR}/build/linux/x64/release/bundle"
+          BUNDLE_DIR="${APP_DIR}/build/linux/${{ matrix.arch }}/release/bundle"
 
           for file in \
             "$BUNDLE_DIR/portix" \
@@ -1096,7 +1119,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          BUNDLE_DIR="${APP_DIR}/build/linux/x64/release/bundle"
+          BUNDLE_DIR="${APP_DIR}/build/linux/${{ matrix.arch }}/release/bundle"
 
           echo "=== Full Bundle Structure ==="
           find "$BUNDLE_DIR" -type f -exec ls -la {} \;
@@ -1114,7 +1137,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          BUNDLE_DIR="${APP_DIR}/build/linux/x64/release/bundle"
+          BUNDLE_DIR="${APP_DIR}/build/linux/${{ matrix.arch }}/release/bundle"
           BUNDLE_LIB="$BUNDLE_DIR/lib"
 
           mkdir -p "$BUNDLE_LIB"
@@ -1153,7 +1176,7 @@ jobs:
             # avoiding SIGPIPE from head -n 1 under pipefail.
             if [ -z "$LIB_PATH" ]; then
               LIB_PATH="$(
-                find /usr/lib/x86_64-linux-gnu /usr/lib /lib/x86_64-linux-gnu /lib \
+                find /usr/lib/${{ matrix.appimage }}-linux-gnu /usr/lib /lib/${{ matrix.appimage }}-linux-gnu /lib \
                   -name "${lib}" -type f -print -quit 2>/dev/null
               )" || true
             fi
@@ -1180,12 +1203,12 @@ jobs:
           set -euo pipefail
 
           RELEASE_NAME="${{ steps.version.outputs.release_name }}"
-          ARCHIVE="portix-linux-${RELEASE_NAME}.tar.gz"
+          ARCHIVE="portix-linux-${RELEASE_NAME}${{ matrix.suffix }}.tar.gz"
 
           # Package bundle contents directly (without 'bundle' wrapper directory)
           tar \
             -czf "$ARCHIVE" \
-            -C "${APP_DIR}/build/linux/x64/release/bundle" \
+            -C "${APP_DIR}/build/linux/${{ matrix.arch }}/release/bundle" \
             .
 
           ls -lah "$ARCHIVE"
@@ -1203,7 +1226,7 @@ jobs:
           set -euo pipefail
 
           RELEASE_NAME="${{ steps.version.outputs.release_name }}"
-          ARCHIVE="portix-linux-${RELEASE_NAME}.tar.gz"
+          ARCHIVE="portix-linux-${RELEASE_NAME}${{ matrix.suffix }}.tar.gz"
 
           # Check that required files are in the tarball
           # Use a subshell to isolate the pipeline from pipefail, avoiding SIGPIPE errors
@@ -1233,9 +1256,9 @@ jobs:
 
           chmod +x packaging/linux/build-deb.sh
 
-          bash packaging/linux/build-deb.sh "$VERSION"
+          bash packaging/linux/build-deb.sh "$VERSION" "${{ matrix.deb }}"
 
-          DEB_FILE="${APP_DIR}/build/linux/deb/portix_${VERSION}_amd64.deb"
+          DEB_FILE="${APP_DIR}/build/linux/deb/portix_${VERSION}_${{ matrix.deb }}.deb"
 
           if [ ! -f "$DEB_FILE" ]; then
             echo "ERROR: DEB was not created: $DEB_FILE"
@@ -1251,7 +1274,7 @@ jobs:
           set -euo pipefail
 
           VERSION="${{ steps.version.outputs.version }}"
-          DEB_FILE="${APP_DIR}/build/linux/deb/portix_${VERSION}_amd64.deb"
+          DEB_FILE="${APP_DIR}/build/linux/deb/portix_${VERSION}_${{ matrix.deb }}.deb"
 
           dpkg-deb --info "$DEB_FILE"
 
@@ -1268,12 +1291,12 @@ jobs:
 
           VERSION="${{ steps.version.outputs.version }}"
           RELEASE_NAME="${{ steps.version.outputs.release_name }}"
-          BUNDLE_DIR="${APP_DIR}/build/linux/x64/release/bundle"
+          BUNDLE_DIR="${APP_DIR}/build/linux/${{ matrix.arch }}/release/bundle"
           APPDIR="AppDir"
 
           # Install appimagetool
           curl -fsSL -o appimagetool \
-            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.appimage }}.AppImage"
           chmod +x appimagetool
 
           # Build AppDir structure
@@ -1324,22 +1347,22 @@ jobs:
           find "${APPDIR}" -type f | sort
 
           # Build AppImage (FUSE not available in CI — use --appimage-extract-and-run)
-          ARCH=x86_64 ./appimagetool \
+          ARCH=${{ matrix.appimage }} ./appimagetool \
             --appimage-extract-and-run \
             "${APPDIR}" \
-            "portix-linux-${RELEASE_NAME}.AppImage"
+            "portix-linux-${RELEASE_NAME}${{ matrix.suffix }}.AppImage"
 
-          chmod +x "portix-linux-${RELEASE_NAME}.AppImage"
-          ls -lah "portix-linux-${RELEASE_NAME}.AppImage"
+          chmod +x "portix-linux-${RELEASE_NAME}${{ matrix.suffix }}.AppImage"
+          ls -lah "portix-linux-${RELEASE_NAME}${{ matrix.suffix }}.AppImage"
 
       - name: Upload Linux desktop
         uses: actions/upload-artifact@v4
         with:
-          name: portix-Linux-${{ steps.version.outputs.release_name }}
+          name: portix-Linux-${{ steps.version.outputs.release_name }}${{ matrix.suffix }}
           path: |
-            portix-linux-${{ steps.version.outputs.release_name }}.tar.gz
-            portix_app/build/linux/deb/portix_${{ steps.version.outputs.version }}_amd64.deb
-            portix-linux-${{ steps.version.outputs.release_name }}.AppImage
+            portix-linux-${{ steps.version.outputs.release_name }}${{ matrix.suffix }}.tar.gz
+            portix_app/build/linux/deb/portix_${{ steps.version.outputs.version }}_${{ matrix.deb }}.deb
+            portix-linux-${{ steps.version.outputs.release_name }}${{ matrix.suffix }}.AppImage
           if-no-files-found: error
 
   # ==========================================================================

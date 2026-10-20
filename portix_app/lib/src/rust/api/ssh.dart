@@ -47,6 +47,17 @@ Future<RemoteSystemSnapshot> remoteSystemSnapshot({
 }) =>
     RustLib.instance.api.crateApiSshRemoteSystemSnapshot(sessionId: sessionId);
 
+/// Runs [command] on [profile]'s server over a background connection that is
+/// reused across calls; returns stdout+stderr. Fails with the last output
+/// line when the command exits non-zero.
+Future<String> execOnProfile({
+  required SshProfile profile,
+  required String command,
+}) => RustLib.instance.api.crateApiSshExecOnProfile(
+  profile: profile,
+  command: command,
+);
+
 /// Generates an unencrypted ed25519 keypair: the private key at `path` (0600
 /// on unix) and the public key at `path.pub`. Refuses to overwrite either
 /// file. Returns the OpenSSH public key line (for `authorized_keys`).
@@ -80,6 +91,24 @@ Future<void> trustHostKey({
   host: host,
   port: port,
   fingerprint: fingerprint,
+);
+
+Future<AuthPromptRound?> pendingAuthPrompts({
+  required String host,
+  required int port,
+}) =>
+    RustLib.instance.api.crateApiSshPendingAuthPrompts(host: host, port: port);
+
+/// Answers the pending round (one answer per prompt) for the next connect to
+/// `host:port`; earlier rounds' answers are kept on this side.
+Future<void> answerAuthPrompts({
+  required String host,
+  required int port,
+  required List<String> answers,
+}) => RustLib.instance.api.crateApiSshAnswerAuthPrompts(
+  host: host,
+  port: port,
+  answers: answers,
 );
 
 /// Starts forwarding 127.0.0.1:`local_port` (0 = any free port) to
@@ -137,6 +166,51 @@ Stream<String> connectionStatusStream() =>
 
 Stream<String> errorEventStream() =>
     RustLib.instance.api.crateApiSshErrorEventStream();
+
+/// One prompt of a keyboard-interactive round; `echo` false means hide input.
+class AuthPrompt {
+  final String prompt;
+  final bool echo;
+
+  const AuthPrompt({required this.prompt, required this.echo});
+
+  @override
+  int get hashCode => prompt.hashCode ^ echo.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AuthPrompt &&
+          runtimeType == other.runtimeType &&
+          prompt == other.prompt &&
+          echo == other.echo;
+}
+
+/// The keyboard-interactive round (OTP, 2FA, PAM questions) the last connect
+/// to `host:port` could not answer.
+class AuthPromptRound {
+  final String name;
+  final String instructions;
+  final List<AuthPrompt> prompts;
+
+  const AuthPromptRound({
+    required this.name,
+    required this.instructions,
+    required this.prompts,
+  });
+
+  @override
+  int get hashCode => name.hashCode ^ instructions.hashCode ^ prompts.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AuthPromptRound &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          instructions == other.instructions &&
+          prompts == other.prompts;
+}
 
 /// An active tunnel on 127.0.0.1:`local_port`: a local forward
 /// (`ssh -L local_port:remote_host:remote_port`), or a SOCKS5 proxy

@@ -43,6 +43,8 @@ pub enum PortixError {
         port: u16,
         fingerprint: String,
     },
+    #[error("server {host}:{port} asks for keyboard-interactive input (e.g. a one-time code)")]
+    KeyboardInteractiveRequired { host: String, port: u16 },
     #[error("cannot use known_hosts file: {0}")]
     KnownHosts(String),
     #[error(transparent)]

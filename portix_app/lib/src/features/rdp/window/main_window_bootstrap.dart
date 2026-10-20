@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 
 import 'package:portix/src/features/rdp/service/rdp_window_service.dart';
@@ -19,6 +21,13 @@ Future<bool> runPortixWindowIfNeeded() async {
 
   if (controller.arguments.isEmpty) {
     return false;
+  }
+
+  // Linux: never let GTK destroy a child window. Tearing down its engine can
+  // crash Flutter's task runner, so the windows hide themselves instead
+  // (window_manager is registered for child windows in my_application.cc).
+  if (Platform.isLinux) {
+    await windowManager.setPreventClose(true);
   }
 
   final payload = jsonDecode(controller.arguments) as Map<String, dynamic>?;

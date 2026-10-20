@@ -217,7 +217,6 @@ void main() {
 
     expect(find.byKey(const ValueKey('close-tab-prod-api-01')), findsOneWidget);
     expect(find.byKey(const ValueKey('close-tab-prod-api-01 2')), findsNothing);
-    expect(find.byTooltip('Close remote folder'), findsOneWidget);
   });
 
   _appTest('async host key refusal prompts, trusts, and reconnects', (

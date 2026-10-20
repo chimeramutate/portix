@@ -6,6 +6,7 @@ import 'package:portix/src/connection_manager/ssh_profile.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
 
+import 'auth_prompt_dialog.dart';
 import 'host_key_dialog.dart';
 
 /// Lists running tunnels and starts local forwards (`ssh -L`), SOCKS
@@ -137,6 +138,16 @@ class _PortForwardDialogState extends State<_PortForwardDialog> {
       );
       if (hostKey == true) error = await attempt();
       if (hostKey == false) error = 'Host key not trusted.';
+    }
+    // OTP / 2FA servers: answer each round asked, then try again.
+    while (error != null && mounted) {
+      final prompts = await resolveAuthPrompts(
+        context,
+        widget.manager,
+        widget.profile,
+      );
+      if (prompts != true) break;
+      error = await attempt();
     }
     if (!mounted) return;
     setState(() {

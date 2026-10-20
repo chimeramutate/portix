@@ -19,7 +19,10 @@ import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
 import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
 import 'package:portix/src/features/sftp/controller/sftp_workspace_controller.dart';
 import 'package:portix/src/features/sftp/window/index.dart';
+import 'package:portix/src/features/ssh_profiles/widget/gallery/profile_card.dart'
+    show ProfileOsIcon;
 import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
+import 'package:portix/src/features/ssh_sessions/widget/remote/auth_prompt_dialog.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/host_key_dialog.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/key_passphrase_dialog.dart';
 import 'package:portix/src/sftp_client/sftp_manager.dart';
@@ -159,6 +162,13 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           profile,
         );
         if (hostKey != null) return hostKey;
+        if (!mounted) return false;
+        final prompts = await resolveAuthPrompts(
+          context,
+          sl<ConnectionManager>(),
+          profile,
+        );
+        if (prompts != null) return prompts;
         if (!mounted) return false;
         return resolveKeyPassphrase(
           context,

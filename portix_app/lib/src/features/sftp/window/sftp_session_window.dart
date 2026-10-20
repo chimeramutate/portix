@@ -6,6 +6,7 @@ import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
 import 'package:portix/src/features/sftp/page/sftp_workspace_page.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'sftp_window_arguments.dart';
 
@@ -20,12 +21,15 @@ class SftpSessionWindow extends StatefulWidget {
   State<SftpSessionWindow> createState() => _SftpSessionWindowState();
 }
 
-class _SftpSessionWindowState extends State<SftpSessionWindow> {
+class _SftpSessionWindowState extends State<SftpSessionWindow>
+    with WindowListener {
   late final SftpWorkspaceBloc _sftpWorkspaceBloc;
+  bool _closed = false;
 
   @override
   void initState() {
     super.initState();
+    windowManager.addListener(this);
     _sftpWorkspaceBloc = sl<SftpWorkspaceBloc>()
       ..add(const SftpProfilesRequested())
       ..add(SftpProfileSelected(widget.arguments.profile));
@@ -33,24 +37,30 @@ class _SftpSessionWindowState extends State<SftpSessionWindow> {
 
   @override
   void dispose() {
+    windowManager.removeListener(this);
     _sftpWorkspaceBloc.close();
     super.dispose();
   }
 
+  // Title-bar close (Linux only; elsewhere the plugin never emits it here).
+  @override
+  void onWindowClose() => _closeThisWindow();
+
+  /// Drops the workspace (its dispose ends the SFTP connections) and hides
+  /// the window rather than destroying it; see RdpSessionWindow.
   Future<void> _closeThisWindow() async {
+    if (_closed || !mounted) return;
+    setState(() => _closed = true);
     try {
       final controller = await WindowController.fromCurrentEngine();
-      await controller.invokeMethod('window_close');
-    } catch (_) {
-      try {
-        final controller = await WindowController.fromCurrentEngine();
-        await controller.hide();
-      } catch (_) {}
-    }
+      await controller.hide();
+    } catch (_) {}
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_closed) return const SizedBox.shrink();
+
     return PopScope(
       onPopInvokedWithResult: (_, __) => _closeThisWindow(),
       child: MultiBlocProvider(
