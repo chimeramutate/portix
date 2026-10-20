@@ -7,6 +7,8 @@ import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
+import 'package:portix/src/features/ssh_profiles/widget/gallery/profile_card.dart'
+    show ProfileOsIcon;
 import 'package:portix/src/features/ssh_sessions/widget/remote/auth_prompt_dialog.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/host_key_dialog.dart';
 
@@ -205,8 +207,8 @@ class _KubeLogViewState extends State<_KubeLogView> {
   final _scroll = ScrollController();
 
   String? _profileId;
-  List<String> _namespaces = const [];
-  List<String> _pods = const [];
+  List<KubeNamespace> _namespaces = const [];
+  List<KubePod> _pods = const [];
   String? _namespace;
   String? _pod; // null = all pods in the namespace
   /// A [_relativeRanges] key, or null for the absolute [_from]..[_to].
@@ -278,13 +280,15 @@ class _KubeLogViewState extends State<_KubeLogView> {
       _pods = const [];
       _pod = null;
     });
-    final output = await _run('kubectl get namespaces -o name');
+    final output = await _run('kubectl get namespaces --no-headers');
     if (output == null || _profileId != id) return;
-    final namespaces = kubeNames(output);
+    final namespaces = parseNamespaces(output);
     setState(() => _namespaces = namespaces);
     if (namespaces.isNotEmpty) {
       await _selectNamespace(
-        namespaces.contains('default') ? 'default' : namespaces.first,
+        namespaces.any((ns) => ns.name == 'default')
+            ? 'default'
+            : namespaces.first.name,
       );
     }
   }
@@ -296,10 +300,26 @@ class _KubeLogViewState extends State<_KubeLogView> {
       _pods = const [];
     });
     final output = await _run(
-      'kubectl get pods -n ${shellQuote(namespace)} -o name',
+      'kubectl get pods -n ${shellQuote(namespace)} --no-headers',
     );
     if (output == null || _namespace != namespace) return;
-    setState(() => _pods = kubeNames(output));
+    setState(() => _pods = parsePods(output));
+  }
+
+  static bool _isSystem(String namespace) => namespace.startsWith('kube-');
+
+  KubePod? get _selectedPod => _pods.where((p) => p.name == _pod).firstOrNull;
+
+  /// e.g. "14 pods merged by time · 12 healthy · 2 failing".
+  String get _podSummary {
+    final health = _pods.map(podHealth).toList();
+    final failing = health.where((h) => h == PodHealth.failing).length;
+    final ok = health.where((h) => h == PodHealth.ok).length;
+    return [
+      '${_pods.length} pods merged by time',
+      if (ok > 0) '$ok healthy',
+      if (failing > 0) '$failing failing',
+    ].join(' · ');
   }
 
   Future<void> _loadLogs() async {
@@ -369,12 +389,22 @@ class _KubeLogViewState extends State<_KubeLogView> {
                 child: _SelectButton<String>(
                   icon: Icons.dns_outlined,
                   label: 'Server',
-                  value: profile == null
-                      ? null
-                      : '${profile.name}  ·  ${profile.username}@${profile.host}',
+                  value: profile?.name,
                   placeholder: 'Select a server with kubectl',
                   enabled: !_loading,
-                  options: [for (final p in profiles) (p.id, p.name)],
+                  leading: profile == null
+                      ? null
+                      : ProfileOsIcon(profile: profile, size: 18),
+                  noun: 'servers',
+                  options: [
+                    for (final p in profiles)
+                      (
+                        value: p.id,
+                        label: p.name,
+                        subtitle: p.group,
+                        leading: ProfileOsIcon(profile: p, size: 24),
+                      ),
+                  ],
                   selected: _profileId,
                   onSelected: _selectProfile,
                 ),
@@ -388,7 +418,16 @@ class _KubeLogViewState extends State<_KubeLogView> {
                   value: _namespace,
                   placeholder: '—',
                   enabled: !_loading && _namespaces.isNotEmpty,
-                  options: [for (final ns in _namespaces) (ns, ns)],
+                  noun: 'namespaces',
+                  options: [
+                    for (final ns in _namespaces)
+                      (
+                        value: ns.name,
+                        label: ns.name,
+                        subtitle: '${ns.status} · ${ns.age}',
+                        leading: _NamespaceIcon(system: _isSystem(ns.name)),
+                      ),
+                  ],
                   selected: _namespace,
                   onSelected: _selectNamespace,
                 ),
@@ -400,11 +439,36 @@ class _KubeLogViewState extends State<_KubeLogView> {
                   icon: Icons.view_in_ar_outlined,
                   label: 'Pod',
                   value: _pod ?? 'All pods',
+                  leading: _selectedPod == null
+                      ? null
+                      : _PodDot(podHealth(_selectedPod!)),
                   placeholder: '—',
                   enabled: !_loading && _namespace != null,
+                  noun: 'pods',
                   options: [
-                    (null, 'All pods'),
-                    for (final pod in _pods) (pod, pod),
+                    (
+                      value: null,
+                      label: 'All pods',
+                      subtitle: _podSummary,
+                      leading: Icon(
+                        Icons.layers_outlined,
+                        size: 18,
+                        color: AppColors.cyan,
+                      ),
+                    ),
+                    for (final pod in _pods)
+                      (
+                        value: pod.name,
+                        label: pod.name,
+                        subtitle: [
+                          pod.status,
+                          '${pod.ready} ready',
+                          if (pod.restarts > 0)
+                            '${pod.restarts} restart${pod.restarts == 1 ? '' : 's'}',
+                          pod.age,
+                        ].join(' · '),
+                        leading: _PodDot(podHealth(pod)),
+                      ),
                   ],
                   selected: _pod,
                   onSelected: (pod) => setState(() => _pod = pod),
@@ -750,7 +814,59 @@ class _StatusBar extends StatelessWidget {
   }
 }
 
-/// A compact 36px select: small muted [label], bold value, menu of options.
+/// A pod's health as a small colored dot with a soft halo.
+class _PodDot extends StatelessWidget {
+  const _PodDot(this.health);
+
+  final PodHealth health;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (health) {
+      PodHealth.ok => AppColors.green,
+      PodHealth.pending => AppColors.amber,
+      PodHealth.failing => AppColors.danger,
+      PodHealth.done => AppColors.muted,
+    };
+    return Center(
+      child: Container(
+        width: 9,
+        height: 9,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(color: color.withValues(alpha: .45), blurRadius: 6),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NamespaceIcon extends StatelessWidget {
+  const _NamespaceIcon({required this.system});
+
+  final bool system;
+
+  @override
+  Widget build(BuildContext context) => Icon(
+    system ? Icons.settings_suggest_outlined : Icons.folder_outlined,
+    size: 18,
+    color: system ? AppColors.muted : AppColors.cyan,
+  );
+}
+
+/// One choice in a [_SelectButton].
+typedef _Option<T> = ({
+  T value,
+  String label,
+  String? subtitle,
+  Widget? leading,
+});
+
+/// A compact 36px select: small muted [label], bold value. Opens a popup
+/// under itself with the options, searchable when the list is long.
 class _SelectButton<T> extends StatelessWidget {
   const _SelectButton({
     required this.icon,
@@ -761,6 +877,8 @@ class _SelectButton<T> extends StatelessWidget {
     required this.options,
     required this.selected,
     required this.onSelected,
+    this.leading,
+    this.noun = 'items',
   });
 
   final IconData icon;
@@ -768,39 +886,68 @@ class _SelectButton<T> extends StatelessWidget {
   final String? value;
   final String placeholder;
   final bool enabled;
-  final List<(T, String)> options;
+  final List<_Option<T>> options;
   final T? selected;
   final ValueChanged<T> onSelected;
 
+  /// Replaces [icon] once something is picked (e.g. the server's OS logo).
+  final Widget? leading;
+
+  /// Plural for the popup's count, e.g. "servers".
+  final String noun;
+
+  Future<void> _open(BuildContext context) async {
+    final box = context.findRenderObject()! as RenderBox;
+    final anchor = box.localToGlobal(Offset.zero) & box.size;
+    final picked = await showGeneralDialog<_Picked<T>>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: label,
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 120),
+      transitionBuilder: (_, animation, _, child) => FadeTransition(
+        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+        child: child,
+      ),
+      pageBuilder: (dialogContext, _, _) {
+        final screen = MediaQuery.sizeOf(dialogContext);
+        final width = anchor.width.clamp(300.0, 460.0);
+        final left = anchor.left.clamp(8.0, screen.width - width - 8);
+        final top = anchor.bottom + 6;
+        return Stack(
+          children: [
+            Positioned(
+              left: left,
+              top: top,
+              width: width,
+              child: _PickerPanel<T>(
+                options: options,
+                selected: selected,
+                noun: noun,
+                maxHeight: (screen.height - top - 16).clamp(160.0, 460.0),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    if (picked != null) onSelected(picked.value);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return MenuAnchor(
-      style: const MenuStyle(
-        maximumSize: WidgetStatePropertyAll(Size(480, 420)),
-      ),
-      menuChildren: [
-        for (final (option, text) in options)
-          MenuItemButton(
-            leadingIcon: SizedBox(
-              width: 18,
-              child: option == selected
-                  ? Icon(Icons.check_rounded, size: 16, color: AppColors.cyan)
-                  : null,
-            ),
-            onPressed: () => onSelected(option),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 400),
-              child: Text(text, overflow: TextOverflow.ellipsis),
-            ),
-          ),
-      ],
-      builder: (context, controller, _) => _ControlShell(
-        onTap: enabled
-            ? () => controller.isOpen ? controller.close() : controller.open()
-            : null,
+    final picked = value != null;
+    return Builder(
+      builder: (context) => _ControlShell(
+        onTap: enabled ? () => _open(context) : null,
         child: Row(
           children: [
-            Icon(icon, size: 16, color: AppColors.muted),
+            SizedBox.square(
+              dimension: 18,
+              child: picked && leading != null
+                  ? leading
+                  : Icon(icon, size: 16, color: AppColors.muted),
+            ),
             const SizedBox(width: 8),
             Text(label, style: portixMuted(12)),
             const SizedBox(width: 8),
@@ -809,17 +956,215 @@ class _SelectButton<T> extends StatelessWidget {
                 value ?? placeholder,
                 overflow: TextOverflow.ellipsis,
                 style: appFieldTextStyle().copyWith(
-                  fontWeight: value == null ? FontWeight.w500 : FontWeight.w700,
-                  color: value == null ? AppColors.muted : AppColors.text,
+                  fontWeight: picked ? FontWeight.w700 : FontWeight.w500,
+                  color: picked ? AppColors.text : AppColors.muted,
                 ),
               ),
             ),
             Icon(
-              Icons.expand_more_rounded,
-              size: 18,
+              Icons.unfold_more_rounded,
+              size: 16,
               color: enabled ? AppColors.muted : AppColors.border,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Wraps the pick so a null value ("All pods") differs from a dismiss.
+class _Picked<T> {
+  const _Picked(this.value);
+
+  final T value;
+}
+
+class _PickerPanel<T> extends StatefulWidget {
+  const _PickerPanel({
+    required this.options,
+    required this.selected,
+    required this.noun,
+    required this.maxHeight,
+  });
+
+  final List<_Option<T>> options;
+  final T? selected;
+  final String noun;
+  final double maxHeight;
+
+  @override
+  State<_PickerPanel<T>> createState() => _PickerPanelState<T>();
+}
+
+class _PickerPanelState<T> extends State<_PickerPanel<T>> {
+  final _query = TextEditingController();
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  List<_Option<T>> get _filtered {
+    final q = _query.text.trim().toLowerCase();
+    if (q.isEmpty) return widget.options;
+    return [
+      for (final o in widget.options)
+        if (o.label.toLowerCase().contains(q) ||
+            (o.subtitle?.toLowerCase().contains(q) ?? false))
+          o,
+    ];
+  }
+
+  void _pick(_Option<T> option) =>
+      Navigator.of(context).pop(_Picked<T>(option.value));
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _filtered;
+    final searchable = widget.options.length > 6;
+    return Material(
+      color: AppColors.surface,
+      elevation: 12,
+      shadowColor: Colors.black54,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: widget.maxHeight),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (searchable) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+                child: SizedBox(
+                  height: 34,
+                  child: TextField(
+                    controller: _query,
+                    autofocus: true,
+                    onChanged: (_) => setState(() {}),
+                    onSubmitted: (_) {
+                      if (filtered.isNotEmpty) _pick(filtered.first);
+                    },
+                    style: appFieldTextStyle(),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: 'Search ${widget.noun}…',
+                      contentPadding: const EdgeInsets.symmetric(vertical: 9),
+                      prefixIcon: Icon(
+                        Icons.search_rounded,
+                        size: 17,
+                        color: AppColors.muted,
+                      ),
+                      prefixIconConstraints: const BoxConstraints(minWidth: 34),
+                      suffixIcon: Padding(
+                        padding: const EdgeInsets.only(right: 10),
+                        child: Text(
+                          '${filtered.length}',
+                          style: portixMuted(11),
+                        ),
+                      ),
+                      suffixIconConstraints: const BoxConstraints(),
+                    ),
+                  ),
+                ),
+              ),
+              Divider(height: 1, color: AppColors.border),
+            ],
+            Flexible(
+              child: filtered.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Text(
+                        'No ${widget.noun} match.',
+                        textAlign: TextAlign.center,
+                        style: portixMuted(12),
+                      ),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      itemCount: filtered.length,
+                      itemBuilder: (_, i) => _PickerRow(
+                        option: filtered[i],
+                        selected: filtered[i].value == widget.selected,
+                        onTap: () => _pick(filtered[i]),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PickerRow<T> extends StatelessWidget {
+  const _PickerRow({
+    required this.option,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _Option<T> option;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle = option.subtitle;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Material(
+        color: selected
+            ? AppColors.cyan.withValues(alpha: .12)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(7),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(7),
+          hoverColor: AppColors.text.withValues(alpha: .06),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            child: Row(
+              children: [
+                if (option.leading != null) ...[
+                  SizedBox.square(dimension: 24, child: option.leading),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        option.label,
+                        overflow: TextOverflow.ellipsis,
+                        style: appFieldTextStyle().copyWith(
+                          fontWeight: selected
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                          color: selected ? AppColors.cyan : AppColors.text,
+                        ),
+                      ),
+                      if (subtitle != null && subtitle.isNotEmpty)
+                        Text(
+                          subtitle,
+                          overflow: TextOverflow.ellipsis,
+                          style: portixMuted(11),
+                        ),
+                    ],
+                  ),
+                ),
+                if (selected)
+                  Icon(Icons.check_rounded, size: 16, color: AppColors.cyan),
+              ],
+            ),
+          ),
         ),
       ),
     );
