@@ -14,6 +14,10 @@ abstract interface class ConnectionBackend {
   Future<void> resizeTerminal(String sessionId, int cols, int rows);
   Future<RemoteSystemSnapshot> remoteSystemSnapshot(String sessionId);
 
+  /// Runs [command] on [profile]'s server over a reused background
+  /// connection; returns stdout+stderr.
+  Future<String> execOnProfile(SshProfile profile, String command);
+
   /// Forwards 127.0.0.1:[localPort] (0 = any free port) to [remoteHost]:
   /// [remotePort] over a dedicated SSH connection to [profile].
   Future<PortForward> startLocalForward(

@@ -73,6 +73,11 @@ class MockConnectionBackend implements ConnectionBackend {
   }
 
   @override
+  Future<String> execOnProfile(SshProfile profile, String command) async {
+    throw UnsupportedError('Remote commands need the Rust backend');
+  }
+
+  @override
   Future<void> sendTerminalInput(String sessionId, String data) async {
     for (final char in data.codeUnits) {
       switch (char) {

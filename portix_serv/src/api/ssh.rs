@@ -40,6 +40,13 @@ pub async fn remote_system_snapshot(session_id: String) -> anyhow::Result<Remote
     Ok(SESSION_MANAGER.remote_system_snapshot(session_id).await?)
 }
 
+/// Runs [command] on [profile]'s server over a background connection that is
+/// reused across calls; returns stdout+stderr. Fails with the last output
+/// line when the command exits non-zero.
+pub async fn exec_on_profile(profile: SshProfile, command: String) -> anyhow::Result<String> {
+    Ok(ssh_client::exec_on_profile(profile, command).await?)
+}
+
 /// Generates an unencrypted ed25519 keypair: the private key at `path` (0600
 /// on unix) and the public key at `path.pub`. Refuses to overwrite either
 /// file. Returns the OpenSSH public key line (for `authorized_keys`).

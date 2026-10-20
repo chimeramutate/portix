@@ -286,6 +286,33 @@ async fn run_exec(session: &client::Handle<Client>, command: String) -> Result<S
     Ok(output)
 }
 
+/// Exec connections for callers without a terminal session (the Kubernetes
+/// view), one worker per profile so repeated commands reuse one login.
+// ponytail: keyed by the whole profile and never closed, so an edited
+// profile leaves its old idle connection until restart; evict if that bites.
+static PROFILE_EXEC: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, mpsc::Sender<ExecRequest>>>,
+> = std::sync::LazyLock::new(Default::default);
+
+pub(crate) async fn exec_on_profile(profile: SshProfile, command: String) -> Result<String> {
+    let worker = PROFILE_EXEC
+        .lock()
+        .unwrap()
+        .entry(format!("{profile:?}"))
+        .or_insert_with(|| {
+            let (tx, rx) = mpsc::channel::<ExecRequest>(16);
+            tokio::spawn(run_exec_worker(profile, rx));
+            tx
+        })
+        .clone();
+    let (response_tx, response_rx) = oneshot::channel();
+    worker
+        .send((command, response_tx))
+        .await
+        .map_err(|_| PortixError::ConnectionTimeout)?;
+    response_rx.await.map_err(|_| PortixError::ConnectionTimeout)?
+}
+
 async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest>) {
     // KnownOnly: the interactive session has already recorded the host key, and
     // this worker reconnects silently in the background, so a key that is not
