@@ -14,6 +14,10 @@ abstract interface class ConnectionBackend {
   Future<void> resizeTerminal(String sessionId, int cols, int rows);
   Future<RemoteSystemSnapshot> remoteSystemSnapshot(String sessionId);
 
+  /// Runs [command] on [profile]'s server over a reused background
+  /// connection; returns stdout+stderr.
+  Future<String> execOnProfile(SshProfile profile, String command);
+
   /// Forwards 127.0.0.1:[localPort] (0 = any free port) to [remoteHost]:
   /// [remotePort] over a dedicated SSH connection to [profile].
   Future<PortForward> startLocalForward(
@@ -47,4 +51,12 @@ abstract interface class ConnectionBackend {
   /// Records the refused key of an unknown host after the user confirmed
   /// [fingerprint]. Throws for a changed key or a stale fingerprint.
   Future<void> trustHostKey(String host, int port, String fingerprint);
+
+  /// The keyboard-interactive round the last connect to [host]:[port] could
+  /// not answer, if any.
+  Future<AuthPromptRound?> pendingAuthPrompts(String host, int port);
+
+  /// Answers the pending round (one per prompt) for the next connect; the
+  /// backend keeps the earlier rounds' answers.
+  Future<void> answerAuthPrompts(String host, int port, List<String> answers);
 }

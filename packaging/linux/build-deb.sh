@@ -4,17 +4,17 @@ set -euo pipefail
 # Build a .deb package from the Flutter Linux bundle.
 #
 # Usage:
-#   ./packaging/linux/build-deb.sh 1.0.1
+#   ./packaging/linux/build-deb.sh 1.0.1 [amd64|arm64]
 #
 # Debian Version MUST start with a digit. Do not pass a branch name
 # such as "develop" here. The CI workflow resolves the application
 # version from portix_app/pubspec.yaml.
 
 VERSION="${1:-1.0.0}"
-ARCH="amd64"
+ARCH="${2:-amd64}"
 PKG_NAME="portix"
 
-BUNDLE_DIR="portix_app/build/linux/x64/release/bundle"
+BUNDLE_DIR="portix_app/build/linux/${ARCH/amd64/x64}/release/bundle"
 OUTPUT_DIR="portix_app/build/linux/deb"
 DEB_ROOT="$OUTPUT_DIR/${PKG_NAME}_${VERSION}_${ARCH}"
 

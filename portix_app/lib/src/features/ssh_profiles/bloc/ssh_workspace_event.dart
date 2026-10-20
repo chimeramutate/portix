@@ -143,6 +143,15 @@ class JumpProfileChanged extends SshWorkspaceEvent {
   List<Object?> get props => [jumpProfileId];
 }
 
+class ForwardAgentChanged extends SshWorkspaceEvent {
+  const ForwardAgentChanged(this.forwardAgent);
+
+  final bool forwardAgent;
+
+  @override
+  List<Object?> get props => [forwardAgent];
+}
+
 class ProfileTestRequested extends SshWorkspaceEvent {
   const ProfileTestRequested();
 }

@@ -77,6 +77,7 @@ class SftpWindowArguments {
       lastUsedLabel: map['lastUsedLabel']?.toString() ?? 'recently',
       osIconAsset: map['osIconAsset']?.toString() ?? '',
       jumpProfileId: map['jumpProfileId']?.toString() ?? '',
+      forwardAgent: map['forwardAgent'] == true,
     );
   }
 
@@ -99,6 +100,7 @@ class SftpWindowArguments {
       'lastUsedLabel': profile.lastUsedLabel,
       'osIconAsset': profile.osIconAsset,
       'jumpProfileId': profile.jumpProfileId,
+      'forwardAgent': profile.forwardAgent,
     };
   }
 }

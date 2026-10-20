@@ -103,16 +103,12 @@ impl RdpSessionManager {
                 if let Some(handle) = sessions.get(&existing_id) {
                     if !handle.command_tx.is_closed() {
                         println!(
-                            "[portix_rdp] profile {} already has active session {}, returning existing",
-                            profile_id, existing_id
+                            "[portix_rdp] profile already has an active session, returning it"
                         );
                         return Ok(handle.info.clone());
                     }
 
-                    println!(
-                        "[portix_rdp] profile {} has stale session {}, removing and reconnecting",
-                        profile_id, existing_id
-                    );
+                    println!("[portix_rdp] profile has a stale session, removing and reconnecting");
                     drop(sessions);
 
                     self.sessions.lock().await.remove(&existing_id);
@@ -133,10 +129,7 @@ impl RdpSessionManager {
             status: RdpConnectionStatus::Connecting,
         };
 
-        println!(
-            "[portix_rdp] creating runtime session={} profile={}",
-            session_id, profile_id
-        );
+        println!("[portix_rdp] creating runtime session");
 
         let runtime = RdpRuntime::new(
             profile,
@@ -163,10 +156,7 @@ impl RdpSessionManager {
 
         let global_cancel = self.global_cancel.clone();
 
-        println!(
-            "[portix_rdp] spawning runtime for session {} profile={}",
-            session_id, profile_id,
-        );
+        println!("[portix_rdp] spawning runtime for session");
 
         tokio::spawn(async move {
             let result = tokio::select! {
@@ -176,19 +166,13 @@ impl RdpSessionManager {
                 ) => result,
 
                 _ = child_cancel.cancelled() => {
-                    println!(
-                        "[portix_rdp] session {} cancelled via token",
-                        session_id_task
-                    );
+                    println!("[portix_rdp] session cancelled via token");
 
                     Ok(())
                 }
 
                 _ = global_cancel.cancelled() => {
-                    println!(
-                        "[portix_rdp] session {} cancelled via global shutdown",
-                        session_id_task
-                    );
+                    println!("[portix_rdp] session cancelled via global shutdown");
 
                     Ok(())
                 }
@@ -196,10 +180,7 @@ impl RdpSessionManager {
 
             match result {
                 Ok(()) => {
-                    println!(
-                        "[portix_rdp] runtime finished normally: {}",
-                        session_id_task
-                    );
+                    println!("[portix_rdp] runtime finished normally");
 
                     let _ = status_tx.send(RdpStatusEvent {
                         session_id: session_id_task.clone(),
@@ -211,10 +192,7 @@ impl RdpSessionManager {
                 }
 
                 Err(e) => {
-                    println!(
-                        "[portix_rdp] runtime error session={}: {}",
-                        session_id_task, e
-                    );
+                    println!("[portix_rdp] runtime error: {}", e);
 
                     let _ = error_tx.send(RdpErrorEvent {
                         session_id: Some(session_id_task.clone()),
@@ -238,10 +216,7 @@ impl RdpSessionManager {
 
             profile_index.lock().await.remove(&profile_id_task);
 
-            println!(
-                "[portix_rdp] cleaned up session {} profile {}",
-                session_id_task, profile_id_task
-            );
+            println!("[portix_rdp] cleaned up session");
         });
 
         self.sessions.lock().await.insert(
@@ -278,15 +253,9 @@ impl RdpSessionManager {
                 .await
                 .remove(&handle.info.profile_id);
 
-            println!(
-                "[portix_rdp] disconnect requested for session {}",
-                session_id
-            );
+            println!("[portix_rdp] disconnect requested for session");
         } else {
-            println!(
-                "[portix_rdp] session {} not found for disconnect (may already be disconnected)",
-                session_id
-            );
+            println!("[portix_rdp] session not found for disconnect (may already be disconnected)");
         }
 
         Ok(())
@@ -299,12 +268,12 @@ impl RdpSessionManager {
             sessions.drain().collect()
         };
 
-        for (session_id, handle) in handles {
+        for (_, handle) in handles {
             handle.cancel_token.cancel();
 
             let _ = handle.command_tx.send(RdpCommand::Disconnect).await;
 
-            println!("[portix_rdp] disconnect all: session {}", session_id);
+            println!("[portix_rdp] disconnect all: closing a session");
         }
 
         self.profile_index.lock().await.clear();

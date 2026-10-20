@@ -209,11 +209,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                               ),
                               child: Row(
                                 children: [
-                                  Icon(
-                                    Icons.dns_rounded,
-                                    color: AppColors.muted,
-                                    size: 20,
-                                  ),
+                                  ProfileOsIcon(profile: profile, size: 30),
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(

@@ -37,7 +37,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  AuthPrompt dco_decode_auth_prompt(dynamic raw);
+
+  @protected
+  AuthPromptRound dco_decode_auth_prompt_round(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
+
+  @protected
+  AuthPromptRound dco_decode_box_autoadd_auth_prompt_round(dynamic raw);
 
   @protected
   HostKeyInfo dco_decode_box_autoadd_host_key_info(dynamic raw);
@@ -67,6 +76,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64 dco_decode_i_64(dynamic raw);
 
   @protected
+  List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
+  List<AuthPrompt> dco_decode_list_auth_prompt(dynamic raw);
+
+  @protected
   List<ForwardInfo> dco_decode_list_forward_info(dynamic raw);
 
   @protected
@@ -80,6 +95,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
+
+  @protected
+  AuthPromptRound? dco_decode_opt_box_autoadd_auth_prompt_round(dynamic raw);
 
   @protected
   HostKeyInfo? dco_decode_opt_box_autoadd_host_key_info(dynamic raw);
@@ -137,7 +155,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  AuthPrompt sse_decode_auth_prompt(SseDeserializer deserializer);
+
+  @protected
+  AuthPromptRound sse_decode_auth_prompt_round(SseDeserializer deserializer);
+
+  @protected
   bool sse_decode_bool(SseDeserializer deserializer);
+
+  @protected
+  AuthPromptRound sse_decode_box_autoadd_auth_prompt_round(
+    SseDeserializer deserializer,
+  );
 
   @protected
   HostKeyInfo sse_decode_box_autoadd_host_key_info(
@@ -169,6 +198,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
 
   @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
+  List<AuthPrompt> sse_decode_list_auth_prompt(SseDeserializer deserializer);
+
+  @protected
   List<ForwardInfo> sse_decode_list_forward_info(SseDeserializer deserializer);
 
   @protected
@@ -184,6 +219,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
+  AuthPromptRound? sse_decode_opt_box_autoadd_auth_prompt_round(
+    SseDeserializer deserializer,
+  );
 
   @protected
   HostKeyInfo? sse_decode_opt_box_autoadd_host_key_info(
@@ -250,7 +290,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_auth_prompt(AuthPrompt self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_auth_prompt_round(
+    AuthPromptRound self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_auth_prompt_round(
+    AuthPromptRound self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_host_key_info(
@@ -289,6 +344,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_auth_prompt(
+    List<AuthPrompt> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_forward_info(
     List<ForwardInfo> self,
     SseSerializer serializer,
@@ -311,6 +375,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_auth_prompt_round(
+    AuthPromptRound? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_host_key_info(

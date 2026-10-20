@@ -25,6 +25,7 @@ class SshProfile extends Equatable {
     this.lastUsedLabel = 'recently',
     this.osIconAsset = '',
     this.jumpProfileId = '',
+    this.forwardAgent = false,
   });
 
   final String id;
@@ -47,6 +48,9 @@ class SshProfile extends Equatable {
   /// Saved profile to connect through first (`ssh -J`); empty for direct.
   final String jumpProfileId;
 
+  /// Let the server use the local ssh-agent (`ssh -A`).
+  final bool forwardAgent;
+
   String get address => '$username@$host:$port';
   bool get isConnectable => host.isNotEmpty && username.isNotEmpty;
 
@@ -68,6 +72,7 @@ class SshProfile extends Equatable {
     String? lastUsedLabel,
     String? osIconAsset,
     String? jumpProfileId,
+    bool? forwardAgent,
   }) {
     return SshProfile(
       id: id ?? this.id,
@@ -87,6 +92,7 @@ class SshProfile extends Equatable {
       lastUsedLabel: lastUsedLabel ?? this.lastUsedLabel,
       osIconAsset: osIconAsset ?? this.osIconAsset,
       jumpProfileId: jumpProfileId ?? this.jumpProfileId,
+      forwardAgent: forwardAgent ?? this.forwardAgent,
     );
   }
 
@@ -109,5 +115,6 @@ class SshProfile extends Equatable {
     lastUsedLabel,
     osIconAsset,
     jumpProfileId,
+    forwardAgent,
   ];
 }

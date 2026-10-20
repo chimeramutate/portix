@@ -7,7 +7,7 @@ use crate::application::session_manager::SessionManager;
 use crate::domain::profile::SshProfile;
 use crate::domain::session::{RemoteSystemSnapshot, SessionInfo};
 use crate::frb_generated::StreamSink;
-use crate::infrastructure::{host_keys, port_forward, ssh_client};
+use crate::infrastructure::{host_keys, keyboard_interactive, port_forward, ssh_client};
 
 static SESSION_MANAGER: LazyLock<SessionManager> = LazyLock::new(SessionManager::new);
 
@@ -38,6 +38,13 @@ pub async fn resize_terminal(session_id: String, cols: u32, rows: u32) -> anyhow
 
 pub async fn remote_system_snapshot(session_id: String) -> anyhow::Result<RemoteSystemSnapshot> {
     Ok(SESSION_MANAGER.remote_system_snapshot(session_id).await?)
+}
+
+/// Runs [command] on [profile]'s server over a background connection that is
+/// reused across calls; returns stdout+stderr. Fails with the last output
+/// line when the command exits non-zero.
+pub async fn exec_on_profile(profile: SshProfile, command: String) -> anyhow::Result<String> {
+    Ok(ssh_client::exec_on_profile(profile, command).await?)
 }
 
 /// Generates an unencrypted ed25519 keypair: the private key at `path` (0600
@@ -104,6 +111,38 @@ pub fn trust_host_key(host: String, port: u16, fingerprint: String) -> anyhow::R
     )?)
 }
 
+/// One prompt of a keyboard-interactive round; `echo` false means hide input.
+pub struct AuthPrompt {
+    pub prompt: String,
+    pub echo: bool,
+}
+
+/// The keyboard-interactive round (OTP, 2FA, PAM questions) the last connect
+/// to `host:port` could not answer.
+pub struct AuthPromptRound {
+    pub name: String,
+    pub instructions: String,
+    pub prompts: Vec<AuthPrompt>,
+}
+
+pub fn pending_auth_prompts(host: String, port: u16) -> Option<AuthPromptRound> {
+    keyboard_interactive::pending_prompts(&host, port).map(|pending| AuthPromptRound {
+        name: pending.name,
+        instructions: pending.instructions,
+        prompts: pending
+            .prompts
+            .into_iter()
+            .map(|(prompt, echo)| AuthPrompt { prompt, echo })
+            .collect(),
+    })
+}
+
+/// Answers the pending round (one answer per prompt) for the next connect to
+/// `host:port`; earlier rounds' answers are kept on this side.
+pub fn answer_auth_prompts(host: String, port: u16, answers: Vec<String>) {
+    keyboard_interactive::answer_pending(&host, port, answers);
+}
+
 /// An active tunnel on 127.0.0.1:`local_port`: a local forward
 /// (`ssh -L local_port:remote_host:remote_port`), or a SOCKS5 proxy
 /// (`ssh -D local_port`) when `socks` is set. When `reverse` is set it is a
@@ -153,9 +192,14 @@ pub async fn start_local_forward(
 
 /// Starts a SOCKS5 proxy on 127.0.0.1:`local_port` (0 = any free port):
 /// connections go wherever each client asks, from the SSH server.
-pub async fn start_socks_proxy(profile: SshProfile, local_port: u16) -> anyhow::Result<ForwardInfo> {
+pub async fn start_socks_proxy(
+    profile: SshProfile,
+    local_port: u16,
+) -> anyhow::Result<ForwardInfo> {
     profile.validate()?;
-    Ok(port_forward::start_socks_proxy(profile, local_port).await?.into())
+    Ok(port_forward::start_socks_proxy(profile, local_port)
+        .await?
+        .into())
 }
 
 /// Starts a remote forward: the SSH server listens on its

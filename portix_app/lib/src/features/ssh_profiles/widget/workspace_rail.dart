@@ -39,6 +39,11 @@ class WorkspaceRail extends StatelessWidget {
           ),
           item(WorkspaceView.rdp, Icons.computer_outlined, 'RDP'),
           item(WorkspaceView.sftp, Icons.cable_rounded, 'SFTP'),
+          item(
+            WorkspaceView.kubernetes,
+            Icons.view_in_ar_outlined,
+            'Kubernetes logs',
+          ),
         ],
       ),
     );

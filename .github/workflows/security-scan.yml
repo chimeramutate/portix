@@ -32,9 +32,8 @@ jobs:
         with:
           filters: |
             rust:
-              - 'rust/**'
-              - 'projects/rust/**'
-              - '**/Cargo.toml'
+              - 'portix_serv/**'
+              - 'portix_rdp/**'
             dart:
               - 'flutter/**'
               - 'projects/dart/**'
@@ -56,20 +55,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Rust is extracted from source; no cargo build (the crates live in
+      # portix_serv/ and portix_rdp/, with no workspace at the root).
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: rust
+          build-mode: none
           queries: security-and-quality
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build
-        run: cargo build --release
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4

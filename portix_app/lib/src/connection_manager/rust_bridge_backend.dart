@@ -105,6 +105,10 @@ class RustBridgeBackend implements ConnectionBackend {
     return snapshot.toAppSnapshot();
   }
 
+  @override
+  Future<String> execOnProfile(SshProfile profile, String command) =>
+      rust_api.execOnProfile(profile: toRustProfile(profile), command: command);
+
   void dispose() {
     RustLib.dispose();
   }
@@ -123,6 +127,23 @@ class RustBridgeBackend implements ConnectionBackend {
   @override
   Future<void> trustHostKey(String host, int port, String fingerprint) =>
       rust_api.trustHostKey(host: host, port: port, fingerprint: fingerprint);
+
+  @override
+  Future<AuthPromptRound?> pendingAuthPrompts(String host, int port) async {
+    final round = await rust_api.pendingAuthPrompts(host: host, port: port);
+    if (round == null) return null;
+    return AuthPromptRound(
+      name: round.name,
+      instructions: round.instructions,
+      prompts: [
+        for (final p in round.prompts) (prompt: p.prompt, echo: p.echo),
+      ],
+    );
+  }
+
+  @override
+  Future<void> answerAuthPrompts(String host, int port, List<String> answers) =>
+      rust_api.answerAuthPrompts(host: host, port: port, answers: answers);
 
   @override
   Future<PortForward> startLocalForward(
@@ -198,6 +219,7 @@ rust_profile.SshProfile toRustProfile(SshProfile profile) {
     privateKeyPath: _blankToNull(profile.privateKeyPath),
     keyPassphrase: _blankToNull(profile.keyPassphrase),
     jumpHost: jumpHost == null ? null : toRustProfile(jumpHost),
+    forwardAgent: profile.forwardAgent,
   );
 }
 

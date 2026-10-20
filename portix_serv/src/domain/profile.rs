@@ -15,6 +15,10 @@ pub struct SshProfile {
     pub key_passphrase: Option<String>,
     /// Server to tunnel through first (`ssh -J`); may itself have a jump host.
     pub jump_host: Option<Box<SshProfile>>,
+    /// Let the server use the local ssh-agent (`ssh -A`). Only for servers
+    /// you trust: their root can use your keys while you are connected.
+    #[serde(default)]
+    pub forward_agent: bool,
 }
 
 impl SshProfile {
@@ -61,6 +65,7 @@ mod tests {
             private_key_path: None,
             key_passphrase: None,
             jump_host: None,
+            forward_agent: false,
         }
     }
 

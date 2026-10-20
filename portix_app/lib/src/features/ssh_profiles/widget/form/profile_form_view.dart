@@ -312,6 +312,20 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                       if (other.id != profile?.id) other,
                   ],
                 ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: profile?.forwardAgent ?? false,
+                  onChanged: (value) => context.read<SshWorkspaceBloc>().add(
+                    ForwardAgentChanged(value),
+                  ),
+                  secondary: const Icon(Icons.vpn_key_outlined),
+                  title: const Text('Forward SSH agent'),
+                  subtitle: Text(
+                    'Like ssh -A: lets this server use your local keys '
+                    '(git, ssh to other hosts). Only for servers you trust.',
+                    style: portixMuted(11),
+                  ),
+                ),
               ],
             );
 

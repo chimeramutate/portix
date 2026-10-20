@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
+import 'package:portix/src/features/kubernetes/kubernetes_page.dart';
 import 'package:portix/src/features/rdp/widget/rdp_workspace_view.dart';
 import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
 import 'package:portix/src/features/sftp/page/sftp_workspace_page.dart';
@@ -110,6 +111,10 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
                     ),
                     _lazyView(WorkspaceView.sftp, const SftpWorkspacePage()),
                     _lazyView(WorkspaceView.rdp, const RdpWorkspaceView()),
+                    _lazyView(
+                      WorkspaceView.kubernetes,
+                      const KubernetesPage(),
+                    ),
                   ],
                 ),
               ),

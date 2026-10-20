@@ -6,7 +6,21 @@
 #include <gdk/gdkx.h>
 #endif
 
+#include <desktop_multi_window/desktop_multi_window_plugin.h>
+#include <window_manager/window_manager_plugin.h>
+
 #include "flutter/generated_plugin_registrant.h"
+
+// Child windows (RDP/SFTP) get window_manager so Dart can veto the title-bar
+// close and hide them instead. Destroying a secondary FlView can free Flutter's
+// FlTaskRunner while its GLib timeout is still pending -> SIGSEGV in
+// fl_task_runner_on_expired_timeout.
+static void on_sub_window_created(FlPluginRegistry* registry) {
+  g_autoptr(FlPluginRegistrar) registrar =
+      fl_plugin_registry_get_registrar_for_plugin(registry,
+                                                  "WindowManagerPlugin");
+  window_manager_plugin_register_with_registrar(registrar);
+}
 
 struct _MyApplication {
   GtkApplication parent_instance;
@@ -97,6 +111,7 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
+  desktop_multi_window_plugin_set_window_created_callback(on_sub_window_created);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
