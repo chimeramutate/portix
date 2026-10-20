@@ -44,7 +44,6 @@ class TerminalPanel extends StatefulWidget {
     this.keyboardEnabled = true,
     this.onSessionChanged,
     this.onActiveSessionChanged,
-    this.onDirectoryChanged,
     this.onLastSessionClosed,
   });
 
@@ -54,7 +53,6 @@ class TerminalPanel extends StatefulWidget {
   final bool keyboardEnabled;
   final ValueChanged<bool>? onSessionChanged;
   final ValueChanged<String?>? onActiveSessionChanged;
-  final void Function(String sessionId, String path)? onDirectoryChanged;
   final VoidCallback? onLastSessionClosed;
 
   @override
@@ -96,7 +94,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   // Last cwd each shell reported, so a new tab can start where this one is.
   final Map<String, String> _sessionDirectories = {};
   // A new tab told to `cd` somewhere: its shell's first prompt still reports
-  // ~, which would bounce the folder panel back to home before the cd lands.
+  // ~, which would reset the tracked folder to home before the cd lands.
   final Map<String, ({String path, DateTime until})> _pendingDirectories = {};
   // Serializes reconnects: after wake from sleep every tab drops at once, and
   // _reconnectSession shares _workspaceReconnectInProgress across calls.
@@ -929,12 +927,11 @@ class _TerminalPanelState extends State<TerminalPanel> {
       _pendingDirectories.remove(sessionId);
     }
     _sessionDirectories[sessionId] = path;
-    widget.onDirectoryChanged?.call(sessionId, path);
   }
 
   /// Moves the freshly opened shell of [sessionId] into [path] (the folder
   /// the tab it was opened from is in). Call before activating the session
-  /// so the folder panel opens there instead of at the profile's default.
+  /// so it starts there instead of at the profile's default.
   void _startSessionIn(String sessionId, String? path) {
     if (path == null) return;
     _pendingDirectories[sessionId] = (
@@ -942,7 +939,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
       until: DateTime.now().add(const Duration(seconds: 5)),
     );
     _sessionDirectories[sessionId] = path;
-    widget.onDirectoryChanged?.call(sessionId, path);
     // Leading space keeps it out of shell history (HISTCONTROL=ignorespace).
     unawaited(
       _connectionManager.sendTerminalInput(
