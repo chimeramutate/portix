@@ -22,7 +22,6 @@ class RdpProfile {
   final String? sourceRdpContent;
 
   /// Passthru username for CyberArk PSM (the actual RDP username when using PSM)
-  /// This is used when connecting through CyberArk Privileged Session Manager
   final String? passthruUsername;
 
   /// Enable RDP drive redirection.
