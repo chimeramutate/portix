@@ -19,6 +19,8 @@ import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
 import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
 import 'package:portix/src/features/sftp/controller/sftp_workspace_controller.dart';
 import 'package:portix/src/features/sftp/window/index.dart';
+import 'package:portix/src/features/ssh_profiles/widget/gallery/profile_card.dart'
+    show ProfileOsIcon;
 import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/auth_prompt_dialog.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/host_key_dialog.dart';

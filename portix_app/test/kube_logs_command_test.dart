@@ -40,8 +40,50 @@ void main() {
     });
   });
 
-  test('kubeNames strips the kind', () {
-    expect(kubeNames('pod/a\npod/b\n'), ['a', 'b']);
+  test('parseNamespaces', () {
+    expect(
+      parseNamespaces('default   Active   120d\nkube-system Active 120d\n'),
+      [
+        (name: 'default', status: 'Active', age: '120d'),
+        (name: 'kube-system', status: 'Active', age: '120d'),
+      ],
+    );
+  });
+
+  group('parsePods', () {
+    test('plain and "(ago)" restarts, skips noise', () {
+      final pods = parsePods(
+        'api-1   1/1   Running            0             2d\n'
+        'api-2   0/1   CrashLoopBackOff   3 (2m ago)    5h\n'
+        'No resources found in prod namespace.\n',
+      );
+      expect(pods, [
+        (
+          name: 'api-1',
+          ready: '1/1',
+          status: 'Running',
+          restarts: 0,
+          age: '2d',
+        ),
+        (
+          name: 'api-2',
+          ready: '0/1',
+          status: 'CrashLoopBackOff',
+          restarts: 3,
+          age: '5h',
+        ),
+      ]);
+    });
+
+    test('health', () {
+      KubePod pod(String ready, String status) =>
+          (name: 'p', ready: ready, status: status, restarts: 0, age: '1d');
+      expect(podHealth(pod('1/1', 'Running')), PodHealth.ok);
+      expect(podHealth(pod('1/2', 'Running')), PodHealth.pending);
+      expect(podHealth(pod('0/1', 'Init:0/1')), PodHealth.pending);
+      expect(podHealth(pod('0/1', 'CrashLoopBackOff')), PodHealth.failing);
+      expect(podHealth(pod('0/1', 'Completed')), PodHealth.done);
+    });
   });
 
   test('parseLogLines strips stamps and merges pods by time', () {

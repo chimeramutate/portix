@@ -30,11 +30,64 @@ String kubeLogsCommand(
       'for p in \$pods; do kubectl logs -n $ns "\$p" $args 2>&1 || true; done';
 }
 
-/// `kubectl get <kind> -o name` lines without the `<kind>/` prefix.
-List<String> kubeNames(String output) => [
+final _spaces = RegExp(r'\s+');
+final _readyColumn = RegExp(r'^(\d+)/(\d+)$');
+
+/// A row of `kubectl get namespaces --no-headers`.
+typedef KubeNamespace = ({String name, String status, String age});
+
+List<KubeNamespace> parseNamespaces(String output) => [
   for (final line in output.split('\n'))
-    if (line.trim().isNotEmpty) line.trim().split('/').last,
+    if (line.trim().split(_spaces) case [final name, final status, final age])
+      (name: name, status: status, age: age),
 ];
+
+/// A row of `kubectl get pods --no-headers`.
+typedef KubePod = ({
+  String name,
+  String ready,
+  String status,
+  int restarts,
+  String age,
+});
+
+/// Parses NAME READY STATUS RESTARTS AGE; RESTARTS may read `3 (2d ago)`.
+List<KubePod> parsePods(String output) => [
+  for (final line in output.split('\n'))
+    if (line.trim().split(_spaces) case [
+      final name,
+      final ready,
+      final status,
+      final restarts,
+      ...,
+      final age,
+    ] when _readyColumn.hasMatch(ready))
+      (
+        name: name,
+        ready: ready,
+        status: status,
+        restarts: int.tryParse(restarts) ?? 0,
+        age: age,
+      ),
+];
+
+enum PodHealth { ok, pending, failing, done }
+
+PodHealth podHealth(KubePod pod) {
+  switch (pod.status) {
+    case 'Completed' || 'Succeeded':
+      return PodHealth.done;
+    case 'Running':
+      final m = _readyColumn.firstMatch(pod.ready);
+      return m != null && m[1] == m[2] ? PodHealth.ok : PodHealth.pending;
+    case 'Pending' || 'ContainerCreating' || 'PodInitializing' || 'Terminating':
+      return PodHealth.pending;
+    case final status when status.startsWith('Init:'):
+      return PodHealth.pending;
+    default:
+      return PodHealth.failing; // CrashLoopBackOff, Error, ImagePullBackOff…
+  }
+}
 
 /// One log line; [time] is kubectl's own timestamp (null for lines kubectl
 /// didn't stamp, such as its error messages).
