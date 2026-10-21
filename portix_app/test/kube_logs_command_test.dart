@@ -251,6 +251,49 @@ void main() {
     });
   });
 
+  group('describeKubeError', () {
+    test('a dropped SSH channel reads as a lost connection', () {
+      final e = describeKubeError(
+        'Remote command failed: AnyhowException(Channel send error\n\n'
+        'Stack backtrace:\n   0: portix_serv::foo)',
+      );
+      expect(e.title, 'Lost connection to the server');
+      expect(e.detail, 'Channel send error');
+    });
+
+    test('kubectl errors win over SSH-looking words', () {
+      expect(
+        describeKubeError(
+          'Remote command failed: remote command exited with 1: The '
+          'connection to the server 10.0.0.1:6443 was refused',
+        ).title,
+        'Kubernetes API unreachable from this server',
+      );
+      final missing = describeKubeError(
+        'remote command exited with 127: sh: kubectl: command not found',
+      );
+      expect(missing.title, "kubectl isn't installed on this server");
+      expect(missing.detail, 'sh: kubectl: command not found');
+    });
+
+    test('RBAC, credentials, not found, fallback', () {
+      String title(String raw) => describeKubeError(raw).title;
+      expect(
+        title('Error from server (Forbidden): pods is forbidden'),
+        'No permission for this',
+      );
+      expect(
+        title('error: You must be logged in to the server (Unauthorized)'),
+        'Cluster credentials were rejected',
+      );
+      expect(
+        title('Error from server (NotFound): pods "x" not found'),
+        'Not found',
+      );
+      expect(title('something odd'), 'Command failed');
+    });
+  });
+
   group('workloads', () {
     test('workloadOf reads the controller from the pod name', () {
       expect(workloadOf('transport-core-system-75f95b665f-5zzfm'), (

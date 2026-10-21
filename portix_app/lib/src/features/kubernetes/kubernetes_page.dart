@@ -300,6 +300,17 @@ class _KubeLogViewState extends State<_KubeLogView> {
     }
   }
 
+  /// Repeats whatever was last attempted: logs if a namespace is picked,
+  /// else the server's namespaces.
+  void _retry() {
+    final profileId = _profileId;
+    if (_namespace != null) {
+      unawaited(_loadLogs());
+    } else if (profileId != null) {
+      unawaited(_selectProfile(profileId));
+    }
+  }
+
   /// Back to the newest line, and to following it.
   void _jumpToLatest() {
     setState(() {
@@ -984,10 +995,16 @@ class _KubeLogViewState extends State<_KubeLogView> {
                 children: [
                   _StatusBar(
                     note: _refreshNote,
-                    error: _error,
                     shown: shown.length,
                     total: _lines.length,
                   ),
+                  if (_error case final error?)
+                    _ErrorBanner(
+                      error: describeKubeError(error),
+                      retrying: _loading,
+                      onRetry: _retry,
+                      onDismiss: () => setState(() => _error = null),
+                    ),
                   if (_gonePod case final gone?)
                     _PodGoneBanner(
                       gone: gone,
@@ -1587,13 +1604,11 @@ class _SearchNav extends StatelessWidget {
 class _StatusBar extends StatelessWidget {
   const _StatusBar({
     required this.note,
-    required this.error,
     required this.shown,
     required this.total,
   });
 
   final String? note;
-  final String? error;
   final int shown;
   final int total;
 
@@ -1603,26 +1618,12 @@ class _StatusBar extends StatelessWidget {
       height: 30,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: error != null ? AppColors.dangerTint : AppColors.surface,
+        color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         children: [
-          if (error != null) ...[
-            Icon(
-              Icons.error_outline_rounded,
-              size: 14,
-              color: AppColors.danger,
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                error!,
-                overflow: TextOverflow.ellipsis,
-                style: portixMuted(12).copyWith(color: AppColors.danger),
-              ),
-            ),
-          ] else if (note != null) ...[
+          if (note != null) ...[
             Icon(Icons.autorenew_rounded, size: 14, color: AppColors.cyan),
             const SizedBox(width: 6),
             Expanded(
@@ -1638,6 +1639,151 @@ class _StatusBar extends StatelessWidget {
             shown == total ? '$total lines' : '$shown of $total lines',
             style: portixMuted(12),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A failure, readably: title, what to check, Retry, and the raw message
+/// behind "Details" (selectable, copyable).
+class _ErrorBanner extends StatefulWidget {
+  const _ErrorBanner({
+    required this.error,
+    required this.retrying,
+    required this.onRetry,
+    required this.onDismiss,
+  });
+
+  final KubeError error;
+  final bool retrying;
+  final VoidCallback onRetry;
+  final VoidCallback onDismiss;
+
+  @override
+  State<_ErrorBanner> createState() => _ErrorBannerState();
+}
+
+class _ErrorBannerState extends State<_ErrorBanner> {
+  bool _details = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final error = widget.error;
+    Widget link(String text, IconData icon, VoidCallback? onTap) =>
+        TextButton.icon(
+          onPressed: onTap,
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.text,
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            textStyle: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          icon: Icon(icon, size: 14),
+          label: Text(text),
+        );
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.dangerTint,
+        border: Border(
+          left: BorderSide(color: AppColors.danger, width: 3),
+          bottom: BorderSide(color: AppColors.border),
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: Icon(
+                  Icons.error_outline_rounded,
+                  size: 18,
+                  color: AppColors.danger,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      error.title,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.text,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(error.hint, style: portixMuted(12)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              link(
+                widget.retrying ? 'Retrying…' : 'Retry',
+                Icons.refresh_rounded,
+                widget.retrying ? null : widget.onRetry,
+              ),
+              link(
+                _details ? 'Hide details' : 'Details',
+                _details
+                    ? Icons.expand_less_rounded
+                    : Icons.expand_more_rounded,
+                () => setState(() => _details = !_details),
+              ),
+              IconButton(
+                tooltip: 'Dismiss',
+                iconSize: 16,
+                visualDensity: VisualDensity.compact,
+                onPressed: widget.onDismiss,
+                icon: Icon(Icons.close_rounded, color: AppColors.muted),
+              ),
+            ],
+          ),
+          if (_details)
+            Container(
+              margin: const EdgeInsets.fromLTRB(28, 8, 8, 0),
+              padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+              constraints: const BoxConstraints(maxHeight: 160),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceDark,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: SelectableText(
+                        error.detail,
+                        style: _mono.copyWith(
+                          fontSize: 11.5,
+                          height: 1.5,
+                          color: AppColors.text.withValues(alpha: .85),
+                        ),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Copy details',
+                    iconSize: 14,
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () =>
+                        Clipboard.setData(ClipboardData(text: error.detail)),
+                    icon: Icon(Icons.copy_rounded, color: AppColors.muted),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );

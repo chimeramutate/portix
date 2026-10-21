@@ -365,3 +365,96 @@ final _split = Expando<({LogLevel? level, String message})>('split log line');
     text.length <= limit
     ? (shown: text, hidden: 0)
     : (shown: text.substring(0, limit), hidden: text.length - limit);
+
+/// A failure as people read it: what went wrong, what to check, and the
+/// raw message (wrappers and backtrace removed) for the details view.
+typedef KubeError = ({String title, String hint, String detail});
+
+KubeError describeKubeError(String raw) {
+  var detail = raw.split('Stack backtrace:').first.trim();
+  for (final wrapper in ['Remote command failed: ', 'AnyhowException(']) {
+    if (detail.startsWith(wrapper)) detail = detail.substring(wrapper.length);
+  }
+  if (raw.contains('AnyhowException(') && detail.endsWith(')')) {
+    detail = detail.substring(0, detail.length - 1);
+  }
+  detail = detail
+      .replaceFirst(RegExp(r'^remote command exited with \d+: '), '')
+      .trim();
+
+  final text = raw.toLowerCase();
+  bool has(List<String> needles) => needles.any(text.contains);
+  KubeError say(String title, String hint) =>
+      (title: title, hint: hint, detail: detail);
+
+  // kubectl's own messages first: "connection ... refused" also appears in
+  // its "API server unreachable" error, which isn't an SSH problem.
+  if (has(['command not found', 'exited with 127'])) {
+    return say(
+      "kubectl isn't installed on this server",
+      'Install kubectl there, or pick a server that has it on the PATH of '
+          'non-interactive SSH sessions.',
+    );
+  }
+  if (has([
+    'the connection to the server',
+    'unable to connect to the server',
+    'did you specify the right host',
+  ])) {
+    return say(
+      'Kubernetes API unreachable from this server',
+      "kubectl on the server can't reach the cluster. Check its kubeconfig "
+          "context, or whether the cluster's API is up.",
+    );
+  }
+  if (has(['unauthorized', 'you must be logged in', 'token has expired'])) {
+    return say(
+      'Cluster credentials were rejected',
+      'The kubeconfig credentials on this server have expired or were '
+          'revoked. Log in to the cluster again on the server.',
+    );
+  }
+  if (text.contains('forbidden')) {
+    return say(
+      'No permission for this',
+      "The kubeconfig user on this server isn't allowed to read it (RBAC). "
+          'Ask for access, or pick another namespace.',
+    );
+  }
+  if (has(['notfound', 'not found'])) {
+    return say(
+      'Not found',
+      'The pod or namespace no longer exists. Pick it again from the list.',
+    );
+  }
+  if (text.contains('host key')) {
+    return say(
+      "Server host key isn't trusted",
+      'Connect to this server once from the SSH view to review and trust '
+          'its key.',
+    );
+  }
+  if (has(['authentication', 'permission denied', 'auth failed'])) {
+    return say(
+      'SSH login failed',
+      "Check the profile's username, key or password.",
+    );
+  }
+  if (has([
+    'channel send error',
+    'connectiontimeout',
+    'timed out',
+    'connection reset',
+    'connection refused',
+    'broken pipe',
+    'disconnect',
+    'network is unreachable',
+  ])) {
+    return say(
+      'Lost connection to the server',
+      'The SSH connection dropped. Check your VPN or network; Portix '
+          'reconnects on the next try.',
+    );
+  }
+  return say('Command failed', 'See the details below.');
+}
