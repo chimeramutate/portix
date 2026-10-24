@@ -217,20 +217,22 @@ DateTime? lastStamp(List<LogLine> lines) => lines
 
 /// A Kibana-style search: every term must appear (case-insensitive),
 /// `"quoted phrases"` match as a whole, `-term` excludes, `a OR b` matches
-/// either side, and anything else (e.g. `"code":"06"`) matches literally.
+/// either side, `re:pattern` is a case-insensitive regex, and anything else
+/// (e.g. `"code":"06"`) matches literally.
 class LogQuery {
   LogQuery(String query) : _groups = _parse(query);
 
   /// OR-groups of AND-terms, lowercased; excluded terms must be absent.
-  final List<List<({String text, bool exclude})>> _groups;
+  final List<List<({String text, RegExp? regex, bool exclude})>> _groups;
 
   bool get isEmpty => _groups.isEmpty;
 
   /// Terms to highlight in matching lines (exclusions left out).
-  List<String> get highlights => [
+  List<RegExp> get highlights => [
     for (final group in _groups)
       for (final term in group)
-        if (!term.exclude) term.text,
+        if (!term.exclude)
+          term.regex ?? RegExp(RegExp.escape(term.text), caseSensitive: false),
   ];
 
   static bool _isSpace(String c) => c.trim().isEmpty;
@@ -274,32 +276,53 @@ class LogQuery {
     return tokens;
   }
 
-  static List<List<({String text, bool exclude})>> _parse(String query) {
-    final groups = <List<({String text, bool exclude})>>[[]];
+  static List<List<({String text, RegExp? regex, bool exclude})>> _parse(
+    String query,
+  ) {
+    final groups = <List<({String text, RegExp? regex, bool exclude})>>[[]];
     for (final token in _tokens(query)) {
       if (!token.phrase && !token.exclude && token.text == 'OR') {
         groups.add([]);
       } else if (token.text.isNotEmpty) {
-        groups.last.add((
-          text: token.text.toLowerCase(),
-          exclude: token.exclude,
-        ));
+        groups.last.add(_term(token.text, token.exclude));
       }
     }
     return groups.where((g) => g.isNotEmpty).toList();
   }
 
-  bool matches(String text) => _matchesLower(text.toLowerCase());
+  /// A `re:` token is a regex, unless it doesn't compile yet: then it matches
+  /// literally, so the list doesn't go empty while the pattern is typed.
+  static ({String text, RegExp? regex, bool exclude}) _term(
+    String text,
+    bool exclude,
+  ) {
+    if (text.startsWith('re:')) {
+      try {
+        return (
+          text: '',
+          regex: RegExp(text.substring(3), caseSensitive: false),
+          exclude: exclude,
+        );
+      } on FormatException {
+        // Fall through to the literal match.
+      }
+    }
+    return (text: text.toLowerCase(), regex: null, exclude: exclude);
+  }
+
+  bool matches(String text) => _matches(text, text.toLowerCase());
 
   /// Like [matches], lowercasing each line once rather than per keystroke
   /// (a single log line can be megabytes).
   bool matchesLine(LogLine line) =>
-      _matchesLower(_lowered[line] ??= line.text.toLowerCase());
+      _matches(line.text, _lowered[line] ??= line.text.toLowerCase());
 
-  bool _matchesLower(String lower) {
+  bool _matches(String text, String lower) {
     if (_groups.isEmpty) return true;
     return _groups.any(
-      (terms) => terms.every((t) => lower.contains(t.text) != t.exclude),
+      (terms) => terms.every(
+        (t) => (t.regex?.hasMatch(text) ?? lower.contains(t.text)) != t.exclude,
+      ),
     );
   }
 

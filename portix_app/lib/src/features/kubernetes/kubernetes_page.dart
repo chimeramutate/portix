@@ -1047,7 +1047,7 @@ class _KubeLogViewState extends State<_KubeLogView> {
 
   Widget _buildLines(
     List<LogLine> shown,
-    List<String> highlights,
+    List<RegExp> highlights,
     int? current,
   ) {
     if (shown.isEmpty) {
@@ -1127,7 +1127,7 @@ class _LogRow extends StatelessWidget {
   });
 
   final LogLine line;
-  final List<String> highlights;
+  final List<RegExp> highlights;
   final bool odd;
 
   /// The search match the ↑/↓ buttons are on.
@@ -1187,8 +1187,20 @@ class _LogRow extends StatelessWidget {
         children: [
           SizedBox(
             width: 152,
-            child: Text(
-              time == null ? '' : _formatStamp(time),
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  // Flutter's copy joins rows with nothing between them, and a
+                  // drag drops a trailing newline, so each row starts with a
+                  // tiny, invisible one instead.
+                  const TextSpan(
+                    text: '\n',
+                    style: TextStyle(fontSize: .01, height: .01),
+                  ),
+                  // The space keeps the stamp apart from the message.
+                  if (time != null) TextSpan(text: '${_formatStamp(time)} '),
+                ],
+              ),
               style: _mono.copyWith(
                 fontSize: 12,
                 height: 1.6,
@@ -1196,34 +1208,37 @@ class _LogRow extends StatelessWidget {
               ),
             ),
           ),
-          SizedBox(
-            width: 58,
-            child: level == null
-                ? null
-                : Align(
-                    alignment: Alignment.topLeft,
-                    child: Container(
-                      margin: const EdgeInsets.only(top: 2),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        color: color!.withValues(alpha: .14),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        level.name.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 10,
-                          height: 1.4,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: .4,
-                          color: color,
+          // The badge is only a visual cue, so keep it out of copy.
+          SelectionContainer.disabled(
+            child: SizedBox(
+              width: 58,
+              child: level == null
+                  ? null
+                  : Align(
+                      alignment: Alignment.topLeft,
+                      child: Container(
+                        margin: const EdgeInsets.only(top: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: color!.withValues(alpha: .14),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          level.name.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 10,
+                            height: 1.4,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: .4,
+                            color: color,
+                          ),
                         ),
                       ),
                     ),
-                  ),
+            ),
           ),
           Expanded(
             child: Column(
@@ -1257,14 +1272,17 @@ class _LogRow extends StatelessWidget {
                   ),
                 ),
                 if (long)
-                  _LongLineBar(
-                    hidden: clip.hidden,
-                    total: message.length,
-                    expanded: expanded,
-                    size: _size,
-                    onToggle: onToggleExpanded,
-                    onCopy: () =>
-                        Clipboard.setData(ClipboardData(text: line.text)),
+                  // Controls, not log text: keep "8.0k chars Show less" out of copy.
+                  SelectionContainer.disabled(
+                    child: _LongLineBar(
+                      hidden: clip.hidden,
+                      total: message.length,
+                      expanded: expanded,
+                      size: _size,
+                      onToggle: onToggleExpanded,
+                      onCopy: () =>
+                          Clipboard.setData(ClipboardData(text: line.text)),
+                    ),
                   ),
               ],
             ),
@@ -1339,29 +1357,35 @@ class _LongLineBar extends StatelessWidget {
   }
 }
 
-/// [text] as spans with every case-insensitive occurrence of [terms] in
-/// [style].
-List<TextSpan> _highlight(String text, List<String> terms, TextStyle style) {
+/// [text] as spans with every match of [terms] in [style].
+List<TextSpan> _highlight(String text, List<RegExp> terms, TextStyle style) {
   if (terms.isEmpty) return [TextSpan(text: text)];
-  final lower = text.toLowerCase();
   final spans = <TextSpan>[];
   var i = 0;
   while (i < text.length) {
-    var start = -1, length = 0;
+    Match? next;
     for (final term in terms) {
-      final j = lower.indexOf(term, i);
-      if (j != -1 && (start == -1 || j < start))
-        (start, length) = (j, term.length);
+      final m = _firstNonEmpty(term, text, i);
+      if (m != null && (next == null || m.start < next.start)) next = m;
     }
-    if (start == -1) break;
-    if (start > i) spans.add(TextSpan(text: text.substring(i, start)));
-    spans.add(
-      TextSpan(text: text.substring(start, start + length), style: style),
-    );
-    i = start + length;
+    if (next == null) break;
+    if (next.start > i) {
+      spans.add(TextSpan(text: text.substring(i, next.start)));
+    }
+    spans.add(TextSpan(text: next.group(0), style: style));
+    i = next.end;
   }
   if (i < text.length) spans.add(TextSpan(text: text.substring(i)));
   return spans;
+}
+
+/// The first match of [term] at or after [from] that isn't empty (a regex
+/// like `re:x*` can match nothing and would stall the loop above).
+Match? _firstNonEmpty(RegExp term, String text, int from) {
+  for (final m in term.allMatches(text, from)) {
+    if (m.end > m.start) return m;
+  }
+  return null;
 }
 
 /// Floating pill over the log list while scrolled up: back to the newest

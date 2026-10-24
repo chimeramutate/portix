@@ -123,7 +123,9 @@ void main() {
       expect(m('"response":"06"', '14:06 {"response":"00"}'), isFalse);
       expect(m('"responseCode":"06"', line), isFalse);
       expect(m('-"response":"06"', line), isFalse);
-      expect(LogQuery('"response":"06"').highlights, ['"response":"06"']);
+      expect(LogQuery('"response":"06"').highlights.map((r) => r.pattern), [
+        '"response":"06"',
+      ]);
     });
 
     test('OR', () {
@@ -184,10 +186,12 @@ void main() {
   });
 
   test('LogQuery.highlights skips exclusions', () {
-    expect(LogQuery('error -timeout "receive from"').highlights, [
-      'error',
-      'receive from',
-    ]);
+    expect(
+      LogQuery(
+        'error -timeout "receive from"',
+      ).highlights.map((r) => r.pattern),
+      ['error', 'receive from'],
+    );
   });
 
   group('appendNewLines', () {
