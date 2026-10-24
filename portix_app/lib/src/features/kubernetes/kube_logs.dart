@@ -217,20 +217,22 @@ DateTime? lastStamp(List<LogLine> lines) => lines
 
 /// A Kibana-style search: every term must appear (case-insensitive),
 /// `"quoted phrases"` match as a whole, `-term` excludes, `a OR b` matches
-/// either side, and anything else (e.g. `"code":"06"`) matches literally.
+/// either side, `re:pattern` is a case-insensitive regex, and anything else
+/// (e.g. `"code":"06"`) matches literally.
 class LogQuery {
   LogQuery(String query) : _groups = _parse(query);
 
   /// OR-groups of AND-terms, lowercased; excluded terms must be absent.
-  final List<List<({String text, bool exclude})>> _groups;
+  final List<List<({String text, RegExp? regex, bool exclude})>> _groups;
 
   bool get isEmpty => _groups.isEmpty;
 
   /// Terms to highlight in matching lines (exclusions left out).
-  List<String> get highlights => [
+  List<RegExp> get highlights => [
     for (final group in _groups)
       for (final term in group)
-        if (!term.exclude) term.text,
+        if (!term.exclude)
+          term.regex ?? RegExp(RegExp.escape(term.text), caseSensitive: false),
   ];
 
   static bool _isSpace(String c) => c.trim().isEmpty;
@@ -274,32 +276,53 @@ class LogQuery {
     return tokens;
   }
 
-  static List<List<({String text, bool exclude})>> _parse(String query) {
-    final groups = <List<({String text, bool exclude})>>[[]];
+  static List<List<({String text, RegExp? regex, bool exclude})>> _parse(
+    String query,
+  ) {
+    final groups = <List<({String text, RegExp? regex, bool exclude})>>[[]];
     for (final token in _tokens(query)) {
       if (!token.phrase && !token.exclude && token.text == 'OR') {
         groups.add([]);
       } else if (token.text.isNotEmpty) {
-        groups.last.add((
-          text: token.text.toLowerCase(),
-          exclude: token.exclude,
-        ));
+        groups.last.add(_term(token.text, token.exclude));
       }
     }
     return groups.where((g) => g.isNotEmpty).toList();
   }
 
-  bool matches(String text) => _matchesLower(text.toLowerCase());
+  /// A `re:` token is a regex, unless it doesn't compile yet: then it matches
+  /// literally, so the list doesn't go empty while the pattern is typed.
+  static ({String text, RegExp? regex, bool exclude}) _term(
+    String text,
+    bool exclude,
+  ) {
+    if (text.startsWith('re:')) {
+      try {
+        return (
+          text: '',
+          regex: RegExp(text.substring(3), caseSensitive: false),
+          exclude: exclude,
+        );
+      } on FormatException {
+        // Fall through to the literal match.
+      }
+    }
+    return (text: text.toLowerCase(), regex: null, exclude: exclude);
+  }
+
+  bool matches(String text) => _matches(text, text.toLowerCase());
 
   /// Like [matches], lowercasing each line once rather than per keystroke
   /// (a single log line can be megabytes).
   bool matchesLine(LogLine line) =>
-      _matchesLower(_lowered[line] ??= line.text.toLowerCase());
+      _matches(line.text, _lowered[line] ??= line.text.toLowerCase());
 
-  bool _matchesLower(String lower) {
+  bool _matches(String text, String lower) {
     if (_groups.isEmpty) return true;
     return _groups.any(
-      (terms) => terms.every((t) => lower.contains(t.text) != t.exclude),
+      (terms) => terms.every(
+        (t) => (t.regex?.hasMatch(text) ?? lower.contains(t.text)) != t.exclude,
+      ),
     );
   }
 
@@ -365,3 +388,96 @@ final _split = Expando<({LogLevel? level, String message})>('split log line');
     text.length <= limit
     ? (shown: text, hidden: 0)
     : (shown: text.substring(0, limit), hidden: text.length - limit);
+
+/// A failure as people read it: what went wrong, what to check, and the
+/// raw message (wrappers and backtrace removed) for the details view.
+typedef KubeError = ({String title, String hint, String detail});
+
+KubeError describeKubeError(String raw) {
+  var detail = raw.split('Stack backtrace:').first.trim();
+  for (final wrapper in ['Remote command failed: ', 'AnyhowException(']) {
+    if (detail.startsWith(wrapper)) detail = detail.substring(wrapper.length);
+  }
+  if (raw.contains('AnyhowException(') && detail.endsWith(')')) {
+    detail = detail.substring(0, detail.length - 1);
+  }
+  detail = detail
+      .replaceFirst(RegExp(r'^remote command exited with \d+: '), '')
+      .trim();
+
+  final text = raw.toLowerCase();
+  bool has(List<String> needles) => needles.any(text.contains);
+  KubeError say(String title, String hint) =>
+      (title: title, hint: hint, detail: detail);
+
+  // kubectl's own messages first: "connection ... refused" also appears in
+  // its "API server unreachable" error, which isn't an SSH problem.
+  if (has(['command not found', 'exited with 127'])) {
+    return say(
+      "kubectl isn't installed on this server",
+      'Install kubectl there, or pick a server that has it on the PATH of '
+          'non-interactive SSH sessions.',
+    );
+  }
+  if (has([
+    'the connection to the server',
+    'unable to connect to the server',
+    'did you specify the right host',
+  ])) {
+    return say(
+      'Kubernetes API unreachable from this server',
+      "kubectl on the server can't reach the cluster. Check its kubeconfig "
+          "context, or whether the cluster's API is up.",
+    );
+  }
+  if (has(['unauthorized', 'you must be logged in', 'token has expired'])) {
+    return say(
+      'Cluster credentials were rejected',
+      'The kubeconfig credentials on this server have expired or were '
+          'revoked. Log in to the cluster again on the server.',
+    );
+  }
+  if (text.contains('forbidden')) {
+    return say(
+      'No permission for this',
+      "The kubeconfig user on this server isn't allowed to read it (RBAC). "
+          'Ask for access, or pick another namespace.',
+    );
+  }
+  if (has(['notfound', 'not found'])) {
+    return say(
+      'Not found',
+      'The pod or namespace no longer exists. Pick it again from the list.',
+    );
+  }
+  if (text.contains('host key')) {
+    return say(
+      "Server host key isn't trusted",
+      'Connect to this server once from the SSH view to review and trust '
+          'its key.',
+    );
+  }
+  if (has(['authentication', 'permission denied', 'auth failed'])) {
+    return say(
+      'SSH login failed',
+      "Check the profile's username, key or password.",
+    );
+  }
+  if (has([
+    'channel send error',
+    'connectiontimeout',
+    'timed out',
+    'connection reset',
+    'connection refused',
+    'broken pipe',
+    'disconnect',
+    'network is unreachable',
+  ])) {
+    return say(
+      'Lost connection to the server',
+      'The SSH connection dropped. Check your VPN or network; Portix '
+          'reconnects on the next try.',
+    );
+  }
+  return say('Command failed', 'See the details below.');
+}

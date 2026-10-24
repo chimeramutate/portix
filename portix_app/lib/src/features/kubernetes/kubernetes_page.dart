@@ -300,6 +300,17 @@ class _KubeLogViewState extends State<_KubeLogView> {
     }
   }
 
+  /// Repeats whatever was last attempted: logs if a namespace is picked,
+  /// else the server's namespaces.
+  void _retry() {
+    final profileId = _profileId;
+    if (_namespace != null) {
+      unawaited(_loadLogs());
+    } else if (profileId != null) {
+      unawaited(_selectProfile(profileId));
+    }
+  }
+
   /// Back to the newest line, and to following it.
   void _jumpToLatest() {
     setState(() {
@@ -984,10 +995,16 @@ class _KubeLogViewState extends State<_KubeLogView> {
                 children: [
                   _StatusBar(
                     note: _refreshNote,
-                    error: _error,
                     shown: shown.length,
                     total: _lines.length,
                   ),
+                  if (_error case final error?)
+                    _ErrorBanner(
+                      error: describeKubeError(error),
+                      retrying: _loading,
+                      onRetry: _retry,
+                      onDismiss: () => setState(() => _error = null),
+                    ),
                   if (_gonePod case final gone?)
                     _PodGoneBanner(
                       gone: gone,
@@ -1030,7 +1047,7 @@ class _KubeLogViewState extends State<_KubeLogView> {
 
   Widget _buildLines(
     List<LogLine> shown,
-    List<String> highlights,
+    List<RegExp> highlights,
     int? current,
   ) {
     if (shown.isEmpty) {
@@ -1110,7 +1127,7 @@ class _LogRow extends StatelessWidget {
   });
 
   final LogLine line;
-  final List<String> highlights;
+  final List<RegExp> highlights;
   final bool odd;
 
   /// The search match the ↑/↓ buttons are on.
@@ -1170,8 +1187,20 @@ class _LogRow extends StatelessWidget {
         children: [
           SizedBox(
             width: 152,
-            child: Text(
-              time == null ? '' : _formatStamp(time),
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  // Flutter's copy joins rows with nothing between them, and a
+                  // drag drops a trailing newline, so each row starts with a
+                  // tiny, invisible one instead.
+                  const TextSpan(
+                    text: '\n',
+                    style: TextStyle(fontSize: .01, height: .01),
+                  ),
+                  // The space keeps the stamp apart from the message.
+                  if (time != null) TextSpan(text: '${_formatStamp(time)} '),
+                ],
+              ),
               style: _mono.copyWith(
                 fontSize: 12,
                 height: 1.6,
@@ -1179,34 +1208,37 @@ class _LogRow extends StatelessWidget {
               ),
             ),
           ),
-          SizedBox(
-            width: 58,
-            child: level == null
-                ? null
-                : Align(
-                    alignment: Alignment.topLeft,
-                    child: Container(
-                      margin: const EdgeInsets.only(top: 2),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        color: color!.withValues(alpha: .14),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        level.name.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 10,
-                          height: 1.4,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: .4,
-                          color: color,
+          // The badge is only a visual cue, so keep it out of copy.
+          SelectionContainer.disabled(
+            child: SizedBox(
+              width: 58,
+              child: level == null
+                  ? null
+                  : Align(
+                      alignment: Alignment.topLeft,
+                      child: Container(
+                        margin: const EdgeInsets.only(top: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: color!.withValues(alpha: .14),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          level.name.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 10,
+                            height: 1.4,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: .4,
+                            color: color,
+                          ),
                         ),
                       ),
                     ),
-                  ),
+            ),
           ),
           Expanded(
             child: Column(
@@ -1240,14 +1272,17 @@ class _LogRow extends StatelessWidget {
                   ),
                 ),
                 if (long)
-                  _LongLineBar(
-                    hidden: clip.hidden,
-                    total: message.length,
-                    expanded: expanded,
-                    size: _size,
-                    onToggle: onToggleExpanded,
-                    onCopy: () =>
-                        Clipboard.setData(ClipboardData(text: line.text)),
+                  // Controls, not log text: keep "8.0k chars Show less" out of copy.
+                  SelectionContainer.disabled(
+                    child: _LongLineBar(
+                      hidden: clip.hidden,
+                      total: message.length,
+                      expanded: expanded,
+                      size: _size,
+                      onToggle: onToggleExpanded,
+                      onCopy: () =>
+                          Clipboard.setData(ClipboardData(text: line.text)),
+                    ),
                   ),
               ],
             ),
@@ -1322,29 +1357,35 @@ class _LongLineBar extends StatelessWidget {
   }
 }
 
-/// [text] as spans with every case-insensitive occurrence of [terms] in
-/// [style].
-List<TextSpan> _highlight(String text, List<String> terms, TextStyle style) {
+/// [text] as spans with every match of [terms] in [style].
+List<TextSpan> _highlight(String text, List<RegExp> terms, TextStyle style) {
   if (terms.isEmpty) return [TextSpan(text: text)];
-  final lower = text.toLowerCase();
   final spans = <TextSpan>[];
   var i = 0;
   while (i < text.length) {
-    var start = -1, length = 0;
+    Match? next;
     for (final term in terms) {
-      final j = lower.indexOf(term, i);
-      if (j != -1 && (start == -1 || j < start))
-        (start, length) = (j, term.length);
+      final m = _firstNonEmpty(term, text, i);
+      if (m != null && (next == null || m.start < next.start)) next = m;
     }
-    if (start == -1) break;
-    if (start > i) spans.add(TextSpan(text: text.substring(i, start)));
-    spans.add(
-      TextSpan(text: text.substring(start, start + length), style: style),
-    );
-    i = start + length;
+    if (next == null) break;
+    if (next.start > i) {
+      spans.add(TextSpan(text: text.substring(i, next.start)));
+    }
+    spans.add(TextSpan(text: next.group(0), style: style));
+    i = next.end;
   }
   if (i < text.length) spans.add(TextSpan(text: text.substring(i)));
   return spans;
+}
+
+/// The first match of [term] at or after [from] that isn't empty (a regex
+/// like `re:x*` can match nothing and would stall the loop above).
+Match? _firstNonEmpty(RegExp term, String text, int from) {
+  for (final m in term.allMatches(text, from)) {
+    if (m.end > m.start) return m;
+  }
+  return null;
 }
 
 /// Floating pill over the log list while scrolled up: back to the newest
@@ -1587,13 +1628,11 @@ class _SearchNav extends StatelessWidget {
 class _StatusBar extends StatelessWidget {
   const _StatusBar({
     required this.note,
-    required this.error,
     required this.shown,
     required this.total,
   });
 
   final String? note;
-  final String? error;
   final int shown;
   final int total;
 
@@ -1603,26 +1642,12 @@ class _StatusBar extends StatelessWidget {
       height: 30,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: error != null ? AppColors.dangerTint : AppColors.surface,
+        color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         children: [
-          if (error != null) ...[
-            Icon(
-              Icons.error_outline_rounded,
-              size: 14,
-              color: AppColors.danger,
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                error!,
-                overflow: TextOverflow.ellipsis,
-                style: portixMuted(12).copyWith(color: AppColors.danger),
-              ),
-            ),
-          ] else if (note != null) ...[
+          if (note != null) ...[
             Icon(Icons.autorenew_rounded, size: 14, color: AppColors.cyan),
             const SizedBox(width: 6),
             Expanded(
@@ -1638,6 +1663,151 @@ class _StatusBar extends StatelessWidget {
             shown == total ? '$total lines' : '$shown of $total lines',
             style: portixMuted(12),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A failure, readably: title, what to check, Retry, and the raw message
+/// behind "Details" (selectable, copyable).
+class _ErrorBanner extends StatefulWidget {
+  const _ErrorBanner({
+    required this.error,
+    required this.retrying,
+    required this.onRetry,
+    required this.onDismiss,
+  });
+
+  final KubeError error;
+  final bool retrying;
+  final VoidCallback onRetry;
+  final VoidCallback onDismiss;
+
+  @override
+  State<_ErrorBanner> createState() => _ErrorBannerState();
+}
+
+class _ErrorBannerState extends State<_ErrorBanner> {
+  bool _details = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final error = widget.error;
+    Widget link(String text, IconData icon, VoidCallback? onTap) =>
+        TextButton.icon(
+          onPressed: onTap,
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.text,
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            textStyle: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          icon: Icon(icon, size: 14),
+          label: Text(text),
+        );
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.dangerTint,
+        border: Border(
+          left: BorderSide(color: AppColors.danger, width: 3),
+          bottom: BorderSide(color: AppColors.border),
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: Icon(
+                  Icons.error_outline_rounded,
+                  size: 18,
+                  color: AppColors.danger,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      error.title,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.text,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(error.hint, style: portixMuted(12)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              link(
+                widget.retrying ? 'Retrying…' : 'Retry',
+                Icons.refresh_rounded,
+                widget.retrying ? null : widget.onRetry,
+              ),
+              link(
+                _details ? 'Hide details' : 'Details',
+                _details
+                    ? Icons.expand_less_rounded
+                    : Icons.expand_more_rounded,
+                () => setState(() => _details = !_details),
+              ),
+              IconButton(
+                tooltip: 'Dismiss',
+                iconSize: 16,
+                visualDensity: VisualDensity.compact,
+                onPressed: widget.onDismiss,
+                icon: Icon(Icons.close_rounded, color: AppColors.muted),
+              ),
+            ],
+          ),
+          if (_details)
+            Container(
+              margin: const EdgeInsets.fromLTRB(28, 8, 8, 0),
+              padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+              constraints: const BoxConstraints(maxHeight: 160),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceDark,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: SelectableText(
+                        error.detail,
+                        style: _mono.copyWith(
+                          fontSize: 11.5,
+                          height: 1.5,
+                          color: AppColors.text.withValues(alpha: .85),
+                        ),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Copy details',
+                    iconSize: 14,
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () =>
+                        Clipboard.setData(ClipboardData(text: error.detail)),
+                    icon: Icon(Icons.copy_rounded, color: AppColors.muted),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
