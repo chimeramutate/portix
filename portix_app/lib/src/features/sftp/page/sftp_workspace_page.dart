@@ -70,6 +70,12 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   final TextEditingController _inlineRenameController = TextEditingController();
   final FocusNode _inlineRenameFocusNode = FocusNode(debugLabel: 'SFTP rename');
   final LocalEditWatcher _editWatcher = LocalEditWatcher();
+
+  /// Remote files open in an external editor, by local copy path.
+  final Map<String, _EditedCopy> _editedCopies = {};
+
+  /// Copies saved while their pane was offline, awaiting the reconnect.
+  final Set<String> _pendingUploads = {};
   final Set<String> _selectedLocalPaths = {};
   final Set<String> _selectedRemotePaths = {};
   String? _localSelectionAnchor;
@@ -135,6 +141,8 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   @override
   void dispose() {
+    // No snackbar: the context is unusable during dispose.
+    _discardEditedCopies((_) => true, notify: false);
     _editWatcher.dispose();
     _inlineCreateController.dispose();
     _inlineCreateFocusNode.dispose();
@@ -182,6 +190,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   void _handleControllerChanged() {
     if (!mounted) return;
+    _promptPendingUploads();
     _syncSelectionsWithRows();
     setState(() {});
   }
@@ -332,6 +341,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     final wasLastTab = _tabs.length <= 1;
     setState(() {
       final tab = _tabs.removeAt(index);
+      _discardEditedCopies((copy) => copy.controller == tab.controller);
       tab.controller
         ..removeListener(_handleControllerChanged)
         ..dispose();
@@ -795,10 +805,16 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       await controller.openEditor(editor, path);
       if (!mounted) return;
       if (isRemote) {
-        await _editWatcher.watch(
-          path,
-          () => _showRewritePrompt(file, path, originalText, isLeft),
+        // Bound to this pane and server now: the active tab or the pane's
+        // server may have changed by the time the copy is saved.
+        _editedCopies[path] = (
+          controller: controller,
+          profileId: controller.remoteProfileId ?? '',
+          serverName: controller.remoteProfileName,
+          file: file,
+          originalText: originalText,
         );
+        await _editWatcher.watch(path, () => _onEditedCopySaved(path));
         _showSnack(
           context,
           'Opened a temporary copy in ${editor.name}. Save the file to be asked whether to upload it.',
@@ -812,24 +828,86 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     }
   }
 
-  Future<void> _showRewritePrompt(
-    SftpFileEntry file,
-    String localPath,
-    String? originalText,
-    bool isLeft,
-  ) async {
+  /// Whether [copy]'s pane is connected to the server it came from.
+  bool _canUpload(_EditedCopy copy) =>
+      copy.controller.isRemoteConnected &&
+      copy.controller.remoteProfileId == copy.profileId;
+
+  /// A save while offline (or with the pane on another server) waits for
+  /// the reconnect instead of prompting for an upload that can only fail.
+  /// The server is probed first: after a network drop the session still
+  /// reads as connected for a while.
+  Future<void> _onEditedCopySaved(String localPath) async {
+    final copy = _editedCopies[localPath];
+    if (copy == null || !mounted) return;
+    if (_canUpload(copy) && await copy.controller.probeRemote()) {
+      return _showRewritePrompt(copy, localPath);
+    }
+    _holdForReconnect(copy, localPath);
+  }
+
+  void _holdForReconnect(_EditedCopy copy, String localPath) {
+    if (!_pendingUploads.add(localPath) || !mounted) return;
+    _showSnack(
+      context,
+      'No connection to ${copy.serverName ?? 'the server'}: ${copy.file.name} is saved here and you will be asked to upload it after reconnecting.',
+    );
+  }
+
+  /// Prompts for the saves held back by [_onEditedCopySaved] once their
+  /// pane is back on their server.
+  void _promptPendingUploads() {
+    for (final path in [..._pendingUploads]) {
+      final copy = _editedCopies[path];
+      if (copy == null || !_canUpload(copy)) continue;
+      _pendingUploads.remove(path);
+      unawaited(_showRewritePrompt(copy, path));
+    }
+  }
+
+  /// Stops watching the copies [where] picks and deletes their temp folders,
+  /// except copies with an upload still pending: those stay on disk so the
+  /// edits aren't lost.
+  void _discardEditedCopies(
+    bool Function(_EditedCopy copy) where, {
+    bool notify = true,
+  }) {
+    final kept = <String>[];
+    for (final MapEntry(key: path, value: copy) in [..._editedCopies.entries]) {
+      if (!where(copy)) continue;
+      _editWatcher.unwatch(path);
+      _editedCopies.remove(path);
+      if (_pendingUploads.remove(path)) {
+        kept.add(path);
+        continue;
+      }
+      // Each copy has its own temp folder (see editablePathFor).
+      File(path).parent.delete(recursive: true).ignore();
+    }
+    if (kept.isNotEmpty && notify && mounted) {
+      _showSnack(
+        context,
+        'Not uploaded, kept on this computer: ${kept.join(', ')}',
+      );
+    }
+  }
+
+  Future<void> _showRewritePrompt(_EditedCopy copy, String localPath) async {
     try {
       if (!mounted) return;
       final currentText = await readTextIfPossible(localPath);
       if (!mounted) return;
-      final diff = buildTextDiff(originalText, currentText);
+      final diff = buildTextDiff(copy.originalText, currentText);
       final shouldRewrite = await showDialog<bool>(
         context: context,
-        builder: (context) =>
-            RewriteRemoteDialog(fileName: file.name, diff: diff),
+        builder: (context) => RewriteRemoteDialog(
+          fileName: copy.file.path ?? copy.file.name,
+          diff: diff,
+          serverName: copy.serverName,
+        ),
       );
       if (shouldRewrite == true) {
-        await _rewriteEditedRemoteFile(file, localPath, isLeft);
+        await _rewriteEditedRemoteFile(copy, localPath);
       }
     } catch (error) {
       // Must not reach the file-watch timer's catch: it cancels the timer and
@@ -840,16 +918,22 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   }
 
   Future<void> _rewriteEditedRemoteFile(
-    SftpFileEntry file,
+    _EditedCopy copy,
     String localPath,
-    bool isLeft,
   ) async {
-    final controller = _c(isLeft);
     try {
-      await controller.rewriteRemoteFileFromLocal(file, localPath);
+      await copy.controller.rewriteRemoteFileFromLocal(
+        copy.file,
+        localPath,
+        profileId: copy.profileId,
+      );
       if (!mounted) return;
-      _showSnack(context, 'Remote file rewritten: ${file.name}');
+      _showSnack(context, 'Remote file rewritten: ${copy.file.name}');
     } catch (error) {
+      // The connection may have dropped while the dialog was open.
+      if (!await copy.controller.probeRemote()) {
+        return _holdForReconnect(copy, localPath);
+      }
       if (!mounted) return;
       _showSnack(context, 'Rewrite failed: $error');
     }
@@ -1725,3 +1809,13 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 }
 
 enum _SftpInlineCreateKind { folder, file }
+
+/// A remote file's local copy open in an external editor, and the pane and
+/// server its saves upload to.
+typedef _EditedCopy = ({
+  SftpWorkspaceController controller,
+  String profileId,
+  String? serverName,
+  SftpFileEntry file,
+  String? originalText,
+});

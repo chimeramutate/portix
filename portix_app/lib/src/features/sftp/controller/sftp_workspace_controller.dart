@@ -140,6 +140,7 @@ class SftpWorkspaceController extends ChangeNotifier {
   /// Human-readable name of the currently attached SSH profile, or null when
   /// no remote profile is selected.
   String? get remoteProfileName => _remoteProfileName;
+  String? get remoteProfileId => _remoteProfileId;
 
   /// 4 steps (with a password step) when the profile needed an unsaved
   /// password; key or saved-password profiles get 3.
@@ -169,6 +170,13 @@ class SftpWorkspaceController extends ChangeNotifier {
   bool get isRemoteConnected {
     final sessionId = _remoteSessionId;
     return sessionId != null && _sftp.isConnected(sessionId);
+  }
+
+  /// Like [isRemoteConnected], but asks the server now: after a network
+  /// drop the session still reads as connected until the liveness check.
+  Future<bool> probeRemote() async {
+    final sessionId = _remoteSessionId;
+    return sessionId != null && await _sftp.probe(sessionId);
   }
 
   bool get localSearchActive => _localSearchQuery.trim().isNotEmpty;
@@ -965,14 +973,20 @@ class SftpWorkspaceController extends ChangeNotifier {
     return localPath;
   }
 
+  /// Uploads [localPath] over [file], refusing when this pane is no longer on
+  /// [profileId], the server the copy was downloaded from.
   Future<void> rewriteRemoteFileFromLocal(
     SftpFileEntry file,
-    String localPath,
-  ) async {
+    String localPath, {
+    required String profileId,
+  }) async {
     final sessionId = _remoteSessionId;
     final remotePath = file.path;
     if (sessionId == null || remotePath == null) {
       throw StateError('Remote SFTP session is not connected.');
+    }
+    if (_remoteProfileId != profileId) {
+      throw StateError('This pane is now on a different server.');
     }
     // In place, so the file keeps its owner and permissions.
     final result = await _sftp.write(

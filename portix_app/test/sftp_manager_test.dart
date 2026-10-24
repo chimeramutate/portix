@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:portix/src/connection_manager/profile_credentials.dart';
 import 'package:portix/src/connection_manager/ssh_profile.dart';
@@ -43,6 +45,26 @@ void main() {
     expect(manager.session(id), isNotNull, reason: 'kept until closed');
   });
 
+  test('probe treats a check that never answers as a drop', () async {
+    final hanging = _HangingAliveBackend();
+    final probing = SftpManager(
+      backend: hanging,
+      credentials: ProfileCredentials(),
+      livenessInterval: const Duration(hours: 1),
+    );
+    addTearDown(probing.dispose);
+    final id = idOf(await probing.connect(_profile));
+    expect(await probing.probe(id), isTrue);
+
+    hanging.hang = true;
+    expect(probing.isConnected(id), isTrue, reason: 'not noticed yet');
+    expect(
+      await probing.probe(id, timeout: const Duration(milliseconds: 20)),
+      isFalse,
+    );
+    expect(probing.isConnected(id), isFalse);
+  });
+
   test('chmod takes octal text and rejects anything else', () async {
     final id = idOf(await manager.connect(_profile));
     expect((await manager.chmod(id, '/f', '755')).isRight, isTrue);
@@ -80,4 +102,13 @@ void main() {
       expect(manager.session(second), isNull);
     });
   });
+}
+
+/// A server whose liveness check stops answering, as after a network drop.
+class _HangingAliveBackend extends FakeSftpBackend {
+  bool hang = false;
+
+  @override
+  Future<bool> isAlive(String sessionId) =>
+      hang ? Completer<bool>().future : super.isAlive(sessionId);
 }
