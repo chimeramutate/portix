@@ -86,6 +86,37 @@ void main() {
       },
     );
 
+    test('rewrite uploads only to the server the copy came from', () async {
+      await _attachRemoteProfile(controller);
+      const remotePath = '/srv/app/config.json';
+      final remoteFile = SftpFileEntry(
+        name: 'config.json',
+        path: remotePath,
+        size: '12 B',
+        modified: 'Today 12:00',
+      );
+      backend.remoteFiles[remotePath] = utf8.encode('old');
+      final localPath = await controller.editablePathFor(remoteFile, true);
+      await File(localPath).writeAsString('new');
+
+      await expectLater(
+        controller.rewriteRemoteFileFromLocal(
+          remoteFile,
+          localPath,
+          profileId: 'another-profile',
+        ),
+        throwsStateError,
+      );
+      expect(utf8.decode(backend.remoteFiles[remotePath]!), 'old');
+
+      await controller.rewriteRemoteFileFromLocal(
+        remoteFile,
+        localPath,
+        profileId: 'profile-1',
+      );
+      expect(utf8.decode(backend.remoteFiles[remotePath]!), 'new');
+    });
+
     test(
       'same basename from different remote paths never collides locally',
       () async {

@@ -30,6 +30,8 @@ class LocalEditWatcher {
     });
   }
 
+  void unwatch(String localPath) => _timers.remove(localPath)?.cancel();
+
   void dispose() {
     for (final timer in _timers.values) {
       timer.cancel();
