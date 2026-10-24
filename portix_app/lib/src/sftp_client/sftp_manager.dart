@@ -202,19 +202,28 @@ class SftpManager extends ChangeNotifier {
     }
   }
 
-  Future<void> _checkAlive(String sessionId) async {
+  /// Checks [sessionId] now rather than at the next liveness tick. A dropped
+  /// network can leave the check hanging, so no answer within [timeout]
+  /// counts as dead.
+  Future<bool> probe(
+    String sessionId, {
+    Duration timeout = const Duration(seconds: 5),
+  }) => _checkAlive(sessionId, timeout: timeout);
+
+  Future<bool> _checkAlive(String sessionId, {Duration? timeout}) async {
     final session = _sessions[sessionId];
-    if (session == null || !session.isConnected) return;
-    final alive = await _backend
-        .isAlive(sessionId)
-        .catchError((Object _) => false);
-    if (alive || _sessions[sessionId] != session) return;
+    if (session == null || !session.isConnected) return false;
+    var check = _backend.isAlive(sessionId);
+    if (timeout != null) check = check.timeout(timeout, onTimeout: () => false);
+    final alive = await check.catchError((Object _) => false);
+    if (alive || _sessions[sessionId] != session) return alive;
     _sessions[sessionId] = SftpSession(
       id: sessionId,
       profileId: session.profileId,
       status: SftpStatus.disconnected,
     );
     _notify();
+    return false;
   }
 
   void _notify() {

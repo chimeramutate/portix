@@ -349,19 +349,20 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
 
                 let result = if let Some(handle) = session.as_ref() {
                     let result = run_exec(handle, command.clone()).await;
-                    if result.is_err() {
-                        // Dropped between pings (or the connect above failed): reconnect and
-                        // retry once so the caller never sees the transient failure.
+                    // A command that ran and exited non-zero is the answer; only a
+                    // broken connection is worth reconnecting (and re-running) for.
+                    if matches!(&result, Err(e) if !matches!(e, PortixError::InvalidRequest(_))) {
+                        // Dropped between pings: reconnect and retry once so the caller
+                        // never sees the transient failure.
                         session = None;
                         match connect().await {
                             Ok(new_handle) => {
                                 session = Some(new_handle);
                                 run_exec(session.as_ref().unwrap(), command).await
                             }
-                            // A host key failure is the more important error to report.
-                            Err(err @ (PortixError::HostKeyChanged { .. }
-                            | PortixError::HostKeyUnknown { .. })) => Err(err),
-                            Err(_) => result,
+                            // Why we can't get back in (host key, auth, network) says
+                            // more than the dead channel's "Channel send error".
+                            Err(err) => Err(err),
                         }
                     } else {
                         result

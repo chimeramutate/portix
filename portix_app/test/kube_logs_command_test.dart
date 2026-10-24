@@ -123,7 +123,9 @@ void main() {
       expect(m('"response":"06"', '14:06 {"response":"00"}'), isFalse);
       expect(m('"responseCode":"06"', line), isFalse);
       expect(m('-"response":"06"', line), isFalse);
-      expect(LogQuery('"response":"06"').highlights, ['"response":"06"']);
+      expect(LogQuery('"response":"06"').highlights.map((r) => r.pattern), [
+        '"response":"06"',
+      ]);
     });
 
     test('OR', () {
@@ -184,10 +186,12 @@ void main() {
   });
 
   test('LogQuery.highlights skips exclusions', () {
-    expect(LogQuery('error -timeout "receive from"').highlights, [
-      'error',
-      'receive from',
-    ]);
+    expect(
+      LogQuery(
+        'error -timeout "receive from"',
+      ).highlights.map((r) => r.pattern),
+      ['error', 'receive from'],
+    );
   });
 
   group('appendNewLines', () {
@@ -248,6 +252,49 @@ void main() {
       final line = LogLine(null, '2026-10-19 14:19:03.465 [ INFO] - hi');
       expect(displayOf(line), splitLogText(line.text));
       expect(displayOf(line).message, 'hi');
+    });
+  });
+
+  group('describeKubeError', () {
+    test('a dropped SSH channel reads as a lost connection', () {
+      final e = describeKubeError(
+        'Remote command failed: AnyhowException(Channel send error\n\n'
+        'Stack backtrace:\n   0: portix_serv::foo)',
+      );
+      expect(e.title, 'Lost connection to the server');
+      expect(e.detail, 'Channel send error');
+    });
+
+    test('kubectl errors win over SSH-looking words', () {
+      expect(
+        describeKubeError(
+          'Remote command failed: remote command exited with 1: The '
+          'connection to the server 10.0.0.1:6443 was refused',
+        ).title,
+        'Kubernetes API unreachable from this server',
+      );
+      final missing = describeKubeError(
+        'remote command exited with 127: sh: kubectl: command not found',
+      );
+      expect(missing.title, "kubectl isn't installed on this server");
+      expect(missing.detail, 'sh: kubectl: command not found');
+    });
+
+    test('RBAC, credentials, not found, fallback', () {
+      String title(String raw) => describeKubeError(raw).title;
+      expect(
+        title('Error from server (Forbidden): pods is forbidden'),
+        'No permission for this',
+      );
+      expect(
+        title('error: You must be logged in to the server (Unauthorized)'),
+        'Cluster credentials were rejected',
+      );
+      expect(
+        title('Error from server (NotFound): pods "x" not found'),
+        'Not found',
+      );
+      expect(title('something odd'), 'Command failed');
     });
   });
 

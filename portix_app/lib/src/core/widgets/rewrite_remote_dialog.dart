@@ -11,11 +11,16 @@ class RewriteRemoteDialog extends StatelessWidget {
   const RewriteRemoteDialog({
     required this.fileName,
     required this.diff,
+    this.serverName,
     super.key,
   });
 
   final String fileName;
   final TextDiffResult diff;
+
+  /// The server the upload goes to, so a prompt raised while another tab is
+  /// active says where it writes.
+  final String? serverName;
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +59,22 @@ class RewriteRemoteDialog extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: portixMuted(12),
               ),
+              if (serverName != null) ...[
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(Icons.dns_rounded, size: 14, color: AppColors.cyan),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        'Uploads to $serverName',
+                        overflow: TextOverflow.ellipsis,
+                        style: portixMuted(12).copyWith(color: AppColors.cyan),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 14),
               Row(
                 children: [
