@@ -350,7 +350,7 @@ class SplitResizeHandle extends StatelessWidget {
               child: Icon(
                 horizontal ? Icons.swap_horiz_rounded : Icons.swap_vert_rounded,
                 size: 14,
-                color: AppColors.cyan,
+                color: AppColors.accent,
               ),
             ),
           ),

@@ -12,6 +12,7 @@ import 'package:portix/src/connection_manager/mock_backend.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/domain/repositories/ssh/ssh_profile_repository.dart';
 import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
+import 'package:portix/src/features/ssh_profiles/widget/gallery/profile_inspector.dart';
 import 'support/refusing_host_key_backend.dart';
 
 const _seedProfiles = [
@@ -116,12 +117,13 @@ void main() {
     expect(find.text('Search profile, host, tag, or group'), findsOneWidget);
     expect(find.byTooltip('SSH profiles'), findsOneWidget);
     expect(find.text('prod-api-01'), findsWidgets);
-    expect(find.text('Selected Profile'), findsNothing);
+    expect(find.byType(ProfileInspector), findsNothing);
 
     await tester.tap(find.text('prod-api-01').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('Selected Profile'), findsOneWidget);
+    expect(find.byType(ProfileInspector), findsOneWidget);
+    expect(find.text('Open SSH Session'), findsOneWidget);
   });
 
   _appTest('renders the SFTP workspace from rail navigation', (tester) async {
@@ -131,7 +133,7 @@ void main() {
     await _waitForLocalPane(tester);
     await tester.pumpAndSettle();
 
-    expect(find.text('SFTP Workspace'), findsWidgets);
+    expect(find.text('SFTP'), findsWidgets);
     expect(find.text('Local'), findsOneWidget);
     expect(find.text('Remote'), findsOneWidget);
     expect(find.text('prod-api-01'), findsOneWidget);
@@ -217,6 +219,19 @@ void main() {
 
     expect(find.byKey(const ValueKey('close-tab-prod-api-01')), findsOneWidget);
     expect(find.byKey(const ValueKey('close-tab-prod-api-01 2')), findsNothing);
+  });
+
+  _appTest('terminals rail item is enabled only with an open session', (
+    tester,
+  ) async {
+    await _pumpPortixApp(tester, const Size(1600, 900));
+    expect(find.byTooltip('Terminals (none open)'), findsOneWidget);
+
+    await tester.tap(find.text('Open SSH').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('SSH profiles'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Terminals'), findsOneWidget);
   });
 
   _appTest('async host key refusal prompts, trusts, and reconnects', (

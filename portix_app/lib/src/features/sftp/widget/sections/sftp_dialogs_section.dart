@@ -8,7 +8,7 @@ class _EditorPickerSheet extends StatelessWidget {
   Widget _buildEditorIcon(LocalEditor editor) {
     final fallbackIcon = Icon(
       editor.icon ?? Icons.code_rounded,
-      color: AppColors.cyan,
+      color: AppColors.accent,
       size: 22,
     );
 
@@ -461,7 +461,7 @@ class _RemoteFolderPickerDialogState extends State<_RemoteFolderPickerDialog> {
                 children: [
                   Icon(
                     Icons.drive_file_move_rounded,
-                    color: AppColors.cyan,
+                    color: AppColors.accent,
                     size: 20,
                   ),
                   const SizedBox(width: 10),
@@ -484,7 +484,7 @@ class _RemoteFolderPickerDialogState extends State<_RemoteFolderPickerDialog> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.folder_rounded, size: 16, color: AppColors.cyan),
+                    Icon(Icons.folder_rounded, size: 16, color: AppColors.accent),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -550,14 +550,9 @@ class _RemoteFolderPickerDialogState extends State<_RemoteFolderPickerDialog> {
                               ),
                               child: Row(
                                 children: [
-                                  Icon(
-                                    isFolder
-                                        ? Icons.folder_rounded
-                                        : Icons.insert_drive_file_outlined,
-                                    color: isFolder
-                                        ? AppColors.amber
-                                        : AppColors.muted,
-                                    size: 18,
+                                  FileTypeIcon(
+                                    name: entry.name,
+                                    folder: isFolder,
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(

@@ -230,13 +230,13 @@ class _SnippetPaletteDialogState extends State<_SnippetPaletteDialog> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.bolt_rounded, color: AppColors.cyan),
+                  Icon(Icons.bolt_rounded, color: AppColors.accent),
                   const SizedBox(width: 10),
                   Expanded(child: Text('Snippets', style: portixTitle(18))),
                   IconButton(
                     tooltip: 'New snippet',
                     onPressed: () => _edit(),
-                    icon: Icon(Icons.add_rounded, color: AppColors.cyan),
+                    icon: Icon(Icons.add_rounded, color: AppColors.accent),
                   ),
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),

@@ -68,7 +68,7 @@ class _UnknownHostKeyDialog extends StatelessWidget {
       backgroundColor: AppColors.surface,
       title: Row(
         children: [
-          Icon(Icons.fingerprint_rounded, color: AppColors.cyan),
+          Icon(Icons.fingerprint_rounded, color: AppColors.accent),
           SizedBox(width: 10),
           Text('Verify host key'),
         ],

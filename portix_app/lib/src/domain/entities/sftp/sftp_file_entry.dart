@@ -8,6 +8,8 @@ class SftpFileEntry {
     this.type = 'file',
     this.folder = false,
     this.chmodMode,
+    this.sizeBytes = 0,
+    this.modifiedAt,
   });
 
   final String name;
@@ -18,4 +20,8 @@ class SftpFileEntry {
   final String type;
   final bool folder;
   final String? chmodMode;
+
+  /// Raw values behind [size] and [modified], for sorting.
+  final int sizeBytes;
+  final DateTime? modifiedAt;
 }

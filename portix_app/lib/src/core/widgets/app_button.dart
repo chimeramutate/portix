@@ -19,7 +19,7 @@ class AppButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 30,
+      height: 32,
       child: primary
           ? FilledButton.icon(
               onPressed: onPressed,
@@ -30,9 +30,6 @@ class AppButton extends StatelessWidget {
               onPressed: onPressed,
               icon: Icon(icon, size: 14),
               label: Text(label, overflow: TextOverflow.ellipsis),
-              style: OutlinedButton.styleFrom(
-                backgroundColor: AppColors.surfaceCard.withValues(alpha: .55),
-              ),
             ),
     );
   }
@@ -57,7 +54,7 @@ class AppIconButton extends StatelessWidget {
   final String tooltip;
   final VoidCallback? onPressed;
   final Color? _color;
-  Color get color => _color ?? AppColors.cyan;
+  Color get color => _color ?? AppColors.accent;
 
   @override
   Widget build(BuildContext context) {
@@ -72,9 +69,8 @@ class AppIconButton extends StatelessWidget {
         ),
       );
     }
-    return SizedBox(
-      width: 30,
-      height: 30,
+    return SizedBox.square(
+      dimension: 32,
       child: IconButton.outlined(
         tooltip: tooltip,
         onPressed: onPressed,
@@ -86,7 +82,7 @@ class AppIconButton extends StatelessWidget {
               ),
             ).copyWith(
               side: focusRingSide(
-                focus: AppColors.cyan,
+                focus: AppColors.accent,
                 rest: BorderSide(color: AppColors.inputBorder),
               ),
             ),

@@ -39,10 +39,29 @@ class TerminalStatusFooter extends StatelessWidget {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              _RemoteOsChip(snapshot: snapshot, error: error),
-              const SizedBox(width: 14),
-              _UptimeChip(snapshot: snapshot, error: error),
-              if (showMetrics) ...[
+              if (error case final error?)
+                // One notice instead of N/A and "Up offline" side by side.
+                Tooltip(
+                  message: error,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.cloud_off_outlined,
+                        color: AppColors.amber,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 6),
+                      Text('System info unavailable', style: portixMuted(11)),
+                    ],
+                  ),
+                )
+              else ...[
+                _RemoteOsChip(snapshot: snapshot, error: null),
+                const SizedBox(width: 14),
+                _UptimeChip(snapshot: snapshot, error: null),
+              ],
+              if (showMetrics && error == null) ...[
                 const SizedBox(width: 14),
                 _UsageMeter(
                   label: 'Memory',
@@ -115,7 +134,7 @@ class _UsageMeter extends StatelessWidget {
     final value = TextStyle(
       color: AppColors.text,
       fontSize: 11,
-      fontWeight: FontWeight.w600,
+      fontWeight: FontWeight.w400,
     );
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -183,7 +202,7 @@ class _RemoteOsChip extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: portixMuted(11).copyWith(
                 color: error == null ? AppColors.text : AppColors.amber,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w400,
               ),
             ),
           ),
@@ -248,7 +267,7 @@ class _UptimeChip extends StatelessWidget {
         children: [
           Icon(
             Icons.schedule_rounded,
-            color: error == null ? AppColors.green : AppColors.amber,
+            color: error == null ? AppColors.muted : AppColors.amber,
             size: 14,
           ),
           const SizedBox(width: 5),
@@ -258,7 +277,7 @@ class _UptimeChip extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: portixMuted(11).copyWith(
                 color: error == null ? AppColors.text : AppColors.amber,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w400,
               ),
             ),
           ),

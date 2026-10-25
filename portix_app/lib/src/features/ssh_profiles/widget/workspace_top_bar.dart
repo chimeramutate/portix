@@ -36,22 +36,10 @@ class WorkspaceTopBar extends StatelessWidget {
         target == TargetPlatform.linux ||
         target == TargetPlatform.windows;
     final (center, actions) = switch (state.activeView) {
+      // Save and cancel sit in the form's own pinned footer.
       WorkspaceView.form => (
         const _FormBreadcrumb(compact: false),
-        <Widget>[
-          AppPill(
-            label: 'Unsaved draft',
-            color: AppColors.amber,
-            background: AppColors.amberTint,
-          ),
-          AppButton(
-            icon: Icons.save_outlined,
-            label: 'Save Profile',
-            primary: true,
-            onPressed: () =>
-                context.read<SshWorkspaceBloc>().add(const ProfileSaved()),
-          ),
-        ],
+        const <Widget>[],
       ),
       WorkspaceView.sftp => (const _SftpStatus(), const <Widget>[]),
       WorkspaceView.remoteFolder => (
@@ -194,7 +182,7 @@ class _GallerySearchState extends State<_GallerySearch> {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(6),
-              borderSide: BorderSide(color: AppColors.cyan),
+              borderSide: BorderSide(color: AppColors.accent),
             ),
             prefixIcon: Icon(
               Icons.search_rounded,
@@ -239,17 +227,12 @@ class _SftpStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The connection state lives on the Remote pane; the bar names the server.
     final profile = context.watch<SftpWorkspaceBloc>().state.selectedProfile;
-    final hasSession = profile != null;
+    if (profile == null) return const _Title('SFTP');
     return _ConnectionBadge(
-      osIconAsset: profile?.osIconAsset,
-      iconColor: hasSession ? AppColors.green : AppColors.muted,
-      title: profile?.name ?? 'SFTP Workspace',
-      trailing: AppPill(
-        label: hasSession ? 'Ready' : 'No session',
-        color: hasSession ? AppColors.green : AppColors.muted,
-        background: hasSession ? AppColors.greenTint : AppColors.surface,
-      ),
+      osIconAsset: profile.osIconAsset,
+      title: profile.name,
     );
   }
 }
@@ -347,7 +330,7 @@ class _FormBreadcrumb extends StatelessWidget {
               child: Text(
                 'List SSH Profiles',
                 overflow: TextOverflow.ellipsis,
-                style: portixMuted().copyWith(fontWeight: FontWeight.w800),
+                style: portixMuted().copyWith(fontWeight: FontWeight.w600),
               ),
             ),
           if (!compact) ...[
@@ -370,19 +353,11 @@ class _FormBreadcrumb extends StatelessWidget {
 }
 
 class _ConnectionBadge extends StatelessWidget {
-  const _ConnectionBadge({
-    this.osIconAsset,
-    required this.title,
-    this.trailing,
-    Color? iconColor,
-  }) : _iconColor = iconColor;
+  const _ConnectionBadge({this.osIconAsset, required this.title});
 
   /// OS SVG icon asset, drawn in its own colors; [Icons.dns_outlined] when empty.
   final String? osIconAsset;
   final String title;
-  final Widget? trailing;
-  final Color? _iconColor;
-  Color get iconColor => _iconColor ?? AppColors.green;
 
   @override
   Widget build(BuildContext context) {
@@ -407,7 +382,7 @@ class _ConnectionBadge extends StatelessWidget {
                 child: SvgPicture.asset(asset, fit: BoxFit.contain),
               )
             else
-              Icon(Icons.dns_outlined, color: iconColor, size: 16),
+              Icon(Icons.dns_outlined, color: AppColors.muted, size: 16),
             const SizedBox(width: 8),
             Flexible(
               flex: 2,
@@ -417,7 +392,6 @@ class _ConnectionBadge extends StatelessWidget {
                 style: portixTitle(12),
               ),
             ),
-            if (trailing != null) ...[const SizedBox(width: 10), trailing!],
           ],
         ),
       ),

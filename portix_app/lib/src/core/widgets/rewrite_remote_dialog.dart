@@ -41,7 +41,7 @@ class RewriteRemoteDialog extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(Icons.sync_alt_rounded, color: AppColors.cyan, size: 20),
+                  Icon(Icons.sync_alt_rounded, color: AppColors.accent, size: 20),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text('Rewrite remote file?', style: portixTitle(16)),
@@ -63,13 +63,13 @@ class RewriteRemoteDialog extends StatelessWidget {
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    Icon(Icons.dns_rounded, size: 14, color: AppColors.cyan),
+                    Icon(Icons.dns_rounded, size: 14, color: AppColors.accent),
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(
                         'Uploads to $serverName',
                         overflow: TextOverflow.ellipsis,
-                        style: portixMuted(12).copyWith(color: AppColors.cyan),
+                        style: portixMuted(12).copyWith(color: AppColors.accent),
                       ),
                     ),
                   ],
@@ -123,7 +123,7 @@ class RewriteRemoteDialog extends StatelessWidget {
                             height: 1.4,
                             fontFamily: 'monospace',
                             fontWeight: (isAdd || isRemove)
-                                ? FontWeight.w700
+                                ? FontWeight.w500
                                 : FontWeight.normal,
                           ),
                         ),

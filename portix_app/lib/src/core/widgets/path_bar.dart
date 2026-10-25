@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
+import 'file_type_icon.dart';
 import 'app_panel.dart';
 
 /// A directory entry offered by [PathBar]'s Tab autocomplete.
@@ -263,8 +264,8 @@ class _PathBarState extends State<PathBar> {
   @override
   Widget build(BuildContext context) {
     return AppPanel(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 2),
-      borderColor: _focusNode.hasFocus ? AppColors.cyan : AppColors.inputBorder,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      borderColor: _focusNode.hasFocus ? AppColors.accent : AppColors.inputBorder,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
@@ -286,10 +287,11 @@ class _PathBarState extends State<PathBar> {
                   },
                   style: TextStyle(
                     color: AppColors.text,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w400,
                     fontSize: 13,
                   ),
                   decoration: const InputDecoration(
+                    filled: false,
                     border: InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
@@ -305,7 +307,7 @@ class _PathBarState extends State<PathBar> {
                   style: TextStyle(
                     color: AppColors.muted,
                     fontSize: 11,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
@@ -358,13 +360,9 @@ class _PathBarState extends State<PathBar> {
                             ),
                             child: Row(
                               children: [
-                                Icon(
-                                  entry.isDirectory
-                                      ? Icons.folder_outlined
-                                      : Icons.insert_drive_file_outlined,
-                                  color: entry.isDirectory
-                                      ? AppColors.amber
-                                      : AppColors.muted,
+                                FileTypeIcon(
+                                  name: entry.name,
+                                  folder: entry.isDirectory,
                                   size: 15,
                                 ),
                                 const SizedBox(width: 7),
@@ -376,7 +374,7 @@ class _PathBarState extends State<PathBar> {
                                           ? AppColors.text
                                           : AppColors.muted,
                                       fontSize: 12,
-                                      fontWeight: FontWeight.w700,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,

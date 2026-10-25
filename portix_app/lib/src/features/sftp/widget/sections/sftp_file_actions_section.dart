@@ -32,9 +32,6 @@ class _FileActionMenu extends StatelessWidget {
 
     return PopupMenuButton<_FileAction>(
       tooltip: 'Actions',
-      color: AppColors.menu,
-      shape: _menuShape,
-      elevation: 8,
       menuPadding: _menuPadding,
       constraints: _menuConstraints,
       icon: Icon(Icons.more_vert_rounded, size: 18, color: AppColors.muted),
@@ -116,11 +113,6 @@ PopupMenuItem<_FileAction> _item(
 }
 
 /// Same look for the ⋮ menu and the right-click menu.
-ShapeBorder get _menuShape => RoundedRectangleBorder(
-  borderRadius: BorderRadius.circular(10),
-  side: BorderSide(color: AppColors.border),
-);
-
 const _menuPadding = EdgeInsets.symmetric(vertical: 4);
 const _menuConstraints = BoxConstraints(minWidth: 190);
 
@@ -140,9 +132,6 @@ Future<void> _showFileActionMenu(
       position.dx + 1,
       position.dy + 1,
     ),
-    color: AppColors.menu,
-    shape: _menuShape,
-    elevation: 8,
     menuPadding: _menuPadding,
     constraints: _menuConstraints,
     items: _fileActionItems(file, isRemote),
@@ -202,7 +191,7 @@ class _FileRow extends StatelessWidget {
         child: InkWell(
           onTap: onSelected,
           highlightColor: AppColors.surfaceDark.withValues(alpha: .35),
-          splashColor: AppColors.cyan.withValues(alpha: .08),
+          splashColor: AppColors.accent.withValues(alpha: .08),
           child: Container(
             height: compact
                 ? data.location == null
@@ -247,42 +236,12 @@ class _FileRow extends StatelessWidget {
     );
   }
 
-  Widget _buildFileIcon({required bool compact}) {
-    final iconSize = compact ? 20.0 : 18.0;
-    final color = _iconColorForFile(data.name);
-    if (data.folder) {
-      return Icon(Icons.folder_outlined, color: color, size: iconSize);
-    }
-    final asset = FileTypeRegistry.assetForExtension(data.name);
-    if (asset != null) {
-      return SizedBox(
-        width: iconSize,
-        height: iconSize,
-        child: SvgPicture.asset(
-          asset,
-          fit: BoxFit.contain,
-          colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
-        ),
-      );
-    }
-    return Icon(Icons.insert_drive_file_outlined, color: color, size: iconSize);
-  }
-
-  Color _iconColorForFile(String fileName) {
-    final category = FileTypeRegistry.categoryFor(fileName);
-    return switch (category) {
-      FileCategory.code => AppColors.cyan,
-      FileCategory.document => AppColors.blue,
-      FileCategory.image => AppColors.amber,
-      FileCategory.audio => AppColors.danger,
-      FileCategory.video => AppColors.danger,
-      FileCategory.archive => AppColors.amber,
-      FileCategory.executable => AppColors.danger,
-      FileCategory.database => AppColors.blue,
-      FileCategory.design => AppColors.amber,
-      FileCategory.unknown => AppColors.muted,
-    };
-  }
+  Widget _buildFileIcon({required bool compact}) => FileTypeIcon(
+    // '..' is the parent folder, not a folder named '..'.
+    name: data.name == '..' ? '' : data.name,
+    folder: data.folder,
+    size: compact ? 20 : 18,
+  );
 
   Widget _nameCell({required bool compact}) {
     final meta = [
@@ -304,7 +263,11 @@ class _FileRow extends StatelessWidget {
                 data.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: portixTitle(compact ? 15 : 14),
+                style: TextStyle(
+                  color: AppColors.text,
+                  fontSize: compact ? 14 : 13,
+                  fontWeight: FontWeight.w400,
+                ),
               ),
               if (compact && meta.isNotEmpty) ...[
                 const SizedBox(height: 3),
@@ -394,12 +357,12 @@ class _DragFeedback extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 230,
-      height: 38,
+      height: 32,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: AppColors.surfaceCard,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.cyan),
+        border: Border.all(color: AppColors.accent),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: .28),
@@ -410,11 +373,9 @@ class _DragFeedback extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            data.folder ? Icons.folder_outlined : Icons.insert_drive_file,
-            color: data.folder ? AppColors.amber : AppColors.cyan,
-            size: 17,
-          ),
+          count > 1
+              ? Icon(Icons.copy_all_rounded, color: AppColors.muted, size: 17)
+              : FileTypeIcon(name: data.name, folder: data.folder, size: 17),
           const SizedBox(width: 9),
           Expanded(
             child: Text(
@@ -425,7 +386,7 @@ class _DragFeedback extends StatelessWidget {
           ),
           Icon(
             fromRemote ? Icons.download_rounded : Icons.upload_rounded,
-            color: AppColors.cyan,
+            color: AppColors.accent,
             size: 16,
           ),
         ],
@@ -454,7 +415,7 @@ class _PaneFooter extends StatelessWidget {
           Text(
             right,
             overflow: TextOverflow.ellipsis,
-            style: portixMuted(12).copyWith(color: AppColors.cyan),
+            style: portixMuted(12),
           ),
         ],
       ),

@@ -120,8 +120,8 @@ class _FilePane extends StatelessWidget {
             ? false
             : (isRemote ? (loading || error == null) : true);
         return AppPanel(
-          padding: const EdgeInsets.all(14),
-          borderColor: isDropTarget ? AppColors.cyan : AppColors.border,
+          padding: const EdgeInsets.all(12),
+          borderColor: isDropTarget ? AppColors.accent : AppColors.border,
           color: isDropTarget
               ? AppColors.surfaceCard.withValues(alpha: .78)
               : AppColors.surface,
@@ -162,7 +162,7 @@ class _FilePane extends StatelessWidget {
                           title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: portixTitle(16),
+                          style: portixTitle(14),
                         ),
                       ),
                       AppPill(label: countLabel, color: AppColors.muted),
@@ -170,40 +170,48 @@ class _FilePane extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               // Skeletons instead of hiding the bars, so the layout stays in place.
               if (showSteps) ...[
                 const SizedBox(height: 12),
               ] else ...[
-                if (showPathBar && showControls)
+                if ((showPathBar || showActions) && showControls)
                   Skeletonizer(
                     enabled: loading,
-                    child: PathBar(
-                      path: path,
-                      onSubmit: onPathSubmitted,
-                      onListPath: switch (onListPath) {
-                        final list? => (dir) async => [
-                          for (final entry in await list(dir))
-                            (name: entry.name, isDirectory: entry.folder),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (showPathBar)
+                          Expanded(
+                            child: PathBar(
+                              path: path,
+                              onSubmit: onPathSubmitted,
+                              onListPath: switch (onListPath) {
+                                final list? => (dir) async => [
+                                  for (final entry in await list(dir))
+                                    (
+                                      name: entry.name,
+                                      isDirectory: entry.folder,
+                                    ),
+                                ],
+                                null => null,
+                              },
+                            ),
+                          ),
+                        if (showActions) ...[
+                          if (showPathBar) const SizedBox(width: 8),
+                          _PaneActions(
+                            isRemote: isRemote,
+                            onCreateFileRequested: onCreateFileRequested,
+                            onCreateFolderRequested: onCreateFolderRequested,
+                            onRefreshRequested: onRefreshRequested,
+                          ),
                         ],
-                        null => null,
-                      },
+                      ],
                     ),
                   ),
-                if (showActions && showControls) ...[
-                  const SizedBox(height: 12),
-                  Skeletonizer(
-                    enabled: loading,
-                    child: _PaneActions(
-                      isRemote: isRemote,
-                      onCreateFileRequested: onCreateFileRequested,
-                      onCreateFolderRequested: onCreateFolderRequested,
-                      onRefreshRequested: onRefreshRequested,
-                    ),
-                  ),
-                ],
                 if (onFindSubmitted != null && showControls) ...[
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   Skeletonizer(
                     enabled: loading,
                     child: _RemoteFindBar(
@@ -222,15 +230,21 @@ class _FilePane extends StatelessWidget {
               const SizedBox(height: 10),
               Expanded(
                 child: Container(
-                  decoration: BoxDecoration(
-                    color: showSteps
-                        ? AppColors.surfaceDark
-                        : AppColors.surfaceDark.withValues(alpha: .45),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: isDropTarget ? AppColors.cyan : AppColors.border,
-                    ),
-                  ),
+                  // The profile picker sits on the pane itself; only the
+                  // file table and status views get the inset box.
+                  decoration: contentOverride != null
+                      ? null
+                      : BoxDecoration(
+                          color: showSteps
+                              ? AppColors.surfaceDark
+                              : AppColors.surfaceDark.withValues(alpha: .45),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isDropTarget
+                                ? AppColors.accent
+                                : AppColors.border,
+                          ),
+                        ),
                   child: contentOverride != null
                       ? contentOverride
                       : loading
@@ -290,78 +304,95 @@ class _FilePane extends StatelessWidget {
                                   : 'Local folder unavailable'),
                           message: statusMessage ?? error!,
                         )
-                      : Column(
-                          children: [
-                            _TableHeader(isRemote: isRemote),
-                            Expanded(
-                              child: Builder(
-                                builder: (context) {
-                                  final createActive =
-                                      inlineCreateKind != null &&
-                                      inlineCreateController != null &&
-                                      inlineCreateFocusNode != null &&
-                                      onInlineCreateSubmit != null &&
-                                      onInlineCreateCancel != null;
-                                  final renameActive =
-                                      inlineRenameFile != null &&
-                                      inlineRenameController != null &&
-                                      inlineRenameFocusNode != null &&
-                                      onInlineRenameSubmit != null &&
-                                      onInlineRenameCancel != null;
-                                  return ListView.builder(
-                                    itemCount:
-                                        items.length + (createActive ? 1 : 0),
-                                    itemBuilder: (context, index) {
-                                      if (createActive && index == 0) {
-                                        return _SftpInlineCreateItem(
-                                          kind: inlineCreateKind!,
-                                          controller: inlineCreateController!,
-                                          focusNode: inlineCreateFocusNode!,
-                                          onSubmit: onInlineCreateSubmit!,
-                                          onCancel: onInlineCreateCancel!,
-                                        );
-                                      }
-                                      final item =
-                                          items[index - (createActive ? 1 : 0)];
-                                      final itemIndex =
-                                          index - (createActive ? 1 : 0);
-                                      if (renameActive &&
-                                          item.path == inlineRenameFile!.path) {
-                                        return _SftpInlineRenameItem(
-                                          file: item,
-                                          controller: inlineRenameController!,
-                                          focusNode: inlineRenameFocusNode!,
-                                          onSubmit: onInlineRenameSubmit!,
-                                          onCancel: onInlineRenameCancel!,
-                                        );
-                                      }
-                                      return _FileRow(
-                                        data: item,
-                                        selected:
-                                            item.path != null &&
-                                            selectedPaths.contains(item.path),
-                                        isRemote: isRemote,
-                                        onOpenFolder: onOpenFolder,
-                                        onAction: onFileAction,
-                                        onSelected: () => onItemSelected(
-                                          item,
-                                          itemIndex,
-                                          items,
-                                        ),
-                                        dragEntries: selectedTransferEntries(
-                                          item,
-                                        ),
+                      : _FileSortScope(
+                          builder: (sort, onSort) {
+                            // Shadows the field: rows in the chosen order,
+                            // so shift-click ranges follow what is shown.
+                            final items = sortFileEntries(this.items, sort);
+                            return Column(
+                              children: [
+                                _TableHeader(
+                                  isRemote: isRemote,
+                                  sort: sort,
+                                  onSort: onSort,
+                                ),
+                                Expanded(
+                                  child: Builder(
+                                    builder: (context) {
+                                      final createActive =
+                                          inlineCreateKind != null &&
+                                          inlineCreateController != null &&
+                                          inlineCreateFocusNode != null &&
+                                          onInlineCreateSubmit != null &&
+                                          onInlineCreateCancel != null;
+                                      final renameActive =
+                                          inlineRenameFile != null &&
+                                          inlineRenameController != null &&
+                                          inlineRenameFocusNode != null &&
+                                          onInlineRenameSubmit != null &&
+                                          onInlineRenameCancel != null;
+                                      return ListView.builder(
+                                        itemCount:
+                                            items.length +
+                                            (createActive ? 1 : 0),
+                                        itemBuilder: (context, index) {
+                                          if (createActive && index == 0) {
+                                            return _SftpInlineCreateItem(
+                                              kind: inlineCreateKind!,
+                                              controller:
+                                                  inlineCreateController!,
+                                              focusNode: inlineCreateFocusNode!,
+                                              onSubmit: onInlineCreateSubmit!,
+                                              onCancel: onInlineCreateCancel!,
+                                            );
+                                          }
+                                          final item =
+                                              items[index -
+                                                  (createActive ? 1 : 0)];
+                                          final itemIndex =
+                                              index - (createActive ? 1 : 0);
+                                          if (renameActive &&
+                                              item.path ==
+                                                  inlineRenameFile!.path) {
+                                            return _SftpInlineRenameItem(
+                                              file: item,
+                                              controller:
+                                                  inlineRenameController!,
+                                              focusNode: inlineRenameFocusNode!,
+                                              onSubmit: onInlineRenameSubmit!,
+                                              onCancel: onInlineRenameCancel!,
+                                            );
+                                          }
+                                          return _FileRow(
+                                            data: item,
+                                            selected:
+                                                item.path != null &&
+                                                selectedPaths.contains(
+                                                  item.path,
+                                                ),
+                                            isRemote: isRemote,
+                                            onOpenFolder: onOpenFolder,
+                                            onAction: onFileAction,
+                                            onSelected: () => onItemSelected(
+                                              item,
+                                              itemIndex,
+                                              items,
+                                            ),
+                                            dragEntries:
+                                                selectedTransferEntries(item),
+                                          );
+                                        },
                                       );
                                     },
-                                  );
-                                },
-                              ),
-                            ),
-                            _PaneFooter(
-                              left: footerLeft ?? '${items.length} items',
-                              right: footerRight ?? '',
-                            ),
-                          ],
+                                  ),
+                                ),
+                                _PaneFooter(
+                                  left: footerLeft ?? '${items.length} items',
+                                  right: footerRight ?? '',
+                                ),
+                              ],
+                            );
+                          },
                         ),
                 ),
               ),
@@ -552,20 +583,20 @@ class _PaneStatus extends StatelessWidget {
                         finishedStepBackgroundColor: Colors.transparent,
                         unreachedStepBackgroundColor: Colors.transparent,
                         unreachedStepBorderColor: AppColors.border,
-                        activeStepBorderColor: AppColors.cyan,
-                        finishedStepBorderColor: AppColors.cyan,
-                        finishedStepIconColor: AppColors.cyan,
+                        activeStepBorderColor: AppColors.accent,
+                        finishedStepBorderColor: AppColors.accent,
+                        finishedStepIconColor: AppColors.accent,
                         unreachedStepIconColor: AppColors.muted,
-                        activeStepIconColor: AppColors.cyan,
+                        activeStepIconColor: AppColors.accent,
                         unreachedStepTextColor: AppColors.muted,
-                        activeStepTextColor: AppColors.cyan,
-                        finishedStepTextColor: AppColors.cyan,
+                        activeStepTextColor: AppColors.accent,
+                        finishedStepTextColor: AppColors.accent,
                         lineStyle: LineStyle(
                           lineLength: 40,
                           lineThickness: 1,
                           defaultLineColor: AppColors.border,
-                          activeLineColor: AppColors.cyan,
-                          finishedLineColor: AppColors.cyan,
+                          activeLineColor: AppColors.accent,
+                          finishedLineColor: AppColors.accent,
                           unreachedLineColor: AppColors.border,
                           lineType: LineType.normal,
                         ),
@@ -575,7 +606,7 @@ class _PaneStatus extends StatelessWidget {
                         dimension: 28,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: AppColors.cyan,
+                          color: AppColors.accent,
                         ),
                       )
               else
@@ -764,13 +795,13 @@ class _RemoteFindBarState extends State<_RemoteFindBar> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 36,
+      height: 32,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
         color: AppColors.surfaceDark,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: widget.active ? AppColors.cyan : AppColors.border,
+          color: widget.active ? AppColors.accent : AppColors.inputBorder,
         ),
       ),
       child: Row(
@@ -783,17 +814,18 @@ class _RemoteFindBarState extends State<_RemoteFindBar> {
               : Icon(
                   Icons.search_rounded,
                   color: widget.error == null
-                      ? AppColors.cyan
+                      ? AppColors.muted
                       : AppColors.danger,
-                  size: 17,
+                  size: 16,
                 ),
           const SizedBox(width: 9),
           Expanded(
             child: TextField(
               controller: _controller,
               onSubmitted: widget.onSubmitted,
-              style: portixTitle(12),
+              style: appFieldTextStyle(),
               decoration: InputDecoration(
+                filled: false,
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
@@ -803,7 +835,7 @@ class _RemoteFindBarState extends State<_RemoteFindBar> {
                     (widget.remote
                         ? 'Find remote file or folder'
                         : 'Find local file or folder'),
-                hintStyle: portixMuted(12).copyWith(
+                hintStyle: portixMuted(13).copyWith(
                   color: widget.error == null
                       ? AppColors.muted
                       : AppColors.danger,
@@ -845,34 +877,19 @@ class _PaneActions extends StatelessWidget {
       (Icons.refresh_rounded, 'Reload', onRefreshRequested),
     ];
 
-    return SizedBox(
-      height: 34,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: actions.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final action = actions[index];
-          return Tooltip(
-            message: action.$2,
-            child: SizedBox.square(
-              dimension: 34,
-              child: OutlinedButton(
-                onPressed: action.$3,
-                style: OutlinedButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  foregroundColor: AppColors.text,
-                  side: BorderSide(color: AppColors.border),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: Icon(action.$1, size: 16),
-              ),
-            ),
-          );
-        },
-      ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final (i, action) in actions.indexed) ...[
+          if (i > 0) const SizedBox(width: 4),
+          AppIconButton(
+            icon: action.$1,
+            tooltip: action.$2,
+            color: AppColors.text,
+            onPressed: action.$3,
+          ),
+        ],
+      ],
     );
   }
 }
@@ -896,23 +913,17 @@ class _SftpInlineCreateItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final isFolder = kind == _SftpInlineCreateKind.folder;
     return Container(
-      height: 38,
+      height: 32,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: AppColors.surfaceCard.withValues(alpha: .58),
         border: Border(
-          bottom: BorderSide(
-            color: AppColors.cyan.withValues(alpha: .9),
-          ),
+          bottom: BorderSide(color: AppColors.accent.withValues(alpha: .9)),
         ),
       ),
       child: Row(
         children: [
-          Icon(
-            isFolder ? Icons.folder_outlined : Icons.insert_drive_file_outlined,
-            color: isFolder ? AppColors.amber : AppColors.muted,
-            size: 17,
-          ),
+          FileTypeIcon(name: '', folder: isFolder, size: 17),
           const SizedBox(width: 12),
           Expanded(
             child: Focus(
@@ -978,17 +989,11 @@ class _SftpInlineRenameItem extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.selected,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.cyan),
+        border: Border.all(color: AppColors.accent),
       ),
       child: Row(
         children: [
-          Icon(
-            file.folder
-                ? Icons.folder_outlined
-                : Icons.insert_drive_file_outlined,
-            color: file.folder ? AppColors.amber : AppColors.muted,
-            size: 16,
-          ),
+          FileTypeIcon(name: file.name, folder: file.folder, size: 16),
           const SizedBox(width: 10),
           Expanded(
             child: Focus(
@@ -1032,33 +1037,143 @@ class _SftpInlineRenameItem extends StatelessWidget {
   }
 }
 
+enum FileSortColumn { name, size, modified }
+
+typedef FileSort = ({FileSortColumn column, bool ascending});
+
+/// [entries] in [sort] order: `..` first, folders before files, then the
+/// column (ties by name).
+List<SftpFileEntry> sortFileEntries(
+  List<SftpFileEntry> entries,
+  FileSort sort,
+) {
+  int byName(SftpFileEntry a, SftpFileEntry b) =>
+      a.name.toLowerCase().compareTo(b.name.toLowerCase());
+  return [...entries]..sort((a, b) {
+    if (a.name == '..') return -1;
+    if (b.name == '..') return 1;
+    if (a.folder != b.folder) return a.folder ? -1 : 1;
+    final order = switch (sort.column) {
+      FileSortColumn.name => byName(a, b),
+      FileSortColumn.size => a.sizeBytes.compareTo(b.sizeBytes),
+      FileSortColumn.modified => (a.modifiedAt ?? DateTime(0)).compareTo(
+        b.modifiedAt ?? DateTime(0),
+      ),
+    };
+    final tieBroken = order != 0 ? order : byName(a, b);
+    return sort.ascending ? tieBroken : -tieBroken;
+  });
+}
+
+/// Holds one pane's sort order; clicking the active column flips it.
+class _FileSortScope extends StatefulWidget {
+  const _FileSortScope({required this.builder});
+
+  final Widget Function(FileSort sort, ValueChanged<FileSortColumn> onSort)
+  builder;
+
+  @override
+  State<_FileSortScope> createState() => _FileSortScopeState();
+}
+
+class _FileSortScopeState extends State<_FileSortScope> {
+  FileSort _sort = (column: FileSortColumn.name, ascending: true);
+
+  void _onSort(FileSortColumn column) => setState(() {
+    _sort = column == _sort.column
+        ? (column: column, ascending: !_sort.ascending)
+        // Size and date read best largest/newest first.
+        : (column: column, ascending: column == FileSortColumn.name);
+  });
+
+  @override
+  Widget build(BuildContext context) => widget.builder(_sort, _onSort);
+}
+
 class _TableHeader extends StatelessWidget {
-  const _TableHeader({required this.isRemote});
+  const _TableHeader({
+    required this.isRemote,
+    required this.sort,
+    required this.onSort,
+  });
   final bool isRemote;
+  final FileSort sort;
+  final ValueChanged<FileSortColumn> onSort;
+
+  Widget _cell(String label, FileSortColumn? column) {
+    if (column == null) return Text(label, style: _headerStyle);
+    final active = sort.column == column;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Tooltip(
+        message: 'Sort by ${label.toLowerCase()}',
+        child: InkWell(
+          onTap: () => onSort(column),
+          borderRadius: BorderRadius.circular(4),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: active
+                      ? _headerStyle.copyWith(color: AppColors.text)
+                      : _headerStyle,
+                ),
+                const SizedBox(width: 4),
+                // Reserved even when inactive so labels don't shift.
+                Opacity(
+                  opacity: active ? 1 : 0,
+                  child: Icon(
+                    sort.ascending
+                        ? Icons.arrow_upward_rounded
+                        : Icons.arrow_downward_rounded,
+                    size: 12,
+                    color: AppColors.text,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  TextStyle get _headerStyle =>
+      portixMuted(11).copyWith(fontWeight: FontWeight.w500, letterSpacing: .3);
 
   @override
   Widget build(BuildContext context) {
     return Container(
       height: 32,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      // 8 + the cells' 4px inset lines labels up with the row text.
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         children: [
-          Expanded(flex: 5, child: Text('Name', style: portixLabel(12))),
+          Expanded(flex: 5, child: _cell('Name', FileSortColumn.name)),
           Expanded(
             flex: 2,
-            child: Text(isRemote ? 'Type' : 'Size', style: portixLabel(12)),
+            child: isRemote
+                ? _cell('Type', null)
+                : _cell('Size', FileSortColumn.size),
           ),
           Expanded(
             flex: 2,
-            child: Text(isRemote ? 'Size' : 'Modified', style: portixLabel(12)),
+            child: isRemote
+                ? _cell('Size', FileSortColumn.size)
+                : _cell('Modified', FileSortColumn.modified),
           ),
           Expanded(
             flex: 2,
-            child: Text(isRemote ? 'Updated' : '', style: portixLabel(12)),
+            child: isRemote
+                ? _cell('Updated', FileSortColumn.modified)
+                : const SizedBox.shrink(),
           ),
         ],
       ),

@@ -57,7 +57,7 @@ class _TerminalThemePickerState extends State<TerminalThemePicker> {
                       style: TextStyle(
                         color: AppColors.text,
                         fontSize: 15,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -119,7 +119,7 @@ class _ThemeCard extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
         side: BorderSide(
-          color: selected ? AppColors.cyan : AppColors.border,
+          color: selected ? AppColors.accent : AppColors.border,
           width: selected ? 2 : 1,
         ),
       ),
@@ -140,7 +140,7 @@ class _ThemeCard extends StatelessWidget {
                       style: TextStyle(
                         color: theme.foreground,
                         fontSize: 12,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),

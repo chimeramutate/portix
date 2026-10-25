@@ -23,7 +23,7 @@ class ProfilePreview extends StatelessWidget {
             style: TextStyle(
               color: AppColors.muted,
               fontSize: 11,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w500,
               letterSpacing: .8,
             ),
           ),
@@ -68,7 +68,7 @@ class _PreviewProfileCard extends StatelessWidget {
                       style: TextStyle(
                         color: AppColors.text,
                         fontSize: 15,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
@@ -81,7 +81,7 @@ class _PreviewProfileCard extends StatelessWidget {
             spacing: 8,
             runSpacing: 6,
             children: [
-              AppPill(label: profile.group, color: AppColors.cyan),
+              AppPill(label: profile.group, color: AppColors.accent),
               for (final tag in profile.tags.take(2))
                 AppPill(label: tag, color: AppColors.muted),
             ],
@@ -101,10 +101,10 @@ class _PreviewIcon extends StatelessWidget {
       width: 36,
       height: 36,
       decoration: BoxDecoration(
-        color: AppColors.cyan.withValues(alpha: .12),
+        color: AppColors.accent.withValues(alpha: .12),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Icon(Icons.dns_outlined, color: AppColors.cyan, size: 18),
+      child: Icon(Icons.dns_outlined, color: AppColors.accent, size: 18),
     );
   }
 }
