@@ -47,29 +47,15 @@ class ProfileCard extends StatelessWidget {
                 ProfileOsIcon(profile: profile, size: 32),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        profile.name.isEmpty ? 'new profile' : profile.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppColors.text,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      MetaLine(
-                        icon: profile.authMethod == AuthMethod.sshKey
-                            ? Icons.key_rounded
-                            : Icons.lock_outline_rounded,
-                        text: profile.host.isEmpty
-                            ? 'No host yet'
-                            : profile.address,
-                      ),
-                    ],
+                  child: Text(
+                    profile.name.isEmpty ? 'new profile' : profile.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
                 if (!previewMode)
@@ -175,29 +161,6 @@ class ProfileCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class MetaLine extends StatelessWidget {
-  const MetaLine({required this.icon, required this.text, super.key});
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, color: AppColors.muted, size: 13),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            text,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: AppColors.muted, fontSize: 12),
-          ),
-        ),
-      ],
     );
   }
 }

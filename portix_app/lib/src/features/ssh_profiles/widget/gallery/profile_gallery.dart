@@ -678,7 +678,7 @@ class _ProfileGrid extends StatelessWidget {
           itemCount: profiles.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: count,
-            mainAxisExtent: 112,
+            mainAxisExtent: 108,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
           ),
@@ -739,7 +739,6 @@ class _ProfileList extends StatelessWidget {
                                 title: profile.name.isEmpty
                                     ? 'new profile'
                                     : profile.name,
-                                subtitle: profile.address,
                               ),
                             ),
                             Expanded(
@@ -818,7 +817,6 @@ class _CompactProfileListRow extends StatelessWidget {
                       title: profile.name.isEmpty
                           ? 'new profile'
                           : profile.name,
-                      subtitle: profile.address,
                     ),
                   ),
                 ),
@@ -895,10 +893,10 @@ class _CompactProfileListRow extends StatelessWidget {
 }
 
 class _ListText extends StatelessWidget {
-  const _ListText({required this.title, required this.subtitle});
+  const _ListText({required this.title, this.subtitle});
 
   final String title;
-  final String subtitle;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -908,12 +906,14 @@ class _ListText extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(title, overflow: TextOverflow.ellipsis, style: portixTitle(13)),
-          const SizedBox(height: 3),
-          Text(
-            subtitle.isEmpty ? '-' : subtitle,
-            overflow: TextOverflow.ellipsis,
-            style: portixMuted(11),
-          ),
+          if (subtitle case final subtitle?) ...[
+            const SizedBox(height: 3),
+            Text(
+              subtitle.isEmpty ? '-' : subtitle,
+              overflow: TextOverflow.ellipsis,
+              style: portixMuted(11),
+            ),
+          ],
         ],
       ),
     );
