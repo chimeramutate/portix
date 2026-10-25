@@ -498,7 +498,7 @@ class _RdpEditView extends StatefulWidget {
 }
 
 class _RdpEditViewState extends State<_RdpEditView> {
-  static const _formMaxWidth = 640.0;
+  static const _formMaxWidth = 1120.0;
 
   late final TextEditingController _nameController;
   late final TextEditingController _hostController;
@@ -585,6 +585,117 @@ class _RdpEditViewState extends State<_RdpEditView> {
     final shareName = _localShareNameController.text.trim().isEmpty
         ? RdpProfile.defaultLocalShareName
         : _localShareNameController.text.trim();
+    final connection = _section('Connection', [
+      AppTextField(controller: _nameController, label: 'Profile name'),
+      _twoColumns(
+        AppTextField(
+          controller: _hostController,
+          label: 'Host / IP',
+          hint: 'server.example.com or 10.0.0.5',
+        ),
+        AppTextField(
+          controller: _portController,
+          label: 'Port',
+          keyboardType: TextInputType.number,
+        ),
+        firstFlex: 3,
+      ),
+      _twoColumns(
+        AppTextField(controller: _usernameController, label: 'Username'),
+        AppTextField(
+          controller: _passwordController,
+          label: 'Password',
+          hint: _isNew ? '' : 'Unchanged when empty',
+          obscureText: true,
+        ),
+      ),
+      AppTextField(
+        controller: _domainController,
+        label: 'Domain',
+        hint: 'optional',
+      ),
+    ]);
+    final display = _section('Display', [
+      _twoColumns(
+        AppTextField(
+          controller: _widthController,
+          label: 'Width',
+          keyboardType: TextInputType.number,
+        ),
+        AppTextField(
+          controller: _heightController,
+          label: 'Height',
+          keyboardType: TextInputType.number,
+        ),
+      ),
+      _switch(
+        title: 'Full screen',
+        subtitle: 'Open the remote desktop full screen.',
+        value: _fullScreen,
+        onChanged: (value) => setState(() => _fullScreen = value),
+      ),
+    ]);
+    final redirection = _section('Redirection', [
+      _switch(
+        title: 'Drive sharing',
+        subtitle: _redirectDrives
+            ? 'Shared as \\\\tsclient\\$shareName in the remote session.'
+            : 'Share a local folder in the remote session.',
+        value: _redirectDrives,
+        onChanged: (value) => setState(() {
+          _redirectDrives = value;
+          if (value && _localSharePathController.text.trim().isEmpty) {
+            _localSharePathController.text = RdpProfile.defaultLocalSharePath;
+          }
+        }),
+      ),
+      if (_redirectDrives)
+        _twoColumns(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: AppTextField(
+                  controller: _localSharePathController,
+                  label: 'Local folder',
+                ),
+              ),
+              const SizedBox(width: 6),
+              AppIconButton(
+                icon: Icons.folder_open_outlined,
+                tooltip: 'Choose folder',
+                color: AppColors.text,
+                onPressed: _pickLocalShareFolder,
+              ),
+            ],
+          ),
+          AppTextField(
+            controller: _localShareNameController,
+            label: 'Share name',
+            hint: RdpProfile.defaultLocalShareName,
+            onChanged: (_) => setState(() {}),
+          ),
+        ),
+      _switch(
+        title: 'Clipboard',
+        subtitle: 'Copy and paste between this computer and the remote.',
+        value: _redirectClipboard,
+        onChanged: (value) => setState(() => _redirectClipboard = value),
+      ),
+    ]);
+    final security = _section('Security', [
+      _switch(
+        title: 'CredSSP / NLA',
+        subtitle: 'Use Network Level Authentication when available.',
+        value: _enableCredSsp,
+        onChanged: (value) => setState(() => _enableCredSsp = value),
+      ),
+      AppTextField(
+        controller: _shellController,
+        label: 'Alternate shell',
+        hint: 'optional',
+      ),
+    ]);
     final form = SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
       child: Center(
@@ -609,127 +720,36 @@ class _RdpEditViewState extends State<_RdpEditView> {
                 ],
               ),
               const SizedBox(height: 12),
-              _section('Connection', [
-                AppTextField(
-                  controller: _nameController,
-                  label: 'Profile name',
-                ),
-                _twoColumns(
-                  AppTextField(
-                    controller: _hostController,
-                    label: 'Host / IP',
-                    hint: 'server.example.com or 10.0.0.5',
-                  ),
-                  AppTextField(
-                    controller: _portController,
-                    label: 'Port',
-                    keyboardType: TextInputType.number,
-                  ),
-                  firstFlex: 3,
-                ),
-                _twoColumns(
-                  AppTextField(
-                    controller: _usernameController,
-                    label: 'Username',
-                  ),
-                  AppTextField(
-                    controller: _passwordController,
-                    label: 'Password',
-                    hint: _isNew ? '' : 'Unchanged when empty',
-                    obscureText: true,
-                  ),
-                ),
-                AppTextField(
-                  controller: _domainController,
-                  label: 'Domain',
-                  hint: 'optional',
-                ),
-              ]),
-              _section('Display', [
-                _twoColumns(
-                  AppTextField(
-                    controller: _widthController,
-                    label: 'Width',
-                    keyboardType: TextInputType.number,
-                  ),
-                  AppTextField(
-                    controller: _heightController,
-                    label: 'Height',
-                    keyboardType: TextInputType.number,
-                  ),
-                ),
-                _switch(
-                  title: 'Full screen',
-                  subtitle: 'Open the remote desktop full screen.',
-                  value: _fullScreen,
-                  onChanged: (value) => setState(() => _fullScreen = value),
-                ),
-              ]),
-              _section('Redirection', [
-                _switch(
-                  title: 'Drive sharing',
-                  subtitle: _redirectDrives
-                      ? 'Shared as \\\\tsclient\\$shareName in the remote session.'
-                      : 'Share a local folder in the remote session.',
-                  value: _redirectDrives,
-                  onChanged: (value) => setState(() {
-                    _redirectDrives = value;
-                    if (value &&
-                        _localSharePathController.text.trim().isEmpty) {
-                      _localSharePathController.text =
-                          RdpProfile.defaultLocalSharePath;
-                    }
-                  }),
-                ),
-                if (_redirectDrives)
-                  _twoColumns(
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: AppTextField(
-                            controller: _localSharePathController,
-                            label: 'Local folder',
-                          ),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  // Wide windows get two columns so the form fills the
+                  // space instead of floating in a narrow strip.
+                  if (constraints.maxWidth < 900) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [connection, display, redirection, security],
+                    );
+                  }
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [connection, security],
                         ),
-                        const SizedBox(width: 6),
-                        AppIconButton(
-                          icon: Icons.folder_open_outlined,
-                          tooltip: 'Choose folder',
-                          color: AppColors.text,
-                          onPressed: _pickLocalShareFolder,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [display, redirection],
                         ),
-                      ],
-                    ),
-                    AppTextField(
-                      controller: _localShareNameController,
-                      label: 'Share name',
-                      hint: RdpProfile.defaultLocalShareName,
-                      onChanged: (_) => setState(() {}),
-                    ),
-                  ),
-                _switch(
-                  title: 'Clipboard',
-                  subtitle:
-                      'Copy and paste between this computer and the remote.',
-                  value: _redirectClipboard,
-                  onChanged: (value) =>
-                      setState(() => _redirectClipboard = value),
-                ),
-              ]),
-              _section('Security', [
-                _switch(
-                  title: 'CredSSP / NLA',
-                  subtitle: 'Use Network Level Authentication when available.',
-                  value: _enableCredSsp,
-                  onChanged: (value) => setState(() => _enableCredSsp = value),
-                ),
-                AppTextField(
-                  controller: _shellController,
-                  label: 'Alternate shell',
-                  hint: 'optional',
-                ),
-              ]),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ],
           ),
         ),
