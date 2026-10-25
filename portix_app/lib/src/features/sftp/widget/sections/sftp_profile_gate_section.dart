@@ -26,18 +26,28 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   bool _sortAscending = true; // A → Z by default
+  String? _group; // null = all groups
+  bool _onlineOnly = false;
+
+  bool get _filtering => _group != null || _onlineOnly;
+
+  List<String> get _groups => {
+    for (final p in widget.profiles)
+      if (p.group.trim().isNotEmpty) p.group.trim(),
+  }.toList()..sort();
 
   List<SshProfile> get _filteredProfiles {
     final query = _searchQuery.toLowerCase();
-    final matches = query.isEmpty
-        ? widget.profiles
-        : widget.profiles.where(
-            (p) =>
-                p.name.toLowerCase().contains(query) ||
-                p.address.toLowerCase().contains(query) ||
-                (p.username.isNotEmpty &&
-                    p.username.toLowerCase().contains(query)),
-          );
+    final matches = widget.profiles.where(
+      (p) =>
+          (_group == null || p.group.trim() == _group) &&
+          (!_onlineOnly || p.status == ConnectionStatus.online) &&
+          (query.isEmpty ||
+              p.name.toLowerCase().contains(query) ||
+              p.address.toLowerCase().contains(query) ||
+              (p.username.isNotEmpty &&
+                  p.username.toLowerCase().contains(query))),
+    );
     final sorted = matches.toList(growable: false)
       ..sort(
         (a, b) => _sortAscending
@@ -55,13 +65,13 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
 
   Widget _searchField() {
     return Container(
-      height: 36,
+      height: 32,
       decoration: BoxDecoration(
         color: AppColors.surfaceDark,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.inputBorder),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       child: Row(
         children: [
           Icon(Icons.search_rounded, color: AppColors.muted, size: 18),
@@ -76,11 +86,15 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
               },
               decoration: InputDecoration(
                 hintText: 'Search profiles (name, address or username)',
-                hintStyle: portixMuted(12),
+                hintStyle: portixMuted(13),
                 border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                filled: false,
                 isDense: true,
+                contentPadding: EdgeInsets.zero,
               ),
-              style: portixTitle(13),
+              style: appFieldTextStyle(),
             ),
           ),
           if (_searchQuery.isNotEmpty)
@@ -107,10 +121,10 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
     final hasProfiles = widget.profiles.isNotEmpty;
     final hasMatches = filteredProfiles.isNotEmpty;
 
-    return Center(
-      child: AppPanel(
-        padding: const EdgeInsets.all(20),
-        margin: const EdgeInsets.all(24),
+    return Align(
+      alignment: Alignment.topCenter,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560),
           child: Column(
@@ -136,10 +150,18 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                       onTap: () =>
                           setState(() => _sortAscending = !_sortAscending),
                     ),
+                    const SizedBox(width: 8),
+                    _FilterMenu(
+                      groups: _groups,
+                      group: _group,
+                      onlineOnly: _onlineOnly,
+                      onGroup: (group) => setState(() => _group = group),
+                      onOnlineOnly: (value) =>
+                          setState(() => _onlineOnly = value),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 // Results count and clear button
                 if (_searchQuery.isNotEmpty && !hasMatches)
                   Padding(
@@ -147,6 +169,26 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                     child: Text(
                       'No results for "$_searchQuery"',
                       style: portixMuted(12),
+                    ),
+                  ),
+                if (_filtering)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        if (_group case final group?)
+                          _FilterChip(
+                            label: group,
+                            onRemove: () => setState(() => _group = null),
+                          ),
+                        if (_onlineOnly)
+                          _FilterChip(
+                            label: 'Online',
+                            onRemove: () => setState(() => _onlineOnly = false),
+                          ),
+                      ],
                     ),
                   ),
                 if (hasMatches)
@@ -183,7 +225,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                       itemCount:
                           filteredProfiles.length +
                           (widget.includeLocal ? 1 : 0),
-                      separatorBuilder: (_, _) => const SizedBox(height: 8),
+                      separatorBuilder: (_, _) => const SizedBox(height: 2),
                       itemBuilder: (context, index) {
                         if (widget.includeLocal && index == 0) {
                           return _LocalProfileTile(
@@ -195,43 +237,11 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                             ? index - 1
                             : index;
                         final profile = filteredProfiles[profileIndex];
-                        return Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () => widget.onSelected(profile),
-                            borderRadius: BorderRadius.circular(10),
-                            child: Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: AppColors.surfaceDark,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: AppColors.border),
-                              ),
-                              child: Row(
-                                children: [
-                                  ProfileOsIcon(profile: profile, size: 30),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          profile.name,
-                                          style: portixTitle(14),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Icon(
-                                    Icons.chevron_right_rounded,
-                                    color: AppColors.muted,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+                        return _GateRow(
+                          leading: ProfileOsIcon(profile: profile, size: 24),
+                          title: profile.name,
+                          subtitle: profile.address,
+                          onTap: () => widget.onSelected(profile),
                         );
                       },
                     ),
@@ -245,61 +255,232 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
   }
 }
 
-/// Square sort button matching the search field: A–Z icon with an arrow
-/// that turns over for Z → A.
-class _SortToggle extends StatefulWidget {
+/// Sort order button: arrow and "A–Z" / "Z–A", flipped on tap.
+class _SortToggle extends StatelessWidget {
   const _SortToggle({required this.ascending, required this.onTap});
 
   final bool ascending;
   final VoidCallback onTap;
 
   @override
-  State<_SortToggle> createState() => _SortToggleState();
+  Widget build(BuildContext context) {
+    return _ToolbarBox(
+      key: const ValueKey('sftp-sort-order'),
+      tooltip: ascending ? 'Sorted A → Z' : 'Sorted Z → A',
+      onTap: onTap,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedRotation(
+            turns: ascending ? 0 : .5,
+            duration: const Duration(milliseconds: 160),
+            child: Icon(
+              Icons.arrow_upward_rounded,
+              size: 14,
+              color: AppColors.muted,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            ascending ? 'A–Z' : 'Z–A',
+            style: TextStyle(
+              color: AppColors.text,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class _SortToggleState extends State<_SortToggle> {
-  bool _hover = false;
+/// The "more" menu next to sort: filter by group and by online status.
+/// A dot on the button shows a filter is on.
+class _FilterMenu extends StatelessWidget {
+  const _FilterMenu({
+    required this.groups,
+    required this.group,
+    required this.onlineOnly,
+    required this.onGroup,
+    required this.onOnlineOnly,
+  });
+
+  final List<String> groups;
+  final String? group;
+  final bool onlineOnly;
+  final ValueChanged<String?> onGroup;
+  final ValueChanged<bool> onOnlineOnly;
+
+  static const _all = '\u0000all';
+  static const _online = '\u0000online';
+  static const _clear = '\u0000clear';
+
+  PopupMenuItem<String> _item(String value, String label, bool checked) {
+    return PopupMenuItem(
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      value: value,
+      child: Row(
+        children: [
+          SizedBox(
+            width: 22,
+            child: checked
+                ? Icon(Icons.check_rounded, size: 16, color: AppColors.accent)
+                : null,
+          ),
+          Expanded(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: AppColors.text, fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _heading(String label) {
+    return PopupMenuItem(
+      enabled: false,
+      height: 26,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Text(label.toUpperCase(), style: portixMuted(11)),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final color = _hover ? AppColors.cyan : AppColors.muted;
-    return Tooltip(
-      message: widget.ascending ? 'Sorted A → Z' : 'Sorted Z → A',
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
-        child: GestureDetector(
-          key: const ValueKey('sftp-sort-order'),
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: AppColors.surfaceDark,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: _hover ? AppColors.cyan : AppColors.border,
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.sort_by_alpha_rounded, size: 16, color: color),
-                AnimatedRotation(
-                  turns: widget.ascending ? 0 : .5,
-                  duration: const Duration(milliseconds: 180),
-                  child: Icon(
-                    Icons.arrow_downward_rounded,
-                    size: 12,
-                    color: color,
+    final filtering = group != null || onlineOnly;
+    return PopupMenuButton<String>(
+      tooltip: 'Filter profiles',
+      position: PopupMenuPosition.under,
+      offset: const Offset(0, 6),
+      constraints: const BoxConstraints(minWidth: 200, maxWidth: 260),
+      onSelected: (value) {
+        switch (value) {
+          case _all:
+            onGroup(null);
+          case _online:
+            onOnlineOnly(!onlineOnly);
+          case _clear:
+            onGroup(null);
+            onOnlineOnly(false);
+          default:
+            onGroup(value);
+        }
+      },
+      itemBuilder: (context) => [
+        _heading('Status'),
+        _item(_online, 'Online only', onlineOnly),
+        if (groups.isNotEmpty) ...[
+          const PopupMenuDivider(height: 9),
+          _heading('Group'),
+          _item(_all, 'All groups', group == null),
+          for (final g in groups) _item(g, g, group == g),
+        ],
+        if (filtering) ...[
+          const PopupMenuDivider(height: 9),
+          _item(_clear, 'Clear filters', false),
+        ],
+      ],
+      child: _ToolbarBox(
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Icon(Icons.more_horiz_rounded, size: 18, color: AppColors.muted),
+            if (filtering)
+              Positioned(
+                right: -3,
+                top: -2,
+                child: Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: AppColors.accent,
+                    shape: BoxShape.circle,
                   ),
                 ),
-              ],
-            ),
-          ),
+              ),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+/// A 32px bordered box matching the search field. With [onTap] it is a
+/// button; without, it only draws (a parent such as a popup handles taps).
+class _ToolbarBox extends StatelessWidget {
+  const _ToolbarBox({required this.child, this.onTap, this.tooltip, super.key});
+
+  final Widget child;
+  final VoidCallback? onTap;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final box = Container(
+      height: 32,
+      constraints: const BoxConstraints(minWidth: 32),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        // A tappable box gets its fill from the Material below so the
+        // hover ink shows.
+        color: onTap == null ? AppColors.surfaceDark : null,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.inputBorder),
+      ),
+      child: child,
+    );
+    if (onTap == null) return box;
+    return Tooltip(
+      message: tooltip ?? '',
+      child: Material(
+        color: AppColors.surfaceDark,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          hoverColor: AppColors.selectedSoft,
+          child: box,
+        ),
+      ),
+    );
+  }
+}
+
+/// An active filter, removable with its ×.
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({required this.label, required this.onRemove});
+
+  final String label;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 24,
+      padding: const EdgeInsets.only(left: 8, right: 2),
+      decoration: BoxDecoration(
+        color: AppColors.selectedSoft,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: TextStyle(color: AppColors.text, fontSize: 12)),
+          IconButton(
+            tooltip: 'Remove filter',
+            onPressed: onRemove,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 20, height: 20),
+            icon: Icon(Icons.close_rounded, size: 13, color: AppColors.muted),
+          ),
+        ],
       ),
     );
   }
@@ -315,43 +496,79 @@ class _LocalProfileTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return _GateRow(
+      leading: Icon(Icons.computer_rounded, color: AppColors.muted, size: 20),
+      title: 'Local',
+      subtitle: 'Local filesystem',
+      selected: selected,
+      onTap: onTap,
+    );
+  }
+}
+
+/// One row of the profile picker: [leading] icon, name and address, a
+/// check when [selected].
+class _GateRow extends StatelessWidget {
+  const _GateRow({
+    required this.leading,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.selected = false,
+  });
+
+  final Widget leading;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
     return Material(
-      color: Colors.transparent,
+      color: selected ? AppColors.selected : Colors.transparent,
+      borderRadius: BorderRadius.circular(6),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: selected
-                ? AppColors.cyan.withValues(alpha: .10)
-                : AppColors.surfaceDark,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: selected ? AppColors.cyan : AppColors.border,
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.computer_rounded, color: AppColors.cyan, size: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Local', style: portixTitle(14)),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Local filesystem',
-                      overflow: TextOverflow.ellipsis,
-                      style: portixMuted(12),
-                    ),
-                  ],
+        borderRadius: BorderRadius.circular(6),
+        hoverColor: AppColors.selectedSoft,
+        child: SizedBox(
+          height: 44,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                SizedBox.square(dimension: 24, child: Center(child: leading)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppColors.text,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        overflow: TextOverflow.ellipsis,
+                        style: portixMuted(11),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              if (selected)
-                Icon(Icons.check_rounded, color: AppColors.cyan, size: 18),
-            ],
+                Icon(
+                  selected ? Icons.check_rounded : Icons.chevron_right_rounded,
+                  color: selected ? AppColors.accent : AppColors.muted,
+                  size: 18,
+                ),
+              ],
+            ),
           ),
         ),
       ),

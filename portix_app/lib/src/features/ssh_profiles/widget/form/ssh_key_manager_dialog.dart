@@ -162,7 +162,7 @@ class _SshKeyManagerDialogState extends State<_SshKeyManagerDialog> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.key_rounded, color: AppColors.cyan),
+                  Icon(Icons.key_rounded, color: AppColors.accent),
                   const SizedBox(width: 10),
                   Expanded(child: Text('SSH keys', style: portixTitle(18))),
                   IconButton(

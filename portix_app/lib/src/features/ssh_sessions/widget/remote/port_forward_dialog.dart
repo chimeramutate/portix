@@ -172,7 +172,7 @@ class _PortForwardDialogState extends State<_PortForwardDialog> {
       backgroundColor: AppColors.surface,
       title: Row(
         children: [
-          Icon(Icons.swap_horiz_rounded, color: AppColors.cyan),
+          Icon(Icons.swap_horiz_rounded, color: AppColors.accent),
           SizedBox(width: 10),
           Text('Port forwarding'),
         ],

@@ -48,7 +48,7 @@ TextStyle portixTitle([double size = 14]) {
   return TextStyle(
     color: AppColors.text,
     fontSize: size,
-    fontWeight: FontWeight.w900,
+    fontWeight: FontWeight.w600,
   );
 }
 
@@ -56,7 +56,7 @@ TextStyle portixMuted([double size = 12]) {
   return TextStyle(
     color: AppColors.muted,
     fontSize: size,
-    fontWeight: FontWeight.w600,
+    fontWeight: FontWeight.w400,
   );
 }
 
@@ -64,6 +64,6 @@ TextStyle portixLabel([double size = 12]) {
   return TextStyle(
     color: AppColors.muted,
     fontSize: size,
-    fontWeight: FontWeight.w900,
+    fontWeight: FontWeight.w600,
   );
 }

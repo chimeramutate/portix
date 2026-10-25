@@ -398,6 +398,13 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       _localSelectionAnchor = null;
       _remoteSelectionAnchor = null;
     });
+    // Keep the top bar status on the shown tab's server.
+    final profile = _activeTab.selectedProfile;
+    context.read<SftpWorkspaceBloc>().add(
+      profile == null
+          ? const SftpProfileCleared()
+          : SftpProfileSelected(profile),
+    );
   }
 
   /// Duplicates the tab at [index] with a fresh controller on the same
@@ -504,10 +511,13 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
     final profile = profiles.where((p) => p.id == targetId).firstOrNull;
     if (profile == null) return;
+    _openProfileInTab(profile);
+  }
 
+  void _openProfileInTab(SshProfile profile) {
     // Find existing tab with this profile.
     final existingIndex = _tabs.indexWhere(
-      (tab) => tab.selectedProfile?.id == targetId,
+      (tab) => tab.selectedProfile?.id == profile.id,
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1080,7 +1090,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
               child: Column(
                 children: [
                   // Tab strip, styled like the terminal tabs: flat tabs,
-                  // the active one lifted with a cyan top marker.
+                  // the active one lifted with a accent top marker.
                   Container(
                     height: 36,
                     decoration: BoxDecoration(

@@ -63,7 +63,7 @@ class _KubernetesPageState extends State<KubernetesPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          height: 38,
+          height: 34,
           decoration: BoxDecoration(
             color: AppColors.surfaceDark,
             border: Border(bottom: BorderSide(color: AppColors.border)),
@@ -131,14 +131,14 @@ class _TabChip extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        height: 38,
+        height: 34,
         padding: const EdgeInsets.only(left: 12, right: 4),
         decoration: BoxDecoration(
           color: selected ? AppColors.surface : null,
           border: Border(
             right: BorderSide(color: AppColors.border),
             top: BorderSide(
-              color: selected ? AppColors.cyan : Colors.transparent,
+              color: selected ? AppColors.accent : Colors.transparent,
               width: 2,
             ),
           ),
@@ -211,7 +211,7 @@ String _formatShort(DateTime time) =>
     '${_months[time.month - 1]} ${time.day}, '
     '${_two(time.hour)}:${_two(time.minute)}';
 
-const _controlHeight = 36.0;
+const _controlHeight = 32.0;
 
 class _KubeLogView extends StatefulWidget {
   const _KubeLogView({required this.active, required this.onTitle, super.key});
@@ -769,219 +769,190 @@ class _KubeLogViewState extends State<_KubeLogView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(
-                flex: 4,
-                child: _SelectButton<String>(
-                  icon: Icons.dns_outlined,
-                  label: 'Server',
-                  value: profile?.name,
-                  placeholder: 'Select a server with kubectl',
-                  enabled: !_loading,
-                  leading: profile == null
-                      ? null
-                      : ProfileOsIcon(profile: profile, size: 18),
-                  noun: 'servers',
-                  options: [
-                    for (final p in profiles)
-                      (
-                        value: p.id,
-                        label: p.name,
-                        subtitle: p.group,
-                        leading: ProfileOsIcon(profile: p, size: 24),
-                        section: null,
-                      ),
-                  ],
-                  selected: _profileId,
-                  onSelected: _selectProfile,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 3,
-                child: _SelectButton<String>(
-                  icon: Icons.folder_outlined,
-                  label: 'Namespace',
-                  value: _namespace,
-                  placeholder: '—',
-                  enabled: !_loading && _namespaces.isNotEmpty,
-                  noun: 'namespaces',
-                  options: [
-                    for (final ns in _namespaces)
-                      (
-                        value: ns.name,
-                        label: ns.name,
-                        subtitle: '${ns.status} · ${ns.age}',
-                        leading: _NamespaceIcon(system: _isSystem(ns.name)),
-                        section: null,
-                      ),
-                  ],
-                  selected: _namespace,
-                  onSelected: _selectNamespace,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 4,
-                child: _SelectButton<_Target>(
-                  icon: Icons.view_in_ar_outlined,
-                  label: 'Pod',
-                  value: _targetLabel,
-                  leading: _workload != null
-                      ? Icon(
-                          Icons.account_tree_outlined,
-                          size: 16,
-                          color: AppColors.cyan,
-                        )
-                      : _selectedPod == null
-                      ? null
-                      : _PodDot(podHealth(_selectedPod!)),
-                  placeholder: '—',
-                  enabled: !_loading && _namespace != null,
-                  noun: 'pods',
-                  options: [
-                    (
-                      value: (pod: null, workload: null),
-                      label: 'All pods',
-                      subtitle: _podSummary,
-                      leading: Icon(
-                        Icons.layers_outlined,
-                        size: 18,
-                        color: AppColors.cyan,
-                      ),
-                      section: null,
-                    ),
-                    for (final MapEntry(key: workload, value: pods)
-                        in _workloads.entries)
-                      (
-                        value: (pod: null, workload: workload),
-                        label: workload.name,
-                        subtitle: _workloadSummary(workload, pods),
-                        leading: Icon(
-                          Icons.account_tree_outlined,
-                          size: 18,
-                          color:
-                              pods.any((p) => podHealth(p) == PodHealth.failing)
-                              ? AppColors.danger
-                              : AppColors.cyan,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final pickers = [
+                Expanded(
+                  flex: 4,
+                  child: _SelectButton<String>(
+                    icon: Icons.dns_outlined,
+                    label: 'Server',
+                    value: profile?.name,
+                    placeholder: 'Select a server with kubectl',
+                    enabled: !_loading,
+                    leading: profile == null
+                        ? null
+                        : ProfileOsIcon(profile: profile, size: 18),
+                    noun: 'servers',
+                    options: [
+                      for (final p in profiles)
+                        (
+                          value: p.id,
+                          label: p.name,
+                          subtitle: p.group,
+                          leading: ProfileOsIcon(profile: p, size: 24),
+                          section: null,
                         ),
-                        section: 'Workloads · follow new pods automatically',
-                      ),
-                    for (final pod in _pods)
+                    ],
+                    selected: _profileId,
+                    onSelected: _selectProfile,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 3,
+                  child: _SelectButton<String>(
+                    icon: Icons.folder_outlined,
+                    label: 'Namespace',
+                    value: _namespace,
+                    placeholder: 'Pick a server first',
+                    enabled: !_loading && _namespaces.isNotEmpty,
+                    noun: 'namespaces',
+                    options: [
+                      for (final ns in _namespaces)
+                        (
+                          value: ns.name,
+                          label: ns.name,
+                          subtitle: '${ns.status} · ${ns.age}',
+                          leading: _NamespaceIcon(system: _isSystem(ns.name)),
+                          section: null,
+                        ),
+                    ],
+                    selected: _namespace,
+                    onSelected: _selectNamespace,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 4,
+                  child: _SelectButton<_Target>(
+                    icon: Icons.view_in_ar_outlined,
+                    label: 'Pod',
+                    value: _targetLabel,
+                    leading: _workload != null
+                        ? Icon(
+                            Icons.account_tree_outlined,
+                            size: 16,
+                            color: AppColors.accent,
+                          )
+                        : _selectedPod == null
+                        ? null
+                        : _PodDot(podHealth(_selectedPod!)),
+                    placeholder: '—',
+                    enabled: !_loading && _namespace != null,
+                    noun: 'pods',
+                    options: [
                       (
-                        value: (pod: pod.name, workload: null),
-                        label: pod.name,
-                        subtitle: [
-                          pod.status,
-                          '${pod.ready} ready',
-                          if (pod.restarts > 0)
-                            '${pod.restarts} restart${pod.restarts == 1 ? '' : 's'}',
-                          pod.age,
-                        ].join(' · '),
-                        leading: _PodDot(podHealth(pod)),
-                        section: 'Pods · this pod only',
+                        value: (pod: null, workload: null),
+                        label: 'All pods',
+                        subtitle: _podSummary,
+                        leading: Icon(
+                          Icons.layers_outlined,
+                          size: 18,
+                          color: AppColors.accent,
+                        ),
+                        section: null,
                       ),
-                  ],
-                  selected: (pod: _pod, workload: _workload),
-                  onSelected: (target) =>
-                      _setTarget(pod: target.pod, workload: target.workload),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: _controlHeight,
-                  child: TextField(
-                    controller: _search,
-                    focusNode: _searchFocus,
-                    onChanged: (_) => setState(() => _current = null),
-                    onSubmitted: (_) {
-                      _goto(1);
-                      _searchFocus.requestFocus();
-                    },
-                    style: appFieldTextStyle(),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 10,
-                      ),
-                      hintText:
-                          'Search…   error -timeout   "receive from"   '
-                          'ERROR OR WARN',
-                      prefixIcon: Icon(
-                        Icons.search_rounded,
-                        size: 18,
-                        color: AppColors.muted,
-                      ),
-                      prefixIconConstraints: const BoxConstraints(minWidth: 36),
-                      suffixIcon: query.isEmpty
-                          ? null
-                          : _SearchNav(
-                              position: cursor,
-                              total: matches.length,
-                              onlyMatches: _onlyMatches,
-                              onPrevious: () => _goto(-1),
-                              onNext: () => _goto(1),
-                              onToggleFilter: () => setState(() {
-                                _onlyMatches = !_onlyMatches;
-                                _current = null;
-                              }),
-                              onClear: () => setState(() {
-                                _search.clear();
-                                _current = null;
-                              }),
-                            ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              _TimeRangeButton(
-                label: _rangeLabel,
-                absolute: _relative == null ? _rangeLabel : null,
-                ranges: _relativeRanges.keys.toList(),
-                selected: _relative,
-                refreshEvery: _refreshEvery,
-                refreshDisabled: _rangeEnded
-                    ? 'The range has ended; no new logs can arrive.'
-                    : null,
-                onRefreshEvery: _setRefreshEvery,
-                onRelative: (range) {
-                  setState(() => _relative = range);
-                  if (_namespace != null) _loadLogs();
-                },
-                onAbsolute: _pickAbsolute,
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                height: _controlHeight,
-                child: FilledButton.icon(
-                  onPressed: _loading || _namespace == null ? null : _loadLogs,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, _controlHeight),
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                  ),
-                  icon: _loading
-                      ? SizedBox.square(
-                          dimension: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: AppColors.onAccent,
+                      for (final MapEntry(key: workload, value: pods)
+                          in _workloads.entries)
+                        (
+                          value: (pod: null, workload: workload),
+                          label: workload.name,
+                          subtitle: _workloadSummary(workload, pods),
+                          leading: Icon(
+                            Icons.account_tree_outlined,
+                            size: 18,
+                            color:
+                                pods.any(
+                                  (p) => podHealth(p) == PodHealth.failing,
+                                )
+                                ? AppColors.danger
+                                : AppColors.accent,
                           ),
-                        )
-                      : const Icon(Icons.refresh_rounded, size: 16),
-                  label: Text(_lines.isEmpty ? 'Load' : 'Refresh'),
+                          section: 'Workloads · follow new pods automatically',
+                        ),
+                      for (final pod in _pods)
+                        (
+                          value: (pod: pod.name, workload: null),
+                          label: pod.name,
+                          subtitle: [
+                            pod.status,
+                            '${pod.ready} ready',
+                            if (pod.restarts > 0)
+                              '${pod.restarts} restart${pod.restarts == 1 ? '' : 's'}',
+                            pod.age,
+                          ].join(' · '),
+                          leading: _PodDot(podHealth(pod)),
+                          section: 'Pods · this pod only',
+                        ),
+                    ],
+                    selected: (pod: _pod, workload: _workload),
+                    onSelected: (target) =>
+                        _setTarget(pod: target.pod, workload: target.workload),
+                  ),
                 ),
-              ),
-            ],
+              ];
+              final actions = [
+                _TimeRangeButton(
+                  label: _rangeLabel,
+                  absolute: _relative == null ? _rangeLabel : null,
+                  ranges: _relativeRanges.keys.toList(),
+                  selected: _relative,
+                  refreshEvery: _refreshEvery,
+                  refreshDisabled: _rangeEnded
+                      ? 'The range has ended; no new logs can arrive.'
+                      : null,
+                  onRefreshEvery: _setRefreshEvery,
+                  onRelative: (range) {
+                    setState(() => _relative = range);
+                    if (_namespace != null) _loadLogs();
+                  },
+                  onAbsolute: _pickAbsolute,
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  height: _controlHeight,
+                  child: FilledButton.icon(
+                    onPressed: _loading || _namespace == null
+                        ? null
+                        : _loadLogs,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, _controlHeight),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                    ),
+                    icon: _loading
+                        ? SizedBox.square(
+                            dimension: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.onAccent,
+                            ),
+                          )
+                        : const Icon(Icons.refresh_rounded, size: 16),
+                    label: Text(_lines.isEmpty ? 'Load' : 'Refresh'),
+                  ),
+                ),
+              ];
+              // One toolbar when it fits; narrow windows put the time
+              // range and Load on their own row under the pickers.
+              if (constraints.maxWidth >= 980) {
+                return Row(
+                  children: [...pickers, const SizedBox(width: 8), ...actions],
+                );
+              }
+              return Column(
+                children: [
+                  Row(children: pickers),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: actions,
+                  ),
+                ],
+              );
+            },
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Expanded(
             child: Container(
               clipBehavior: Clip.antiAlias,
@@ -994,6 +965,45 @@ class _KubeLogViewState extends State<_KubeLogView> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _StatusBar(
+                    search: TextField(
+                      controller: _search,
+                      focusNode: _searchFocus,
+                      onChanged: (_) => setState(() => _current = null),
+                      onSubmitted: (_) {
+                        _goto(1);
+                        _searchFocus.requestFocus();
+                      },
+                      style: appFieldTextStyle(),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        filled: false,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 9),
+                        hintStyle: portixMuted(13),
+                        hintText:
+                            'Search logs   error -timeout   "exact phrase"   '
+                            'ERROR OR WARN',
+                        suffixIcon: query.isEmpty
+                            ? null
+                            : _SearchNav(
+                                position: cursor,
+                                total: matches.length,
+                                onlyMatches: _onlyMatches,
+                                onPrevious: () => _goto(-1),
+                                onNext: () => _goto(1),
+                                onToggleFilter: () => setState(() {
+                                  _onlyMatches = !_onlyMatches;
+                                  _current = null;
+                                }),
+                                onClear: () => setState(() {
+                                  _search.clear();
+                                  _current = null;
+                                }),
+                              ),
+                      ),
+                    ),
                     note: _refreshNote,
                     shown: shown.length,
                     total: _lines.length,
@@ -1168,7 +1178,7 @@ class _LogRow extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: current
-            ? AppColors.cyan.withValues(alpha: .14)
+            ? AppColors.accent.withValues(alpha: .14)
             : level == LogLevel.error
             ? AppColors.dangerTint.withValues(alpha: .35)
             : odd
@@ -1176,7 +1186,7 @@ class _LogRow extends StatelessWidget {
             : null,
         border: Border(
           left: current
-              ? BorderSide(color: AppColors.cyan, width: 3)
+              ? BorderSide(color: AppColors.accent, width: 3)
               : BorderSide(color: color ?? Colors.transparent, width: 2),
           bottom: BorderSide(color: AppColors.border.withValues(alpha: .45)),
         ),
@@ -1231,7 +1241,7 @@ class _LogRow extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 10,
                             height: 1.4,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w500,
                             letterSpacing: .4,
                             color: color,
                           ),
@@ -1255,7 +1265,7 @@ class _LogRow extends StatelessWidget {
                           backgroundColor: AppColors.amber.withValues(
                             alpha: .28,
                           ),
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w400,
                         ),
                       ),
                       if (clip.hidden > 0)
@@ -1321,14 +1331,14 @@ class _LongLineBar extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 13, color: AppColors.cyan),
+            Icon(icon, size: 13, color: AppColors.accent),
             const SizedBox(width: 4),
             Text(
               text,
               style: TextStyle(
                 fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-                color: AppColors.cyan,
+                fontWeight: FontWeight.w400,
+                color: AppColors.accent,
               ),
             ),
           ],
@@ -1413,12 +1423,12 @@ class _JumpToLatest extends StatelessWidget {
           opacity: visible ? 1 : 0,
           duration: const Duration(milliseconds: 160),
           child: Material(
-            color: newLines > 0 ? AppColors.cyan : AppColors.surface,
+            color: newLines > 0 ? AppColors.accent : AppColors.surface,
             elevation: 6,
             shadowColor: Colors.black54,
             shape: StadiumBorder(
               side: BorderSide(
-                color: newLines > 0 ? AppColors.cyan : AppColors.border,
+                color: newLines > 0 ? AppColors.accent : AppColors.border,
               ),
             ),
             child: InkWell(
@@ -1441,7 +1451,7 @@ class _JumpToLatest extends StatelessWidget {
                           : 'Jump to latest',
                       style: TextStyle(
                         fontSize: 12,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w500,
                         color: newLines > 0
                             ? AppColors.onAccent
                             : AppColors.text,
@@ -1499,14 +1509,14 @@ class _PodGoneBanner extends StatelessWidget {
                 children: [
                   TextSpan(
                     text: gone,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                    style: const TextStyle(fontWeight: FontWeight.w500),
                   ),
                   const TextSpan(text: ' no longer exists'),
                   if (replacement != null) ...[
                     const TextSpan(text: ' — replaced by '),
                     TextSpan(
                       text: replacement,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+                      style: const TextStyle(fontWeight: FontWeight.w500),
                     ),
                   ],
                   const TextSpan(text: '. Lines so far are kept.'),
@@ -1615,7 +1625,7 @@ class _SearchNav extends StatelessWidget {
               ? Icons.filter_alt_rounded
               : Icons.filter_alt_off_outlined,
           onToggleFilter,
-          color: onlyMatches ? AppColors.cyan : null,
+          color: onlyMatches ? AppColors.accent : null,
         ),
         button('Clear search', Icons.close_rounded, onClear),
         const SizedBox(width: 4),
@@ -1627,11 +1637,14 @@ class _SearchNav extends StatelessWidget {
 /// Line count and the last error, above the log lines.
 class _StatusBar extends StatelessWidget {
   const _StatusBar({
+    required this.search,
     required this.note,
     required this.shown,
     required this.total,
   });
 
+  /// The log search field, borderless; the header is its frame.
+  final Widget search;
   final String? note;
   final int shown;
   final int total;
@@ -1639,26 +1652,31 @@ class _StatusBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 30,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      height: 36,
+      padding: const EdgeInsets.only(left: 12, right: 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         children: [
+          Icon(Icons.search_rounded, size: 16, color: AppColors.muted),
+          const SizedBox(width: 8),
+          Expanded(child: search),
           if (note != null) ...[
-            Icon(Icons.autorenew_rounded, size: 14, color: AppColors.cyan),
+            const SizedBox(width: 12),
+            Icon(Icons.autorenew_rounded, size: 14, color: AppColors.accent),
             const SizedBox(width: 6),
-            Expanded(
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 260),
               child: Text(
                 note!,
                 overflow: TextOverflow.ellipsis,
                 style: portixMuted(12),
               ),
             ),
-          ] else
-            const Spacer(),
+          ],
+          const SizedBox(width: 12),
           Text(
             shown == total ? '$total lines' : '$shown of $total lines',
             style: portixMuted(12),
@@ -1703,7 +1721,7 @@ class _ErrorBannerState extends State<_ErrorBanner> {
             padding: const EdgeInsets.symmetric(horizontal: 8),
             textStyle: const TextStyle(
               fontSize: 12,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w400,
             ),
           ),
           icon: Icon(icon, size: 14),
@@ -1741,7 +1759,7 @@ class _ErrorBannerState extends State<_ErrorBanner> {
                       error.title,
                       style: TextStyle(
                         fontSize: 13,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w500,
                         color: AppColors.text,
                       ),
                     ),
@@ -1853,7 +1871,7 @@ class _NamespaceIcon extends StatelessWidget {
   Widget build(BuildContext context) => Icon(
     system ? Icons.settings_suggest_outlined : Icons.folder_outlined,
     size: 18,
-    color: system ? AppColors.muted : AppColors.cyan,
+    color: system ? AppColors.muted : AppColors.accent,
   );
 }
 
@@ -1997,7 +2015,7 @@ class _SelectButton<T> extends StatelessWidget {
                 value ?? placeholder,
                 overflow: TextOverflow.ellipsis,
                 style: appFieldTextStyle().copyWith(
-                  fontWeight: picked ? FontWeight.w700 : FontWeight.w500,
+                  fontWeight: picked ? FontWeight.w500 : FontWeight.w500,
                   color: picked ? AppColors.text : AppColors.muted,
                 ),
               ),
@@ -2145,7 +2163,7 @@ class _PickerPanelState<T> extends State<_PickerPanel<T>> {
                                 section.toUpperCase(),
                                 style: TextStyle(
                                   fontSize: 10,
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: FontWeight.w500,
                                   letterSpacing: .7,
                                   color: AppColors.muted,
                                 ),
@@ -2182,7 +2200,7 @@ class _PickerRow<T> extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Material(
         color: selected
-            ? AppColors.cyan.withValues(alpha: .12)
+            ? AppColors.accent.withValues(alpha: .12)
             : Colors.transparent,
         borderRadius: BorderRadius.circular(7),
         child: InkWell(
@@ -2206,9 +2224,9 @@ class _PickerRow<T> extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: appFieldTextStyle().copyWith(
                           fontWeight: selected
-                              ? FontWeight.w700
+                              ? FontWeight.w500
                               : FontWeight.w500,
-                          color: selected ? AppColors.cyan : AppColors.text,
+                          color: selected ? AppColors.accent : AppColors.text,
                         ),
                       ),
                       if (subtitle != null && subtitle.isNotEmpty)
@@ -2221,7 +2239,7 @@ class _PickerRow<T> extends StatelessWidget {
                   ),
                 ),
                 if (selected)
-                  Icon(Icons.check_rounded, size: 16, color: AppColors.cyan),
+                  Icon(Icons.check_rounded, size: 16, color: AppColors.accent),
               ],
             ),
           ),
@@ -2274,18 +2292,18 @@ class _TimeRangeButton extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.schedule_rounded, size: 16, color: AppColors.cyan),
+            Icon(Icons.schedule_rounded, size: 16, color: AppColors.accent),
             const SizedBox(width: 8),
             Text(
               label,
-              style: appFieldTextStyle().copyWith(fontWeight: FontWeight.w700),
+              style: appFieldTextStyle().copyWith(fontWeight: FontWeight.w500),
             ),
             if (refreshing) ...[
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                 decoration: BoxDecoration(
-                  color: AppColors.cyan.withValues(alpha: .14),
+                  color: AppColors.accent.withValues(alpha: .14),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Row(
@@ -2294,15 +2312,15 @@ class _TimeRangeButton extends StatelessWidget {
                     Icon(
                       Icons.autorenew_rounded,
                       size: 12,
-                      color: AppColors.cyan,
+                      color: AppColors.accent,
                     ),
                     const SizedBox(width: 3),
                     Text(
                       _intervalLabel(refreshEvery!),
                       style: TextStyle(
                         fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.cyan,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.accent,
                       ),
                     ),
                   ],
@@ -2337,7 +2355,7 @@ class _TimePanel extends StatelessWidget {
             text.toUpperCase(),
             style: TextStyle(
               fontSize: 10.5,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w500,
               letterSpacing: .8,
               color: AppColors.muted,
             ),
@@ -2378,7 +2396,7 @@ class _TimePanel extends StatelessWidget {
           Divider(height: 1, color: AppColors.border),
           Material(
             color: b.absolute != null
-                ? AppColors.cyan.withValues(alpha: .08)
+                ? AppColors.accent.withValues(alpha: .08)
                 : Colors.transparent,
             child: InkWell(
               onTap: () {
@@ -2393,7 +2411,7 @@ class _TimePanel extends StatelessWidget {
                       Icons.edit_calendar_outlined,
                       size: 18,
                       color: b.absolute != null
-                          ? AppColors.cyan
+                          ? AppColors.accent
                           : AppColors.muted,
                     ),
                     const SizedBox(width: 10),
@@ -2404,9 +2422,9 @@ class _TimePanel extends StatelessWidget {
                           Text(
                             'Absolute range',
                             style: appFieldTextStyle().copyWith(
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w400,
                               color: b.absolute != null
-                                  ? AppColors.cyan
+                                  ? AppColors.accent
                                   : AppColors.text,
                             ),
                           ),
@@ -2465,7 +2483,7 @@ class _TimePanel extends StatelessWidget {
   }
 }
 
-/// A pill choice: cyan outline and tint when selected.
+/// A pill choice: accent outline and tint when selected.
 class _Chip extends StatelessWidget {
   const _Chip({
     required this.label,
@@ -2481,11 +2499,11 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: selected
-          ? AppColors.cyan.withValues(alpha: .14)
+          ? AppColors.accent.withValues(alpha: .14)
           : AppColors.surfaceDark,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: selected ? AppColors.cyan : AppColors.border),
+        side: BorderSide(color: selected ? AppColors.accent : AppColors.border),
       ),
       child: InkWell(
         onTap: onTap,
@@ -2496,8 +2514,8 @@ class _Chip extends StatelessWidget {
             label,
             style: TextStyle(
               fontSize: 12.5,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              color: selected ? AppColors.cyan : AppColors.text,
+              fontWeight: selected ? FontWeight.w500 : FontWeight.w500,
+              color: selected ? AppColors.accent : AppColors.text,
             ),
           ),
         ),
@@ -2538,7 +2556,7 @@ class _Segmented<T> extends StatelessWidget {
               Expanded(
                 child: Material(
                   color: value == selected
-                      ? AppColors.cyan.withValues(alpha: .18)
+                      ? AppColors.accent.withValues(alpha: .18)
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(6),
                   child: InkWell(
@@ -2550,10 +2568,10 @@ class _Segmented<T> extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: value == selected
-                              ? FontWeight.w700
+                              ? FontWeight.w500
                               : FontWeight.w500,
                           color: value == selected
-                              ? AppColors.cyan
+                              ? AppColors.accent
                               : AppColors.text,
                         ),
                       ),
@@ -2689,13 +2707,13 @@ class _AbsoluteRangeDialogState extends State<_AbsoluteRangeDialog> {
                     width: 34,
                     height: 34,
                     decoration: BoxDecoration(
-                      color: AppColors.cyan.withValues(alpha: .12),
+                      color: AppColors.accent.withValues(alpha: .12),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(
                       Icons.date_range_rounded,
                       size: 18,
-                      color: AppColors.cyan,
+                      color: AppColors.accent,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -2879,12 +2897,12 @@ class _RangeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: active
-          ? AppColors.cyan.withValues(alpha: .08)
+          ? AppColors.accent.withValues(alpha: .08)
           : AppColors.surfaceDark,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
         side: BorderSide(
-          color: active ? AppColors.cyan : AppColors.border,
+          color: active ? AppColors.accent : AppColors.border,
           width: active ? 1.5 : 1,
         ),
       ),
@@ -2900,9 +2918,9 @@ class _RangeCard extends StatelessWidget {
                 label.toUpperCase(),
                 style: TextStyle(
                   fontSize: 10,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w500,
                   letterSpacing: .8,
-                  color: active ? AppColors.cyan : AppColors.muted,
+                  color: active ? AppColors.accent : AppColors.muted,
                 ),
               ),
               const SizedBox(height: 6),
@@ -2915,7 +2933,7 @@ class _RangeCard extends StatelessWidget {
                 '${_two(time.hour)}:${_two(time.minute)}',
                 style: _mono.copyWith(
                   fontSize: 20,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w400,
                   color: AppColors.text,
                 ),
               ),
@@ -2994,13 +3012,13 @@ class _TimeColumn extends StatelessWidget {
                 child: Container(
                   height: 28,
                   alignment: Alignment.center,
-                  color: on ? AppColors.cyan.withValues(alpha: .16) : null,
+                  color: on ? AppColors.accent.withValues(alpha: .16) : null,
                   child: Text(
                     '${_two(hour)}:${_two(minute)}',
                     style: _mono.copyWith(
                       fontSize: 12,
-                      color: on ? AppColors.cyan : AppColors.text,
-                      fontWeight: on ? FontWeight.w700 : FontWeight.w400,
+                      color: on ? AppColors.accent : AppColors.text,
+                      fontWeight: on ? FontWeight.w500 : FontWeight.w400,
                     ),
                   ),
                 ),

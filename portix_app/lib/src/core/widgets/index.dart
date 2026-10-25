@@ -7,3 +7,5 @@ export 'path_bar.dart';
 export 'rewrite_remote_dialog.dart';
 export 'app_tutorial.dart';
 export 'focus_ring.dart';
+export 'side_panel.dart';
+export 'file_type_icon.dart';

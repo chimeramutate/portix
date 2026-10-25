@@ -165,7 +165,7 @@ class _KeyboardShortcutsDialogState extends State<KeyboardShortcutsDialog> {
             }),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(150, 32),
-              foregroundColor: recording ? AppColors.cyan : AppColors.text,
+              foregroundColor: recording ? AppColors.accent : AppColors.text,
             ),
             child: Text(recording ? 'Press keys…' : formatBinding(binding)),
           ),

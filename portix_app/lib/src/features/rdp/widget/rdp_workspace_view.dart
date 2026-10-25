@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
+import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/domain/entities/rdp/index.dart';
 import 'package:portix/src/domain/repositories/rdp/rdp_profile_repository.dart';
 import 'package:portix/src/features/rdp/bloc/rdp_workspace_bloc.dart';
@@ -12,7 +13,6 @@ import 'package:portix/src/features/rdp/page/rdp_session_page.dart';
 import 'package:portix/src/features/rdp/service/rdp_backend_service.dart';
 import 'package:portix/src/features/rdp/service/rdp_window_service.dart';
 import 'package:portix/src/features/rdp/widget/rdp_file_import_dialog.dart';
-import 'package:portix/src/features/rdp/widget/rdp_manual_form_dialog.dart';
 import 'package:portix/src/features/rdp/widget/rdp_profile_card.dart';
 
 class RdpWorkspaceView extends StatefulWidget {
@@ -70,6 +70,7 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
 
         if (state.activeView == RdpView.form && state.editingProfile != null) {
           return _RdpEditView(
+            key: ValueKey(state.editingProfile!.id),
             profile: state.editingProfile!,
             onCancel: () {
               context.read<RdpWorkspaceBloc>().add(
@@ -86,120 +87,108 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
         final profiles = state.filteredProfiles;
         final selectedProfile = state.selectedProfile;
 
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final showDetails =
+                selectedProfile != null && constraints.maxWidth >= 880;
+            final list = Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    'RDP Profiles',
-                    style: TextStyle(
-                      color: AppColors.text,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
+                  Row(
+                    children: [
+                      Text(
+                        profiles.length == 1
+                            ? '1 profile'
+                            : '${profiles.length} profiles',
+                        style: portixMuted(12),
+                      ),
+                      if (state.message.isNotEmpty) ...[
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            state.message,
+                            overflow: TextOverflow.ellipsis,
+                            style: portixMuted(12),
+                          ),
+                        ),
+                      ] else
+                        const Spacer(),
+                      const SizedBox(width: 12),
+                      AppButton(
+                        icon: Icons.upload_file_rounded,
+                        label: 'Import .rdp',
+                        onPressed: () => _openRdpImportDialog(context),
+                      ),
+                      const SizedBox(width: 8),
+                      AppButton(
+                        icon: Icons.add_rounded,
+                        label: 'New Profile',
+                        primary: true,
+                        onPressed: () => context.read<RdpWorkspaceBloc>().add(
+                          const RdpNewProfileRequested(),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: profiles.isEmpty
+                        ? _EmptyProfiles()
+                        : LayoutBuilder(
+                            builder: (context, constraints) {
+                              final crossAxisCount =
+                                  constraints.maxWidth >= 1100
+                                  ? 3
+                                  : constraints.maxWidth >= 640
+                                  ? 2
+                                  : 1;
+                              return GridView.builder(
+                                padding: EdgeInsets.zero,
+                                gridDelegate:
+                                    SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: crossAxisCount,
+                                      mainAxisExtent: 52,
+                                      mainAxisSpacing: 8,
+                                      crossAxisSpacing: 8,
+                                    ),
+                                itemCount: profiles.length,
+                                itemBuilder: (context, index) {
+                                  final profile = profiles[index];
+                                  return RdpProfileCard(
+                                    profile: profile,
+                                    selected: selectedProfile?.id == profile.id,
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                  // Narrow windows: details under the grid.
+                  if (selectedProfile != null && !showDetails) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 280,
+                      child: _RdpDetailsPanel(profile: selectedProfile),
                     ),
-                  ),
-                  const Spacer(),
-                  FilledButton.icon(
-                    onPressed: () => _openNewProfileDialog(context),
-                    icon: const Icon(Icons.add),
-                    label: const Text('New Profile'),
-                  ),
-                  const SizedBox(width: 10),
-                  FilledButton.icon(
-                    onPressed: () => _openRdpImportDialog(context),
-                    icon: const Icon(Icons.upload_file),
-                    label: const Text('Import .rdp'),
-                  ),
+                  ],
                 ],
               ),
-
-              if (state.message.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 10, bottom: 4),
-                  child: Text(
-                    state.message,
-                    style: TextStyle(color: AppColors.cyan),
+            );
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: list),
+                if (showDetails)
+                  SizedBox(
+                    width: 320,
+                    child: _RdpDetailsPanel(profile: selectedProfile),
                   ),
-                ),
-
-              const SizedBox(height: 16),
-
-              Expanded(
-                child: profiles.isEmpty
-                    ? _EmptyProfiles()
-                    : LayoutBuilder(
-                        builder: (context, constraints) {
-                          final crossAxisCount = constraints.maxWidth >= 1400
-                              ? 3
-                              : constraints.maxWidth >= 900
-                              ? 2
-                              : 1;
-
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Expanded(
-                                child: GridView.builder(
-                                  padding: EdgeInsets.zero,
-                                  gridDelegate:
-                                      SliverGridDelegateWithFixedCrossAxisCount(
-                                        crossAxisCount: crossAxisCount,
-
-                                        mainAxisExtent: 68,
-
-                                        mainAxisSpacing: 6,
-                                        crossAxisSpacing: 6,
-                                      ),
-                                  itemCount: profiles.length,
-                                  itemBuilder: (context, index) {
-                                    final profile = profiles[index];
-
-                                    return RdpProfileCard(
-                                      profile: profile,
-                                      selected:
-                                          selectedProfile?.id == profile.id,
-                                    );
-                                  },
-                                ),
-                              ),
-
-                              const SizedBox(height: 14),
-
-                              if (selectedProfile != null)
-                                _RdpDetailsPanel(profile: selectedProfile)
-                              else
-                                _NoSelectionPanel(),
-                            ],
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
+              ],
+            );
+          },
         );
-      },
-    );
-  }
-
-  Future<void> _openNewProfileDialog(BuildContext context) async {
-    final profile = await RdpManualFormDialog.show(context);
-
-    if (profile == null) return;
-
-    final result = await sl<RdpProfileRepository>().saveProfile(profile);
-
-    result.fold(
-      (failure) {
-        _showError(failure.message);
-      },
-      (_) {
-        context.read<RdpWorkspaceBloc>().add(const RdpProfilesRequested());
-
-        _showSuccess('RDP profile saved successfully.');
       },
     );
   }
@@ -495,7 +484,11 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
 }
 
 class _RdpEditView extends StatefulWidget {
-  const _RdpEditView({required this.profile, required this.onCancel});
+  const _RdpEditView({
+    required this.profile,
+    required this.onCancel,
+    super.key,
+  });
 
   final RdpProfile profile;
   final VoidCallback onCancel;
@@ -505,6 +498,8 @@ class _RdpEditView extends StatefulWidget {
 }
 
 class _RdpEditViewState extends State<_RdpEditView> {
+  static const _formMaxWidth = 1120.0;
+
   late final TextEditingController _nameController;
   late final TextEditingController _hostController;
   late final TextEditingController _portController;
@@ -583,337 +578,274 @@ class _RdpEditViewState extends State<_RdpEditView> {
     super.dispose();
   }
 
+  bool get _isNew => widget.profile.status == RdpProfileStatus.draft;
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    final shareName = _localShareNameController.text.trim().isEmpty
+        ? RdpProfile.defaultLocalShareName
+        : _localShareNameController.text.trim();
+    final connection = _section('Connection', [
+      AppTextField(controller: _nameController, label: 'Profile name'),
+      _twoColumns(
+        AppTextField(
+          controller: _hostController,
+          label: 'Host / IP',
+          hint: 'server.example.com or 10.0.0.5',
+        ),
+        AppTextField(
+          controller: _portController,
+          label: 'Port',
+          keyboardType: TextInputType.number,
+        ),
+        firstFlex: 3,
+      ),
+      _twoColumns(
+        AppTextField(controller: _usernameController, label: 'Username'),
+        AppTextField(
+          controller: _passwordController,
+          label: 'Password',
+          hint: _isNew ? '' : 'Unchanged when empty',
+          obscureText: true,
+        ),
+      ),
+      AppTextField(
+        controller: _domainController,
+        label: 'Domain',
+        hint: 'optional',
+      ),
+    ]);
+    final display = _section('Display', [
+      _twoColumns(
+        AppTextField(
+          controller: _widthController,
+          label: 'Width',
+          keyboardType: TextInputType.number,
+        ),
+        AppTextField(
+          controller: _heightController,
+          label: 'Height',
+          keyboardType: TextInputType.number,
+        ),
+      ),
+      _switch(
+        title: 'Full screen',
+        subtitle: 'Open the remote desktop full screen.',
+        value: _fullScreen,
+        onChanged: (value) => setState(() => _fullScreen = value),
+      ),
+    ]);
+    final redirection = _section('Redirection', [
+      _switch(
+        title: 'Drive sharing',
+        subtitle: _redirectDrives
+            ? 'Shared as \\\\tsclient\\$shareName in the remote session.'
+            : 'Share a local folder in the remote session.',
+        value: _redirectDrives,
+        onChanged: (value) => setState(() {
+          _redirectDrives = value;
+          if (value && _localSharePathController.text.trim().isEmpty) {
+            _localSharePathController.text = RdpProfile.defaultLocalSharePath;
+          }
+        }),
+      ),
+      if (_redirectDrives)
+        _twoColumns(
           Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              IconButton(
-                tooltip: 'Back',
-                onPressed: widget.onCancel,
-                icon: const Icon(Icons.arrow_back),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Edit RDP Profile',
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
+              Expanded(
+                child: AppTextField(
+                  controller: _localSharePathController,
+                  label: 'Local folder',
                 ),
               ),
-              const Spacer(),
-              OutlinedButton(
-                onPressed: _saving ? null : widget.onCancel,
-                child: const Text('Cancel'),
-              ),
-              const SizedBox(width: 10),
-              FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.save),
-                label: Text(_saving ? 'Saving...' : 'Save Changes'),
+              const SizedBox(width: 6),
+              AppIconButton(
+                icon: Icons.folder_open_outlined,
+                tooltip: 'Choose folder',
+                color: AppColors.text,
+                onPressed: _pickLocalShareFolder,
               ),
             ],
           ),
-
-          const SizedBox(height: 20),
-
-          Expanded(
-            child: SingleChildScrollView(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 900),
-                  child: Container(
-                    padding: const EdgeInsets.all(22),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Connection',
-                          style: TextStyle(
-                            color: AppColors.text,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        _twoColumns(
-                          _field(
-                            controller: _nameController,
-                            label: 'Profile Name',
-                            icon: Icons.label_outline,
-                          ),
-                          _field(
-                            controller: _hostController,
-                            label: 'Host / IP',
-                            icon: Icons.dns_outlined,
-                          ),
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        _twoColumns(
-                          _field(
-                            controller: _portController,
-                            label: 'Port',
-                            icon: Icons.settings_ethernet,
-                            keyboardType: TextInputType.number,
-                          ),
-                          _field(
-                            controller: _usernameController,
-                            label: 'Username',
-                            icon: Icons.person_outline,
-                          ),
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        _twoColumns(
-                          _field(
-                            controller: _passwordController,
-                            label: 'Password',
-                            icon: Icons.lock_outline,
-                            obscureText: true,
-                          ),
-                          _field(
-                            controller: _domainController,
-                            label: 'Domain',
-                            icon: Icons.domain_outlined,
-                          ),
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        Text(
-                          'Display',
-                          style: TextStyle(
-                            color: AppColors.text,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        _twoColumns(
-                          _field(
-                            controller: _widthController,
-                            label: 'Desktop Width',
-                            icon: Icons.width_normal_outlined,
-                            keyboardType: TextInputType.number,
-                          ),
-                          _field(
-                            controller: _heightController,
-                            label: 'Desktop Height',
-                            icon: Icons.height_outlined,
-                            keyboardType: TextInputType.number,
-                          ),
-                        ),
-
-                        const SizedBox(height: 8),
-
-                        SwitchListTile(
-                          value: _fullScreen,
-                          onChanged: (value) {
-                            setState(() {
-                              _fullScreen = value;
-                            });
-                          },
-                          title: const Text('Full Screen'),
-                          subtitle: const Text(
-                            'Use the remote desktop in full-screen mode.',
-                          ),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-
-                        const SizedBox(height: 18),
-
-                        Text(
-                          'Redirection',
-                          style: TextStyle(
-                            color: AppColors.text,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-
-                        const SizedBox(height: 8),
-
-                        SwitchListTile(
-                          value: _redirectDrives,
-                          onChanged: (value) {
-                            setState(() {
-                              _redirectDrives = value;
-                              if (_redirectDrives &&
-                                  _localSharePathController.text
-                                      .trim()
-                                      .isEmpty) {
-                                _localSharePathController.text =
-                                    RdpProfile.defaultLocalSharePath;
-                              }
-                            });
-                          },
-                          title: const Text('Drive / File Sharing'),
-                          subtitle: Text(
-                            _redirectDrives
-                                ? 'Shared as \\\\tsclient\\${_localShareNameController.text.trim().isEmpty ? RdpProfile.defaultLocalShareName : _localShareNameController.text.trim()} in the remote session.'
-                                : 'Share a local folder in the remote session.',
-                          ),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-
-                        if (_redirectDrives) ...[
-                          const SizedBox(height: 8),
-                          _twoColumns(
-                            _field(
-                              controller: _localSharePathController,
-                              label: 'Local Shared Folder',
-                              icon: Icons.folder_shared_outlined,
-                              suffixIcon: IconButton(
-                                tooltip: 'Choose folder',
-                                onPressed: _pickLocalShareFolder,
-                                icon: const Icon(Icons.folder_open_outlined),
-                              ),
-                            ),
-                            _field(
-                              controller: _localShareNameController,
-                              label: 'Share Name (e.g. PORTIX)',
-                              icon: Icons.drive_file_rename_outline,
-                            ),
-                          ),
-                        ],
-
-                        SwitchListTile(
-                          value: _redirectClipboard,
-                          onChanged: (value) {
-                            setState(() {
-                              _redirectClipboard = value;
-                            });
-                          },
-                          title: const Text('Clipboard'),
-                          subtitle: const Text('Allow clipboard redirection.'),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-
-                        const SizedBox(height: 18),
-
-                        Text(
-                          'Security',
-                          style: TextStyle(
-                            color: AppColors.text,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-
-                        SwitchListTile(
-                          value: _enableCredSsp,
-                          onChanged: (value) {
-                            setState(() {
-                              _enableCredSsp = value;
-                            });
-                          },
-                          title: const Text('Enable CredSSP / NLA'),
-                          subtitle: const Text(
-                            'Use Network Level Authentication when available.',
-                          ),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-
-                        const SizedBox(height: 18),
-
-                        _field(
-                          controller: _shellController,
-                          label: 'Alternate Shell',
-                          icon: Icons.terminal_outlined,
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: AppColors.surfaceCard,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.info_outline,
-                                color: AppColors.cyan,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Profile ID: ${widget.profile.id}',
-                                  style: TextStyle(
-                                    color: AppColors.muted,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
+          AppTextField(
+            controller: _localShareNameController,
+            label: 'Share name',
+            hint: RdpProfile.defaultLocalShareName,
+            onChanged: (_) => setState(() {}),
           ),
+        ),
+      _switch(
+        title: 'Clipboard',
+        subtitle: 'Copy and paste between this computer and the remote.',
+        value: _redirectClipboard,
+        onChanged: (value) => setState(() => _redirectClipboard = value),
+      ),
+    ]);
+    final security = _section('Security', [
+      _switch(
+        title: 'CredSSP / NLA',
+        subtitle: 'Use Network Level Authentication when available.',
+        value: _enableCredSsp,
+        onChanged: (value) => setState(() => _enableCredSsp = value),
+      ),
+      AppTextField(
+        controller: _shellController,
+        label: 'Alternate shell',
+        hint: 'optional',
+      ),
+    ]);
+    final form = SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: _formMaxWidth),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Back',
+                    onPressed: widget.onCancel,
+                    icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                    color: AppColors.muted,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _isNew ? 'New RDP Profile' : 'Edit RDP Profile',
+                    style: portixTitle(15),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  // Wide windows get two columns so the form fills the
+                  // space instead of floating in a narrow strip.
+                  if (constraints.maxWidth < 900) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [connection, display, redirection, security],
+                    );
+                  }
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [connection, security],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [display, redirection],
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    // Pinned under the scrolling form so Save is always in reach.
+    final footer = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: AppColors.border)),
+      ),
+      // Same width as the form so the buttons line up with its right edge.
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: _formMaxWidth),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              AppButton(
+                icon: Icons.close_rounded,
+                label: 'Cancel',
+                onPressed: _saving ? null : widget.onCancel,
+              ),
+              const SizedBox(width: 8),
+              AppButton(
+                icon: Icons.save_outlined,
+                label: _saving ? 'Saving...' : 'Save',
+                primary: true,
+                onPressed: _saving ? null : _save,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return Column(
+      children: [
+        Expanded(child: form),
+        footer,
+      ],
+    );
+  }
+
+  Widget _section(String title, List<Widget> children) {
+    return AppPanel(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(title, style: portixTitle(14)),
+          for (final child in children) ...[const SizedBox(height: 12), child],
         ],
       ),
     );
   }
 
-  Widget _twoColumns(Widget first, Widget second) {
+  Widget _switch({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(child: first),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  color: AppColors.text,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(subtitle, style: portixMuted(12)),
+            ],
+          ),
+        ),
         const SizedBox(width: 12),
-        Expanded(child: second),
+        Switch(value: value, onChanged: onChanged),
       ],
     );
   }
 
-  Widget _field({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    TextInputType? keyboardType,
-    bool obscureText = false,
-    Widget? suffixIcon,
-  }) {
-    return TextField(
-      controller: controller,
-      keyboardType: keyboardType,
-      obscureText: obscureText,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon),
-        suffixIcon: suffixIcon,
-      ),
+  Widget _twoColumns(Widget first, Widget second, {int firstFlex = 1}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(flex: firstFlex, child: first),
+        const SizedBox(width: 12),
+        Expanded(child: second),
+      ],
     );
   }
 
@@ -970,6 +902,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
 
     try {
       final updatedProfile = widget.profile.copyWith(
+        status: _isNew ? RdpProfileStatus.offline : null,
         name: name,
         host: host,
         port: port,
@@ -1078,7 +1011,7 @@ class _EmptyProfiles extends StatelessWidget {
           children: [
             Icon(
               Icons.desktop_windows_outlined,
-              size: 64,
+              size: 40,
               color: AppColors.muted,
             ),
             SizedBox(height: 18),
@@ -1086,36 +1019,18 @@ class _EmptyProfiles extends StatelessWidget {
               'No RDP profiles yet.',
               style: TextStyle(
                 color: AppColors.text,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
               ),
             ),
             SizedBox(height: 8),
             Text(
-              'Use the toolbar above to add a new profile or import a .rdp file.',
-              style: TextStyle(color: AppColors.muted, fontSize: 14),
+              'Add a profile with New Profile, or import a .rdp file.',
+              style: TextStyle(color: AppColors.muted, fontSize: 13),
               textAlign: TextAlign.center,
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _NoSelectionPanel extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Text(
-        'Click a profile to see its details and connection options.',
-        style: TextStyle(color: AppColors.muted, fontSize: 14),
       ),
     );
   }
@@ -1129,115 +1044,130 @@ class _RdpDetailsPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
+        border: Border(left: BorderSide(color: AppColors.border)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Selected profile',
-            style: TextStyle(
-              color: AppColors.text,
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          _DetailRow(label: 'Name', value: profile.name),
-          _DetailRow(label: 'Host', value: profile.address),
-          _DetailRow(label: 'Username', value: profile.username),
-          _DetailRow(label: 'Group', value: profile.group),
-          _DetailRow(
-            label: 'Resolution',
-            value: '${profile.desktopWidth}×${profile.desktopHeight}',
-          ),
-          _DetailRow(label: 'Status', value: profile.status.name),
-
-          if (profile.sourceRdpFilePath != null)
-            _DetailRow(
-              label: 'Imported from',
-              value: profile.sourceRdpFilePath!,
-            ),
-
-          const SizedBox(height: 12),
-
-          Row(
-            children: [
-              FilledButton.icon(
-                onPressed: profile.isConnectable
-                    ? () {
-                        context.read<RdpWorkspaceBloc>().add(
-                          RdpLaunchRequested(profile.id),
-                        );
-                      }
-                    : null,
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('Connect'),
-              ),
-
-              const SizedBox(width: 8),
-
-              OutlinedButton.icon(
-                onPressed: () {
-                  context.read<RdpWorkspaceBloc>().add(
-                    RdpProfileEditRequested(profile.id),
-                  );
-                },
-                icon: const Icon(Icons.edit),
-                label: const Text('Edit'),
-              ),
-
-              const SizedBox(width: 8),
-
-              OutlinedButton.icon(
-                onPressed: () async {
-                  final ok = await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) {
-                      return AlertDialog(
-                        title: const Text('Delete profile?'),
-                        content: const Text(
-                          'Are you sure you want to delete this profile?',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () {
-                              Navigator.of(ctx).pop(false);
-                            },
-                            child: const Text('Cancel'),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              Navigator.of(ctx).pop(true);
-                            },
-                            child: const Text('Delete'),
-                          ),
-                        ],
-                      );
-                    },
-                  );
-
-                  if (ok == true && context.mounted) {
-                    context.read<RdpWorkspaceBloc>().add(
-                      RdpProfileDeleted(profile.id),
-                    );
-                  }
-                },
-                icon: const Icon(Icons.delete_outline),
-                label: const Text('Delete'),
-                style: ButtonStyle(
-                  foregroundColor: WidgetStateProperty.all(AppColors.danger),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 8, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    profile.name.isEmpty ? 'Unnamed' : profile.name,
+                    overflow: TextOverflow.ellipsis,
+                    style: portixTitle(15),
+                  ),
                 ),
+                IconButton(
+                  onPressed: () => context.read<RdpWorkspaceBloc>().add(
+                    const RdpProfileSelectionCleared(),
+                  ),
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  color: AppColors.muted,
+                  tooltip: 'Clear selection',
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  AppButton(
+                    icon: Icons.play_arrow_rounded,
+                    label: 'Connect',
+                    primary: true,
+                    onPressed: profile.isConnectable
+                        ? () => context.read<RdpWorkspaceBloc>().add(
+                            RdpLaunchRequested(profile.id),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: AppButton(
+                          icon: Icons.edit_outlined,
+                          label: 'Edit',
+                          onPressed: () => context.read<RdpWorkspaceBloc>().add(
+                            RdpProfileEditRequested(profile.id),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: AppButton(
+                          icon: Icons.delete_outline_rounded,
+                          label: 'Delete',
+                          onPressed: () async {
+                            final ok = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) {
+                                return AlertDialog(
+                                  title: const Text('Delete profile?'),
+                                  content: const Text(
+                                    'Are you sure you want to delete this profile?',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () {
+                                        Navigator.of(ctx).pop(false);
+                                      },
+                                      child: const Text('Cancel'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () {
+                                        Navigator.of(ctx).pop(true);
+                                      },
+                                      child: const Text('Delete'),
+                                    ),
+                                  ],
+                                );
+                              },
+                            );
+
+                            if (ok == true && context.mounted) {
+                              context.read<RdpWorkspaceBloc>().add(
+                                RdpProfileDeleted(profile.id),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SelectionArea(
+                    child: Column(
+                      children: [
+                        _DetailRow(label: 'Host', value: profile.address),
+                        _DetailRow(label: 'User', value: profile.username),
+                        _DetailRow(label: 'Group', value: profile.group),
+                        _DetailRow(
+                          label: 'Screen',
+                          value:
+                              '${profile.desktopWidth}×${profile.desktopHeight}',
+                        ),
+                        _DetailRow(label: 'Status', value: profile.status.name),
+                        if (profile.sourceRdpFilePath != null)
+                          _DetailRow(
+                            label: 'From',
+                            value: profile.sourceRdpFilePath!,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1251,25 +1181,19 @@ class _DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+    return Container(
+      constraints: const BoxConstraints(minHeight: 34),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 110,
-            child: Text(
-              '$label:',
-              style: TextStyle(
-                color: AppColors.muted,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
+          SizedBox(width: 64, child: Text(label, style: portixMuted(12))),
           Expanded(
             child: Text(
-              value,
+              value.isEmpty ? '-' : value,
               style: TextStyle(color: AppColors.text, fontSize: 13),
             ),
           ),

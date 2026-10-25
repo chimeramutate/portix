@@ -7,20 +7,39 @@ import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 const workspaceRailWidth = 48.0;
 
 /// Icon-only activity bar in the style of VS Code: names live in tooltips,
-/// the active view gets a 2px marker on the left edge.
+/// the active view gets a 2px marker on the left edge. Clicking the active
+/// item calls [onReselect] (the shell toggles its side panel).
 class WorkspaceRail extends StatelessWidget {
-  const WorkspaceRail({required this.activeView, super.key});
+  const WorkspaceRail({
+    required this.activeView,
+    this.onReselect,
+    this.terminalsOpen = false,
+    super.key,
+  });
 
   final WorkspaceView activeView;
+  final VoidCallback? onReselect;
+
+  /// Whether any SSH session is open. Without one the Terminals item is
+  /// disabled: showing that view would connect to the selected profile.
+  final bool terminalsOpen;
 
   @override
   Widget build(BuildContext context) {
-    Widget item(WorkspaceView view, IconData icon, String label) => _RailItem(
+    Widget item(
+      WorkspaceView view,
+      IconData icon,
+      String label, {
+      bool enabled = true,
+    }) => _RailItem(
       selected: view == activeView,
       icon: icon,
       label: label,
-      onTap: () =>
-          context.read<SshWorkspaceBloc>().add(NavigationChanged(view)),
+      onTap: !enabled
+          ? null
+          : view == activeView && onReselect != null
+          ? onReselect!
+          : () => context.read<SshWorkspaceBloc>().add(NavigationChanged(view)),
     );
 
     return Container(
@@ -36,6 +55,12 @@ class WorkspaceRail extends StatelessWidget {
             WorkspaceView.gallery,
             Icons.format_list_bulleted_rounded,
             'SSH profiles',
+          ),
+          item(
+            WorkspaceView.remoteFolder,
+            Icons.terminal_rounded,
+            terminalsOpen ? 'Terminals' : 'Terminals (none open)',
+            enabled: terminalsOpen,
           ),
           item(WorkspaceView.rdp, Icons.computer_outlined, 'RDP'),
           item(WorkspaceView.sftp, Icons.cable_rounded, 'SFTP'),
@@ -61,7 +86,7 @@ class _RailItem extends StatefulWidget {
   final bool selected;
   final IconData icon;
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   State<_RailItem> createState() => _RailItemState();
@@ -73,9 +98,11 @@ class _RailItemState extends State<_RailItem> {
 
   @override
   Widget build(BuildContext context) {
-    final active = widget.selected || _hovered;
+    final enabled = widget.onTap != null;
+    final active = widget.selected || (_hovered && enabled);
     return Semantics(
       selected: widget.selected,
+      enabled: enabled,
       child: Tooltip(
         message: widget.label,
         preferBelow: false,
@@ -98,7 +125,7 @@ class _RailItemState extends State<_RailItem> {
                     left: 0,
                     top: 0,
                     bottom: 0,
-                    child: Container(width: 2, color: AppColors.cyan),
+                    child: Container(width: 2, color: AppColors.accent),
                   ),
                 Center(
                   child: Container(
@@ -107,13 +134,17 @@ class _RailItemState extends State<_RailItem> {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(8),
                       border: _focused
-                          ? Border.all(color: AppColors.cyan, width: 2)
+                          ? Border.all(color: AppColors.accent, width: 2)
                           : null,
                     ),
                     child: Icon(
                       widget.icon,
                       size: 22,
-                      color: active ? AppColors.text : AppColors.muted,
+                      color: active
+                          ? AppColors.text
+                          : enabled
+                          ? AppColors.muted
+                          : AppColors.muted.withValues(alpha: .4),
                     ),
                   ),
                 ),

@@ -19,19 +19,49 @@ class ProfileInspector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = effectiveProfileStatus(profile);
+    final auth = profile.authMethod == AuthMethod.sshKey
+        ? (profile.credentialLabel.isEmpty ? 'ssh-agent' : 'SSH key')
+        : profile.credentialLabel.isEmpty
+        ? 'Not configured'
+        : 'Saved password';
     return Container(
-      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(left: BorderSide(color: AppColors.border)),
       ),
       child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 8, 16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               children: [
-                Expanded(child: Text('Selected Profile', style: portixLabel())),
+                ProfileOsIcon(profile: profile, size: 32),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        profile.name,
+                        overflow: TextOverflow.ellipsis,
+                        style: portixTitle(15),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.circle,
+                            size: 7,
+                            color: statusColorFor(status),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(statusLabelFor(status), style: portixMuted(12)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
                 IconButton(
                   onPressed: () => context.read<SshWorkspaceBloc>().add(
                     const ProfileSelectionCleared(),
@@ -42,80 +72,46 @@ class ProfileInspector extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            AppPanel(
-              color: AppColors.selectedSoft,
-              borderColor: AppColors.cyan,
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  ProfileOsIcon(profile: profile),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          profile.name,
-                          overflow: TextOverflow.ellipsis,
-                          style: portixTitle(17),
-                        ),
-                        Text(
-                          profile.address,
-                          overflow: TextOverflow.ellipsis,
-                          style: portixMuted(),
-                        ),
-                        const SizedBox(height: 10),
-                        AppPill(
-                          label: statusLabelFor(status),
-                          color: statusColorFor(status),
-                        ),
-                      ],
-                    ),
+            const SizedBox(height: 14),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: AppButton(
+                icon: Icons.terminal_rounded,
+                label: 'Open SSH Session',
+                primary: true,
+                onPressed: () => context.read<SshSessionBloc>().add(
+                  SshSessionOpenRequested(
+                    profile: profile,
+                    target: SshSessionTarget.remoteFolder,
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            _DetailBox(
-              icon: Icons.language_rounded,
-              label: 'Host / IP',
-              value: profile.host,
-            ),
-            _DetailBox(
-              icon: profile.authMethod == AuthMethod.sshKey
-                  ? Icons.key_rounded
-                  : Icons.lock_outline_rounded,
-              label: 'Auth method',
-              value: profile.authMethod == AuthMethod.sshKey
-                  ? (profile.credentialLabel.isEmpty
-                        ? 'ssh-agent'
-                        : 'SSH key configured')
-                  : profile.credentialLabel.isEmpty
-                  ? 'Not configured'
-                  : 'Password saved securely',
-            ),
-            _DetailBox(
-              icon: Icons.sell_outlined,
-              label: 'Group + Tags',
-              value: '${profile.group} / ${profile.tags.join(' / ')}',
-            ),
-            const SizedBox(height: 8),
-            Text('Quick actions', style: portixLabel()),
-            const SizedBox(height: 10),
-            AppButton(
-              icon: Icons.terminal_rounded,
-              label: 'Open SSH Session',
-              primary: true,
-              onPressed: () => context.read<SshSessionBloc>().add(
-                SshSessionOpenRequested(
-                  profile: profile,
-                  target: SshSessionTarget.remoteFolder,
                 ),
               ),
             ),
-            const SizedBox(height: 18),
-            _ConnectionFeedbackPanel(profile: profile),
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: SelectionArea(
+                child: Column(
+                  children: [
+                    _DetailRow(label: 'Host', value: profile.host),
+                    _DetailRow(label: 'Port', value: '${profile.port}'),
+                    _DetailRow(label: 'User', value: profile.username),
+                    _DetailRow(label: 'Auth', value: auth),
+                    _DetailRow(label: 'Group', value: profile.group),
+                    if (profile.tags.isNotEmpty)
+                      _DetailRow(
+                        label: 'Tags',
+                        value: profile.tags.map((tag) => '#$tag').join('  '),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _ConnectionFeedbackPanel(profile: profile),
+            ),
           ],
         ),
       ),
@@ -123,42 +119,30 @@ class ProfileInspector extends StatelessWidget {
   }
 }
 
-class _DetailBox extends StatelessWidget {
-  const _DetailBox({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-  final IconData icon;
+/// One label/value line of the inspector, divided from the next by a
+/// hairline: read-only text, so no input-like box around it.
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
+
   final String label;
   final String value;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 13),
-      child: Column(
+    return Container(
+      constraints: const BoxConstraints(minHeight: 34),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: portixLabel()),
-          const SizedBox(height: 7),
-          AppPanel(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            color: AppColors.surfaceDark,
-            child: Row(
-              children: [
-                Icon(icon, color: AppColors.cyan, size: 17),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: SelectionArea(
-                    child: Text(
-                      value,
-                      overflow: TextOverflow.ellipsis,
-                      style: portixTitle(13),
-                    ),
-                  ),
-                ),
-              ],
+          SizedBox(width: 64, child: Text(label, style: portixMuted(12))),
+          Expanded(
+            child: Text(
+              value.isEmpty ? '-' : value,
+              style: TextStyle(color: AppColors.text, fontSize: 13),
             ),
           ),
         ],
@@ -254,25 +238,22 @@ class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
 
     final latencyText = _latencyMs == null ? 'not measured' : '$_latencyMs ms';
 
-    return AppPanel(
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Connection feedback', style: portixTitle(13)),
-          const SizedBox(height: 10),
-          _FeedbackLine(
-            icon: Icons.check_circle_outline,
-            text: 'Host key verified',
-            color: AppColors.green,
-          ),
-          _FeedbackLine(
-            icon: Icons.monitor_heart_outlined,
-            text: 'Latency $latencyText',
-            color: AppColors.cyan,
-          ),
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('CONNECTION', style: portixMuted(11).copyWith(letterSpacing: .8)),
+        const SizedBox(height: 8),
+        _FeedbackLine(
+          icon: Icons.check_circle_outline,
+          text: 'Host key verified',
+          color: AppColors.green,
+        ),
+        _FeedbackLine(
+          icon: Icons.monitor_heart_outlined,
+          text: 'Latency $latencyText',
+          color: AppColors.muted,
+        ),
+      ],
     );
   }
 }

@@ -42,55 +42,50 @@ class TerminalSessionTab extends StatelessWidget {
         position.dx + 1,
         position.dy + 1,
       ),
-      color: AppColors.menu,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: AppColors.border),
-      ),
       items: [
         if (onRename != null)
           PopupMenuItem(
             value: _TabMenuAction.rename,
-            height: 38,
+            height: 32,
             child: Row(
               children: [
-                Icon(Icons.edit_rounded, color: AppColors.cyan, size: 16),
+                Icon(Icons.edit_rounded, color: AppColors.accent, size: 16),
                 const SizedBox(width: 10),
-                Text('Rename', style: portixTitle(13)),
+                Text('Rename'),
               ],
             ),
           ),
         PopupMenuItem(
           value: _TabMenuAction.duplicate,
-          height: 38,
+          height: 32,
           child: Row(
             children: [
-              Icon(Icons.copy_all_rounded, color: AppColors.cyan, size: 16),
+              Icon(Icons.copy_all_rounded, color: AppColors.accent, size: 16),
               const SizedBox(width: 10),
-              Text('Duplicate', style: portixTitle(13)),
+              Text('Duplicate'),
             ],
           ),
         ),
         if (canReconnect && onReconnect != null)
           PopupMenuItem(
             value: _TabMenuAction.reconnect,
-            height: 38,
+            height: 32,
             child: Row(
               children: [
                 Icon(Icons.refresh_rounded, color: AppColors.amber, size: 16),
                 const SizedBox(width: 10),
-                Text('Reconnect', style: portixTitle(13)),
+                Text('Reconnect'),
               ],
             ),
           ),
         PopupMenuItem(
           value: _TabMenuAction.close,
-          height: 38,
+          height: 32,
           child: Row(
             children: [
               Icon(Icons.close_rounded, color: AppColors.muted, size: 16),
               const SizedBox(width: 10),
-              Text('Close', style: portixTitle(13)),
+              Text('Close'),
             ],
           ),
         ),
@@ -133,7 +128,7 @@ class TerminalSessionTab extends StatelessWidget {
             color: active ? AppColors.surface : Colors.transparent,
             border: Border(
               top: BorderSide(
-                color: active ? AppColors.cyan : Colors.transparent,
+                color: active ? AppColors.accent : Colors.transparent,
                 width: 2,
               ),
             ),
@@ -170,7 +165,7 @@ class TerminalSessionTab extends StatelessWidget {
                   style: TextStyle(
                     color: active ? AppColors.text : AppColors.muted,
                     fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
               ),
@@ -252,7 +247,7 @@ class SessionProfileOption extends StatelessWidget {
             color: highlighted ? AppColors.selectedSoft : AppColors.surfaceDark,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: highlighted ? AppColors.cyan : AppColors.border,
+              color: highlighted ? AppColors.accent : AppColors.border,
             ),
           ),
           child: Row(
@@ -263,7 +258,7 @@ class SessionProfileOption extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: AppColors.surfaceCard,
                   borderRadius: BorderRadius.circular(9),
-                  border: Border.all(color: AppColors.cyan),
+                  border: Border.all(color: AppColors.accent),
                 ),
                 child: Icon(
                   Icons.dns_rounded,
@@ -283,7 +278,7 @@ class SessionProfileOption extends StatelessWidget {
                         ),
                         if (subtitleLabel != null) ...[
                           const SizedBox(width: 8),
-                          AppPill(label: subtitleLabel!, color: AppColors.cyan),
+                          AppPill(label: subtitleLabel!, color: AppColors.accent),
                         ],
                       ],
                     ),

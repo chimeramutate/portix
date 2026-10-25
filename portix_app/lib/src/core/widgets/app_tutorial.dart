@@ -49,9 +49,9 @@ Future<void> showTutorialOnce(
           Text(
             step.title,
             style: TextStyle(
-              color: AppColors.cyan,
+              color: AppColors.accent,
               fontSize: 18,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w600,
               decoration: TextDecoration.none,
             ),
           ),
@@ -61,7 +61,7 @@ Future<void> showTutorialOnce(
             style: const TextStyle(
               color: Colors.white,
               fontSize: 14,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w400,
               decoration: TextDecoration.none,
             ),
           ),
@@ -70,8 +70,8 @@ Future<void> showTutorialOnce(
         widgetNext: Text(
           last ? 'Done' : 'Click to continue (${i + 1}/${steps.length})',
           style: TextStyle(
-            color: AppColors.cyan,
-            fontWeight: FontWeight.w800,
+            color: AppColors.accent,
+            fontWeight: FontWeight.w600,
             decoration: TextDecoration.none,
           ),
         ),

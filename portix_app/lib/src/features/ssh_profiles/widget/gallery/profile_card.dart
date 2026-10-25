@@ -36,16 +36,16 @@ class ProfileCard extends StatelessWidget {
             ),
       borderRadius: BorderRadius.circular(10),
       child: AppPanel(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
         color: selected ? AppColors.selectedSoft : AppColors.surface,
-        borderColor: selected ? AppColors.cyan : AppColors.border,
+        borderColor: selected ? AppColors.accent : AppColors.border,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                ProfileOsIcon(profile: profile, size: 36),
-                const SizedBox(width: 12),
+                ProfileOsIcon(profile: profile, size: 32),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     profile.name.isEmpty ? 'new profile' : profile.name,
@@ -53,8 +53,8 @@ class ProfileCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: AppColors.text,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ),
@@ -74,11 +74,6 @@ class ProfileCard extends StatelessWidget {
                 if (!previewMode)
                   PopupMenuButton<_ProfileAction>(
                     tooltip: 'Profile actions',
-                    color: AppColors.menu,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      side: BorderSide(color: AppColors.border),
-                    ),
                     menuPadding: const EdgeInsets.symmetric(vertical: 4),
                     constraints: const BoxConstraints(minWidth: 170),
                     icon: Icon(
@@ -127,98 +122,44 @@ class ProfileCard extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 12),
-            MetaLine(
-              icon: profile.authMethod == AuthMethod.sshKey
-                  ? Icons.key_rounded
-                  : Icons.lock_outline_rounded,
-              text: profile.authMethod == AuthMethod.sshKey
-                  ? (profile.credentialLabel.isEmpty
-                        ? 'ssh-agent'
-                        : 'SSH key configured')
-                  : profile.credentialLabel.isEmpty
-                  ? 'Choose auth'
-                  : 'Password saved securely',
-            ),
             const Spacer(),
-            // One line of pills; extra tags are cut rather than wrapped so
-            // every card keeps the same height.
-            SizedBox(
-              height: 20,
-              child: ClipRect(
-                child: Wrap(
-                  spacing: 6,
-                  clipBehavior: Clip.hardEdge,
-                  children: [
-                    AppPill(label: profile.group, color: AppColors.cyan),
-                    for (final tag in profile.tags.take(previewMode ? 3 : 2))
-                      AppPill(label: tag, color: AppColors.muted),
-                  ],
+            Row(
+              children: [
+                // One line of pills; extra tags are cut rather than wrapped
+                // so every card keeps the same height.
+                Expanded(
+                  child: SizedBox(
+                    height: 20,
+                    child: ClipRect(
+                      child: Wrap(
+                        spacing: 6,
+                        clipBehavior: Clip.hardEdge,
+                        children: [
+                          AppPill(label: profile.group, color: AppColors.muted),
+                          for (final tag in profile.tags.take(2))
+                            AppPill(label: '#$tag', color: AppColors.muted),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (previewMode)
-              SizedBox(
-                height: 34,
-                child: AppButton(
+                const SizedBox(width: 8),
+                AppButton(
                   icon: Icons.terminal_rounded,
-                  label: 'Open after save',
-                  onPressed: null,
-                ),
-              )
-            else
-              Row(
-                children: [
-                  Expanded(
-                    child: SizedBox(
-                      height: 34,
-                      child: AppButton(
-                        icon: Icons.terminal_rounded,
-                        label: 'Open SSH',
-                        onPressed: () => context.read<SshSessionBloc>().add(
+                  label: previewMode ? 'Open after save' : 'Open SSH',
+                  onPressed: previewMode
+                      ? null
+                      : () => context.read<SshSessionBloc>().add(
                           SshSessionOpenRequested(
                             profile: profile,
                             target: SshSessionTarget.remoteFolder,
                           ),
                         ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
+            ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class MetaLine extends StatelessWidget {
-  const MetaLine({required this.icon, required this.text, super.key});
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 3),
-      child: Row(
-        children: [
-          Icon(icon, color: AppColors.muted, size: 14),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: AppColors.muted,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

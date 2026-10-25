@@ -339,8 +339,9 @@ class _GalleryToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final filters = Wrap(
-      spacing: 8,
+      spacing: 4,
       runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         _FilterPill(
           label: 'All',
@@ -362,10 +363,17 @@ class _GalleryToolbar extends StatelessWidget {
           selected: filter == _GalleryFilter.recent,
           onTap: () => onFilterChanged(_GalleryFilter.recent),
         ),
-        AppPill(
-          label: '$visibleCount shown',
-          color: AppColors.muted,
-          icon: Icons.circle,
+        // Set apart from the segments: a count, not a filter.
+        Container(
+          height: 28,
+          padding: const EdgeInsets.only(left: 12),
+          child: Center(
+            widthFactor: 1,
+            child: Text(
+              visibleCount == 1 ? '1 profile' : '$visibleCount profiles',
+              style: portixMuted(12),
+            ),
+          ),
         ),
       ],
     );
@@ -390,20 +398,19 @@ class _GalleryToolbar extends StatelessWidget {
         ),
         PopupMenuButton<_ProfileViewMode>(
           tooltip: 'Change profile view',
-          color: AppColors.surfaceCard,
           position: PopupMenuPosition.under,
           offset: const Offset(0, 6),
           constraints: const BoxConstraints(minWidth: 150, maxWidth: 180),
           onSelected: onViewModeChanged,
           itemBuilder: (context) => const [
             PopupMenuItem(
-              height: 38,
+              height: 32,
               padding: EdgeInsets.symmetric(horizontal: 12),
               value: _ProfileViewMode.gallery,
               child: _MenuItem(icon: Icons.grid_view_rounded, label: 'Gallery'),
             ),
             PopupMenuItem(
-              height: 38,
+              height: 32,
               padding: EdgeInsets.symmetric(horizontal: 12),
               value: _ProfileViewMode.list,
               child: _MenuItem(icon: Icons.view_list_rounded, label: 'List'),
@@ -419,14 +426,13 @@ class _GalleryToolbar extends StatelessWidget {
         ),
         PopupMenuButton<_ProfileFileAction>(
           tooltip: 'Import or export profiles',
-          color: AppColors.surfaceCard,
           position: PopupMenuPosition.under,
           offset: const Offset(0, 6),
           constraints: const BoxConstraints(minWidth: 180, maxWidth: 210),
           onSelected: onFileAction,
           itemBuilder: (context) => const [
             PopupMenuItem(
-              height: 38,
+              height: 32,
               padding: EdgeInsets.symmetric(horizontal: 12),
               value: _ProfileFileAction.importProfiles,
               child: _MenuItem(
@@ -435,7 +441,7 @@ class _GalleryToolbar extends StatelessWidget {
               ),
             ),
             PopupMenuItem(
-              height: 38,
+              height: 32,
               padding: EdgeInsets.symmetric(horizontal: 12),
               value: _ProfileFileAction.importSshConfig,
               child: _MenuItem(
@@ -444,7 +450,7 @@ class _GalleryToolbar extends StatelessWidget {
               ),
             ),
             PopupMenuItem(
-              height: 38,
+              height: 32,
               padding: EdgeInsets.symmetric(horizontal: 12),
               value: _ProfileFileAction.exportProfiles,
               child: _MenuItem(
@@ -499,16 +505,32 @@ class _FilterPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? AppColors.cyan : AppColors.muted;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(99),
-        child: AppPill(
-          label: label,
-          color: color,
-          background: selected ? AppColors.cyan.withValues(alpha: .11) : null,
+    // A segment, not a pill: pills are for status and labels.
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: Material(
+        color: selected ? AppColors.selected : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(6),
+          hoverColor: AppColors.selectedSoft,
+          child: Container(
+            height: 28,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Center(
+              widthFactor: 1,
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: selected ? AppColors.text : AppColors.muted,
+                  fontSize: 12,
+                  fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -530,17 +552,17 @@ class _ToolbarMenuButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? AppColors.cyan : AppColors.text;
+    final color = active ? AppColors.accent : AppColors.text;
     return Container(
       height: 34,
       width: iconOnly ? 42 : null,
       padding: EdgeInsets.symmetric(horizontal: iconOnly ? 0 : 14),
       decoration: BoxDecoration(
         color: active
-            ? AppColors.cyan.withValues(alpha: .12)
+            ? AppColors.accent.withValues(alpha: .12)
             : AppColors.surfaceCard.withValues(alpha: .55),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: active ? AppColors.cyan : AppColors.border),
+        border: Border.all(color: active ? AppColors.accent : AppColors.border),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -560,7 +582,7 @@ class _ToolbarMenuButton extends StatelessWidget {
             const SizedBox(width: 7),
             Icon(
               Icons.keyboard_arrow_down_rounded,
-              color: active ? AppColors.cyan : AppColors.muted,
+              color: active ? AppColors.accent : AppColors.muted,
               size: 16,
             ),
           ],
@@ -587,26 +609,25 @@ class _TagFilterMenuButton extends StatelessWidget {
     return PopupMenuButton<String>(
       tooltip: active ? 'Filtered by #$selectedTag' : 'Filter by tag',
       enabled: tags.isNotEmpty || active,
-      color: AppColors.surfaceCard,
       position: PopupMenuPosition.under,
       offset: const Offset(0, 6),
       constraints: const BoxConstraints(minWidth: 190, maxWidth: 260),
       onSelected: onChanged,
       itemBuilder: (context) => [
         PopupMenuItem(
-          height: 38,
+          height: 32,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           value: '',
           child: _MenuItem(
             icon: Icons.filter_alt_off_rounded,
             label: 'All tags',
-            color: active ? AppColors.cyan : AppColors.muted,
+            color: active ? AppColors.accent : AppColors.muted,
           ),
         ),
         if (tags.isNotEmpty) const PopupMenuDivider(),
         for (final tag in tags)
           PopupMenuItem(
-            height: 38,
+            height: 32,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             value: tag,
             child: Row(
@@ -615,7 +636,9 @@ class _TagFilterMenuButton extends StatelessWidget {
                   tag == selectedTag
                       ? Icons.check_circle_rounded
                       : Icons.sell_outlined,
-                  color: tag == selectedTag ? AppColors.cyan : AppColors.muted,
+                  color: tag == selectedTag
+                      ? AppColors.accent
+                      : AppColors.muted,
                   size: 16,
                 ),
                 const SizedBox(width: 10),
@@ -655,7 +678,7 @@ class _ProfileGrid extends StatelessWidget {
           itemCount: profiles.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: count,
-            mainAxisExtent: 184,
+            mainAxisExtent: 108,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
           ),
@@ -703,7 +726,7 @@ class _ProfileList extends StatelessWidget {
                 child: AppPanel(
                   padding: const EdgeInsets.all(12),
                   color: selected ? AppColors.selectedSoft : AppColors.surface,
-                  borderColor: selected ? AppColors.cyan : AppColors.border,
+                  borderColor: selected ? AppColors.accent : AppColors.border,
                   child: compact
                       ? _CompactProfileListRow(profile: profile, status: status)
                       : Row(
@@ -716,7 +739,6 @@ class _ProfileList extends StatelessWidget {
                                 title: profile.name.isEmpty
                                     ? 'new profile'
                                     : profile.name,
-                                subtitle: profile.address,
                               ),
                             ),
                             Expanded(
@@ -795,7 +817,6 @@ class _CompactProfileListRow extends StatelessWidget {
                       title: profile.name.isEmpty
                           ? 'new profile'
                           : profile.name,
-                      subtitle: profile.address,
                     ),
                   ),
                 ),
@@ -818,7 +839,7 @@ class _CompactProfileListRow extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                AppPill(label: profile.group, color: AppColors.cyan),
+                AppPill(label: profile.group, color: AppColors.accent),
                 AppPill(
                   label: profile.authMethod == AuthMethod.sshKey
                       ? 'Key auth'
@@ -872,10 +893,10 @@ class _CompactProfileListRow extends StatelessWidget {
 }
 
 class _ListText extends StatelessWidget {
-  const _ListText({required this.title, required this.subtitle});
+  const _ListText({required this.title, this.subtitle});
 
   final String title;
-  final String subtitle;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -885,12 +906,14 @@ class _ListText extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(title, overflow: TextOverflow.ellipsis, style: portixTitle(13)),
-          const SizedBox(height: 3),
-          Text(
-            subtitle.isEmpty ? '-' : subtitle,
-            overflow: TextOverflow.ellipsis,
-            style: portixMuted(11),
-          ),
+          if (subtitle case final subtitle?) ...[
+            const SizedBox(height: 3),
+            Text(
+              subtitle.isEmpty ? '-' : subtitle,
+              overflow: TextOverflow.ellipsis,
+              style: portixMuted(11),
+            ),
+          ],
         ],
       ),
     );
@@ -954,7 +977,6 @@ class _ListProfileMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopupMenuButton<_ProfileAction>(
       tooltip: 'Profile actions',
-      color: AppColors.surfaceCard,
       icon: Icon(
         compact ? Icons.more_vert_rounded : Icons.more_horiz_rounded,
         color: AppColors.muted,

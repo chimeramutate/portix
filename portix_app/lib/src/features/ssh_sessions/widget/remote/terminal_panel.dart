@@ -609,7 +609,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                   error.message,
                   style: TextStyle(
                     color: AppColors.text,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
               ),
@@ -1105,7 +1105,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
       icon: recording
           ? Icons.stop_circle_rounded
           : Icons.fiber_manual_record_rounded,
-      color: recording ? AppColors.danger : AppColors.cyan,
+      color: recording ? AppColors.danger : AppColors.accent,
       onPressed: sessionId == null ? null : _toggleRecording,
     );
   }
@@ -2134,7 +2134,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
             border: candidates.isNotEmpty
-                ? Border.all(color: AppColors.cyan, width: 1.2)
+                ? Border.all(color: AppColors.accent, width: 1.2)
                 : null,
           ),
           child: TerminalSessionTab(
@@ -2406,8 +2406,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                             'Drop here to move this session',
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
-                                              color: AppColors.cyan,
-                                              fontWeight: FontWeight.w800,
+                                              color: AppColors.accent,
+                                              fontWeight: FontWeight.w600,
                                               fontSize: 12,
                                             ),
                                           ),
@@ -2459,7 +2459,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                                     height: 24,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
-                                      color: AppColors.cyan,
+                                      color: AppColors.accent,
                                     ),
                                   ),
                                   SizedBox(height: 12),
@@ -2518,6 +2518,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
               ),
               Container(
                 height: 26,
+                width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(
                   color: AppColors.bg,

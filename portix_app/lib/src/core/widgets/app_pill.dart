@@ -23,7 +23,6 @@ class AppPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: background ?? color.withValues(alpha: .16),
         borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: color.withValues(alpha: .7)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -38,7 +37,7 @@ class AppPill extends StatelessWidget {
               style: TextStyle(
                 color: color,
                 fontSize: 11,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),

@@ -30,7 +30,7 @@ class _FocusRingState extends State<FocusRing> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(widget.radius),
           border: _focused && keyboard
-              ? Border.all(color: AppColors.cyan, width: 2)
+              ? Border.all(color: AppColors.accent, width: 2)
               : null,
         ),
         child: widget.child,

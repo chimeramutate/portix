@@ -217,7 +217,7 @@ class _FullscreenToolbar extends StatelessWidget {
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 12,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w400,
               ),
               overflow: TextOverflow.ellipsis,
             ),
