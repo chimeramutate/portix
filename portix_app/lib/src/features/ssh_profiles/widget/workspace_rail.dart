@@ -7,11 +7,13 @@ import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 const workspaceRailWidth = 48.0;
 
 /// Icon-only activity bar in the style of VS Code: names live in tooltips,
-/// the active view gets a 2px marker on the left edge.
+/// the active view gets a 2px marker on the left edge. Clicking the active
+/// item calls [onReselect] (the shell toggles its side panel).
 class WorkspaceRail extends StatelessWidget {
-  const WorkspaceRail({required this.activeView, super.key});
+  const WorkspaceRail({required this.activeView, this.onReselect, super.key});
 
   final WorkspaceView activeView;
+  final VoidCallback? onReselect;
 
   @override
   Widget build(BuildContext context) {
@@ -19,8 +21,9 @@ class WorkspaceRail extends StatelessWidget {
       selected: view == activeView,
       icon: icon,
       label: label,
-      onTap: () =>
-          context.read<SshWorkspaceBloc>().add(NavigationChanged(view)),
+      onTap: view == activeView && onReselect != null
+          ? onReselect!
+          : () => context.read<SshWorkspaceBloc>().add(NavigationChanged(view)),
     );
 
     return Container(

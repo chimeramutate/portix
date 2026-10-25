@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
+import 'package:portix/src/core/widgets/side_panel.dart';
 import 'package:portix/src/features/kubernetes/kubernetes_page.dart';
 import 'package:portix/src/features/rdp/widget/rdp_workspace_view.dart';
 import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
@@ -100,6 +101,7 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
               value: _sftpWorkspaceBloc,
               child: WorkspaceShell(
                 state: state,
+                panel: _panelFor(state),
                 child: IndexedStack(
                   index: _viewIndex(state.activeView),
                   children: [
@@ -124,6 +126,15 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
       ),
     );
   }
+
+  /// The side panel next to the rail, or null for views without one.
+  Widget? _panelFor(SshWorkspaceState state) => switch (state.activeView) {
+    WorkspaceView.gallery => SidePanel(
+      title: 'Groups',
+      child: GroupSidebar(state: state),
+    ),
+    _ => null,
+  };
 
   WorkspaceView _viewForSessionTarget(SshSessionTarget target) {
     return switch (target) {

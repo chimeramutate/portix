@@ -13,9 +13,10 @@ Every main view uses one shell: icon rail, a collapsible side panel owned by the
 ## Shell
 
 ```
-┌──┬────────────┬──────────────────────────────┐
-│▣ │ PANEL TITLE│ top bar (view title, actions) │
-│⌘ │ [filter…]  ├──────────────────────────────┤
+┌──────────────────────────────────────────────┐
+│ top bar / title bar (view title, actions)    │
+├──┬────────────┬──────────────────────────────┤
+│▣ │ PANEL TITLE│                              │
 │⇄ │ list       │                              │
 │▢ │            │ content                      │
 │☸ │            │                              │
@@ -26,10 +27,10 @@ Every main view uses one shell: icon rail, a collapsible side panel owned by the
 ```
 
 - **Rail (48 px)**, unchanged position. Items: Profiles, Terminals (new), SFTP, RDP, Kubernetes. Settings stay in the menu bar.
-- Clicking the active rail item, or the shortcut (Cmd+B on macOS; Ctrl+Shift+B on Linux/Windows, since Ctrl+B is readline backward-char in the terminal), collapses or expands the panel. One collapsed flag for the whole shell, kept in memory (not persisted).
+- Clicking the active rail item collapses or expands the panel. One collapsed flag for the whole shell, kept in memory (not persisted). No shortcut yet: Cmd/Ctrl+B (with or without Shift) already toggles broadcast typing in the terminal; a panel shortcut, if wanted, joins the rebindable `TerminalCommand` set.
 - **Panel (240 px)**: `SidePanel` widget in `core/widgets` with a header (title + optional action icon), an optional filter field, and a scrolling body. Hidden below 760 px window width, as the group sidebar is today.
 - `WorkspaceShell` takes the panel for the active view; views no longer lay out their own sidebars.
-- The top bar moves to the right of the panel, so the panel runs full height next to the rail.
+- The top bar stays full width above rail and panel: it is the window title bar, and the macOS traffic lights sit at its left edge.
 
 ## Panel per view
 
@@ -47,7 +48,7 @@ Shared widgets first, so pages inherit them: `AppButton`, `AppPanel`, `AppPill`,
 
 ## Phases (one commit or PR each, app runs after every phase)
 
-1. **Shell:** `SidePanel`, panel slot in `WorkspaceShell`, top bar moved, collapse + shortcut, Profiles panel moved from `GalleryShell`.
+1. **Shell:** `SidePanel`, panel slot in `WorkspaceShell`, collapse on rail reselect, Profiles panel moved from `GalleryShell`.
 2. **Shared components:** buttons, inputs, tabs, pills, menus, dialogs at density 8.
 3. **Terminals view + panel:** rail item, session list.
 4. **SFTP and RDP panels.**

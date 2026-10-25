@@ -4,132 +4,71 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 
-const groupSidebarWidth = 228.0;
-const groupSidebarCollapsedWidth = 48.0;
-
-/// Flat, scrollable group list. [collapsed] shrinks it to a strip with just
-/// the expand button, giving the cards the full width.
+/// Profile groups for the workspace side panel, with the local key
+/// encryption note pinned at the bottom.
 class GroupSidebar extends StatelessWidget {
-  const GroupSidebar({
-    required this.state,
-    this.collapsed = false,
-    this.onToggle,
-    super.key,
-  });
+  const GroupSidebar({required this.state, super.key});
 
   final SshWorkspaceState state;
-  final bool collapsed;
-  final VoidCallback? onToggle;
 
   @override
   Widget build(BuildContext context) {
-    final toggle = onToggle == null
-        ? null
-        : SizedBox.square(
-            dimension: 28,
-            child: IconButton(
-              key: const ValueKey('groups-toggle'),
-              tooltip: collapsed ? 'Show groups' : 'Hide groups',
-              onPressed: onToggle,
-              padding: EdgeInsets.zero,
-              icon: Icon(
-                collapsed
-                    ? Icons.keyboard_double_arrow_right_rounded
-                    : Icons.keyboard_double_arrow_left_rounded,
-                size: 18,
-                color: AppColors.muted,
-              ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            children: [
+              for (final group in state.groups)
+                _GroupTile(
+                  label: group,
+                  all: group == 'All profiles',
+                  count: group == 'All profiles'
+                      ? state.profiles.length
+                      : state.profiles
+                            .where((profile) => profile.group == group)
+                            .length,
+                  selected: state.groupFilter == group,
+                  onTap: () => context.read<SshWorkspaceBloc>().add(
+                    GroupFilterChanged(group),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Tooltip(
+          message:
+              'Master password active. SSH keys are encrypted locally before connection.',
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: AppColors.border)),
             ),
-          );
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border(right: BorderSide(color: AppColors.border)),
-      ),
-      child: collapsed
-          ? Padding(
-              padding: const EdgeInsets.only(top: 14),
-              child: Align(alignment: Alignment.topCenter, child: toggle),
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            child: Row(
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 8, 6),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'GROUPS',
-                          style: TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: .8,
-                          ),
-                        ),
-                      ),
-                      ?toggle,
-                    ],
-                  ),
+                Icon(
+                  Icons.lock_outline_rounded,
+                  size: 14,
+                  color: AppColors.green,
                 ),
+                const SizedBox(width: 8),
                 Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                    children: [
-                      for (final group in state.groups)
-                        _GroupTile(
-                          label: group,
-                          all: group == 'All profiles',
-                          count: group == 'All profiles'
-                              ? state.profiles.length
-                              : state.profiles
-                                    .where((profile) => profile.group == group)
-                                    .length,
-                          selected: state.groupFilter == group,
-                          onTap: () => context.read<SshWorkspaceBloc>().add(
-                            GroupFilterChanged(group),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                Tooltip(
-                  message:
-                      'Master password active. SSH keys are encrypted locally before connection.',
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      border: Border(top: BorderSide(color: AppColors.border)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.lock_outline_rounded,
-                          size: 14,
-                          color: AppColors.green,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Keys encrypted locally',
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: AppColors.muted,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
+                  child: Text(
+                    'Keys encrypted locally',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ),
               ],
             ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -185,7 +124,7 @@ class _GroupTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: selected ? AppColors.text : AppColors.muted,
-                      fontWeight: selected ? FontWeight.w500 : FontWeight.w500,
+                      fontWeight: FontWeight.w500,
                       fontSize: 13,
                     ),
                   ),
