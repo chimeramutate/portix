@@ -68,6 +68,8 @@ class LocalFileBrowser {
           modified: _formatDate(stat.modified),
           type: isDirectory ? 'dir' : 'file',
           folder: isDirectory,
+          sizeBytes: isDirectory ? 0 : stat.size,
+          modifiedAt: stat.modified,
         ),
       );
     }

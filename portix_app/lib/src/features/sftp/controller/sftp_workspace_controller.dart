@@ -1272,6 +1272,10 @@ class SftpWorkspaceController extends ChangeNotifier {
           type: entry.isDirectory ? 'dir' : 'file',
           folder: entry.isDirectory,
           chmodMode: _chmodText(entry.mode),
+          sizeBytes: entry.isDirectory ? 0 : entry.sizeBytes,
+          modifiedAt: DateTime.fromMillisecondsSinceEpoch(
+            entry.modifiedUnixSeconds * 1000,
+          ),
         ),
       ),
     ];
@@ -1294,6 +1298,10 @@ class SftpWorkspaceController extends ChangeNotifier {
       type: entry.isDirectory ? 'dir' : 'file',
       folder: entry.isDirectory,
       chmodMode: _chmodText(entry.mode),
+      sizeBytes: entry.isDirectory ? 0 : entry.sizeBytes,
+      modifiedAt: DateTime.fromMillisecondsSinceEpoch(
+        entry.modifiedUnixSeconds * 1000,
+      ),
     );
   }
 
