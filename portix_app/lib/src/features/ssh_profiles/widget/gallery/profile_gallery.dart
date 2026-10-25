@@ -390,20 +390,19 @@ class _GalleryToolbar extends StatelessWidget {
         ),
         PopupMenuButton<_ProfileViewMode>(
           tooltip: 'Change profile view',
-          color: AppColors.surfaceCard,
           position: PopupMenuPosition.under,
           offset: const Offset(0, 6),
           constraints: const BoxConstraints(minWidth: 150, maxWidth: 180),
           onSelected: onViewModeChanged,
           itemBuilder: (context) => const [
             PopupMenuItem(
-              height: 38,
+              height: 32,
               padding: EdgeInsets.symmetric(horizontal: 12),
               value: _ProfileViewMode.gallery,
               child: _MenuItem(icon: Icons.grid_view_rounded, label: 'Gallery'),
             ),
             PopupMenuItem(
-              height: 38,
+              height: 32,
               padding: EdgeInsets.symmetric(horizontal: 12),
               value: _ProfileViewMode.list,
               child: _MenuItem(icon: Icons.view_list_rounded, label: 'List'),
@@ -419,14 +418,13 @@ class _GalleryToolbar extends StatelessWidget {
         ),
         PopupMenuButton<_ProfileFileAction>(
           tooltip: 'Import or export profiles',
-          color: AppColors.surfaceCard,
           position: PopupMenuPosition.under,
           offset: const Offset(0, 6),
           constraints: const BoxConstraints(minWidth: 180, maxWidth: 210),
           onSelected: onFileAction,
           itemBuilder: (context) => const [
             PopupMenuItem(
-              height: 38,
+              height: 32,
               padding: EdgeInsets.symmetric(horizontal: 12),
               value: _ProfileFileAction.importProfiles,
               child: _MenuItem(
@@ -435,7 +433,7 @@ class _GalleryToolbar extends StatelessWidget {
               ),
             ),
             PopupMenuItem(
-              height: 38,
+              height: 32,
               padding: EdgeInsets.symmetric(horizontal: 12),
               value: _ProfileFileAction.importSshConfig,
               child: _MenuItem(
@@ -444,7 +442,7 @@ class _GalleryToolbar extends StatelessWidget {
               ),
             ),
             PopupMenuItem(
-              height: 38,
+              height: 32,
               padding: EdgeInsets.symmetric(horizontal: 12),
               value: _ProfileFileAction.exportProfiles,
               child: _MenuItem(
@@ -587,14 +585,13 @@ class _TagFilterMenuButton extends StatelessWidget {
     return PopupMenuButton<String>(
       tooltip: active ? 'Filtered by #$selectedTag' : 'Filter by tag',
       enabled: tags.isNotEmpty || active,
-      color: AppColors.surfaceCard,
       position: PopupMenuPosition.under,
       offset: const Offset(0, 6),
       constraints: const BoxConstraints(minWidth: 190, maxWidth: 260),
       onSelected: onChanged,
       itemBuilder: (context) => [
         PopupMenuItem(
-          height: 38,
+          height: 32,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           value: '',
           child: _MenuItem(
@@ -606,7 +603,7 @@ class _TagFilterMenuButton extends StatelessWidget {
         if (tags.isNotEmpty) const PopupMenuDivider(),
         for (final tag in tags)
           PopupMenuItem(
-            height: 38,
+            height: 32,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             value: tag,
             child: Row(
@@ -954,7 +951,6 @@ class _ListProfileMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopupMenuButton<_ProfileAction>(
       tooltip: 'Profile actions',
-      color: AppColors.surfaceCard,
       icon: Icon(
         compact ? Icons.more_vert_rounded : Icons.more_horiz_rounded,
         color: AppColors.muted,

@@ -74,7 +74,7 @@ class _AppTextFieldState extends State<AppTextField> {
           const SizedBox(height: 6),
         ],
         SizedBox(
-          height: 38,
+          height: 32,
           child: TextField(
             controller: widget.controller,
             readOnly: widget.readOnly,
@@ -119,4 +119,4 @@ TextStyle appFieldLabelStyle() => TextStyle(
 
 /// Text typed into form fields.
 TextStyle appFieldTextStyle() =>
-    TextStyle(color: AppColors.text, fontSize: 13, fontWeight: FontWeight.w500);
+    TextStyle(color: AppColors.text, fontSize: 13, fontWeight: FontWeight.w400);

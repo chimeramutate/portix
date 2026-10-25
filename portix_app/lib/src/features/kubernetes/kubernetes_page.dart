@@ -63,7 +63,7 @@ class _KubernetesPageState extends State<KubernetesPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          height: 38,
+          height: 36,
           decoration: BoxDecoration(
             color: AppColors.surfaceDark,
             border: Border(bottom: BorderSide(color: AppColors.border)),
@@ -131,7 +131,7 @@ class _TabChip extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        height: 38,
+        height: 36,
         padding: const EdgeInsets.only(left: 12, right: 4),
         decoration: BoxDecoration(
           color: selected ? AppColors.surface : null,

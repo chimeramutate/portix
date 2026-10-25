@@ -244,7 +244,7 @@ ThemeData buildAppTheme(AppPalette p) {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       titleTextStyle: TextStyle(
         color: p.text,
-        fontSize: 20,
+        fontSize: 16,
         fontWeight: FontWeight.w600,
       ),
       contentTextStyle: TextStyle(
@@ -254,23 +254,37 @@ ThemeData buildAppTheme(AppPalette p) {
       ),
     ),
     popupMenuTheme: PopupMenuThemeData(
-      color: p.surfaceCard,
+      color: p.menu,
+      elevation: 4,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: p.border),
+      ),
       textStyle: TextStyle(
         color: p.text,
-        fontSize: 12,
-        fontWeight: FontWeight.w500,
+        fontSize: 13,
+        fontWeight: FontWeight.w400,
       ),
+    ),
+    dividerTheme: DividerThemeData(color: p.border, thickness: 1, space: 1),
+    tooltipTheme: TooltipThemeData(
+      decoration: BoxDecoration(
+        color: p.menu,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: p.border),
+      ),
+      textStyle: TextStyle(color: p.text, fontSize: 12),
     ),
     textTheme: baseTextTheme.copyWith(
       bodyLarge: TextStyle(
         color: p.text,
         fontSize: 13,
-        fontWeight: FontWeight.w500,
+        fontWeight: FontWeight.w400,
       ),
       bodyMedium: TextStyle(
         color: p.text,
         fontSize: 12,
-        fontWeight: FontWeight.w500,
+        fontWeight: FontWeight.w400,
       ),
       bodySmall: TextStyle(
         color: p.muted,
@@ -292,7 +306,7 @@ ThemeData buildAppTheme(AppPalette p) {
       filled: true,
       fillColor: p.surfaceDark,
       hintStyle: TextStyle(color: p.muted),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
         borderSide: BorderSide(color: p.inputBorder),
@@ -304,7 +318,7 @@ ThemeData buildAppTheme(AppPalette p) {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        minimumSize: const Size(0, 38),
+        minimumSize: const Size(0, 32),
         backgroundColor: p.accent,
         foregroundColor: p.onAccent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -314,7 +328,7 @@ ThemeData buildAppTheme(AppPalette p) {
     outlinedButtonTheme: OutlinedButtonThemeData(
       style:
           OutlinedButton.styleFrom(
-            minimumSize: const Size(0, 38),
+            minimumSize: const Size(0, 32),
             foregroundColor: p.text,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),

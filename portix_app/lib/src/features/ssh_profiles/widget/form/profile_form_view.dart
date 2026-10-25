@@ -870,7 +870,7 @@ class _AutocompleteTextFieldState extends State<_AutocompleteTextField> {
           children: [
             _FieldLabel(widget.icon, widget.label),
             SizedBox(
-              height: 38,
+              height: 32,
               child: TextField(
                 controller: textController,
                 focusNode: focusNode,
@@ -1135,7 +1135,7 @@ class _ProfileColorPicker extends StatelessWidget {
       children: [
         const _FieldLabel(Icons.palette_outlined, 'Accent color'),
         SizedBox(
-          height: 38,
+          height: 32,
           child: Row(
             children: [
               for (final item in ProfileColor.values)
@@ -1229,7 +1229,7 @@ class _JumpHostPicker extends StatelessWidget {
       children: [
         const _FieldLabel(Icons.alt_route_rounded, 'Jump host (ProxyJump)'),
         SizedBox(
-          height: 38,
+          height: 32,
           child: DropdownButtonFormField<String>(
             key: ValueKey(selected),
             initialValue: selected,
@@ -1275,7 +1275,7 @@ class _AuthSegments extends StatelessWidget {
         const _FieldLabel(Icons.verified_user_outlined, 'Authentication'),
         // One segmented control: the selected half is lifted.
         Container(
-          height: 38,
+          height: 32,
           padding: const EdgeInsets.all(3),
           decoration: BoxDecoration(
             color: AppColors.surfaceDark,

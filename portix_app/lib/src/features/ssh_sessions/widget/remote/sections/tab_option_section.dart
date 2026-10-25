@@ -42,55 +42,50 @@ class TerminalSessionTab extends StatelessWidget {
         position.dx + 1,
         position.dy + 1,
       ),
-      color: AppColors.menu,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: AppColors.border),
-      ),
       items: [
         if (onRename != null)
           PopupMenuItem(
             value: _TabMenuAction.rename,
-            height: 38,
+            height: 32,
             child: Row(
               children: [
                 Icon(Icons.edit_rounded, color: AppColors.accent, size: 16),
                 const SizedBox(width: 10),
-                Text('Rename', style: portixTitle(13)),
+                Text('Rename'),
               ],
             ),
           ),
         PopupMenuItem(
           value: _TabMenuAction.duplicate,
-          height: 38,
+          height: 32,
           child: Row(
             children: [
               Icon(Icons.copy_all_rounded, color: AppColors.accent, size: 16),
               const SizedBox(width: 10),
-              Text('Duplicate', style: portixTitle(13)),
+              Text('Duplicate'),
             ],
           ),
         ),
         if (canReconnect && onReconnect != null)
           PopupMenuItem(
             value: _TabMenuAction.reconnect,
-            height: 38,
+            height: 32,
             child: Row(
               children: [
                 Icon(Icons.refresh_rounded, color: AppColors.amber, size: 16),
                 const SizedBox(width: 10),
-                Text('Reconnect', style: portixTitle(13)),
+                Text('Reconnect'),
               ],
             ),
           ),
         PopupMenuItem(
           value: _TabMenuAction.close,
-          height: 38,
+          height: 32,
           child: Row(
             children: [
               Icon(Icons.close_rounded, color: AppColors.muted, size: 16),
               const SizedBox(width: 10),
-              Text('Close', style: portixTitle(13)),
+              Text('Close'),
             ],
           ),
         ),

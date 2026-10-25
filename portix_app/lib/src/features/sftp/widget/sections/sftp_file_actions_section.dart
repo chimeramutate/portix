@@ -32,9 +32,6 @@ class _FileActionMenu extends StatelessWidget {
 
     return PopupMenuButton<_FileAction>(
       tooltip: 'Actions',
-      color: AppColors.menu,
-      shape: _menuShape,
-      elevation: 8,
       menuPadding: _menuPadding,
       constraints: _menuConstraints,
       icon: Icon(Icons.more_vert_rounded, size: 18, color: AppColors.muted),
@@ -116,11 +113,6 @@ PopupMenuItem<_FileAction> _item(
 }
 
 /// Same look for the ⋮ menu and the right-click menu.
-ShapeBorder get _menuShape => RoundedRectangleBorder(
-  borderRadius: BorderRadius.circular(10),
-  side: BorderSide(color: AppColors.border),
-);
-
 const _menuPadding = EdgeInsets.symmetric(vertical: 4);
 const _menuConstraints = BoxConstraints(minWidth: 190);
 
@@ -140,9 +132,6 @@ Future<void> _showFileActionMenu(
       position.dx + 1,
       position.dy + 1,
     ),
-    color: AppColors.menu,
-    shape: _menuShape,
-    elevation: 8,
     menuPadding: _menuPadding,
     constraints: _menuConstraints,
     items: _fileActionItems(file, isRemote),
@@ -394,7 +383,7 @@ class _DragFeedback extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 230,
-      height: 38,
+      height: 32,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: AppColors.surfaceCard,

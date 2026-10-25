@@ -74,11 +74,6 @@ class ProfileCard extends StatelessWidget {
                 if (!previewMode)
                   PopupMenuButton<_ProfileAction>(
                     tooltip: 'Profile actions',
-                    color: AppColors.menu,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      side: BorderSide(color: AppColors.border),
-                    ),
                     menuPadding: const EdgeInsets.symmetric(vertical: 4),
                     constraints: const BoxConstraints(minWidth: 170),
                     icon: Icon(

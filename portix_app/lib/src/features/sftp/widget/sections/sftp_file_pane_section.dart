@@ -896,7 +896,7 @@ class _SftpInlineCreateItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final isFolder = kind == _SftpInlineCreateKind.folder;
     return Container(
-      height: 38,
+      height: 32,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: AppColors.surfaceCard.withValues(alpha: .58),
