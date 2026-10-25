@@ -38,8 +38,8 @@ Every main view uses one shell: icon rail, a collapsible side panel owned by the
 |---|---|---|
 | Profiles | Groups and tags | existing `GroupSidebar`, moved out of `GalleryShell` |
 | Terminals | Open SSH sessions; click shows that session's tab (through `terminalFocusRequests`), status dot + label per session | `ConnectionManager` sessions, active id from `SshSessionBloc` |
-| SFTP | Saved servers; click opens or switches the SFTP tab | `SftpWorkspaceBloc` profiles |
-| RDP | Saved RDP profiles | `RdpWorkspaceBloc` |
+| SFTP | Saved servers; click shows the server's tab or opens it in one (through `sftpOpenRequests`) | `SftpWorkspaceBloc` profiles |
+| RDP | Profile groups with counts, filtering the profile grid (the grid already lists the profiles) | `RdpWorkspaceBloc` group filter |
 | Kubernetes | Server → namespace → pods tree with health dots; replaces the server/namespace/pod pickers in the log toolbar | existing `kubectl get` calls in `kubernetes_page.dart` |
 
 ## Components restyled to DESIGN.md

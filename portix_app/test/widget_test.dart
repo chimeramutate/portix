@@ -14,6 +14,7 @@ import 'package:portix/src/domain/repositories/ssh/ssh_profile_repository.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
+import 'package:portix/src/features/sftp/widget/sftp_servers_panel.dart';
 import 'package:portix/src/features/ssh_sessions/widget/terminals_panel.dart';
 import 'support/refusing_host_key_backend.dart';
 
@@ -137,7 +138,12 @@ void main() {
     expect(find.text('SFTP Workspace'), findsWidgets);
     expect(find.text('Local'), findsOneWidget);
     expect(find.text('Remote'), findsOneWidget);
-    expect(find.text('prod-api-01'), findsOneWidget);
+    final inPanel = find.descendant(
+      of: find.byType(SftpServersPanel),
+      matching: find.text('prod-api-01'),
+    );
+    expect(inPanel, findsOneWidget);
+    expect(find.text('prod-api-01'), findsNWidgets(2));
     expect(find.text('Transfer Queue'), findsNothing);
   });
 

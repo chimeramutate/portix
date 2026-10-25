@@ -49,7 +49,13 @@ class SftpWorkspacePage extends StatefulWidget {
   State<SftpWorkspacePage> createState() => _SftpWorkspacePageState();
 }
 
+/// Profiles to show in an SFTP tab, sent from the workspace side panel's
+/// server list: an open tab for the profile comes to the front, otherwise
+/// the profile opens in a tab.
+final sftpOpenRequests = StreamController<SshProfile>.broadcast();
+
 class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
+  late final StreamSubscription<SshProfile> _openRequestSubscription;
   late SftpWorkspaceController _controller;
   late SftpWorkspaceController _leftController;
   // Profile of the LEFT pane's own controller; null means Local. Either side
@@ -104,6 +110,9 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
   @override
   void initState() {
     super.initState();
+    _openRequestSubscription = sftpOpenRequests.stream.listen(
+      _openProfileInTab,
+    );
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => showTutorialOnce(context, 'sftp', [
         (
@@ -141,6 +150,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
   @override
   void dispose() {
+    unawaited(_openRequestSubscription.cancel());
     // No snackbar: the context is unusable during dispose.
     _discardEditedCopies((_) => true, notify: false);
     _editWatcher.dispose();
@@ -398,6 +408,13 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
       _localSelectionAnchor = null;
       _remoteSelectionAnchor = null;
     });
+    // Keep the top bar status and the side panel on the shown tab's server.
+    final profile = _activeTab.selectedProfile;
+    context.read<SftpWorkspaceBloc>().add(
+      profile == null
+          ? const SftpProfileCleared()
+          : SftpProfileSelected(profile),
+    );
   }
 
   /// Duplicates the tab at [index] with a fresh controller on the same
@@ -504,10 +521,13 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
     final profile = profiles.where((p) => p.id == targetId).firstOrNull;
     if (profile == null) return;
+    _openProfileInTab(profile);
+  }
 
+  void _openProfileInTab(SshProfile profile) {
     // Find existing tab with this profile.
     final existingIndex = _tabs.indexWhere(
-      (tab) => tab.selectedProfile?.id == targetId,
+      (tab) => tab.selectedProfile?.id == profile.id,
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {

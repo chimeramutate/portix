@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
+import 'package:portix/src/core/widgets/side_panel.dart';
 import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 
@@ -37,8 +38,10 @@ class TerminalsPanel extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
           children: [
             for (final session in sessions)
-              _SessionTile(
-                session: session,
+              SidePanelTile(
+                icon: Icons.terminal_rounded,
+                label: session.title,
+                subtitle: _StatusLine(session.status),
                 selected: session.id == activeId,
                 onTap: () {
                   context.read<SshWorkspaceBloc>().add(
@@ -54,88 +57,25 @@ class TerminalsPanel extends StatelessWidget {
   }
 }
 
-class _SessionTile extends StatelessWidget {
-  const _SessionTile({
-    required this.session,
-    required this.selected,
-    required this.onTap,
-  });
+class _StatusLine extends StatelessWidget {
+  const _StatusLine(this.status);
 
-  final TerminalSession session;
-  final bool selected;
-  final VoidCallback onTap;
+  final ConnectionStatus status;
 
   @override
   Widget build(BuildContext context) {
-    final (statusLabel, statusColor) = switch (session.status) {
+    final (label, color) = switch (status) {
       ConnectionStatus.connected => ('Connected', AppColors.green),
       ConnectionStatus.connecting => ('Connecting', AppColors.amber),
       ConnectionStatus.disconnected => ('Disconnected', AppColors.muted),
       ConnectionStatus.error => ('Error', AppColors.danger),
     };
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: Material(
-        color: selected ? AppColors.selected : Colors.transparent,
-        borderRadius: BorderRadius.circular(6),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(6),
-          hoverColor: AppColors.surfaceDark,
-          child: Container(
-            height: 44,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            decoration: BoxDecoration(
-              border: Border(
-                left: BorderSide(
-                  color: selected ? AppColors.accent : Colors.transparent,
-                  width: 2,
-                ),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.terminal_rounded,
-                  size: 16,
-                  color: selected ? AppColors.accent : AppColors.muted,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        session.title,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: selected ? AppColors.text : AppColors.muted,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      Row(
-                        children: [
-                          Icon(Icons.circle, size: 7, color: statusColor),
-                          const SizedBox(width: 5),
-                          Text(
-                            statusLabel,
-                            style: TextStyle(
-                              color: AppColors.muted,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return Row(
+      children: [
+        Icon(Icons.circle, size: 7, color: color),
+        const SizedBox(width: 5),
+        Text(label, style: TextStyle(color: AppColors.muted, fontSize: 11)),
+      ],
     );
   }
 }

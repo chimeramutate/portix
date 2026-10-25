@@ -5,9 +5,11 @@ import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/side_panel.dart';
 import 'package:portix/src/features/kubernetes/kubernetes_page.dart';
+import 'package:portix/src/features/rdp/widget/rdp_groups_panel.dart';
 import 'package:portix/src/features/rdp/widget/rdp_workspace_view.dart';
 import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
 import 'package:portix/src/features/sftp/page/sftp_workspace_page.dart';
+import 'package:portix/src/features/sftp/widget/sftp_servers_panel.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 import 'package:portix/src/features/ssh_sessions/page/remote_folder_page.dart';
 import 'package:portix/src/features/ssh_sessions/widget/terminals_panel.dart';
@@ -141,6 +143,14 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
     WorkspaceView.remoteFolder => SidePanel(
       title: 'Terminals',
       child: TerminalsPanel(connectionManager: _connectionManager),
+    ),
+    WorkspaceView.sftp => const SidePanel(
+      title: 'Servers',
+      child: SftpServersPanel(),
+    ),
+    WorkspaceView.rdp => const SidePanel(
+      title: 'Groups',
+      child: RdpGroupsPanel(),
     ),
     _ => null,
   };
