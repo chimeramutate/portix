@@ -19,8 +19,10 @@ class RdpProfileCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = _accentColor(profile.color);
-    final borderColor = selected ? accent : AppColors.border;
-    final cardBg = selected ? AppColors.surfaceCard : AppColors.surface;
+    // Selection looks the same as everywhere else; the profile color stays
+    // on the icon.
+    final borderColor = selected ? AppColors.accent : AppColors.border;
+    final cardBg = selected ? AppColors.selectedSoft : AppColors.surface;
 
     final shape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(8),
@@ -52,14 +54,11 @@ class RdpProfileCard extends StatelessWidget {
                         profile.name.isEmpty ? 'Unnamed' : profile.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: portixTitle(12.5),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        profile.address,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: portixMuted(11),
+                        style: TextStyle(
+                          color: AppColors.text,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ],
                   ),
@@ -67,30 +66,17 @@ class RdpProfileCard extends StatelessWidget {
 
                 const SizedBox(width: 8),
 
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (profile.isCyberArkPsm) ...[
-                          _Chip(label: 'PSM', color: AppColors.amber),
-                          const SizedBox(width: 4),
-                        ],
-
-                        _Chip(label: profile.group, color: AppColors.muted),
-                      ],
-                    ),
-
-                    const SizedBox(height: 3),
-
-                    Text(
-                      '${profile.desktopWidth}×${profile.desktopHeight}',
-                      style: portixMuted(11),
-                    ),
-                  ],
+                // One line, so the card stays a single 52px row.
+                Text(
+                  '${profile.desktopWidth}×${profile.desktopHeight}',
+                  style: portixMuted(11),
                 ),
+                const SizedBox(width: 8),
+                if (profile.isCyberArkPsm) ...[
+                  _Chip(label: 'PSM', color: AppColors.amber),
+                  const SizedBox(width: 4),
+                ],
+                _Chip(label: profile.group, color: AppColors.muted),
 
                 const SizedBox(width: 7),
 
@@ -159,6 +145,7 @@ class _Chip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      constraints: const BoxConstraints(maxWidth: 110),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: .12),
@@ -167,10 +154,12 @@ class _Chip extends StatelessWidget {
       ),
       child: Text(
         label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: color,
           fontSize: 11,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w500,
         ),
       ),
     );
