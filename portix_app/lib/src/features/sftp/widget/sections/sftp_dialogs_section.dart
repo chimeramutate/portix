@@ -550,14 +550,9 @@ class _RemoteFolderPickerDialogState extends State<_RemoteFolderPickerDialog> {
                               ),
                               child: Row(
                                 children: [
-                                  Icon(
-                                    isFolder
-                                        ? Icons.folder_rounded
-                                        : Icons.insert_drive_file_outlined,
-                                    color: isFolder
-                                        ? AppColors.amber
-                                        : AppColors.muted,
-                                    size: 18,
+                                  FileTypeIcon(
+                                    name: entry.name,
+                                    folder: isFolder,
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(

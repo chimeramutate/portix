@@ -908,11 +908,7 @@ class _SftpInlineCreateItem extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            isFolder ? Icons.folder_outlined : Icons.insert_drive_file_outlined,
-            color: isFolder ? AppColors.amber : AppColors.muted,
-            size: 17,
-          ),
+          FileTypeIcon(name: '', folder: isFolder, size: 17),
           const SizedBox(width: 12),
           Expanded(
             child: Focus(
@@ -982,13 +978,7 @@ class _SftpInlineRenameItem extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            file.folder
-                ? Icons.folder_outlined
-                : Icons.insert_drive_file_outlined,
-            color: file.folder ? AppColors.amber : AppColors.muted,
-            size: 16,
-          ),
+          FileTypeIcon(name: file.name, folder: file.folder, size: 16),
           const SizedBox(width: 10),
           Expanded(
             child: Focus(

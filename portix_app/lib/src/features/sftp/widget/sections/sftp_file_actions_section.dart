@@ -236,42 +236,12 @@ class _FileRow extends StatelessWidget {
     );
   }
 
-  Widget _buildFileIcon({required bool compact}) {
-    final iconSize = compact ? 20.0 : 18.0;
-    final color = _iconColorForFile(data.name);
-    if (data.folder) {
-      return Icon(Icons.folder_outlined, color: color, size: iconSize);
-    }
-    final asset = FileTypeRegistry.assetForExtension(data.name);
-    if (asset != null) {
-      return SizedBox(
-        width: iconSize,
-        height: iconSize,
-        child: SvgPicture.asset(
-          asset,
-          fit: BoxFit.contain,
-          colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
-        ),
-      );
-    }
-    return Icon(Icons.insert_drive_file_outlined, color: color, size: iconSize);
-  }
-
-  Color _iconColorForFile(String fileName) {
-    final category = FileTypeRegistry.categoryFor(fileName);
-    return switch (category) {
-      FileCategory.code => AppColors.cyan,
-      FileCategory.document => AppColors.blue,
-      FileCategory.image => AppColors.amber,
-      FileCategory.audio => AppColors.danger,
-      FileCategory.video => AppColors.danger,
-      FileCategory.archive => AppColors.amber,
-      FileCategory.executable => AppColors.danger,
-      FileCategory.database => AppColors.blue,
-      FileCategory.design => AppColors.amber,
-      FileCategory.unknown => AppColors.muted,
-    };
-  }
+  Widget _buildFileIcon({required bool compact}) => FileTypeIcon(
+    // '..' is the parent folder, not a folder named '..'.
+    name: data.name == '..' ? '' : data.name,
+    folder: data.folder,
+    size: compact ? 20 : 18,
+  );
 
   Widget _nameCell({required bool compact}) {
     final meta = [
@@ -403,11 +373,9 @@ class _DragFeedback extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            data.folder ? Icons.folder_outlined : Icons.insert_drive_file,
-            color: data.folder ? AppColors.amber : AppColors.accent,
-            size: 17,
-          ),
+          count > 1
+              ? Icon(Icons.copy_all_rounded, color: AppColors.muted, size: 17)
+              : FileTypeIcon(name: data.name, folder: data.folder, size: 17),
           const SizedBox(width: 9),
           Expanded(
             child: Text(

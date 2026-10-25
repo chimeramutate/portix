@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
+import 'file_type_icon.dart';
 import 'app_panel.dart';
 
 /// A directory entry offered by [PathBar]'s Tab autocomplete.
@@ -359,13 +360,9 @@ class _PathBarState extends State<PathBar> {
                             ),
                             child: Row(
                               children: [
-                                Icon(
-                                  entry.isDirectory
-                                      ? Icons.folder_outlined
-                                      : Icons.insert_drive_file_outlined,
-                                  color: entry.isDirectory
-                                      ? AppColors.amber
-                                      : AppColors.muted,
+                                FileTypeIcon(
+                                  name: entry.name,
+                                  folder: entry.isDirectory,
                                   size: 15,
                                 ),
                                 const SizedBox(width: 7),
