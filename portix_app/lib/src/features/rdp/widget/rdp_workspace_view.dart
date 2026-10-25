@@ -498,6 +498,8 @@ class _RdpEditView extends StatefulWidget {
 }
 
 class _RdpEditViewState extends State<_RdpEditView> {
+  static const _formMaxWidth = 640.0;
+
   late final TextEditingController _nameController;
   late final TextEditingController _hostController;
   late final TextEditingController _portController;
@@ -587,7 +589,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 900),
+          constraints: const BoxConstraints(maxWidth: _formMaxWidth),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -608,40 +610,39 @@ class _RdpEditViewState extends State<_RdpEditView> {
               ),
               const SizedBox(height: 12),
               _section('Connection', [
+                AppTextField(
+                  controller: _nameController,
+                  label: 'Profile name',
+                ),
                 _twoColumns(
-                  AppTextField(
-                    controller: _nameController,
-                    label: 'Profile name',
-                  ),
                   AppTextField(
                     controller: _hostController,
                     label: 'Host / IP',
                     hint: 'server.example.com or 10.0.0.5',
                   ),
-                ),
-                _twoColumns(
                   AppTextField(
                     controller: _portController,
                     label: 'Port',
                     keyboardType: TextInputType.number,
                   ),
+                  firstFlex: 3,
+                ),
+                _twoColumns(
                   AppTextField(
                     controller: _usernameController,
                     label: 'Username',
                   ),
-                ),
-                _twoColumns(
                   AppTextField(
                     controller: _passwordController,
                     label: 'Password',
                     hint: _isNew ? '' : 'Unchanged when empty',
                     obscureText: true,
                   ),
-                  AppTextField(
-                    controller: _domainController,
-                    label: 'Domain',
-                    hint: 'optional',
-                  ),
+                ),
+                AppTextField(
+                  controller: _domainController,
+                  label: 'Domain',
+                  hint: 'optional',
                 ),
               ]),
               _section('Display', [
@@ -740,22 +741,28 @@ class _RdpEditViewState extends State<_RdpEditView> {
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: AppColors.border)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          AppButton(
-            icon: Icons.close_rounded,
-            label: 'Cancel',
-            onPressed: _saving ? null : widget.onCancel,
+      // Same width as the form so the buttons line up with its right edge.
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: _formMaxWidth),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              AppButton(
+                icon: Icons.close_rounded,
+                label: 'Cancel',
+                onPressed: _saving ? null : widget.onCancel,
+              ),
+              const SizedBox(width: 8),
+              AppButton(
+                icon: Icons.save_outlined,
+                label: _saving ? 'Saving...' : 'Save',
+                primary: true,
+                onPressed: _saving ? null : _save,
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          AppButton(
-            icon: Icons.save_outlined,
-            label: _saving ? 'Saving...' : 'Save',
-            primary: true,
-            onPressed: _saving ? null : _save,
-          ),
-        ],
+        ),
       ),
     );
     return Column(
@@ -811,11 +818,11 @@ class _RdpEditViewState extends State<_RdpEditView> {
     );
   }
 
-  Widget _twoColumns(Widget first, Widget second) {
+  Widget _twoColumns(Widget first, Widget second, {int firstFlex = 1}) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(child: first),
+        Expanded(flex: firstFlex, child: first),
         const SizedBox(width: 12),
         Expanded(child: second),
       ],
