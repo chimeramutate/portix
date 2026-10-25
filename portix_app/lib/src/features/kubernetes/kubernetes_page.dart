@@ -63,7 +63,7 @@ class _KubernetesPageState extends State<KubernetesPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          height: 36,
+          height: 34,
           decoration: BoxDecoration(
             color: AppColors.surfaceDark,
             border: Border(bottom: BorderSide(color: AppColors.border)),
@@ -131,7 +131,7 @@ class _TabChip extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        height: 36,
+        height: 34,
         padding: const EdgeInsets.only(left: 12, right: 4),
         decoration: BoxDecoration(
           color: selected ? AppColors.surface : null,
@@ -211,7 +211,7 @@ String _formatShort(DateTime time) =>
     '${_months[time.month - 1]} ${time.day}, '
     '${_two(time.hour)}:${_two(time.minute)}';
 
-const _controlHeight = 36.0;
+const _controlHeight = 32.0;
 
 class _KubeLogView extends StatefulWidget {
   const _KubeLogView({required this.active, required this.onTitle, super.key});
@@ -769,219 +769,190 @@ class _KubeLogViewState extends State<_KubeLogView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(
-                flex: 4,
-                child: _SelectButton<String>(
-                  icon: Icons.dns_outlined,
-                  label: 'Server',
-                  value: profile?.name,
-                  placeholder: 'Select a server with kubectl',
-                  enabled: !_loading,
-                  leading: profile == null
-                      ? null
-                      : ProfileOsIcon(profile: profile, size: 18),
-                  noun: 'servers',
-                  options: [
-                    for (final p in profiles)
-                      (
-                        value: p.id,
-                        label: p.name,
-                        subtitle: p.group,
-                        leading: ProfileOsIcon(profile: p, size: 24),
-                        section: null,
-                      ),
-                  ],
-                  selected: _profileId,
-                  onSelected: _selectProfile,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 3,
-                child: _SelectButton<String>(
-                  icon: Icons.folder_outlined,
-                  label: 'Namespace',
-                  value: _namespace,
-                  placeholder: '—',
-                  enabled: !_loading && _namespaces.isNotEmpty,
-                  noun: 'namespaces',
-                  options: [
-                    for (final ns in _namespaces)
-                      (
-                        value: ns.name,
-                        label: ns.name,
-                        subtitle: '${ns.status} · ${ns.age}',
-                        leading: _NamespaceIcon(system: _isSystem(ns.name)),
-                        section: null,
-                      ),
-                  ],
-                  selected: _namespace,
-                  onSelected: _selectNamespace,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 4,
-                child: _SelectButton<_Target>(
-                  icon: Icons.view_in_ar_outlined,
-                  label: 'Pod',
-                  value: _targetLabel,
-                  leading: _workload != null
-                      ? Icon(
-                          Icons.account_tree_outlined,
-                          size: 16,
-                          color: AppColors.accent,
-                        )
-                      : _selectedPod == null
-                      ? null
-                      : _PodDot(podHealth(_selectedPod!)),
-                  placeholder: '—',
-                  enabled: !_loading && _namespace != null,
-                  noun: 'pods',
-                  options: [
-                    (
-                      value: (pod: null, workload: null),
-                      label: 'All pods',
-                      subtitle: _podSummary,
-                      leading: Icon(
-                        Icons.layers_outlined,
-                        size: 18,
-                        color: AppColors.accent,
-                      ),
-                      section: null,
-                    ),
-                    for (final MapEntry(key: workload, value: pods)
-                        in _workloads.entries)
-                      (
-                        value: (pod: null, workload: workload),
-                        label: workload.name,
-                        subtitle: _workloadSummary(workload, pods),
-                        leading: Icon(
-                          Icons.account_tree_outlined,
-                          size: 18,
-                          color:
-                              pods.any((p) => podHealth(p) == PodHealth.failing)
-                              ? AppColors.danger
-                              : AppColors.accent,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final pickers = [
+                Expanded(
+                  flex: 4,
+                  child: _SelectButton<String>(
+                    icon: Icons.dns_outlined,
+                    label: 'Server',
+                    value: profile?.name,
+                    placeholder: 'Select a server with kubectl',
+                    enabled: !_loading,
+                    leading: profile == null
+                        ? null
+                        : ProfileOsIcon(profile: profile, size: 18),
+                    noun: 'servers',
+                    options: [
+                      for (final p in profiles)
+                        (
+                          value: p.id,
+                          label: p.name,
+                          subtitle: p.group,
+                          leading: ProfileOsIcon(profile: p, size: 24),
+                          section: null,
                         ),
-                        section: 'Workloads · follow new pods automatically',
-                      ),
-                    for (final pod in _pods)
+                    ],
+                    selected: _profileId,
+                    onSelected: _selectProfile,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 3,
+                  child: _SelectButton<String>(
+                    icon: Icons.folder_outlined,
+                    label: 'Namespace',
+                    value: _namespace,
+                    placeholder: 'Pick a server first',
+                    enabled: !_loading && _namespaces.isNotEmpty,
+                    noun: 'namespaces',
+                    options: [
+                      for (final ns in _namespaces)
+                        (
+                          value: ns.name,
+                          label: ns.name,
+                          subtitle: '${ns.status} · ${ns.age}',
+                          leading: _NamespaceIcon(system: _isSystem(ns.name)),
+                          section: null,
+                        ),
+                    ],
+                    selected: _namespace,
+                    onSelected: _selectNamespace,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 4,
+                  child: _SelectButton<_Target>(
+                    icon: Icons.view_in_ar_outlined,
+                    label: 'Pod',
+                    value: _targetLabel,
+                    leading: _workload != null
+                        ? Icon(
+                            Icons.account_tree_outlined,
+                            size: 16,
+                            color: AppColors.accent,
+                          )
+                        : _selectedPod == null
+                        ? null
+                        : _PodDot(podHealth(_selectedPod!)),
+                    placeholder: '—',
+                    enabled: !_loading && _namespace != null,
+                    noun: 'pods',
+                    options: [
                       (
-                        value: (pod: pod.name, workload: null),
-                        label: pod.name,
-                        subtitle: [
-                          pod.status,
-                          '${pod.ready} ready',
-                          if (pod.restarts > 0)
-                            '${pod.restarts} restart${pod.restarts == 1 ? '' : 's'}',
-                          pod.age,
-                        ].join(' · '),
-                        leading: _PodDot(podHealth(pod)),
-                        section: 'Pods · this pod only',
+                        value: (pod: null, workload: null),
+                        label: 'All pods',
+                        subtitle: _podSummary,
+                        leading: Icon(
+                          Icons.layers_outlined,
+                          size: 18,
+                          color: AppColors.accent,
+                        ),
+                        section: null,
                       ),
-                  ],
-                  selected: (pod: _pod, workload: _workload),
-                  onSelected: (target) =>
-                      _setTarget(pod: target.pod, workload: target.workload),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: _controlHeight,
-                  child: TextField(
-                    controller: _search,
-                    focusNode: _searchFocus,
-                    onChanged: (_) => setState(() => _current = null),
-                    onSubmitted: (_) {
-                      _goto(1);
-                      _searchFocus.requestFocus();
-                    },
-                    style: appFieldTextStyle(),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 10,
-                      ),
-                      hintText:
-                          'Search…   error -timeout   "receive from"   '
-                          'ERROR OR WARN',
-                      prefixIcon: Icon(
-                        Icons.search_rounded,
-                        size: 18,
-                        color: AppColors.muted,
-                      ),
-                      prefixIconConstraints: const BoxConstraints(minWidth: 36),
-                      suffixIcon: query.isEmpty
-                          ? null
-                          : _SearchNav(
-                              position: cursor,
-                              total: matches.length,
-                              onlyMatches: _onlyMatches,
-                              onPrevious: () => _goto(-1),
-                              onNext: () => _goto(1),
-                              onToggleFilter: () => setState(() {
-                                _onlyMatches = !_onlyMatches;
-                                _current = null;
-                              }),
-                              onClear: () => setState(() {
-                                _search.clear();
-                                _current = null;
-                              }),
-                            ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              _TimeRangeButton(
-                label: _rangeLabel,
-                absolute: _relative == null ? _rangeLabel : null,
-                ranges: _relativeRanges.keys.toList(),
-                selected: _relative,
-                refreshEvery: _refreshEvery,
-                refreshDisabled: _rangeEnded
-                    ? 'The range has ended; no new logs can arrive.'
-                    : null,
-                onRefreshEvery: _setRefreshEvery,
-                onRelative: (range) {
-                  setState(() => _relative = range);
-                  if (_namespace != null) _loadLogs();
-                },
-                onAbsolute: _pickAbsolute,
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                height: _controlHeight,
-                child: FilledButton.icon(
-                  onPressed: _loading || _namespace == null ? null : _loadLogs,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, _controlHeight),
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                  ),
-                  icon: _loading
-                      ? SizedBox.square(
-                          dimension: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: AppColors.onAccent,
+                      for (final MapEntry(key: workload, value: pods)
+                          in _workloads.entries)
+                        (
+                          value: (pod: null, workload: workload),
+                          label: workload.name,
+                          subtitle: _workloadSummary(workload, pods),
+                          leading: Icon(
+                            Icons.account_tree_outlined,
+                            size: 18,
+                            color:
+                                pods.any(
+                                  (p) => podHealth(p) == PodHealth.failing,
+                                )
+                                ? AppColors.danger
+                                : AppColors.accent,
                           ),
-                        )
-                      : const Icon(Icons.refresh_rounded, size: 16),
-                  label: Text(_lines.isEmpty ? 'Load' : 'Refresh'),
+                          section: 'Workloads · follow new pods automatically',
+                        ),
+                      for (final pod in _pods)
+                        (
+                          value: (pod: pod.name, workload: null),
+                          label: pod.name,
+                          subtitle: [
+                            pod.status,
+                            '${pod.ready} ready',
+                            if (pod.restarts > 0)
+                              '${pod.restarts} restart${pod.restarts == 1 ? '' : 's'}',
+                            pod.age,
+                          ].join(' · '),
+                          leading: _PodDot(podHealth(pod)),
+                          section: 'Pods · this pod only',
+                        ),
+                    ],
+                    selected: (pod: _pod, workload: _workload),
+                    onSelected: (target) =>
+                        _setTarget(pod: target.pod, workload: target.workload),
+                  ),
                 ),
-              ),
-            ],
+              ];
+              final actions = [
+                _TimeRangeButton(
+                  label: _rangeLabel,
+                  absolute: _relative == null ? _rangeLabel : null,
+                  ranges: _relativeRanges.keys.toList(),
+                  selected: _relative,
+                  refreshEvery: _refreshEvery,
+                  refreshDisabled: _rangeEnded
+                      ? 'The range has ended; no new logs can arrive.'
+                      : null,
+                  onRefreshEvery: _setRefreshEvery,
+                  onRelative: (range) {
+                    setState(() => _relative = range);
+                    if (_namespace != null) _loadLogs();
+                  },
+                  onAbsolute: _pickAbsolute,
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  height: _controlHeight,
+                  child: FilledButton.icon(
+                    onPressed: _loading || _namespace == null
+                        ? null
+                        : _loadLogs,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, _controlHeight),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                    ),
+                    icon: _loading
+                        ? SizedBox.square(
+                            dimension: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.onAccent,
+                            ),
+                          )
+                        : const Icon(Icons.refresh_rounded, size: 16),
+                    label: Text(_lines.isEmpty ? 'Load' : 'Refresh'),
+                  ),
+                ),
+              ];
+              // One toolbar when it fits; narrow windows put the time
+              // range and Load on their own row under the pickers.
+              if (constraints.maxWidth >= 980) {
+                return Row(
+                  children: [...pickers, const SizedBox(width: 8), ...actions],
+                );
+              }
+              return Column(
+                children: [
+                  Row(children: pickers),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: actions,
+                  ),
+                ],
+              );
+            },
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Expanded(
             child: Container(
               clipBehavior: Clip.antiAlias,
@@ -994,6 +965,45 @@ class _KubeLogViewState extends State<_KubeLogView> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _StatusBar(
+                    search: TextField(
+                      controller: _search,
+                      focusNode: _searchFocus,
+                      onChanged: (_) => setState(() => _current = null),
+                      onSubmitted: (_) {
+                        _goto(1);
+                        _searchFocus.requestFocus();
+                      },
+                      style: appFieldTextStyle(),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        filled: false,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 9),
+                        hintStyle: portixMuted(13),
+                        hintText:
+                            'Search logs   error -timeout   "exact phrase"   '
+                            'ERROR OR WARN',
+                        suffixIcon: query.isEmpty
+                            ? null
+                            : _SearchNav(
+                                position: cursor,
+                                total: matches.length,
+                                onlyMatches: _onlyMatches,
+                                onPrevious: () => _goto(-1),
+                                onNext: () => _goto(1),
+                                onToggleFilter: () => setState(() {
+                                  _onlyMatches = !_onlyMatches;
+                                  _current = null;
+                                }),
+                                onClear: () => setState(() {
+                                  _search.clear();
+                                  _current = null;
+                                }),
+                              ),
+                      ),
+                    ),
                     note: _refreshNote,
                     shown: shown.length,
                     total: _lines.length,
@@ -1627,11 +1637,14 @@ class _SearchNav extends StatelessWidget {
 /// Line count and the last error, above the log lines.
 class _StatusBar extends StatelessWidget {
   const _StatusBar({
+    required this.search,
     required this.note,
     required this.shown,
     required this.total,
   });
 
+  /// The log search field, borderless; the header is its frame.
+  final Widget search;
   final String? note;
   final int shown;
   final int total;
@@ -1639,26 +1652,31 @@ class _StatusBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 30,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      height: 36,
+      padding: const EdgeInsets.only(left: 12, right: 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         children: [
+          Icon(Icons.search_rounded, size: 16, color: AppColors.muted),
+          const SizedBox(width: 8),
+          Expanded(child: search),
           if (note != null) ...[
+            const SizedBox(width: 12),
             Icon(Icons.autorenew_rounded, size: 14, color: AppColors.accent),
             const SizedBox(width: 6),
-            Expanded(
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 260),
               child: Text(
                 note!,
                 overflow: TextOverflow.ellipsis,
                 style: portixMuted(12),
               ),
             ),
-          ] else
-            const Spacer(),
+          ],
+          const SizedBox(width: 12),
           Text(
             shown == total ? '$total lines' : '$shown of $total lines',
             style: portixMuted(12),
