@@ -12,6 +12,7 @@ class AppPalette {
     required this.inputBorder,
     required this.blue,
     required this.cyan,
+    required this.accent,
     required this.onAccent,
     required this.green,
     required this.muted,
@@ -40,10 +41,13 @@ class AppPalette {
   /// Categorical blue (profile color, file type); not an accent.
   final Color blue;
 
-  /// The single interaction accent (DESIGN.md).
+  /// Categorical cyan (profile color, file type, log level); not an accent.
   final Color cyan;
 
-  /// Text and icons on a [cyan] fill.
+  /// The single interaction accent (DESIGN.md).
+  final Color accent;
+
+  /// Text and icons on an [accent] fill.
   final Color onAccent;
   final Color green;
   final Color muted;
@@ -66,52 +70,54 @@ class AppPalette {
 
   static const dark = AppPalette(
     brightness: Brightness.dark,
-    bg: Color(0xFF06111D),
-    surface: Color(0xFF0B1D30),
-    surfaceDark: Color(0xFF071522),
-    surfaceCard: Color(0xFF102B47),
-    border: Color(0xFF21496F),
-    inputBorder: Color(0xFF4A77A2),
-    blue: Color(0xFF2D7DFF),
-    cyan: Color(0xFF14D7FF),
-    onAccent: Color(0xFF06111D),
-    green: Color(0xFF20E38A),
-    muted: Color(0xFF91A8C2),
-    text: Color(0xFFF4F8FF),
-    amber: Color(0xFFFFC04D),
-    danger: Color(0xFFFF5B83),
-    terminal: Color(0xFF020814),
-    selected: Color(0xFF143B63),
-    selectedSoft: Color(0xFF123455),
-    greenTint: Color(0xFF0B3A27),
-    amberTint: Color(0xFF3A2D0B),
-    dangerTint: Color(0xFF3A1421),
-    menu: Color(0xFF1A2535),
+    bg: Color(0xFF0B1120),
+    surface: Color(0xFF131B2E),
+    surfaceDark: Color(0xFF0F172A),
+    surfaceCard: Color(0xFF1B2336),
+    border: Color(0xFF273349),
+    inputBorder: Color(0xFF74839A),
+    blue: Color(0xFF60A5FA),
+    cyan: Color(0xFF22D3EE),
+    accent: Color(0xFF22C55E),
+    onAccent: Color(0xFF0B1120),
+    green: Color(0xFF4ADE80),
+    muted: Color(0xFF94A3B8),
+    text: Color(0xFFF8FAFC),
+    amber: Color(0xFFFBBF24),
+    danger: Color(0xFFF87171),
+    terminal: Color(0xFF0A0F1C),
+    selected: Color(0xFF243049),
+    selectedSoft: Color(0xFF1C2539),
+    greenTint: Color(0xFF0F2E1D),
+    amberTint: Color(0xFF33280A),
+    dangerTint: Color(0xFF3A1618),
+    menu: Color(0xFF1E293B),
   );
 
   // Accents are darker than in [dark] so they keep contrast on white.
   static const light = AppPalette(
     brightness: Brightness.light,
-    bg: Color(0xFFF3F6FA),
+    bg: Color(0xFFF8FAFC),
     surface: Color(0xFFFFFFFF),
-    surfaceDark: Color(0xFFF7F9FC),
-    surfaceCard: Color(0xFFE9EFF7),
-    border: Color(0xFFCBD6E4),
-    inputBorder: Color(0xFF76879E),
-    blue: Color(0xFF1F66E0),
-    cyan: Color(0xFF036B95),
+    surfaceDark: Color(0xFFF1F5F9),
+    surfaceCard: Color(0xFFEEF2F6),
+    border: Color(0xFFE2E8F0),
+    inputBorder: Color(0xFF64748B),
+    blue: Color(0xFF2563EB),
+    cyan: Color(0xFF0E7490),
+    accent: Color(0xFF166534),
     onAccent: Color(0xFFFFFFFF),
-    green: Color(0xFF077347),
-    muted: Color(0xFF52637A),
-    text: Color(0xFF0F1B2D),
-    amber: Color(0xFF995600),
-    danger: Color(0xFFBF2A4E),
-    terminal: Color(0xFFF7F9FC),
-    selected: Color(0xFFD8E6FB),
-    selectedSoft: Color(0xFFE6EEF9),
-    greenTint: Color(0xFFDDF4E9),
-    amberTint: Color(0xFFFCEFD6),
-    dangerTint: Color(0xFFFBE3E8),
+    green: Color(0xFF166534),
+    muted: Color(0xFF475569),
+    text: Color(0xFF0F172A),
+    amber: Color(0xFF92400E),
+    danger: Color(0xFFB91C1C),
+    terminal: Color(0xFFF8FAFC),
+    selected: Color(0xFFE2E8F0),
+    selectedSoft: Color(0xFFF1F5F9),
+    greenTint: Color(0xFFDCFCE7),
+    amberTint: Color(0xFFFEF3C7),
+    dangerTint: Color(0xFFFEE2E2),
     menu: Color(0xFFFFFFFF),
   );
 }
@@ -130,6 +136,7 @@ abstract final class AppColors {
   static Color get blue => palette.blue;
   static Color get onAccent => palette.onAccent;
   static Color get cyan => palette.cyan;
+  static Color get accent => palette.accent;
   static Color get green => palette.green;
   static Color get muted => palette.muted;
   static Color get text => palette.text;
@@ -204,16 +211,16 @@ ThemeData buildAppTheme(AppPalette p) {
     useMaterial3: true,
     brightness: p.brightness,
     visualDensity: VisualDensity.compact,
-    focusColor: p.cyan.withValues(alpha: .28),
+    focusColor: p.accent.withValues(alpha: .28),
     scaffoldBackgroundColor: p.bg,
     colorScheme:
         (p.brightness == Brightness.dark
                 ? const ColorScheme.dark()
                 : const ColorScheme.light())
             .copyWith(
-              primary: p.cyan,
+              primary: p.accent,
               onPrimary: p.onAccent,
-              secondary: p.cyan,
+              secondary: p.accent,
               tertiary: p.green,
               surface: p.surface,
               onSurface: p.text,
@@ -238,12 +245,12 @@ ThemeData buildAppTheme(AppPalette p) {
       titleTextStyle: TextStyle(
         color: p.text,
         fontSize: 20,
-        fontWeight: FontWeight.w800,
+        fontWeight: FontWeight.w600,
       ),
       contentTextStyle: TextStyle(
         color: p.text,
         fontSize: 13,
-        fontWeight: FontWeight.w600,
+        fontWeight: FontWeight.w400,
       ),
     ),
     popupMenuTheme: PopupMenuThemeData(
@@ -251,34 +258,34 @@ ThemeData buildAppTheme(AppPalette p) {
       textStyle: TextStyle(
         color: p.text,
         fontSize: 12,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w500,
       ),
     ),
     textTheme: baseTextTheme.copyWith(
       bodyLarge: TextStyle(
         color: p.text,
         fontSize: 13,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w500,
       ),
       bodyMedium: TextStyle(
         color: p.text,
         fontSize: 12,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w500,
       ),
       bodySmall: TextStyle(
         color: p.muted,
         fontSize: 11,
-        fontWeight: FontWeight.w600,
+        fontWeight: FontWeight.w400,
       ),
       titleMedium: TextStyle(
         color: p.text,
         fontSize: 14,
-        fontWeight: FontWeight.w900,
+        fontWeight: FontWeight.w600,
       ),
       titleLarge: TextStyle(
         color: p.text,
         fontSize: 18,
-        fontWeight: FontWeight.w900,
+        fontWeight: FontWeight.w600,
       ),
     ),
     inputDecorationTheme: InputDecorationTheme(
@@ -292,16 +299,16 @@ ThemeData buildAppTheme(AppPalette p) {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(color: p.cyan, width: 2),
+        borderSide: BorderSide(color: p.accent, width: 2),
       ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         minimumSize: const Size(0, 38),
-        backgroundColor: p.cyan,
+        backgroundColor: p.accent,
         foregroundColor: p.onAccent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        textStyle: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+        textStyle: TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
       ).copyWith(side: focusRingSide(focus: p.text)),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -312,21 +319,21 @@ ThemeData buildAppTheme(AppPalette p) {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
-            textStyle: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+            textStyle: TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
           ).copyWith(
             side: focusRingSide(
-              focus: p.cyan,
+              focus: p.accent,
               rest: BorderSide(color: p.inputBorder),
             ),
           ),
     ),
     iconButtonTheme: IconButtonThemeData(
-      style: ButtonStyle(side: focusRingSide(focus: p.cyan)),
+      style: ButtonStyle(side: focusRingSide(focus: p.accent)),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: p.cyan,
-      ).copyWith(side: focusRingSide(focus: p.cyan)),
+        foregroundColor: p.accent,
+      ).copyWith(side: focusRingSide(focus: p.accent)),
     ),
   );
 }

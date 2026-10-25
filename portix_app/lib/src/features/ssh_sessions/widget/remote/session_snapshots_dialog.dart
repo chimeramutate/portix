@@ -177,7 +177,7 @@ class _SessionSnapshotsDialogState extends State<SessionSnapshotsDialog> {
                       style: TextStyle(
                         color: AppColors.text,
                         fontSize: 15,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -263,7 +263,7 @@ class _SessionSnapshotsDialogState extends State<SessionSnapshotsDialog> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: AppColors.text,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),

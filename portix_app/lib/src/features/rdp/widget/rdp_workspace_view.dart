@@ -99,7 +99,7 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
                     style: TextStyle(
                       color: AppColors.text,
                       fontSize: 22,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   const Spacer(),
@@ -122,7 +122,7 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
                   padding: const EdgeInsets.only(top: 10, bottom: 4),
                   child: Text(
                     state.message,
-                    style: TextStyle(color: AppColors.cyan),
+                    style: TextStyle(color: AppColors.accent),
                   ),
                 ),
 
@@ -603,7 +603,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
                 style: TextStyle(
                   color: AppColors.text,
                   fontSize: 22,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const Spacer(),
@@ -648,7 +648,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
                           style: TextStyle(
                             color: AppColors.text,
                             fontSize: 16,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
 
@@ -706,7 +706,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
                           style: TextStyle(
                             color: AppColors.text,
                             fontSize: 16,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
 
@@ -750,7 +750,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
                           style: TextStyle(
                             color: AppColors.text,
                             fontSize: 16,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
 
@@ -819,7 +819,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
                           style: TextStyle(
                             color: AppColors.text,
                             fontSize: 16,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
 
@@ -858,7 +858,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
                             children: [
                               Icon(
                                 Icons.info_outline,
-                                color: AppColors.cyan,
+                                color: AppColors.accent,
                                 size: 18,
                               ),
                               const SizedBox(width: 10),
@@ -1087,7 +1087,7 @@ class _EmptyProfiles extends StatelessWidget {
               style: TextStyle(
                 color: AppColors.text,
                 fontSize: 18,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w500,
               ),
             ),
             SizedBox(height: 8),
@@ -1143,7 +1143,7 @@ class _RdpDetailsPanel extends StatelessWidget {
             style: TextStyle(
               color: AppColors.text,
               fontSize: 16,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w600,
             ),
           ),
 
@@ -1263,7 +1263,7 @@ class _DetailRow extends StatelessWidget {
               style: TextStyle(
                 color: AppColors.muted,
                 fontSize: 12,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),

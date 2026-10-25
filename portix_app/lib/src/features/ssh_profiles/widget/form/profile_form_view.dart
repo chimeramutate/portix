@@ -651,10 +651,10 @@ class _SectionHeader extends StatelessWidget {
           width: 32,
           height: 32,
           decoration: BoxDecoration(
-            color: AppColors.cyan.withValues(alpha: .12),
+            color: AppColors.accent.withValues(alpha: .12),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Icon(icon, size: 17, color: AppColors.cyan),
+          child: Icon(icon, size: 17, color: AppColors.accent),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -723,7 +723,7 @@ class _FieldLabel extends StatelessWidget {
 }
 
 TextStyle get _titleStyle =>
-    TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w700);
+    TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w500);
 
 TextStyle get _subtitleStyle => TextStyle(
   color: AppColors.muted,
@@ -1068,16 +1068,16 @@ class _TagChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? AppColors.cyan : AppColors.muted;
+    final color = selected ? AppColors.accent : AppColors.muted;
     return Material(
       color: selected
-          ? AppColors.cyan.withValues(alpha: .12)
+          ? AppColors.accent.withValues(alpha: .12)
           : Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(6),
         side: BorderSide(
           color: selected
-              ? AppColors.cyan.withValues(alpha: .45)
+              ? AppColors.accent.withValues(alpha: .45)
               : AppColors.border,
         ),
       ),
@@ -1342,7 +1342,7 @@ class _Segment extends StatelessWidget {
             children: [
               Icon(
                 icon,
-                color: selected ? AppColors.cyan : AppColors.muted,
+                color: selected ? AppColors.accent : AppColors.muted,
                 size: 15,
               ),
               const SizedBox(width: 6),
@@ -1354,7 +1354,7 @@ class _Segment extends StatelessWidget {
                   style: TextStyle(
                     color: selected ? AppColors.text : AppColors.muted,
                     fontSize: 13,
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    fontWeight: selected ? FontWeight.w400 : FontWeight.w500,
                   ),
                 ),
               ),
@@ -1437,10 +1437,10 @@ class _UploadIconBox extends StatelessWidget {
       height: 40,
       width: 40,
       decoration: BoxDecoration(
-        color: AppColors.cyan.withValues(alpha: .12),
+        color: AppColors.accent.withValues(alpha: .12),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Icon(Icons.vpn_key_outlined, color: AppColors.cyan, size: 18),
+      child: Icon(Icons.vpn_key_outlined, color: AppColors.accent, size: 18),
     );
   }
 }

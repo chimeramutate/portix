@@ -38,7 +38,7 @@ class ProfileCard extends StatelessWidget {
       child: AppPanel(
         padding: const EdgeInsets.all(14),
         color: selected ? AppColors.selectedSoft : AppColors.surface,
-        borderColor: selected ? AppColors.cyan : AppColors.border,
+        borderColor: selected ? AppColors.accent : AppColors.border,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -54,7 +54,7 @@ class ProfileCard extends StatelessWidget {
                     style: TextStyle(
                       color: AppColors.text,
                       fontSize: 15,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ),
@@ -150,7 +150,7 @@ class ProfileCard extends StatelessWidget {
                   spacing: 6,
                   clipBehavior: Clip.hardEdge,
                   children: [
-                    AppPill(label: profile.group, color: AppColors.cyan),
+                    AppPill(label: profile.group, color: AppColors.accent),
                     for (final tag in profile.tags.take(previewMode ? 3 : 2))
                       AppPill(label: tag, color: AppColors.muted),
                   ],

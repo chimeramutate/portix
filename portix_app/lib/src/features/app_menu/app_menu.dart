@@ -172,7 +172,7 @@ class _AppMenuBarState extends State<AppMenuBar> with _TerminalPrefs {
       leadingIcon: SizedBox(
         width: 18,
         child: value == current
-            ? Icon(Icons.check_rounded, size: 16, color: AppColors.cyan)
+            ? Icon(Icons.check_rounded, size: 16, color: AppColors.accent)
             : null,
       ),
       onPressed: () => pick(key, value),
@@ -208,7 +208,7 @@ class _AppMenuBarState extends State<AppMenuBar> with _TerminalPrefs {
           foregroundColor: AppColors.text,
           minimumSize: const Size(0, 28),
           padding: const EdgeInsets.symmetric(horizontal: 10),
-          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w400),
         ),
         child: const Text('Terminal'),
       ),

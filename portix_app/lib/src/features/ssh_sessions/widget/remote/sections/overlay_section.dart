@@ -149,7 +149,7 @@ class _TerminalConnectionOverlayState extends State<TerminalConnectionOverlay> {
                               color: slowConnection
                                   ? AppColors.amber
                                   : AppColors.muted,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                       ],

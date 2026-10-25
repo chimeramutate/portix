@@ -98,7 +98,7 @@ class _RailItemState extends State<_RailItem> {
                     left: 0,
                     top: 0,
                     bottom: 0,
-                    child: Container(width: 2, color: AppColors.cyan),
+                    child: Container(width: 2, color: AppColors.accent),
                   ),
                 Center(
                   child: Container(
@@ -107,7 +107,7 @@ class _RailItemState extends State<_RailItem> {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(8),
                       border: _focused
-                          ? Border.all(color: AppColors.cyan, width: 2)
+                          ? Border.all(color: AppColors.accent, width: 2)
                           : null,
                     ),
                     child: Icon(

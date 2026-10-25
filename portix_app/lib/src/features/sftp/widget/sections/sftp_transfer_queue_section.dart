@@ -13,7 +13,7 @@ class _TransferQueue extends StatelessWidget {
       child: AppPanel(
         padding: const EdgeInsets.all(12),
         color: AppColors.surface.withValues(alpha: .96),
-        borderColor: AppColors.cyan,
+        borderColor: AppColors.accent,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,7 +62,7 @@ class _QueueRow extends StatelessWidget {
         ? AppColors.danger
         : job.done
         ? AppColors.green
-        : AppColors.cyan;
+        : AppColors.accent;
     final label = job.failed
         ? 'failed'
         : job.done

@@ -63,7 +63,7 @@ class _SftpTabChipState extends State<_SftpTabChip> {
                   : Colors.transparent,
               border: Border(
                 top: BorderSide(
-                  color: active ? AppColors.cyan : Colors.transparent,
+                  color: active ? AppColors.accent : Colors.transparent,
                   width: 2,
                 ),
               ),
@@ -74,7 +74,7 @@ class _SftpTabChipState extends State<_SftpTabChip> {
                 Icon(
                   Icons.folder_open_rounded,
                   size: 14,
-                  color: active ? AppColors.cyan : AppColors.muted,
+                  color: active ? AppColors.accent : AppColors.muted,
                 ),
                 const SizedBox(width: 8),
                 Flexible(
@@ -84,7 +84,7 @@ class _SftpTabChipState extends State<_SftpTabChip> {
                     style: TextStyle(
                       color: active ? AppColors.text : AppColors.muted,
                       fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
                 ),

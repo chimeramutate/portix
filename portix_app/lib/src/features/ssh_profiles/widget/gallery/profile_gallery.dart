@@ -499,7 +499,7 @@ class _FilterPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? AppColors.cyan : AppColors.muted;
+    final color = selected ? AppColors.accent : AppColors.muted;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -508,7 +508,7 @@ class _FilterPill extends StatelessWidget {
         child: AppPill(
           label: label,
           color: color,
-          background: selected ? AppColors.cyan.withValues(alpha: .11) : null,
+          background: selected ? AppColors.accent.withValues(alpha: .11) : null,
         ),
       ),
     );
@@ -530,17 +530,17 @@ class _ToolbarMenuButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? AppColors.cyan : AppColors.text;
+    final color = active ? AppColors.accent : AppColors.text;
     return Container(
       height: 34,
       width: iconOnly ? 42 : null,
       padding: EdgeInsets.symmetric(horizontal: iconOnly ? 0 : 14),
       decoration: BoxDecoration(
         color: active
-            ? AppColors.cyan.withValues(alpha: .12)
+            ? AppColors.accent.withValues(alpha: .12)
             : AppColors.surfaceCard.withValues(alpha: .55),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: active ? AppColors.cyan : AppColors.border),
+        border: Border.all(color: active ? AppColors.accent : AppColors.border),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -560,7 +560,7 @@ class _ToolbarMenuButton extends StatelessWidget {
             const SizedBox(width: 7),
             Icon(
               Icons.keyboard_arrow_down_rounded,
-              color: active ? AppColors.cyan : AppColors.muted,
+              color: active ? AppColors.accent : AppColors.muted,
               size: 16,
             ),
           ],
@@ -600,7 +600,7 @@ class _TagFilterMenuButton extends StatelessWidget {
           child: _MenuItem(
             icon: Icons.filter_alt_off_rounded,
             label: 'All tags',
-            color: active ? AppColors.cyan : AppColors.muted,
+            color: active ? AppColors.accent : AppColors.muted,
           ),
         ),
         if (tags.isNotEmpty) const PopupMenuDivider(),
@@ -615,7 +615,7 @@ class _TagFilterMenuButton extends StatelessWidget {
                   tag == selectedTag
                       ? Icons.check_circle_rounded
                       : Icons.sell_outlined,
-                  color: tag == selectedTag ? AppColors.cyan : AppColors.muted,
+                  color: tag == selectedTag ? AppColors.accent : AppColors.muted,
                   size: 16,
                 ),
                 const SizedBox(width: 10),
@@ -703,7 +703,7 @@ class _ProfileList extends StatelessWidget {
                 child: AppPanel(
                   padding: const EdgeInsets.all(12),
                   color: selected ? AppColors.selectedSoft : AppColors.surface,
-                  borderColor: selected ? AppColors.cyan : AppColors.border,
+                  borderColor: selected ? AppColors.accent : AppColors.border,
                   child: compact
                       ? _CompactProfileListRow(profile: profile, status: status)
                       : Row(
@@ -818,7 +818,7 @@ class _CompactProfileListRow extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                AppPill(label: profile.group, color: AppColors.cyan),
+                AppPill(label: profile.group, color: AppColors.accent),
                 AppPill(
                   label: profile.authMethod == AuthMethod.sshKey
                       ? 'Key auth'

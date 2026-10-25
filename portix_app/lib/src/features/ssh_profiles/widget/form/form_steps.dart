@@ -95,8 +95,8 @@ class FormSteps extends StatelessWidget {
                     child: Text(
                       'Security default',
                       style: TextStyle(
-                        color: AppColors.cyan,
-                        fontWeight: FontWeight.w900,
+                        color: AppColors.accent,
+                        fontWeight: FontWeight.w600,
                         fontSize: 13,
                       ),
                     ),
@@ -108,7 +108,7 @@ class FormSteps extends StatelessWidget {
                 'Credentials are stored encrypted. SSH key passphrase is requested only when needed.',
                 style: TextStyle(
                   color: AppColors.muted,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w400,
                   fontSize: 12,
                 ),
               ),

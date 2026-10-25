@@ -117,7 +117,7 @@ class _TerminalPaneState extends State<TerminalPane>
           decoration: BoxDecoration(
             border: widget.highlightActive
                 ? Border.all(
-                    color: widget.active ? AppColors.cyan : AppColors.border,
+                    color: widget.active ? AppColors.accent : AppColors.border,
                   )
                 : null,
             borderRadius: BorderRadius.circular(8),
@@ -342,7 +342,7 @@ class _TerminalSelectionToolbarState extends State<TerminalSelectionToolbar> {
                           ? Icons.view_column_rounded
                           : Icons.format_align_left_rounded,
                       size: 16,
-                      color: blockMode ? AppColors.cyan : AppColors.muted,
+                      color: blockMode ? AppColors.accent : AppColors.muted,
                     ),
                   ),
                 ),
@@ -391,7 +391,7 @@ class PaneDragHandle extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppColors.surfaceCard.withValues(alpha: .94),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.cyan, width: 1.2),
+            border: Border.all(color: AppColors.accent, width: 1.2),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x66000000),
@@ -405,7 +405,7 @@ class PaneDragHandle extends StatelessWidget {
             children: [
               Icon(
                 Icons.drag_indicator_rounded,
-                color: AppColors.cyan,
+                color: AppColors.accent,
                 size: 18,
               ),
               SizedBox(width: 8),
@@ -415,7 +415,7 @@ class PaneDragHandle extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: AppColors.text,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w600,
                     fontSize: 12,
                   ),
                 ),
@@ -501,7 +501,7 @@ class PaneControlStrip extends StatelessWidget {
                 style: TextStyle(
                   color: accentColor,
                   fontSize: 11,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ),
@@ -595,11 +595,11 @@ class PaneDropZone extends StatelessWidget {
                   height: height,
                   decoration: BoxDecoration(
                     color: hovered
-                        ? AppColors.cyan.withValues(alpha: .34)
+                        ? AppColors.accent.withValues(alpha: .34)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(12),
                     border: hovered
-                        ? Border.all(color: AppColors.cyan, width: 1.8)
+                        ? Border.all(color: AppColors.accent, width: 1.8)
                         : null,
                   ),
                   child: hovered
@@ -615,7 +615,7 @@ class PaneDropZone extends StatelessWidget {
                               SplitDirection.bottom =>
                                 Icons.keyboard_arrow_down_rounded,
                             },
-                            color: AppColors.cyan,
+                            color: AppColors.accent,
                             size: 30,
                           ),
                         )

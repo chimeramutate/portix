@@ -104,12 +104,12 @@ class _SessionProfilePickerDialogState
         color: AppColors.surfaceDark,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
-          side: BorderSide(color: AppColors.cyan),
+          side: BorderSide(color: AppColors.accent),
         ),
         child: ListTile(
           key: const ValueKey('quick-connect-option'),
           dense: true,
-          leading: Icon(Icons.bolt_rounded, color: AppColors.cyan),
+          leading: Icon(Icons.bolt_rounded, color: AppColors.accent),
           title: Text(
             'Connect to ${quickConnectLabel(target)}',
             style: portixTitle(13),
@@ -148,7 +148,7 @@ class _SessionProfilePickerDialogState
             children: [
               Row(
                 children: [
-                  Icon(Icons.add_rounded, color: AppColors.cyan),
+                  Icon(Icons.add_rounded, color: AppColors.accent),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
@@ -187,7 +187,7 @@ class _SessionProfilePickerDialogState
                   },
                   style: TextStyle(
                     color: AppColors.text,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w600,
                     fontSize: 13,
                   ),
                   decoration: InputDecoration(
@@ -224,7 +224,7 @@ class _SessionProfilePickerDialogState
                   padding: const EdgeInsets.only(bottom: 10),
                   child: AppPill(
                     label: 'Current session profile highlighted below',
-                    color: AppColors.cyan,
+                    color: AppColors.accent,
                     icon: Icons.radio_button_checked_rounded,
                   ),
                 ),

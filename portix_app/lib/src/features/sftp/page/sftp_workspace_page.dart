@@ -1080,7 +1080,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
               child: Column(
                 children: [
                   // Tab strip, styled like the terminal tabs: flat tabs,
-                  // the active one lifted with a cyan top marker.
+                  // the active one lifted with a accent top marker.
                   Container(
                     height: 36,
                     decoration: BoxDecoration(

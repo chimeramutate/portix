@@ -194,7 +194,7 @@ class _GallerySearchState extends State<_GallerySearch> {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(6),
-              borderSide: BorderSide(color: AppColors.cyan),
+              borderSide: BorderSide(color: AppColors.accent),
             ),
             prefixIcon: Icon(
               Icons.search_rounded,
@@ -347,7 +347,7 @@ class _FormBreadcrumb extends StatelessWidget {
               child: Text(
                 'List SSH Profiles',
                 overflow: TextOverflow.ellipsis,
-                style: portixMuted().copyWith(fontWeight: FontWeight.w800),
+                style: portixMuted().copyWith(fontWeight: FontWeight.w600),
               ),
             ),
           if (!compact) ...[

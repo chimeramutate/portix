@@ -115,7 +115,7 @@ class _UsageMeter extends StatelessWidget {
     final value = TextStyle(
       color: AppColors.text,
       fontSize: 11,
-      fontWeight: FontWeight.w600,
+      fontWeight: FontWeight.w400,
     );
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -183,7 +183,7 @@ class _RemoteOsChip extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: portixMuted(11).copyWith(
                 color: error == null ? AppColors.text : AppColors.amber,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w400,
               ),
             ),
           ),
@@ -258,7 +258,7 @@ class _UptimeChip extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: portixMuted(11).copyWith(
                 color: error == null ? AppColors.text : AppColors.amber,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w400,
               ),
             ),
           ),

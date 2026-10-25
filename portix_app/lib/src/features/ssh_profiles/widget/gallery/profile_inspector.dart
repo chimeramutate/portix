@@ -45,7 +45,7 @@ class ProfileInspector extends StatelessWidget {
             const SizedBox(height: 8),
             AppPanel(
               color: AppColors.selectedSoft,
-              borderColor: AppColors.cyan,
+              borderColor: AppColors.accent,
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
@@ -147,7 +147,7 @@ class _DetailBox extends StatelessWidget {
             color: AppColors.surfaceDark,
             child: Row(
               children: [
-                Icon(icon, color: AppColors.cyan, size: 17),
+                Icon(icon, color: AppColors.accent, size: 17),
                 const SizedBox(width: 10),
                 Expanded(
                   child: SelectionArea(
@@ -269,7 +269,7 @@ class _ConnectionFeedbackPanelState extends State<_ConnectionFeedbackPanel> {
           _FeedbackLine(
             icon: Icons.monitor_heart_outlined,
             text: 'Latency $latencyText',
-            color: AppColors.cyan,
+            color: AppColors.accent,
           ),
         ],
       ),

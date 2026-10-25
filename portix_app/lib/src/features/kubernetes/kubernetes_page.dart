@@ -138,7 +138,7 @@ class _TabChip extends StatelessWidget {
           border: Border(
             right: BorderSide(color: AppColors.border),
             top: BorderSide(
-              color: selected ? AppColors.cyan : Colors.transparent,
+              color: selected ? AppColors.accent : Colors.transparent,
               width: 2,
             ),
           ),
@@ -832,7 +832,7 @@ class _KubeLogViewState extends State<_KubeLogView> {
                       ? Icon(
                           Icons.account_tree_outlined,
                           size: 16,
-                          color: AppColors.cyan,
+                          color: AppColors.accent,
                         )
                       : _selectedPod == null
                       ? null
@@ -848,7 +848,7 @@ class _KubeLogViewState extends State<_KubeLogView> {
                       leading: Icon(
                         Icons.layers_outlined,
                         size: 18,
-                        color: AppColors.cyan,
+                        color: AppColors.accent,
                       ),
                       section: null,
                     ),
@@ -864,7 +864,7 @@ class _KubeLogViewState extends State<_KubeLogView> {
                           color:
                               pods.any((p) => podHealth(p) == PodHealth.failing)
                               ? AppColors.danger
-                              : AppColors.cyan,
+                              : AppColors.accent,
                         ),
                         section: 'Workloads · follow new pods automatically',
                       ),
@@ -1168,7 +1168,7 @@ class _LogRow extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: current
-            ? AppColors.cyan.withValues(alpha: .14)
+            ? AppColors.accent.withValues(alpha: .14)
             : level == LogLevel.error
             ? AppColors.dangerTint.withValues(alpha: .35)
             : odd
@@ -1176,7 +1176,7 @@ class _LogRow extends StatelessWidget {
             : null,
         border: Border(
           left: current
-              ? BorderSide(color: AppColors.cyan, width: 3)
+              ? BorderSide(color: AppColors.accent, width: 3)
               : BorderSide(color: color ?? Colors.transparent, width: 2),
           bottom: BorderSide(color: AppColors.border.withValues(alpha: .45)),
         ),
@@ -1231,7 +1231,7 @@ class _LogRow extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 10,
                             height: 1.4,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w500,
                             letterSpacing: .4,
                             color: color,
                           ),
@@ -1255,7 +1255,7 @@ class _LogRow extends StatelessWidget {
                           backgroundColor: AppColors.amber.withValues(
                             alpha: .28,
                           ),
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w400,
                         ),
                       ),
                       if (clip.hidden > 0)
@@ -1321,14 +1321,14 @@ class _LongLineBar extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 13, color: AppColors.cyan),
+            Icon(icon, size: 13, color: AppColors.accent),
             const SizedBox(width: 4),
             Text(
               text,
               style: TextStyle(
                 fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-                color: AppColors.cyan,
+                fontWeight: FontWeight.w400,
+                color: AppColors.accent,
               ),
             ),
           ],
@@ -1413,12 +1413,12 @@ class _JumpToLatest extends StatelessWidget {
           opacity: visible ? 1 : 0,
           duration: const Duration(milliseconds: 160),
           child: Material(
-            color: newLines > 0 ? AppColors.cyan : AppColors.surface,
+            color: newLines > 0 ? AppColors.accent : AppColors.surface,
             elevation: 6,
             shadowColor: Colors.black54,
             shape: StadiumBorder(
               side: BorderSide(
-                color: newLines > 0 ? AppColors.cyan : AppColors.border,
+                color: newLines > 0 ? AppColors.accent : AppColors.border,
               ),
             ),
             child: InkWell(
@@ -1441,7 +1441,7 @@ class _JumpToLatest extends StatelessWidget {
                           : 'Jump to latest',
                       style: TextStyle(
                         fontSize: 12,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w500,
                         color: newLines > 0
                             ? AppColors.onAccent
                             : AppColors.text,
@@ -1499,14 +1499,14 @@ class _PodGoneBanner extends StatelessWidget {
                 children: [
                   TextSpan(
                     text: gone,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                    style: const TextStyle(fontWeight: FontWeight.w500),
                   ),
                   const TextSpan(text: ' no longer exists'),
                   if (replacement != null) ...[
                     const TextSpan(text: ' — replaced by '),
                     TextSpan(
                       text: replacement,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+                      style: const TextStyle(fontWeight: FontWeight.w500),
                     ),
                   ],
                   const TextSpan(text: '. Lines so far are kept.'),
@@ -1615,7 +1615,7 @@ class _SearchNav extends StatelessWidget {
               ? Icons.filter_alt_rounded
               : Icons.filter_alt_off_outlined,
           onToggleFilter,
-          color: onlyMatches ? AppColors.cyan : null,
+          color: onlyMatches ? AppColors.accent : null,
         ),
         button('Clear search', Icons.close_rounded, onClear),
         const SizedBox(width: 4),
@@ -1648,7 +1648,7 @@ class _StatusBar extends StatelessWidget {
       child: Row(
         children: [
           if (note != null) ...[
-            Icon(Icons.autorenew_rounded, size: 14, color: AppColors.cyan),
+            Icon(Icons.autorenew_rounded, size: 14, color: AppColors.accent),
             const SizedBox(width: 6),
             Expanded(
               child: Text(
@@ -1703,7 +1703,7 @@ class _ErrorBannerState extends State<_ErrorBanner> {
             padding: const EdgeInsets.symmetric(horizontal: 8),
             textStyle: const TextStyle(
               fontSize: 12,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w400,
             ),
           ),
           icon: Icon(icon, size: 14),
@@ -1741,7 +1741,7 @@ class _ErrorBannerState extends State<_ErrorBanner> {
                       error.title,
                       style: TextStyle(
                         fontSize: 13,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w500,
                         color: AppColors.text,
                       ),
                     ),
@@ -1853,7 +1853,7 @@ class _NamespaceIcon extends StatelessWidget {
   Widget build(BuildContext context) => Icon(
     system ? Icons.settings_suggest_outlined : Icons.folder_outlined,
     size: 18,
-    color: system ? AppColors.muted : AppColors.cyan,
+    color: system ? AppColors.muted : AppColors.accent,
   );
 }
 
@@ -1997,7 +1997,7 @@ class _SelectButton<T> extends StatelessWidget {
                 value ?? placeholder,
                 overflow: TextOverflow.ellipsis,
                 style: appFieldTextStyle().copyWith(
-                  fontWeight: picked ? FontWeight.w700 : FontWeight.w500,
+                  fontWeight: picked ? FontWeight.w500 : FontWeight.w500,
                   color: picked ? AppColors.text : AppColors.muted,
                 ),
               ),
@@ -2145,7 +2145,7 @@ class _PickerPanelState<T> extends State<_PickerPanel<T>> {
                                 section.toUpperCase(),
                                 style: TextStyle(
                                   fontSize: 10,
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: FontWeight.w500,
                                   letterSpacing: .7,
                                   color: AppColors.muted,
                                 ),
@@ -2182,7 +2182,7 @@ class _PickerRow<T> extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Material(
         color: selected
-            ? AppColors.cyan.withValues(alpha: .12)
+            ? AppColors.accent.withValues(alpha: .12)
             : Colors.transparent,
         borderRadius: BorderRadius.circular(7),
         child: InkWell(
@@ -2206,9 +2206,9 @@ class _PickerRow<T> extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: appFieldTextStyle().copyWith(
                           fontWeight: selected
-                              ? FontWeight.w700
+                              ? FontWeight.w500
                               : FontWeight.w500,
-                          color: selected ? AppColors.cyan : AppColors.text,
+                          color: selected ? AppColors.accent : AppColors.text,
                         ),
                       ),
                       if (subtitle != null && subtitle.isNotEmpty)
@@ -2221,7 +2221,7 @@ class _PickerRow<T> extends StatelessWidget {
                   ),
                 ),
                 if (selected)
-                  Icon(Icons.check_rounded, size: 16, color: AppColors.cyan),
+                  Icon(Icons.check_rounded, size: 16, color: AppColors.accent),
               ],
             ),
           ),
@@ -2274,18 +2274,18 @@ class _TimeRangeButton extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.schedule_rounded, size: 16, color: AppColors.cyan),
+            Icon(Icons.schedule_rounded, size: 16, color: AppColors.accent),
             const SizedBox(width: 8),
             Text(
               label,
-              style: appFieldTextStyle().copyWith(fontWeight: FontWeight.w700),
+              style: appFieldTextStyle().copyWith(fontWeight: FontWeight.w500),
             ),
             if (refreshing) ...[
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                 decoration: BoxDecoration(
-                  color: AppColors.cyan.withValues(alpha: .14),
+                  color: AppColors.accent.withValues(alpha: .14),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Row(
@@ -2294,15 +2294,15 @@ class _TimeRangeButton extends StatelessWidget {
                     Icon(
                       Icons.autorenew_rounded,
                       size: 12,
-                      color: AppColors.cyan,
+                      color: AppColors.accent,
                     ),
                     const SizedBox(width: 3),
                     Text(
                       _intervalLabel(refreshEvery!),
                       style: TextStyle(
                         fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.cyan,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.accent,
                       ),
                     ),
                   ],
@@ -2337,7 +2337,7 @@ class _TimePanel extends StatelessWidget {
             text.toUpperCase(),
             style: TextStyle(
               fontSize: 10.5,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w500,
               letterSpacing: .8,
               color: AppColors.muted,
             ),
@@ -2378,7 +2378,7 @@ class _TimePanel extends StatelessWidget {
           Divider(height: 1, color: AppColors.border),
           Material(
             color: b.absolute != null
-                ? AppColors.cyan.withValues(alpha: .08)
+                ? AppColors.accent.withValues(alpha: .08)
                 : Colors.transparent,
             child: InkWell(
               onTap: () {
@@ -2393,7 +2393,7 @@ class _TimePanel extends StatelessWidget {
                       Icons.edit_calendar_outlined,
                       size: 18,
                       color: b.absolute != null
-                          ? AppColors.cyan
+                          ? AppColors.accent
                           : AppColors.muted,
                     ),
                     const SizedBox(width: 10),
@@ -2404,9 +2404,9 @@ class _TimePanel extends StatelessWidget {
                           Text(
                             'Absolute range',
                             style: appFieldTextStyle().copyWith(
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w400,
                               color: b.absolute != null
-                                  ? AppColors.cyan
+                                  ? AppColors.accent
                                   : AppColors.text,
                             ),
                           ),
@@ -2465,7 +2465,7 @@ class _TimePanel extends StatelessWidget {
   }
 }
 
-/// A pill choice: cyan outline and tint when selected.
+/// A pill choice: accent outline and tint when selected.
 class _Chip extends StatelessWidget {
   const _Chip({
     required this.label,
@@ -2481,11 +2481,11 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: selected
-          ? AppColors.cyan.withValues(alpha: .14)
+          ? AppColors.accent.withValues(alpha: .14)
           : AppColors.surfaceDark,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: selected ? AppColors.cyan : AppColors.border),
+        side: BorderSide(color: selected ? AppColors.accent : AppColors.border),
       ),
       child: InkWell(
         onTap: onTap,
@@ -2496,8 +2496,8 @@ class _Chip extends StatelessWidget {
             label,
             style: TextStyle(
               fontSize: 12.5,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              color: selected ? AppColors.cyan : AppColors.text,
+              fontWeight: selected ? FontWeight.w500 : FontWeight.w500,
+              color: selected ? AppColors.accent : AppColors.text,
             ),
           ),
         ),
@@ -2538,7 +2538,7 @@ class _Segmented<T> extends StatelessWidget {
               Expanded(
                 child: Material(
                   color: value == selected
-                      ? AppColors.cyan.withValues(alpha: .18)
+                      ? AppColors.accent.withValues(alpha: .18)
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(6),
                   child: InkWell(
@@ -2550,10 +2550,10 @@ class _Segmented<T> extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: value == selected
-                              ? FontWeight.w700
+                              ? FontWeight.w500
                               : FontWeight.w500,
                           color: value == selected
-                              ? AppColors.cyan
+                              ? AppColors.accent
                               : AppColors.text,
                         ),
                       ),
@@ -2689,13 +2689,13 @@ class _AbsoluteRangeDialogState extends State<_AbsoluteRangeDialog> {
                     width: 34,
                     height: 34,
                     decoration: BoxDecoration(
-                      color: AppColors.cyan.withValues(alpha: .12),
+                      color: AppColors.accent.withValues(alpha: .12),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(
                       Icons.date_range_rounded,
                       size: 18,
-                      color: AppColors.cyan,
+                      color: AppColors.accent,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -2879,12 +2879,12 @@ class _RangeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: active
-          ? AppColors.cyan.withValues(alpha: .08)
+          ? AppColors.accent.withValues(alpha: .08)
           : AppColors.surfaceDark,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
         side: BorderSide(
-          color: active ? AppColors.cyan : AppColors.border,
+          color: active ? AppColors.accent : AppColors.border,
           width: active ? 1.5 : 1,
         ),
       ),
@@ -2900,9 +2900,9 @@ class _RangeCard extends StatelessWidget {
                 label.toUpperCase(),
                 style: TextStyle(
                   fontSize: 10,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w500,
                   letterSpacing: .8,
-                  color: active ? AppColors.cyan : AppColors.muted,
+                  color: active ? AppColors.accent : AppColors.muted,
                 ),
               ),
               const SizedBox(height: 6),
@@ -2915,7 +2915,7 @@ class _RangeCard extends StatelessWidget {
                 '${_two(time.hour)}:${_two(time.minute)}',
                 style: _mono.copyWith(
                   fontSize: 20,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w400,
                   color: AppColors.text,
                 ),
               ),
@@ -2994,13 +2994,13 @@ class _TimeColumn extends StatelessWidget {
                 child: Container(
                   height: 28,
                   alignment: Alignment.center,
-                  color: on ? AppColors.cyan.withValues(alpha: .16) : null,
+                  color: on ? AppColors.accent.withValues(alpha: .16) : null,
                   child: Text(
                     '${_two(hour)}:${_two(minute)}',
                     style: _mono.copyWith(
                       fontSize: 12,
-                      color: on ? AppColors.cyan : AppColors.text,
-                      fontWeight: on ? FontWeight.w700 : FontWeight.w400,
+                      color: on ? AppColors.accent : AppColors.text,
+                      fontWeight: on ? FontWeight.w500 : FontWeight.w400,
                     ),
                   ),
                 ),

@@ -114,7 +114,7 @@ class _AppTextFieldState extends State<AppTextField> {
 TextStyle appFieldLabelStyle() => TextStyle(
   color: AppColors.muted,
   fontSize: 12,
-  fontWeight: FontWeight.w600,
+  fontWeight: FontWeight.w400,
 );
 
 /// Text typed into form fields.

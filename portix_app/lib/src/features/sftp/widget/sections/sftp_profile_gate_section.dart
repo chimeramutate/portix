@@ -262,7 +262,7 @@ class _SortToggleState extends State<_SortToggle> {
 
   @override
   Widget build(BuildContext context) {
-    final color = _hover ? AppColors.cyan : AppColors.muted;
+    final color = _hover ? AppColors.accent : AppColors.muted;
     return Tooltip(
       message: widget.ascending ? 'Sorted A → Z' : 'Sorted Z → A',
       child: MouseRegion(
@@ -280,7 +280,7 @@ class _SortToggleState extends State<_SortToggle> {
               color: AppColors.surfaceDark,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: _hover ? AppColors.cyan : AppColors.border,
+                color: _hover ? AppColors.accent : AppColors.border,
               ),
             ),
             child: Row(
@@ -324,16 +324,16 @@ class _LocalProfileTile extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: selected
-                ? AppColors.cyan.withValues(alpha: .10)
+                ? AppColors.accent.withValues(alpha: .10)
                 : AppColors.surfaceDark,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: selected ? AppColors.cyan : AppColors.border,
+              color: selected ? AppColors.accent : AppColors.border,
             ),
           ),
           child: Row(
             children: [
-              Icon(Icons.computer_rounded, color: AppColors.cyan, size: 20),
+              Icon(Icons.computer_rounded, color: AppColors.accent, size: 20),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -350,7 +350,7 @@ class _LocalProfileTile extends StatelessWidget {
                 ),
               ),
               if (selected)
-                Icon(Icons.check_rounded, color: AppColors.cyan, size: 18),
+                Icon(Icons.check_rounded, color: AppColors.accent, size: 18),
             ],
           ),
         ),

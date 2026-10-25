@@ -73,7 +73,7 @@ class _AuthPromptDialogState extends State<_AuthPromptDialog> {
       backgroundColor: AppColors.surface,
       title: Row(
         children: [
-          Icon(Icons.pin_outlined, color: AppColors.cyan),
+          Icon(Icons.pin_outlined, color: AppColors.accent),
           const SizedBox(width: 10),
           Flexible(
             child: Text(

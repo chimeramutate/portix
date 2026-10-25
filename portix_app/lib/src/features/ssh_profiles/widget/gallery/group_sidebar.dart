@@ -64,7 +64,7 @@ class GroupSidebar extends StatelessWidget {
                           style: TextStyle(
                             color: AppColors.muted,
                             fontSize: 11,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w500,
                             letterSpacing: .8,
                           ),
                         ),
@@ -166,7 +166,7 @@ class _GroupTile extends StatelessWidget {
             decoration: BoxDecoration(
               border: Border(
                 left: BorderSide(
-                  color: selected ? AppColors.cyan : Colors.transparent,
+                  color: selected ? AppColors.accent : Colors.transparent,
                   width: 2,
                 ),
               ),
@@ -176,7 +176,7 @@ class _GroupTile extends StatelessWidget {
                 Icon(
                   all ? Icons.dns_outlined : Icons.folder_outlined,
                   size: 16,
-                  color: selected ? AppColors.cyan : AppColors.muted,
+                  color: selected ? AppColors.accent : AppColors.muted,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -185,7 +185,7 @@ class _GroupTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: selected ? AppColors.text : AppColors.muted,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      fontWeight: selected ? FontWeight.w500 : FontWeight.w500,
                       fontSize: 13,
                     ),
                   ),
@@ -198,7 +198,7 @@ class _GroupTile extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: selected
-                        ? AppColors.cyan.withValues(alpha: .15)
+                        ? AppColors.accent.withValues(alpha: .15)
                         : AppColors.surfaceDark,
                     borderRadius: BorderRadius.circular(99),
                   ),
@@ -206,8 +206,8 @@ class _GroupTile extends StatelessWidget {
                     '$count',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: selected ? AppColors.cyan : AppColors.muted,
-                      fontWeight: FontWeight.w600,
+                      color: selected ? AppColors.accent : AppColors.muted,
+                      fontWeight: FontWeight.w400,
                       fontSize: 11,
                     ),
                   ),

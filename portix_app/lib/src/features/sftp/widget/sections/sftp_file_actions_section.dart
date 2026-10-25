@@ -202,7 +202,7 @@ class _FileRow extends StatelessWidget {
         child: InkWell(
           onTap: onSelected,
           highlightColor: AppColors.surfaceDark.withValues(alpha: .35),
-          splashColor: AppColors.cyan.withValues(alpha: .08),
+          splashColor: AppColors.accent.withValues(alpha: .08),
           child: Container(
             height: compact
                 ? data.location == null
@@ -399,7 +399,7 @@ class _DragFeedback extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.surfaceCard,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.cyan),
+        border: Border.all(color: AppColors.accent),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: .28),
@@ -412,7 +412,7 @@ class _DragFeedback extends StatelessWidget {
         children: [
           Icon(
             data.folder ? Icons.folder_outlined : Icons.insert_drive_file,
-            color: data.folder ? AppColors.amber : AppColors.cyan,
+            color: data.folder ? AppColors.amber : AppColors.accent,
             size: 17,
           ),
           const SizedBox(width: 9),
@@ -425,7 +425,7 @@ class _DragFeedback extends StatelessWidget {
           ),
           Icon(
             fromRemote ? Icons.download_rounded : Icons.upload_rounded,
-            color: AppColors.cyan,
+            color: AppColors.accent,
             size: 16,
           ),
         ],
@@ -454,7 +454,7 @@ class _PaneFooter extends StatelessWidget {
           Text(
             right,
             overflow: TextOverflow.ellipsis,
-            style: portixMuted(12).copyWith(color: AppColors.cyan),
+            style: portixMuted(12).copyWith(color: AppColors.accent),
           ),
         ],
       ),

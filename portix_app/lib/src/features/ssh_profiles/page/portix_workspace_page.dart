@@ -147,7 +147,7 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
                   message,
                   style: TextStyle(
                     color: notice.foreground,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
@@ -192,8 +192,8 @@ class _WorkspaceNotice {
       return _WorkspaceNotice(
         icon: Icons.timelapse_rounded,
         background: AppColors.selectedSoft,
-        border: AppColors.cyan,
-        foreground: AppColors.cyan,
+        border: AppColors.accent,
+        foreground: AppColors.accent,
       );
     }
     return _WorkspaceNotice(

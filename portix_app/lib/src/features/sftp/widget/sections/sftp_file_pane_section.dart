@@ -121,7 +121,7 @@ class _FilePane extends StatelessWidget {
             : (isRemote ? (loading || error == null) : true);
         return AppPanel(
           padding: const EdgeInsets.all(14),
-          borderColor: isDropTarget ? AppColors.cyan : AppColors.border,
+          borderColor: isDropTarget ? AppColors.accent : AppColors.border,
           color: isDropTarget
               ? AppColors.surfaceCard.withValues(alpha: .78)
               : AppColors.surface,
@@ -228,7 +228,7 @@ class _FilePane extends StatelessWidget {
                         : AppColors.surfaceDark.withValues(alpha: .45),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                      color: isDropTarget ? AppColors.cyan : AppColors.border,
+                      color: isDropTarget ? AppColors.accent : AppColors.border,
                     ),
                   ),
                   child: contentOverride != null
@@ -552,20 +552,20 @@ class _PaneStatus extends StatelessWidget {
                         finishedStepBackgroundColor: Colors.transparent,
                         unreachedStepBackgroundColor: Colors.transparent,
                         unreachedStepBorderColor: AppColors.border,
-                        activeStepBorderColor: AppColors.cyan,
-                        finishedStepBorderColor: AppColors.cyan,
-                        finishedStepIconColor: AppColors.cyan,
+                        activeStepBorderColor: AppColors.accent,
+                        finishedStepBorderColor: AppColors.accent,
+                        finishedStepIconColor: AppColors.accent,
                         unreachedStepIconColor: AppColors.muted,
-                        activeStepIconColor: AppColors.cyan,
+                        activeStepIconColor: AppColors.accent,
                         unreachedStepTextColor: AppColors.muted,
-                        activeStepTextColor: AppColors.cyan,
-                        finishedStepTextColor: AppColors.cyan,
+                        activeStepTextColor: AppColors.accent,
+                        finishedStepTextColor: AppColors.accent,
                         lineStyle: LineStyle(
                           lineLength: 40,
                           lineThickness: 1,
                           defaultLineColor: AppColors.border,
-                          activeLineColor: AppColors.cyan,
-                          finishedLineColor: AppColors.cyan,
+                          activeLineColor: AppColors.accent,
+                          finishedLineColor: AppColors.accent,
                           unreachedLineColor: AppColors.border,
                           lineType: LineType.normal,
                         ),
@@ -575,7 +575,7 @@ class _PaneStatus extends StatelessWidget {
                         dimension: 28,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: AppColors.cyan,
+                          color: AppColors.accent,
                         ),
                       )
               else
@@ -770,7 +770,7 @@ class _RemoteFindBarState extends State<_RemoteFindBar> {
         color: AppColors.surfaceDark,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: widget.active ? AppColors.cyan : AppColors.border,
+          color: widget.active ? AppColors.accent : AppColors.border,
         ),
       ),
       child: Row(
@@ -783,7 +783,7 @@ class _RemoteFindBarState extends State<_RemoteFindBar> {
               : Icon(
                   Icons.search_rounded,
                   color: widget.error == null
-                      ? AppColors.cyan
+                      ? AppColors.accent
                       : AppColors.danger,
                   size: 17,
                 ),
@@ -902,7 +902,7 @@ class _SftpInlineCreateItem extends StatelessWidget {
         color: AppColors.surfaceCard.withValues(alpha: .58),
         border: Border(
           bottom: BorderSide(
-            color: AppColors.cyan.withValues(alpha: .9),
+            color: AppColors.accent.withValues(alpha: .9),
           ),
         ),
       ),
@@ -978,7 +978,7 @@ class _SftpInlineRenameItem extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.selected,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.cyan),
+        border: Border.all(color: AppColors.accent),
       ),
       child: Row(
         children: [
