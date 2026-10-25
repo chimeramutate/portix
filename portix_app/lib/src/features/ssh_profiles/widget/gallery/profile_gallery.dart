@@ -339,8 +339,9 @@ class _GalleryToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final filters = Wrap(
-      spacing: 8,
+      spacing: 4,
       runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         _FilterPill(
           label: 'All',
@@ -362,10 +363,17 @@ class _GalleryToolbar extends StatelessWidget {
           selected: filter == _GalleryFilter.recent,
           onTap: () => onFilterChanged(_GalleryFilter.recent),
         ),
-        AppPill(
-          label: '$visibleCount shown',
-          color: AppColors.muted,
-          icon: Icons.circle,
+        // Set apart from the segments: a count, not a filter.
+        Container(
+          height: 28,
+          padding: const EdgeInsets.only(left: 12),
+          child: Center(
+            widthFactor: 1,
+            child: Text(
+              visibleCount == 1 ? '1 profile' : '$visibleCount profiles',
+              style: portixMuted(12),
+            ),
+          ),
         ),
       ],
     );
@@ -497,16 +505,32 @@ class _FilterPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? AppColors.accent : AppColors.muted;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(99),
-        child: AppPill(
-          label: label,
-          color: color,
-          background: selected ? AppColors.accent.withValues(alpha: .11) : null,
+    // A segment, not a pill: pills are for status and labels.
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: Material(
+        color: selected ? AppColors.selected : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(6),
+          hoverColor: AppColors.selectedSoft,
+          child: Container(
+            height: 28,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Center(
+              widthFactor: 1,
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: selected ? AppColors.text : AppColors.muted,
+                  fontSize: 12,
+                  fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -654,7 +678,7 @@ class _ProfileGrid extends StatelessWidget {
           itemCount: profiles.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: count,
-            mainAxisExtent: 184,
+            mainAxisExtent: 112,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
           ),
