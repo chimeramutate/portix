@@ -26,7 +26,7 @@ Every main view uses one shell: icon rail, a collapsible side panel owned by the
  48     240              rest
 ```
 
-- **Rail (48 px)**, unchanged position. Items: Profiles, Terminals (new), SFTP, RDP, Kubernetes. Settings stay in the menu bar.
+- **Rail (48 px)**, unchanged position. Items: Profiles, Terminals (new), RDP, SFTP, Kubernetes. Settings stay in the menu bar. Terminals is disabled while no SSH session is open, because showing the terminal view with nothing open connects to the selected profile.
 - Clicking the active rail item collapses or expands the panel. One collapsed flag for the whole shell, kept in memory (not persisted). No shortcut yet: Cmd/Ctrl+B (with or without Shift) already toggles broadcast typing in the terminal; a panel shortcut, if wanted, joins the rebindable `TerminalCommand` set.
 - **Panel (240 px)**: `SidePanel` widget in `core/widgets` with a header (title + optional action icon), an optional filter field, and a scrolling body. Hidden below 760 px window width, as the group sidebar is today.
 - `WorkspaceShell` takes the panel for the active view; views no longer lay out their own sidebars.
@@ -37,7 +37,7 @@ Every main view uses one shell: icon rail, a collapsible side panel owned by the
 | View | Panel content | Source |
 |---|---|---|
 | Profiles | Groups and tags | existing `GroupSidebar`, moved out of `GalleryShell` |
-| Terminals | Open SSH sessions; click focuses the tab, status dot + label per session | `SshSessionBloc` |
+| Terminals | Open SSH sessions; click shows that session's tab (through `terminalFocusRequests`), status dot + label per session | `ConnectionManager` sessions, active id from `SshSessionBloc` |
 | SFTP | Saved servers; click opens or switches the SFTP tab | `SftpWorkspaceBloc` profiles |
 | RDP | Saved RDP profiles | `RdpWorkspaceBloc` |
 | Kubernetes | Server → namespace → pods tree with health dots; replaces the server/namespace/pod pickers in the log toolbar | existing `kubectl get` calls in `kubernetes_page.dart` |

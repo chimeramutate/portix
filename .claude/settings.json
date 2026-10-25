@@ -4,7 +4,8 @@
       "Bash(python3 /private/tmp/claude-501/-Users-asepimam-Documents-project-portix/1075e35a-5d9f-4f68-b591-d716de0e2dce/scratchpad/contrast.py)",
       "Bash(sed -i '' 's/inputBorder=\"#5B6B82\"/inputBorder=\"#74839A\"/; s/accent=\"#15803D\"/accent=\"#166534\"/; s/green=\"#15803D\"/green=\"#166534\"/; s/amber=\"#B45309\"/amber=\"#92400E\"/' contrast.py)",
       "Bash(python3 contrast.py)",
-      "Bash(xargs sed -i '' -E '/ProfileColor\\\\.cyan =>|FileCategory\\\\.code =>|LogLevel\\\\.info =>|cyan: AppColors\\\\.cyan|return AppColors\\\\.cyan;/! { s/AppColors\\\\.cyan\\([^A-Za-z]|$\\)/AppColors.accent\\\\1/g; s/\\([^A-Za-z.]\\)p\\\\.cyan\\([^A-Za-z]|$\\)/\\\\1p.accent\\\\2/g; }')"
+      "Bash(xargs sed -i '' -E '/ProfileColor\\\\.cyan =>|FileCategory\\\\.code =>|LogLevel\\\\.info =>|cyan: AppColors\\\\.cyan|return AppColors\\\\.cyan;/! { s/AppColors\\\\.cyan\\([^A-Za-z]|$\\)/AppColors.accent\\\\1/g; s/\\([^A-Za-z.]\\)p\\\\.cyan\\([^A-Za-z]|$\\)/\\\\1p.accent\\\\2/g; }')",
+      "Bash(grep -vE \"^\\\\s*$\")"
     ]
   }
 }

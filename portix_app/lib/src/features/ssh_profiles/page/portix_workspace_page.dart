@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/side_panel.dart';
@@ -9,6 +10,7 @@ import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
 import 'package:portix/src/features/sftp/page/sftp_workspace_page.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 import 'package:portix/src/features/ssh_sessions/page/remote_folder_page.dart';
+import 'package:portix/src/features/ssh_sessions/widget/terminals_panel.dart';
 
 import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 import '../widget/form/index.dart';
@@ -25,6 +27,7 @@ class PortixWorkspacePage extends StatefulWidget {
 class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
   final Set<WorkspaceView> _visitedViews = {WorkspaceView.gallery};
   late final SftpWorkspaceBloc _sftpWorkspaceBloc;
+  final ConnectionManager _connectionManager = sl<ConnectionManager>();
 
   @override
   void initState() {
@@ -99,9 +102,14 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
             _visitedViews.add(state.activeView);
             return BlocProvider.value(
               value: _sftpWorkspaceBloc,
-              child: WorkspaceShell(
-                state: state,
-                panel: _panelFor(state),
+              child: ListenableBuilder(
+                listenable: _connectionManager,
+                builder: (context, child) => WorkspaceShell(
+                  state: state,
+                  panel: _panelFor(state),
+                  terminalsOpen: _connectionManager.sessions.isNotEmpty,
+                  child: child!,
+                ),
                 child: IndexedStack(
                   index: _viewIndex(state.activeView),
                   children: [
@@ -113,10 +121,7 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
                     ),
                     _lazyView(WorkspaceView.sftp, const SftpWorkspacePage()),
                     _lazyView(WorkspaceView.rdp, const RdpWorkspaceView()),
-                    _lazyView(
-                      WorkspaceView.kubernetes,
-                      const KubernetesPage(),
-                    ),
+                    _lazyView(WorkspaceView.kubernetes, const KubernetesPage()),
                   ],
                 ),
               ),
@@ -132,6 +137,10 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
     WorkspaceView.gallery => SidePanel(
       title: 'Groups',
       child: GroupSidebar(state: state),
+    ),
+    WorkspaceView.remoteFolder => SidePanel(
+      title: 'Terminals',
+      child: TerminalsPanel(connectionManager: _connectionManager),
     ),
     _ => null,
   };

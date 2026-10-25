@@ -612,7 +612,9 @@ class _TagFilterMenuButton extends StatelessWidget {
                   tag == selectedTag
                       ? Icons.check_circle_rounded
                       : Icons.sell_outlined,
-                  color: tag == selectedTag ? AppColors.accent : AppColors.muted,
+                  color: tag == selectedTag
+                      ? AppColors.accent
+                      : AppColors.muted,
                   size: 16,
                 ),
                 const SizedBox(width: 10),

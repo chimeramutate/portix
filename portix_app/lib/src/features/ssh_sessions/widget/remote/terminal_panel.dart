@@ -59,7 +59,12 @@ class TerminalPanel extends StatefulWidget {
   State<TerminalPanel> createState() => _TerminalPanelState();
 }
 
+/// Session ids to bring to the front, sent from outside the panel (the
+/// workspace side panel's session list).
+final terminalFocusRequests = StreamController<String>.broadcast();
+
 class _TerminalPanelState extends State<TerminalPanel> {
+  late final StreamSubscription<String> _focusRequestSubscription;
   late final Terminal _idleTerminal;
   late final TerminalController _idleController;
   late final FocusNode _idleFocusNode;
@@ -140,6 +145,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _listenToConnectionManager();
     _connectionManager.addListener(_handleConnectionManagerChanged);
     HardwareKeyboard.instance.addHandler(_handlePanelShortcut);
+    _focusRequestSubscription = terminalFocusRequests.stream.listen(
+      _handleFocusRequest,
+    );
     _bootTerminal();
     _tabScrollController.addListener(_handleTabScrollChanged);
     unawaited(_loadTerminalSettings());
@@ -167,6 +175,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _connectionManager.removeListener(_handleConnectionManagerChanged);
     HardwareKeyboard.instance.removeHandler(_handlePanelShortcut);
     terminalSettingsRevision.removeListener(_loadTerminalSettings);
+    unawaited(_focusRequestSubscription.cancel());
     _search?.dispose();
     _tabScrollController.dispose();
 
@@ -887,6 +896,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
     return widget.profiles
         .where((profile) => profile.id == profileId)
         .firstOrNull;
+  }
+
+  void _handleFocusRequest(String sessionId) {
+    final session = _sshSessions.where((s) => s.id == sessionId).firstOrNull;
+    if (!mounted || session == null) return;
+    _activateSession(session, keepWorkspaceVisible: true);
   }
 
   void _activateSession(

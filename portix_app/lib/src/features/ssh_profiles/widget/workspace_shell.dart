@@ -15,12 +15,16 @@ class WorkspaceShell extends StatefulWidget {
     required this.state,
     required this.child,
     this.panel,
+    this.terminalsOpen = false,
     super.key,
   });
 
   final SshWorkspaceState state;
   final Widget child;
   final Widget? panel;
+
+  /// Passed to the rail: whether any SSH session is open.
+  final bool terminalsOpen;
 
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
@@ -45,6 +49,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                   children: [
                     WorkspaceRail(
                       activeView: widget.state.activeView,
+                      terminalsOpen: widget.terminalsOpen,
                       onReselect: panel == null
                           ? null
                           : () => setState(

@@ -11,7 +11,10 @@ import 'package:portix/src/connection_manager/session_models.dart';
 import 'package:portix/src/connection_manager/mock_backend.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/domain/repositories/ssh/ssh_profile_repository.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
+import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
+import 'package:portix/src/features/ssh_sessions/widget/terminals_panel.dart';
 import 'support/refusing_host_key_backend.dart';
 
 const _seedProfiles = [
@@ -217,6 +220,46 @@ void main() {
 
     expect(find.byKey(const ValueKey('close-tab-prod-api-01')), findsOneWidget);
     expect(find.byKey(const ValueKey('close-tab-prod-api-01 2')), findsNothing);
+  });
+
+  _appTest('terminals rail item and panel switch between open sessions', (
+    tester,
+  ) async {
+    await _pumpPortixApp(tester, const Size(1600, 900));
+    expect(find.byTooltip('Terminals (none open)'), findsOneWidget);
+
+    await tester.tap(find.text('Open SSH').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('new-terminal-tab')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('new-session-profile-prod-api-01')),
+    );
+    await tester.pumpAndSettle();
+
+    final sessions = sl<ConnectionManager>().sessions;
+    expect(sessions, hasLength(2));
+    SshSessionState sessionState() => tester
+        .element(find.byType(TerminalsPanel))
+        .read<SshSessionBloc>()
+        .state;
+    expect(sessionState().activeSessionId, sessions.last.id);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(TerminalsPanel),
+        matching: find.text(sessions.first.title),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(sessionState().activeSessionId, sessions.first.id);
+
+    // Re-entering the terminal view starts a real reachability probe, so
+    // the test stops at the enabled rail item.
+    await tester.tap(find.byTooltip('SSH profiles'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TerminalsPanel), findsNothing);
+    expect(find.byTooltip('Terminals'), findsOneWidget);
   });
 
   _appTest('async host key refusal prompts, trusts, and reconnects', (
