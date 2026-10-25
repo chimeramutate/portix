@@ -2518,6 +2518,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
               ),
               Container(
                 height: 26,
+                width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(
                   color: AppColors.bg,

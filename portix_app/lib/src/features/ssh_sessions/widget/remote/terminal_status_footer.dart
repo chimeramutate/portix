@@ -39,10 +39,29 @@ class TerminalStatusFooter extends StatelessWidget {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              _RemoteOsChip(snapshot: snapshot, error: error),
-              const SizedBox(width: 14),
-              _UptimeChip(snapshot: snapshot, error: error),
-              if (showMetrics) ...[
+              if (error case final error?)
+                // One notice instead of N/A and "Up offline" side by side.
+                Tooltip(
+                  message: error,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.cloud_off_outlined,
+                        color: AppColors.amber,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 6),
+                      Text('System info unavailable', style: portixMuted(11)),
+                    ],
+                  ),
+                )
+              else ...[
+                _RemoteOsChip(snapshot: snapshot, error: null),
+                const SizedBox(width: 14),
+                _UptimeChip(snapshot: snapshot, error: null),
+              ],
+              if (showMetrics && error == null) ...[
                 const SizedBox(width: 14),
                 _UsageMeter(
                   label: 'Memory',
@@ -248,7 +267,7 @@ class _UptimeChip extends StatelessWidget {
         children: [
           Icon(
             Icons.schedule_rounded,
-            color: error == null ? AppColors.green : AppColors.amber,
+            color: error == null ? AppColors.muted : AppColors.amber,
             size: 14,
           ),
           const SizedBox(width: 5),
