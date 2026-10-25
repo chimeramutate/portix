@@ -120,7 +120,7 @@ class _FilePane extends StatelessWidget {
             ? false
             : (isRemote ? (loading || error == null) : true);
         return AppPanel(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(12),
           borderColor: isDropTarget ? AppColors.accent : AppColors.border,
           color: isDropTarget
               ? AppColors.surfaceCard.withValues(alpha: .78)
@@ -162,7 +162,7 @@ class _FilePane extends StatelessWidget {
                           title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: portixTitle(16),
+                          style: portixTitle(14),
                         ),
                       ),
                       AppPill(label: countLabel, color: AppColors.muted),
@@ -170,40 +170,48 @@ class _FilePane extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               // Skeletons instead of hiding the bars, so the layout stays in place.
               if (showSteps) ...[
                 const SizedBox(height: 12),
               ] else ...[
-                if (showPathBar && showControls)
+                if ((showPathBar || showActions) && showControls)
                   Skeletonizer(
                     enabled: loading,
-                    child: PathBar(
-                      path: path,
-                      onSubmit: onPathSubmitted,
-                      onListPath: switch (onListPath) {
-                        final list? => (dir) async => [
-                          for (final entry in await list(dir))
-                            (name: entry.name, isDirectory: entry.folder),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (showPathBar)
+                          Expanded(
+                            child: PathBar(
+                              path: path,
+                              onSubmit: onPathSubmitted,
+                              onListPath: switch (onListPath) {
+                                final list? => (dir) async => [
+                                  for (final entry in await list(dir))
+                                    (
+                                      name: entry.name,
+                                      isDirectory: entry.folder,
+                                    ),
+                                ],
+                                null => null,
+                              },
+                            ),
+                          ),
+                        if (showActions) ...[
+                          if (showPathBar) const SizedBox(width: 8),
+                          _PaneActions(
+                            isRemote: isRemote,
+                            onCreateFileRequested: onCreateFileRequested,
+                            onCreateFolderRequested: onCreateFolderRequested,
+                            onRefreshRequested: onRefreshRequested,
+                          ),
                         ],
-                        null => null,
-                      },
+                      ],
                     ),
                   ),
-                if (showActions && showControls) ...[
-                  const SizedBox(height: 12),
-                  Skeletonizer(
-                    enabled: loading,
-                    child: _PaneActions(
-                      isRemote: isRemote,
-                      onCreateFileRequested: onCreateFileRequested,
-                      onCreateFolderRequested: onCreateFolderRequested,
-                      onRefreshRequested: onRefreshRequested,
-                    ),
-                  ),
-                ],
                 if (onFindSubmitted != null && showControls) ...[
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   Skeletonizer(
                     enabled: loading,
                     child: _RemoteFindBar(
@@ -222,15 +230,21 @@ class _FilePane extends StatelessWidget {
               const SizedBox(height: 10),
               Expanded(
                 child: Container(
-                  decoration: BoxDecoration(
-                    color: showSteps
-                        ? AppColors.surfaceDark
-                        : AppColors.surfaceDark.withValues(alpha: .45),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: isDropTarget ? AppColors.accent : AppColors.border,
-                    ),
-                  ),
+                  // The profile picker sits on the pane itself; only the
+                  // file table and status views get the inset box.
+                  decoration: contentOverride != null
+                      ? null
+                      : BoxDecoration(
+                          color: showSteps
+                              ? AppColors.surfaceDark
+                              : AppColors.surfaceDark.withValues(alpha: .45),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isDropTarget
+                                ? AppColors.accent
+                                : AppColors.border,
+                          ),
+                        ),
                   child: contentOverride != null
                       ? contentOverride
                       : loading
@@ -764,13 +778,13 @@ class _RemoteFindBarState extends State<_RemoteFindBar> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 36,
+      height: 32,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
         color: AppColors.surfaceDark,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: widget.active ? AppColors.accent : AppColors.border,
+          color: widget.active ? AppColors.accent : AppColors.inputBorder,
         ),
       ),
       child: Row(
@@ -783,17 +797,18 @@ class _RemoteFindBarState extends State<_RemoteFindBar> {
               : Icon(
                   Icons.search_rounded,
                   color: widget.error == null
-                      ? AppColors.accent
+                      ? AppColors.muted
                       : AppColors.danger,
-                  size: 17,
+                  size: 16,
                 ),
           const SizedBox(width: 9),
           Expanded(
             child: TextField(
               controller: _controller,
               onSubmitted: widget.onSubmitted,
-              style: portixTitle(12),
+              style: appFieldTextStyle(),
               decoration: InputDecoration(
+                filled: false,
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
@@ -803,7 +818,7 @@ class _RemoteFindBarState extends State<_RemoteFindBar> {
                     (widget.remote
                         ? 'Find remote file or folder'
                         : 'Find local file or folder'),
-                hintStyle: portixMuted(12).copyWith(
+                hintStyle: portixMuted(13).copyWith(
                   color: widget.error == null
                       ? AppColors.muted
                       : AppColors.danger,
@@ -845,34 +860,19 @@ class _PaneActions extends StatelessWidget {
       (Icons.refresh_rounded, 'Reload', onRefreshRequested),
     ];
 
-    return SizedBox(
-      height: 34,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: actions.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final action = actions[index];
-          return Tooltip(
-            message: action.$2,
-            child: SizedBox.square(
-              dimension: 34,
-              child: OutlinedButton(
-                onPressed: action.$3,
-                style: OutlinedButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  foregroundColor: AppColors.text,
-                  side: BorderSide(color: AppColors.border),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: Icon(action.$1, size: 16),
-              ),
-            ),
-          );
-        },
-      ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final (i, action) in actions.indexed) ...[
+          if (i > 0) const SizedBox(width: 4),
+          AppIconButton(
+            icon: action.$1,
+            tooltip: action.$2,
+            color: AppColors.text,
+            onPressed: action.$3,
+          ),
+        ],
+      ],
     );
   }
 }
@@ -1036,6 +1036,11 @@ class _TableHeader extends StatelessWidget {
   const _TableHeader({required this.isRemote});
   final bool isRemote;
 
+  TextStyle get _headerStyle => portixMuted(11).copyWith(
+    fontWeight: FontWeight.w500,
+    letterSpacing: .3,
+  );
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -1047,18 +1052,18 @@ class _TableHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Expanded(flex: 5, child: Text('Name', style: portixLabel(12))),
+          Expanded(flex: 5, child: Text('Name', style: _headerStyle)),
           Expanded(
             flex: 2,
-            child: Text(isRemote ? 'Type' : 'Size', style: portixLabel(12)),
+            child: Text(isRemote ? 'Type' : 'Size', style: _headerStyle),
           ),
           Expanded(
             flex: 2,
-            child: Text(isRemote ? 'Size' : 'Modified', style: portixLabel(12)),
+            child: Text(isRemote ? 'Size' : 'Modified', style: _headerStyle),
           ),
           Expanded(
             flex: 2,
-            child: Text(isRemote ? 'Updated' : '', style: portixLabel(12)),
+            child: Text(isRemote ? 'Updated' : '', style: _headerStyle),
           ),
         ],
       ),

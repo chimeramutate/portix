@@ -293,7 +293,11 @@ class _FileRow extends StatelessWidget {
                 data.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: portixTitle(compact ? 15 : 14),
+                style: TextStyle(
+                  color: AppColors.text,
+                  fontSize: compact ? 14 : 13,
+                  fontWeight: FontWeight.w400,
+                ),
               ),
               if (compact && meta.isNotEmpty) ...[
                 const SizedBox(height: 3),
@@ -443,7 +447,7 @@ class _PaneFooter extends StatelessWidget {
           Text(
             right,
             overflow: TextOverflow.ellipsis,
-            style: portixMuted(12).copyWith(color: AppColors.accent),
+            style: portixMuted(12),
           ),
         ],
       ),

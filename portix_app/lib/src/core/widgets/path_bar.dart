@@ -263,7 +263,7 @@ class _PathBarState extends State<PathBar> {
   @override
   Widget build(BuildContext context) {
     return AppPanel(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       borderColor: _focusNode.hasFocus ? AppColors.accent : AppColors.inputBorder,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -286,10 +286,11 @@ class _PathBarState extends State<PathBar> {
                   },
                   style: TextStyle(
                     color: AppColors.text,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w400,
                     fontSize: 13,
                   ),
                   decoration: const InputDecoration(
+                    filled: false,
                     border: InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,

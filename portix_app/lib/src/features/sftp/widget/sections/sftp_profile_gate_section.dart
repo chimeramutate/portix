@@ -55,13 +55,13 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
 
   Widget _searchField() {
     return Container(
-      height: 36,
+      height: 32,
       decoration: BoxDecoration(
         color: AppColors.surfaceDark,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.inputBorder),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       child: Row(
         children: [
           Icon(Icons.search_rounded, color: AppColors.muted, size: 18),
@@ -76,11 +76,15 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
               },
               decoration: InputDecoration(
                 hintText: 'Search profiles (name, address or username)',
-                hintStyle: portixMuted(12),
+                hintStyle: portixMuted(13),
                 border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                filled: false,
                 isDense: true,
+                contentPadding: EdgeInsets.zero,
               ),
-              style: portixTitle(13),
+              style: appFieldTextStyle(),
             ),
           ),
           if (_searchQuery.isNotEmpty)
@@ -107,10 +111,10 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
     final hasProfiles = widget.profiles.isNotEmpty;
     final hasMatches = filteredProfiles.isNotEmpty;
 
-    return Center(
-      child: AppPanel(
-        padding: const EdgeInsets.all(20),
-        margin: const EdgeInsets.all(24),
+    return Align(
+      alignment: Alignment.topCenter,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560),
           child: Column(
@@ -138,8 +142,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 // Results count and clear button
                 if (_searchQuery.isNotEmpty && !hasMatches)
                   Padding(
@@ -183,7 +186,7 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                       itemCount:
                           filteredProfiles.length +
                           (widget.includeLocal ? 1 : 0),
-                      separatorBuilder: (_, _) => const SizedBox(height: 8),
+                      separatorBuilder: (_, _) => const SizedBox(height: 2),
                       itemBuilder: (context, index) {
                         if (widget.includeLocal && index == 0) {
                           return _LocalProfileTile(
@@ -195,43 +198,11 @@ class _SftpProfileGateState extends State<_SftpProfileGate> {
                             ? index - 1
                             : index;
                         final profile = filteredProfiles[profileIndex];
-                        return Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () => widget.onSelected(profile),
-                            borderRadius: BorderRadius.circular(10),
-                            child: Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: AppColors.surfaceDark,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: AppColors.border),
-                              ),
-                              child: Row(
-                                children: [
-                                  ProfileOsIcon(profile: profile, size: 30),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          profile.name,
-                                          style: portixTitle(14),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Icon(
-                                    Icons.chevron_right_rounded,
-                                    color: AppColors.muted,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+                        return _GateRow(
+                          leading: ProfileOsIcon(profile: profile, size: 24),
+                          title: profile.name,
+                          subtitle: profile.address,
+                          onTap: () => widget.onSelected(profile),
                         );
                       },
                     ),
@@ -274,13 +245,13 @@ class _SortToggleState extends State<_SortToggle> {
           onTap: widget.onTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
-            width: 36,
-            height: 36,
+            width: 32,
+            height: 32,
             decoration: BoxDecoration(
               color: AppColors.surfaceDark,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: _hover ? AppColors.accent : AppColors.border,
+                color: _hover ? AppColors.accent : AppColors.inputBorder,
               ),
             ),
             child: Row(
@@ -315,43 +286,79 @@ class _LocalProfileTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return _GateRow(
+      leading: Icon(Icons.computer_rounded, color: AppColors.muted, size: 20),
+      title: 'Local',
+      subtitle: 'Local filesystem',
+      selected: selected,
+      onTap: onTap,
+    );
+  }
+}
+
+/// One row of the profile picker: [leading] icon, name and address, a
+/// check when [selected].
+class _GateRow extends StatelessWidget {
+  const _GateRow({
+    required this.leading,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.selected = false,
+  });
+
+  final Widget leading;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
     return Material(
-      color: Colors.transparent,
+      color: selected ? AppColors.selected : Colors.transparent,
+      borderRadius: BorderRadius.circular(6),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: selected
-                ? AppColors.accent.withValues(alpha: .10)
-                : AppColors.surfaceDark,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: selected ? AppColors.accent : AppColors.border,
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.computer_rounded, color: AppColors.accent, size: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Local', style: portixTitle(14)),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Local filesystem',
-                      overflow: TextOverflow.ellipsis,
-                      style: portixMuted(12),
-                    ),
-                  ],
+        borderRadius: BorderRadius.circular(6),
+        hoverColor: AppColors.selectedSoft,
+        child: SizedBox(
+          height: 44,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                SizedBox.square(dimension: 24, child: Center(child: leading)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppColors.text,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        overflow: TextOverflow.ellipsis,
+                        style: portixMuted(11),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              if (selected)
-                Icon(Icons.check_rounded, color: AppColors.accent, size: 18),
-            ],
+                Icon(
+                  selected ? Icons.check_rounded : Icons.chevron_right_rounded,
+                  color: selected ? AppColors.accent : AppColors.muted,
+                  size: 18,
+                ),
+              ],
+            ),
           ),
         ),
       ),
