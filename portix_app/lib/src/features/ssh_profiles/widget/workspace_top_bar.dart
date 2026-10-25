@@ -239,17 +239,12 @@ class _SftpStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The connection state lives on the Remote pane; the bar names the server.
     final profile = context.watch<SftpWorkspaceBloc>().state.selectedProfile;
-    final hasSession = profile != null;
+    if (profile == null) return const _Title('SFTP');
     return _ConnectionBadge(
-      osIconAsset: profile?.osIconAsset,
-      iconColor: hasSession ? AppColors.green : AppColors.muted,
-      title: profile?.name ?? 'SFTP Workspace',
-      trailing: AppPill(
-        label: hasSession ? 'Ready' : 'No session',
-        color: hasSession ? AppColors.green : AppColors.muted,
-        background: hasSession ? AppColors.greenTint : AppColors.surface,
-      ),
+      osIconAsset: profile.osIconAsset,
+      title: profile.name,
     );
   }
 }
@@ -370,19 +365,11 @@ class _FormBreadcrumb extends StatelessWidget {
 }
 
 class _ConnectionBadge extends StatelessWidget {
-  const _ConnectionBadge({
-    this.osIconAsset,
-    required this.title,
-    this.trailing,
-    Color? iconColor,
-  }) : _iconColor = iconColor;
+  const _ConnectionBadge({this.osIconAsset, required this.title});
 
   /// OS SVG icon asset, drawn in its own colors; [Icons.dns_outlined] when empty.
   final String? osIconAsset;
   final String title;
-  final Widget? trailing;
-  final Color? _iconColor;
-  Color get iconColor => _iconColor ?? AppColors.green;
 
   @override
   Widget build(BuildContext context) {
@@ -407,7 +394,7 @@ class _ConnectionBadge extends StatelessWidget {
                 child: SvgPicture.asset(asset, fit: BoxFit.contain),
               )
             else
-              Icon(Icons.dns_outlined, color: iconColor, size: 16),
+              Icon(Icons.dns_outlined, color: AppColors.muted, size: 16),
             const SizedBox(width: 8),
             Flexible(
               flex: 2,
@@ -417,7 +404,6 @@ class _ConnectionBadge extends StatelessWidget {
                 style: portixTitle(12),
               ),
             ),
-            if (trailing != null) ...[const SizedBox(width: 10), trailing!],
           ],
         ),
       ),

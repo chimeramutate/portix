@@ -39,7 +39,7 @@ A panel only holds navigation the view does not already show. Where the page has
 | View | Panel content | Source |
 |---|---|---|
 | Profiles | Groups and tags | existing `GroupSidebar`, moved out of `GalleryShell` |
-| Terminals | Open SSH sessions; click shows that session's tab (through `terminalFocusRequests`), status dot + label per session | `ConnectionManager` sessions, active id from `SshSessionBloc` |
+| Terminals | None: the terminal tab strip already lists the sessions | |
 | RDP | Profile groups with counts, filtering the profile grid (the grid already lists the profiles) | `RdpWorkspaceBloc` group filter |
 | SFTP | None: the Remote pane's profile picker already chooses the server | |
 | Kubernetes | None: the log toolbar's server/namespace/pod pickers are per tab, and a shell panel is one for all tabs | |
@@ -52,7 +52,7 @@ Shared widgets first, so pages inherit them: `AppButton`, `AppPanel`, `AppPill`,
 
 1. **Shell:** `SidePanel`, panel slot in `WorkspaceShell`, collapse on rail reselect, Profiles panel moved from `GalleryShell`.
 2. **Shared components:** buttons, inputs, tabs, pills, menus, dialogs at density 8.
-3. **Terminals view + panel:** rail item, session list.
+3. **Terminals rail item** (enabled while a session is open).
 4. **RDP panel.** (SFTP and Kubernetes get none, see above.)
 5. **Page pass:** each page's own spacing and hierarchy against DESIGN.md; contrast script re-run on both themes.
 

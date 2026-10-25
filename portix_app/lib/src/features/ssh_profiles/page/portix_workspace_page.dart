@@ -11,7 +11,6 @@ import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
 import 'package:portix/src/features/sftp/page/sftp_workspace_page.dart';
 import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 import 'package:portix/src/features/ssh_sessions/page/remote_folder_page.dart';
-import 'package:portix/src/features/ssh_sessions/widget/terminals_panel.dart';
 
 import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 import '../widget/form/index.dart';
@@ -138,10 +137,6 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
     WorkspaceView.gallery => SidePanel(
       title: 'Groups',
       child: GroupSidebar(state: state),
-    ),
-    WorkspaceView.remoteFolder => SidePanel(
-      title: 'Terminals',
-      child: TerminalsPanel(connectionManager: _connectionManager),
     ),
     WorkspaceView.rdp => const SidePanel(
       title: 'Groups',
