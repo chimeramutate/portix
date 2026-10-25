@@ -6,7 +6,6 @@ import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
 import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
-import 'form_steps.dart';
 import 'profile_preview.dart';
 import 'ssh_key_manager_dialog.dart';
 
@@ -172,20 +171,17 @@ class _ProfileFormViewState extends State<ProfileFormView> {
 
             final identitySection = _FormSection(
               key: _identityKey,
-              icon: Icons.badge_outlined,
               title: 'Identity',
               subtitle: 'Name and group are required. Tags help filtering.',
               children: [
                 AppTextField(
                   controller: _name,
                   label: 'Profile name',
-                  icon: Icons.dns_outlined,
                   onChanged: (_) => _changed(context),
                 ),
                 _AutocompleteTextField(
                   controller: _group,
                   label: 'Group',
-                  icon: Icons.layers_outlined,
                   options: groupOptions,
                   onChanged: (_) => _changed(context),
                 ),
@@ -203,7 +199,6 @@ class _ProfileFormViewState extends State<ProfileFormView> {
             // Authentication is now embedded inside the endpoint section.
             final endpointSection = _FormSection(
               key: _endpointKey,
-              icon: Icons.lan_outlined,
               title: 'Connection',
               subtitle: 'Where to connect and how to sign in.',
               children: [
@@ -215,7 +210,6 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                           controller: _host,
                           label: 'Host / IP',
                           hint: 'example.com or 10.0.0.5',
-                          icon: Icons.language_rounded,
                           onChanged: (_) => _changed(context),
                         ),
                       ),
@@ -242,7 +236,6 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                     controller: _username,
                     label: 'Username',
                     hint: 'root',
-                    icon: Icons.person_outline,
                     onChanged: (_) => _changed(context),
                   ),
                 ),
@@ -253,7 +246,6 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                     child: AppTextField(
                       controller: _credential,
                       label: 'Password',
-                      icon: Icons.lock_outline_rounded,
                       obscureText: true,
                       onChanged: (_) => _changed(context),
                     ),
@@ -264,7 +256,6 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                       controller: _credential,
                       label: 'SSH key path',
                       hint: 'Empty uses ssh-agent',
-                      icon: Icons.key_rounded,
                       onChanged: (_) => _changed(context),
                     ),
                   ),
@@ -291,13 +282,11 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                   controller: _startup,
                   label: 'Startup command',
                   hint: 'e.g. cd /var/www && ls',
-                  icon: Icons.terminal_rounded,
                   onChanged: (_) => _changed(context),
                 ),
                 AppTextField(
                   controller: _fontSize,
                   label: 'Terminal font size',
-                  icon: Icons.text_fields_rounded,
                   keyboardType: TextInputType.number,
                   inputFormatters: [
                     FilteringTextInputFormatter.digitsOnly,
@@ -329,98 +318,88 @@ class _ProfileFormViewState extends State<ProfileFormView> {
               ],
             );
 
+            final scroll = SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                compact ? 14 : 20,
+                compact ? 14 : 20,
+                compact ? 14 : 16,
+                16,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!showSidePanel && state.isProfileFormComplete) ...[
+                    ProfilePreview(state: state),
+                    const SizedBox(height: 14),
+                  ],
+                  if (twoColumn) ...[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: identitySection),
+                        const SizedBox(width: 14),
+                        Expanded(child: endpointSection),
+                      ],
+                    ),
+                  ] else ...[
+                    identitySection,
+                    endpointSection,
+                  ],
+                  advancedSection,
+                ],
+              ),
+            );
+
+            // Pinned under the scrolling form so Save is always in reach.
+            final footer = Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 14 : 20,
+                vertical: 10,
+              ),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: AppColors.border)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      compact
+                          ? 'Check before saving.'
+                          : 'Check the host, port, username and authentication before saving.',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _subtitleStyle,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  AppButton(
+                    icon: Icons.close_rounded,
+                    label: 'Cancel',
+                    onPressed: () => context.read<SshWorkspaceBloc>().add(
+                      const NavigationChanged(WorkspaceView.gallery),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AppButton(
+                    key: _saveKey,
+                    icon: Icons.save_outlined,
+                    label: compact ? 'Save' : 'Save Profile',
+                    primary: true,
+                    onPressed: () => context.read<SshWorkspaceBloc>().add(
+                      const ProfileSaved(),
+                    ),
+                  ),
+                ],
+              ),
+            );
+
             final form = SizedBox(
               height: availableHeight,
-              child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(
-                  compact ? 14 : 20,
-                  compact ? 14 : 20,
-                  compact ? 14 : 16,
-                  28,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _CompactFormHeader(state: state),
-                    const SizedBox(height: 14),
-                    if (!showSidePanel && state.isProfileFormComplete) ...[
-                      ProfilePreview(state: state),
-                      const SizedBox(height: 14),
-                    ],
-                    if (compact) ...[
-                      AppPanel(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        child: FormSteps(state: state),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-                    if (twoColumn) ...[
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(child: identitySection),
-                          const SizedBox(width: 14),
-                          Expanded(child: endpointSection),
-                        ],
-                      ),
-                    ] else ...[
-                      identitySection,
-                      endpointSection,
-                    ],
-                    advancedSection,
-                    // Footer: hint left, actions right.
-                    AppPanel(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.info_outline_rounded,
-                            size: 15,
-                            color: AppColors.muted,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              compact
-                                  ? 'Check before saving.'
-                                  : 'Check the host, port, username and authentication before saving.',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: _subtitleStyle,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          AppButton(
-                            icon: Icons.close_rounded,
-                            label: 'Cancel',
-                            onPressed: () =>
-                                context.read<SshWorkspaceBloc>().add(
-                                  const NavigationChanged(
-                                    WorkspaceView.gallery,
-                                  ),
-                                ),
-                          ),
-                          const SizedBox(width: 8),
-                          AppButton(
-                            key: _saveKey,
-                            icon: Icons.save_outlined,
-                            label: compact ? 'Save' : 'Save Profile',
-                            primary: true,
-                            onPressed: () => context
-                                .read<SshWorkspaceBloc>()
-                                .add(const ProfileSaved()),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              child: Column(
+                children: [
+                  Expanded(child: scroll),
+                  footer,
+                ],
               ),
             );
 
@@ -489,95 +468,16 @@ class _AnimatedSidePanel extends StatelessWidget {
 
 // Compact header with step pills
 
-class _CompactFormHeader extends StatelessWidget {
-  const _CompactFormHeader({required this.state});
-
-  final SshWorkspaceState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final steps = [
-      (
-        label: 'Identity',
-        done: state.isIdentityComplete,
-        active: !state.isIdentityComplete,
-      ),
-      (
-        label: 'Endpoint',
-        done: state.isEndpointComplete,
-        active: state.isIdentityComplete && !state.isEndpointComplete,
-      ),
-      (
-        label: 'Auth',
-        done: state.isAuthComplete,
-        active: state.isEndpointComplete && !state.isAuthComplete,
-      ),
-    ];
-    return AppPanel(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final narrow = constraints.maxWidth < 620;
-          return Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            alignment: WrapAlignment.spaceBetween,
-            children: [
-              SizedBox(
-                width: narrow ? constraints.maxWidth : 330,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('SSH Profile', style: _titleStyle),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Fill in the required fields. Advanced settings can stay at their defaults.',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: _subtitleStyle,
-                    ),
-                  ],
-                ),
-              ),
-              Wrap(
-                spacing: 7,
-                runSpacing: 7,
-                children: [
-                  for (final step in steps)
-                    AppPill(
-                      label: step.label,
-                      color: step.done
-                          ? AppColors.green
-                          : step.active
-                          ? AppColors.amber
-                          : AppColors.muted,
-                      icon: step.done
-                          ? Icons.check_rounded
-                          : Icons.circle_rounded,
-                    ),
-                ],
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
 // Form section card
 
 class _FormSection extends StatelessWidget {
   const _FormSection({
-    required this.icon,
     required this.title,
     required this.subtitle,
     required this.children,
     super.key,
   });
 
-  final IconData icon;
   final String title;
   final String subtitle;
   final List<Widget> children;
@@ -585,14 +485,12 @@ class _FormSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppPanel(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(18),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionHeader(icon: icon, title: title, subtitle: subtitle),
-          const SizedBox(height: 16),
-          Divider(height: 1, color: AppColors.border.withValues(alpha: .6)),
+          _SectionHeader(title: title, subtitle: subtitle),
           const SizedBox(height: 16),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -631,15 +529,10 @@ class _FullWidth extends StatelessWidget {
   Widget build(BuildContext context) => child;
 }
 
-/// Icon badge, title and one-line description of a form card.
+/// Title and one-line description of a form card.
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
+  const _SectionHeader({required this.title, required this.subtitle});
 
-  final IconData icon;
   final String title;
   final String subtitle;
 
@@ -647,16 +540,6 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color: AppColors.accent.withValues(alpha: .12),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, size: 17, color: AppColors.accent),
-        ),
-        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -684,9 +567,8 @@ class _SectionHeader extends StatelessWidget {
 
 /// Label above a custom field, matching [AppTextField]'s label.
 class _FieldLabel extends StatelessWidget {
-  const _FieldLabel(this.icon, this.label, {this.trailing});
+  const _FieldLabel(this.label, {this.trailing});
 
-  final IconData icon;
   final String label;
   final String? trailing;
 
@@ -696,8 +578,6 @@ class _FieldLabel extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
         children: [
-          Icon(icon, color: AppColors.muted, size: 14),
-          const SizedBox(width: 6),
           Flexible(
             child: Text(
               label,
@@ -723,13 +603,9 @@ class _FieldLabel extends StatelessWidget {
 }
 
 TextStyle get _titleStyle =>
-    TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w500);
+    TextStyle(color: AppColors.text, fontSize: 14, fontWeight: FontWeight.w600);
 
-TextStyle get _subtitleStyle => TextStyle(
-  color: AppColors.muted,
-  fontSize: 12,
-  fontWeight: FontWeight.w500,
-);
+TextStyle get _subtitleStyle => TextStyle(color: AppColors.muted, fontSize: 12);
 
 // Advanced section with ^ toggle
 
@@ -748,7 +624,7 @@ class _AdvancedSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppPanel(
-      margin: const EdgeInsets.only(bottom: 14),
+      margin: const EdgeInsets.only(bottom: 12),
       padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -758,12 +634,11 @@ class _AdvancedSection extends StatelessWidget {
             onTap: onToggle,
             borderRadius: BorderRadius.circular(8),
             child: Padding(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
                   const Expanded(
                     child: _SectionHeader(
-                      icon: Icons.tune_rounded,
                       title: 'Advanced',
                       subtitle:
                           'Optional: startup command, font size and jump host.',
@@ -791,7 +666,7 @@ class _AdvancedSection extends StatelessWidget {
                 ? CrossFadeState.showFirst
                 : CrossFadeState.showSecond,
             firstChild: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final twoColumns = constraints.maxWidth > 640;
@@ -824,14 +699,12 @@ class _AutocompleteTextField extends StatefulWidget {
   const _AutocompleteTextField({
     required this.controller,
     required this.label,
-    required this.icon,
     required this.options,
     required this.onChanged,
   });
 
   final TextEditingController controller;
   final String label;
-  final IconData icon;
   final List<String> options;
   final ValueChanged<String> onChanged;
 
@@ -868,7 +741,7 @@ class _AutocompleteTextFieldState extends State<_AutocompleteTextField> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _FieldLabel(widget.icon, widget.label),
+            _FieldLabel(widget.label),
             SizedBox(
               height: 32,
               child: TextField(
@@ -982,7 +855,7 @@ class _TagSelectorState extends State<_TagSelector> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _FieldLabel(Icons.sell_outlined, 'Tags', trailing: 'optional'),
+        const _FieldLabel('Tags', trailing: 'optional'),
         // Chips and the input share one field, like a token input.
         GestureDetector(
           onTap: _focus.requestFocus,
@@ -1133,7 +1006,7 @@ class _ProfileColorPicker extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _FieldLabel(Icons.palette_outlined, 'Accent color'),
+        const _FieldLabel('Color'),
         SizedBox(
           height: 32,
           child: Row(
@@ -1227,7 +1100,7 @@ class _JumpHostPicker extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _FieldLabel(Icons.alt_route_rounded, 'Jump host (ProxyJump)'),
+        const _FieldLabel('Jump host (ProxyJump)'),
         SizedBox(
           height: 32,
           child: DropdownButtonFormField<String>(
@@ -1272,7 +1145,7 @@ class _AuthSegments extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _FieldLabel(Icons.verified_user_outlined, 'Authentication'),
+        const _FieldLabel('Authentication'),
         // One segmented control: the selected half is lifted.
         Container(
           height: 32,
@@ -1381,7 +1254,6 @@ class _UploadBox extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(8),
           child: Container(
-            constraints: const BoxConstraints(minHeight: 72),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: AppColors.surfaceDark,
@@ -1392,13 +1264,7 @@ class _UploadBox extends StatelessWidget {
                 ? Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          _UploadIconBox(),
-                          const SizedBox(width: 12),
-                          const Expanded(child: _UploadBoxText()),
-                        ],
-                      ),
+                      const _UploadBoxText(),
                       const SizedBox(height: 12),
                       Align(
                         alignment: Alignment.centerRight,
@@ -1412,8 +1278,6 @@ class _UploadBox extends StatelessWidget {
                   )
                 : Row(
                     children: [
-                      _UploadIconBox(),
-                      const SizedBox(width: 14),
                       const Expanded(child: _UploadBoxText()),
                       const SizedBox(width: 12),
                       AppButton(
@@ -1426,21 +1290,6 @@ class _UploadBox extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _UploadIconBox extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 40,
-      width: 40,
-      decoration: BoxDecoration(
-        color: AppColors.accent.withValues(alpha: .12),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Icon(Icons.vpn_key_outlined, color: AppColors.accent, size: 18),
     );
   }
 }

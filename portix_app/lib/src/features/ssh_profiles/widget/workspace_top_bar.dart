@@ -36,22 +36,10 @@ class WorkspaceTopBar extends StatelessWidget {
         target == TargetPlatform.linux ||
         target == TargetPlatform.windows;
     final (center, actions) = switch (state.activeView) {
+      // Save and cancel sit in the form's own pinned footer.
       WorkspaceView.form => (
         const _FormBreadcrumb(compact: false),
-        <Widget>[
-          AppPill(
-            label: 'Unsaved draft',
-            color: AppColors.amber,
-            background: AppColors.amberTint,
-          ),
-          AppButton(
-            icon: Icons.save_outlined,
-            label: 'Save Profile',
-            primary: true,
-            onPressed: () =>
-                context.read<SshWorkspaceBloc>().add(const ProfileSaved()),
-          ),
-        ],
+        const <Widget>[],
       ),
       WorkspaceView.sftp => (const _SftpStatus(), const <Widget>[]),
       WorkspaceView.remoteFolder => (
