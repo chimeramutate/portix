@@ -34,13 +34,15 @@ Every main view uses one shell: icon rail, a collapsible side panel owned by the
 
 ## Panel per view
 
+A panel only holds navigation the view does not already show. Where the page has its own picker, it gets no panel (owner review, 2026-10-25: a server list in the panel next to SFTP's own profile picker was duplication).
+
 | View | Panel content | Source |
 |---|---|---|
 | Profiles | Groups and tags | existing `GroupSidebar`, moved out of `GalleryShell` |
 | Terminals | Open SSH sessions; click shows that session's tab (through `terminalFocusRequests`), status dot + label per session | `ConnectionManager` sessions, active id from `SshSessionBloc` |
-| SFTP | Saved servers; click shows the server's tab or opens it in one (through `sftpOpenRequests`) | `SftpWorkspaceBloc` profiles |
 | RDP | Profile groups with counts, filtering the profile grid (the grid already lists the profiles) | `RdpWorkspaceBloc` group filter |
-| Kubernetes | Server → namespace → pods tree with health dots; replaces the server/namespace/pod pickers in the log toolbar | existing `kubectl get` calls in `kubernetes_page.dart` |
+| SFTP | None: the Remote pane's profile picker already chooses the server | |
+| Kubernetes | None: the log toolbar's server/namespace/pod pickers are per tab, and a shell panel is one for all tabs | |
 
 ## Components restyled to DESIGN.md
 
@@ -51,9 +53,8 @@ Shared widgets first, so pages inherit them: `AppButton`, `AppPanel`, `AppPill`,
 1. **Shell:** `SidePanel`, panel slot in `WorkspaceShell`, collapse on rail reselect, Profiles panel moved from `GalleryShell`.
 2. **Shared components:** buttons, inputs, tabs, pills, menus, dialogs at density 8.
 3. **Terminals view + panel:** rail item, session list.
-4. **SFTP and RDP panels.**
-5. **Kubernetes panel:** resource tree replaces the pickers.
-6. **Page pass:** each page's own spacing and hierarchy against DESIGN.md; contrast script re-run on both themes.
+4. **RDP panel.** (SFTP and Kubernetes get none, see above.)
+5. **Page pass:** each page's own spacing and hierarchy against DESIGN.md; contrast script re-run on both themes.
 
 ## Out of scope
 
