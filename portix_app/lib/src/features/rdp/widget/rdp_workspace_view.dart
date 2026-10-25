@@ -13,7 +13,6 @@ import 'package:portix/src/features/rdp/page/rdp_session_page.dart';
 import 'package:portix/src/features/rdp/service/rdp_backend_service.dart';
 import 'package:portix/src/features/rdp/service/rdp_window_service.dart';
 import 'package:portix/src/features/rdp/widget/rdp_file_import_dialog.dart';
-import 'package:portix/src/features/rdp/widget/rdp_manual_form_dialog.dart';
 import 'package:portix/src/features/rdp/widget/rdp_profile_card.dart';
 
 class RdpWorkspaceView extends StatefulWidget {
@@ -71,6 +70,7 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
 
         if (state.activeView == RdpView.form && state.editingProfile != null) {
           return _RdpEditView(
+            key: ValueKey(state.editingProfile!.id),
             profile: state.editingProfile!,
             onCancel: () {
               context.read<RdpWorkspaceBloc>().add(
@@ -126,7 +126,9 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
                         icon: Icons.add_rounded,
                         label: 'New Profile',
                         primary: true,
-                        onPressed: () => _openNewProfileDialog(context),
+                        onPressed: () => context.read<RdpWorkspaceBloc>().add(
+                          const RdpNewProfileRequested(),
+                        ),
                       ),
                     ],
                   ),
@@ -187,25 +189,6 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
             );
           },
         );
-      },
-    );
-  }
-
-  Future<void> _openNewProfileDialog(BuildContext context) async {
-    final profile = await RdpManualFormDialog.show(context);
-
-    if (profile == null) return;
-
-    final result = await sl<RdpProfileRepository>().saveProfile(profile);
-
-    result.fold(
-      (failure) {
-        _showError(failure.message);
-      },
-      (_) {
-        context.read<RdpWorkspaceBloc>().add(const RdpProfilesRequested());
-
-        _showSuccess('RDP profile saved successfully.');
       },
     );
   }
@@ -501,7 +484,11 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
 }
 
 class _RdpEditView extends StatefulWidget {
-  const _RdpEditView({required this.profile, required this.onCancel});
+  const _RdpEditView({
+    required this.profile,
+    required this.onCancel,
+    super.key,
+  });
 
   final RdpProfile profile;
   final VoidCallback onCancel;
@@ -589,306 +576,238 @@ class _RdpEditViewState extends State<_RdpEditView> {
     super.dispose();
   }
 
+  bool get _isNew => widget.profile.status == RdpProfileStatus.draft;
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    final shareName = _localShareNameController.text.trim().isEmpty
+        ? RdpProfile.defaultLocalShareName
+        : _localShareNameController.text.trim();
+    final form = SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 900),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              IconButton(
-                tooltip: 'Back',
-                onPressed: widget.onCancel,
-                icon: const Icon(Icons.arrow_back),
+              Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Back',
+                    onPressed: widget.onCancel,
+                    icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                    color: AppColors.muted,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _isNew ? 'New RDP Profile' : 'Edit RDP Profile',
+                    style: portixTitle(15),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Text(
-                'Edit RDP Profile',
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
+              const SizedBox(height: 12),
+              _section('Connection', [
+                _twoColumns(
+                  AppTextField(
+                    controller: _nameController,
+                    label: 'Profile name',
+                  ),
+                  AppTextField(
+                    controller: _hostController,
+                    label: 'Host / IP',
+                    hint: 'server.example.com or 10.0.0.5',
+                  ),
                 ),
-              ),
-              const Spacer(),
-              OutlinedButton(
-                onPressed: _saving ? null : widget.onCancel,
-                child: const Text('Cancel'),
-              ),
-              const SizedBox(width: 10),
-              FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.save),
-                label: Text(_saving ? 'Saving...' : 'Save Changes'),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 20),
-
-          Expanded(
-            child: SingleChildScrollView(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 900),
-                  child: Container(
-                    padding: const EdgeInsets.all(22),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                _twoColumns(
+                  AppTextField(
+                    controller: _portController,
+                    label: 'Port',
+                    keyboardType: TextInputType.number,
+                  ),
+                  AppTextField(
+                    controller: _usernameController,
+                    label: 'Username',
+                  ),
+                ),
+                _twoColumns(
+                  AppTextField(
+                    controller: _passwordController,
+                    label: 'Password',
+                    hint: _isNew ? '' : 'Unchanged when empty',
+                    obscureText: true,
+                  ),
+                  AppTextField(
+                    controller: _domainController,
+                    label: 'Domain',
+                    hint: 'optional',
+                  ),
+                ),
+              ]),
+              _section('Display', [
+                _twoColumns(
+                  AppTextField(
+                    controller: _widthController,
+                    label: 'Width',
+                    keyboardType: TextInputType.number,
+                  ),
+                  AppTextField(
+                    controller: _heightController,
+                    label: 'Height',
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
+                _switch(
+                  title: 'Full screen',
+                  subtitle: 'Open the remote desktop full screen.',
+                  value: _fullScreen,
+                  onChanged: (value) => setState(() => _fullScreen = value),
+                ),
+              ]),
+              _section('Redirection', [
+                _switch(
+                  title: 'Drive sharing',
+                  subtitle: _redirectDrives
+                      ? 'Shared as \\\\tsclient\\$shareName in the remote session.'
+                      : 'Share a local folder in the remote session.',
+                  value: _redirectDrives,
+                  onChanged: (value) => setState(() {
+                    _redirectDrives = value;
+                    if (value &&
+                        _localSharePathController.text.trim().isEmpty) {
+                      _localSharePathController.text =
+                          RdpProfile.defaultLocalSharePath;
+                    }
+                  }),
+                ),
+                if (_redirectDrives)
+                  _twoColumns(
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Text(
-                          'Connection',
-                          style: TextStyle(
-                            color: AppColors.text,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
+                        Expanded(
+                          child: AppTextField(
+                            controller: _localSharePathController,
+                            label: 'Local folder',
                           ),
                         ),
-
-                        const SizedBox(height: 14),
-
-                        _twoColumns(
-                          _field(
-                            controller: _nameController,
-                            label: 'Profile Name',
-                            icon: Icons.label_outline,
-                          ),
-                          _field(
-                            controller: _hostController,
-                            label: 'Host / IP',
-                            icon: Icons.dns_outlined,
-                          ),
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        _twoColumns(
-                          _field(
-                            controller: _portController,
-                            label: 'Port',
-                            icon: Icons.settings_ethernet,
-                            keyboardType: TextInputType.number,
-                          ),
-                          _field(
-                            controller: _usernameController,
-                            label: 'Username',
-                            icon: Icons.person_outline,
-                          ),
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        _twoColumns(
-                          _field(
-                            controller: _passwordController,
-                            label: 'Password',
-                            icon: Icons.lock_outline,
-                            obscureText: true,
-                          ),
-                          _field(
-                            controller: _domainController,
-                            label: 'Domain',
-                            icon: Icons.domain_outlined,
-                          ),
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        Text(
-                          'Display',
-                          style: TextStyle(
-                            color: AppColors.text,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        _twoColumns(
-                          _field(
-                            controller: _widthController,
-                            label: 'Desktop Width',
-                            icon: Icons.width_normal_outlined,
-                            keyboardType: TextInputType.number,
-                          ),
-                          _field(
-                            controller: _heightController,
-                            label: 'Desktop Height',
-                            icon: Icons.height_outlined,
-                            keyboardType: TextInputType.number,
-                          ),
-                        ),
-
-                        const SizedBox(height: 8),
-
-                        SwitchListTile(
-                          value: _fullScreen,
-                          onChanged: (value) {
-                            setState(() {
-                              _fullScreen = value;
-                            });
-                          },
-                          title: const Text('Full Screen'),
-                          subtitle: const Text(
-                            'Use the remote desktop in full-screen mode.',
-                          ),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-
-                        const SizedBox(height: 18),
-
-                        Text(
-                          'Redirection',
-                          style: TextStyle(
-                            color: AppColors.text,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-
-                        const SizedBox(height: 8),
-
-                        SwitchListTile(
-                          value: _redirectDrives,
-                          onChanged: (value) {
-                            setState(() {
-                              _redirectDrives = value;
-                              if (_redirectDrives &&
-                                  _localSharePathController.text
-                                      .trim()
-                                      .isEmpty) {
-                                _localSharePathController.text =
-                                    RdpProfile.defaultLocalSharePath;
-                              }
-                            });
-                          },
-                          title: const Text('Drive / File Sharing'),
-                          subtitle: Text(
-                            _redirectDrives
-                                ? 'Shared as \\\\tsclient\\${_localShareNameController.text.trim().isEmpty ? RdpProfile.defaultLocalShareName : _localShareNameController.text.trim()} in the remote session.'
-                                : 'Share a local folder in the remote session.',
-                          ),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-
-                        if (_redirectDrives) ...[
-                          const SizedBox(height: 8),
-                          _twoColumns(
-                            _field(
-                              controller: _localSharePathController,
-                              label: 'Local Shared Folder',
-                              icon: Icons.folder_shared_outlined,
-                              suffixIcon: IconButton(
-                                tooltip: 'Choose folder',
-                                onPressed: _pickLocalShareFolder,
-                                icon: const Icon(Icons.folder_open_outlined),
-                              ),
-                            ),
-                            _field(
-                              controller: _localShareNameController,
-                              label: 'Share Name (e.g. PORTIX)',
-                              icon: Icons.drive_file_rename_outline,
-                            ),
-                          ),
-                        ],
-
-                        SwitchListTile(
-                          value: _redirectClipboard,
-                          onChanged: (value) {
-                            setState(() {
-                              _redirectClipboard = value;
-                            });
-                          },
-                          title: const Text('Clipboard'),
-                          subtitle: const Text('Allow clipboard redirection.'),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-
-                        const SizedBox(height: 18),
-
-                        Text(
-                          'Security',
-                          style: TextStyle(
-                            color: AppColors.text,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-
-                        SwitchListTile(
-                          value: _enableCredSsp,
-                          onChanged: (value) {
-                            setState(() {
-                              _enableCredSsp = value;
-                            });
-                          },
-                          title: const Text('Enable CredSSP / NLA'),
-                          subtitle: const Text(
-                            'Use Network Level Authentication when available.',
-                          ),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-
-                        const SizedBox(height: 18),
-
-                        _field(
-                          controller: _shellController,
-                          label: 'Alternate Shell',
-                          icon: Icons.terminal_outlined,
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: AppColors.surfaceCard,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.info_outline,
-                                color: AppColors.accent,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Profile ID: ${widget.profile.id}',
-                                  style: TextStyle(
-                                    color: AppColors.muted,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                        const SizedBox(width: 6),
+                        AppIconButton(
+                          icon: Icons.folder_open_outlined,
+                          tooltip: 'Choose folder',
+                          color: AppColors.text,
+                          onPressed: _pickLocalShareFolder,
                         ),
                       ],
                     ),
+                    AppTextField(
+                      controller: _localShareNameController,
+                      label: 'Share name',
+                      hint: RdpProfile.defaultLocalShareName,
+                      onChanged: (_) => setState(() {}),
+                    ),
                   ),
+                _switch(
+                  title: 'Clipboard',
+                  subtitle:
+                      'Copy and paste between this computer and the remote.',
+                  value: _redirectClipboard,
+                  onChanged: (value) =>
+                      setState(() => _redirectClipboard = value),
                 ),
-              ),
-            ),
+              ]),
+              _section('Security', [
+                _switch(
+                  title: 'CredSSP / NLA',
+                  subtitle: 'Use Network Level Authentication when available.',
+                  value: _enableCredSsp,
+                  onChanged: (value) => setState(() => _enableCredSsp = value),
+                ),
+                AppTextField(
+                  controller: _shellController,
+                  label: 'Alternate shell',
+                  hint: 'optional',
+                ),
+              ]),
+            ],
+          ),
+        ),
+      ),
+    );
+    // Pinned under the scrolling form so Save is always in reach.
+    final footer = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: AppColors.border)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          AppButton(
+            icon: Icons.close_rounded,
+            label: 'Cancel',
+            onPressed: _saving ? null : widget.onCancel,
+          ),
+          const SizedBox(width: 8),
+          AppButton(
+            icon: Icons.save_outlined,
+            label: _saving ? 'Saving...' : 'Save',
+            primary: true,
+            onPressed: _saving ? null : _save,
           ),
         ],
       ),
+    );
+    return Column(
+      children: [
+        Expanded(child: form),
+        footer,
+      ],
+    );
+  }
+
+  Widget _section(String title, List<Widget> children) {
+    return AppPanel(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(title, style: portixTitle(14)),
+          for (final child in children) ...[const SizedBox(height: 12), child],
+        ],
+      ),
+    );
+  }
+
+  Widget _switch({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  color: AppColors.text,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(subtitle, style: portixMuted(12)),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Switch(value: value, onChanged: onChanged),
+      ],
     );
   }
 
@@ -900,26 +819,6 @@ class _RdpEditViewState extends State<_RdpEditView> {
         const SizedBox(width: 12),
         Expanded(child: second),
       ],
-    );
-  }
-
-  Widget _field({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    TextInputType? keyboardType,
-    bool obscureText = false,
-    Widget? suffixIcon,
-  }) {
-    return TextField(
-      controller: controller,
-      keyboardType: keyboardType,
-      obscureText: obscureText,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon),
-        suffixIcon: suffixIcon,
-      ),
     );
   }
 
@@ -976,6 +875,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
 
     try {
       final updatedProfile = widget.profile.copyWith(
+        status: _isNew ? RdpProfileStatus.offline : null,
         name: name,
         host: host,
         port: port,
