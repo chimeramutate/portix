@@ -26,6 +26,7 @@ class SshProfile extends Equatable {
     this.osIconAsset = '',
     this.jumpProfileId = '',
     this.forwardAgent = false,
+    this.runsKubernetes = false,
   });
 
   final String id;
@@ -51,6 +52,9 @@ class SshProfile extends Equatable {
   /// Let the server use the local ssh-agent (`ssh -A`).
   final bool forwardAgent;
 
+  /// Has kubectl and a kubeconfig, so the Kubernetes view offers it.
+  final bool runsKubernetes;
+
   String get address => '$username@$host:$port';
   bool get isConnectable => host.isNotEmpty && username.isNotEmpty;
 
@@ -73,6 +77,7 @@ class SshProfile extends Equatable {
     String? osIconAsset,
     String? jumpProfileId,
     bool? forwardAgent,
+    bool? runsKubernetes,
   }) {
     return SshProfile(
       id: id ?? this.id,
@@ -93,6 +98,7 @@ class SshProfile extends Equatable {
       osIconAsset: osIconAsset ?? this.osIconAsset,
       jumpProfileId: jumpProfileId ?? this.jumpProfileId,
       forwardAgent: forwardAgent ?? this.forwardAgent,
+      runsKubernetes: runsKubernetes ?? this.runsKubernetes,
     );
   }
 
@@ -116,5 +122,6 @@ class SshProfile extends Equatable {
     osIconAsset,
     jumpProfileId,
     forwardAgent,
+    runsKubernetes,
   ];
 }

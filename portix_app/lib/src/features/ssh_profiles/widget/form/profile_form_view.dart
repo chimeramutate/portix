@@ -315,6 +315,20 @@ class _ProfileFormViewState extends State<ProfileFormView> {
                     style: portixMuted(11),
                   ),
                 ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: profile?.runsKubernetes ?? false,
+                  onChanged: (value) => context.read<SshWorkspaceBloc>().add(
+                    RunsKubernetesChanged(value),
+                  ),
+                  secondary: const Icon(Icons.view_in_ar_outlined),
+                  title: const Text('Runs Kubernetes'),
+                  subtitle: Text(
+                    'This server has kubectl and a kubeconfig. Only these '
+                    'servers can be opened in the Kubernetes view.',
+                    style: portixMuted(11),
+                  ),
+                ),
               ],
             );
 

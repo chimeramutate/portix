@@ -67,7 +67,7 @@ class WorkspaceRail extends StatelessWidget {
           item(
             WorkspaceView.kubernetes,
             Icons.view_in_ar_outlined,
-            'Kubernetes logs',
+            'Kubernetes',
           ),
         ],
       ),
