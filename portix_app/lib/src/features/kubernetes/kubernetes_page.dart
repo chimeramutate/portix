@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -16,9 +17,11 @@ import 'package:portix/src/domain/entities/ssh/ssh_profile.dart' as domain;
 import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 import 'package:portix/src/features/ssh_profiles/widget/gallery/profile_card.dart'
     show ProfileOsIcon;
-import 'package:portix/src/features/ssh_sessions/bloc/ssh_session_bloc.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/auth_prompt_dialog.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/host_key_dialog.dart';
+import 'package:portix/src/features/ssh_sessions/widget/remote/terminal_themes.dart'
+    show portixBuiltinTheme;
+import 'package:xterm/xterm.dart';
 
 import 'kube_logs.dart';
 import 'kube_resources.dart';

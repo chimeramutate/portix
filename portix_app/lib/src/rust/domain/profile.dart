@@ -25,6 +25,10 @@ class SshProfile {
   /// you trust: their root can use your keys while you are connected.
   final bool forwardAgent;
 
+  /// Run this in the PTY instead of the login shell (`ssh -t host cmd`).
+  /// The shell never reads it, so it stays out of the server's history.
+  final String? command;
+
   const SshProfile({
     required this.id,
     required this.name,
@@ -36,6 +40,7 @@ class SshProfile {
     this.keyPassphrase,
     this.jumpHost,
     required this.forwardAgent,
+    this.command,
   });
 
   @override
@@ -49,7 +54,8 @@ class SshProfile {
       privateKeyPath.hashCode ^
       keyPassphrase.hashCode ^
       jumpHost.hashCode ^
-      forwardAgent.hashCode;
+      forwardAgent.hashCode ^
+      command.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -65,5 +71,6 @@ class SshProfile {
           privateKeyPath == other.privateKeyPath &&
           keyPassphrase == other.keyPassphrase &&
           jumpHost == other.jumpHost &&
-          forwardAgent == other.forwardAgent;
+          forwardAgent == other.forwardAgent &&
+          command == other.command;
 }

@@ -174,6 +174,7 @@ class KubeKind {
     this.namespaced = true,
     this.health,
     this.actions = _noActions,
+    this.ownsPods = false,
   });
 
   /// kubectl's resource name, e.g. `deployments`.
@@ -187,6 +188,10 @@ class KubeKind {
 
   /// Extra actions beside Edit YAML, Describe and Delete.
   final List<KubeAction> Function(Json item) actions;
+
+  /// Runs pods picked by `spec.selector`, so a click opens its detail
+  /// with those pods instead of plain describe output.
+  final bool ownsPods;
 }
 
 List<KubeAction> _noActions(Json _) => const [];
@@ -288,6 +293,7 @@ final kubeKinds = <String, KubeKind>{
     ),
     KubeKind(
       type: 'deployments',
+      ownsPods: true,
       label: 'Deployments',
       columns: [
         _name,
@@ -314,6 +320,7 @@ final kubeKinds = <String, KubeKind>{
     ),
     KubeKind(
       type: 'statefulsets',
+      ownsPods: true,
       label: 'StatefulSets',
       columns: [
         _name,
@@ -330,6 +337,7 @@ final kubeKinds = <String, KubeKind>{
     ),
     KubeKind(
       type: 'daemonsets',
+      ownsPods: true,
       label: 'DaemonSets',
       columns: [
         _name,
@@ -356,6 +364,7 @@ final kubeKinds = <String, KubeKind>{
     ),
     KubeKind(
       type: 'jobs',
+      ownsPods: true,
       label: 'Jobs',
       columns: [
         _name,
@@ -812,3 +821,58 @@ String formatBytes(double bytes) {
   }
   return rows == 0 ? null : (cpu: cpu, memory: memory);
 }
+
+/// Separates the parts of a command that runs several kubectl calls.
+const kubeSeparator = '---portix---';
+
+/// `spec.selector.matchLabels` as a `-l` selector; null when there is none.
+// ponytail: matchExpressions are left out; every built-in controller sets
+// matchLabels, add them if a CRD-made workload needs it.
+String? podSelector(Json item) {
+  final labels = _map(item, 'spec.selector.matchLabels');
+  if (labels.isEmpty) return null;
+  return [
+    for (final MapEntry(:key, :value) in labels.entries) '$key=$value',
+  ].join(',');
+}
+
+/// A workload's latest state, its pods and its events, in one round trip.
+String detailCommand(KubeKind kind, Json item) {
+  final ns = _nsFlag(namespaceOf(item));
+  final selector = podSelector(item);
+  return [
+    'kubectl get ${_target(kind, item)} -o json',
+    selector == null
+        ? "echo '{\"items\":[]}'"
+        : 'kubectl get pods$ns -l ${shellQuote(selector)} -o json',
+    'kubectl get events$ns --field-selector '
+        '${shellQuote('involvedObject.name=${nameOf(item)}')} -o json',
+  ].join(" && echo '$kubeSeparator' && ");
+}
+
+typedef KubeDetail = ({Json item, List<Json> pods, List<Json> events});
+
+/// Parses [detailCommand]'s output; events newest first.
+KubeDetail parseDetail(String output) {
+  final [item, pods, events] = output.split('$kubeSeparator\n');
+  String stamp(Json e) =>
+      '${field(e, 'lastTimestamp') ?? field(e, 'eventTime') ?? field(e, 'metadata.creationTimestamp')}';
+  return (
+    item: jsonDecode(item) as Json,
+    pods: parseItems(pods)..sort((a, b) => nameOf(a).compareTo(nameOf(b))),
+    events: parseItems(events)..sort((a, b) => stamp(b).compareTo(stamp(a))),
+  );
+}
+
+/// `status.conditions` as (type, status, reason, message).
+List<({String type, bool ok, String reason, String message})> conditionsOf(
+  Json item,
+) => [
+  for (final c in _list(item, 'status.conditions'))
+    (
+      type: '${c['type'] ?? ''}',
+      ok: c['status'] == 'True',
+      reason: '${c['reason'] ?? ''}',
+      message: '${c['message'] ?? ''}',
+    ),
+];

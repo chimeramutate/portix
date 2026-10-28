@@ -136,4 +136,72 @@ void main() {
     expect(data.used, isNull);
     expect(data.version, '');
   });
+
+  group('workload detail', () {
+    final deployment = _json('''{
+      "metadata": {"name": "api", "namespace": "prod"},
+      "spec": {"replicas": 3,
+               "selector": {"matchLabels": {"app": "api", "tier": "web"}}},
+      "status": {"readyReplicas": 2, "conditions": [
+        {"type": "Available", "status": "True", "reason": "MinimumReplicasAvailable"},
+        {"type": "Progressing", "status": "False", "reason": "ProgressDeadlineExceeded",
+         "message": "timed out"}
+      ]}
+    }''');
+
+    test('pods are picked by the matchLabels selector', () {
+      expect(podSelector(deployment), 'app=api,tier=web');
+      expect(podSelector(_node), isNull);
+      final command = detailCommand(kubeKinds['deployments']!, deployment);
+      expect(
+        command,
+        contains("kubectl get deployments 'api' -n 'prod' -o json"),
+      );
+      expect(
+        command,
+        contains("kubectl get pods -n 'prod' -l 'app=api,tier=web'"),
+      );
+      expect(command, contains("--field-selector 'involvedObject.name=api'"));
+    });
+
+    test('parseDetail splits item, pods and newest-first events', () {
+      final output = [
+        jsonEncode(deployment),
+        jsonEncode({
+          'items': [
+            {
+              'metadata': {'name': 'api-b'},
+            },
+            {
+              'metadata': {'name': 'api-a'},
+            },
+          ],
+        }),
+        jsonEncode({
+          'items': [
+            {'lastTimestamp': '2026-10-27T10:00:00Z', 'reason': 'old'},
+            {'lastTimestamp': '2026-10-27T11:00:00Z', 'reason': 'new'},
+          ],
+        }),
+      ].join('\n$kubeSeparator\n');
+      final detail = parseDetail(output);
+      expect(nameOf(detail.item), 'api');
+      expect(detail.pods.map(nameOf), ['api-a', 'api-b']);
+      expect(detail.events.map((e) => e['reason']), ['new', 'old']);
+      expect(conditionsOf(detail.item).map((c) => (c.type, c.ok)), [
+        ('Available', true),
+        ('Progressing', false),
+      ]);
+    });
+
+    test('only workloads open a detail', () {
+      expect(
+        [
+          for (final kind in kubeKinds.values)
+            if (kind.ownsPods) kind.type,
+        ],
+        ['deployments', 'statefulsets', 'daemonsets', 'jobs'],
+      );
+    });
+  });
 }

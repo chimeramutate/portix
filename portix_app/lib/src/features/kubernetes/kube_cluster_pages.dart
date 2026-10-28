@@ -863,6 +863,10 @@ class _ResourcePageState extends State<_ResourcePage>
   bool _ascending = true;
   Timer? _timer;
 
+  /// The workload whose detail is open (as clicked), and its latest read.
+  Json? _detail;
+  KubeDetail? _detailData;
+
   KubeKind get _kind => widget.kind;
   String? get _namespace => _kind.namespaced ? kube.namespace : null;
   Object get _key => (kube.profileId, _namespace, kube.generation);
@@ -895,6 +899,9 @@ class _ResourcePageState extends State<_ResourcePage>
     _timer?.cancel();
     if (!widget.visible || kube.profileId == null) return;
     if (_loadedFor != _key) {
+      // Another server or namespace: back to the list.
+      _detail = null;
+      _detailData = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _loadedFor != _key) unawaited(_load());
       });
@@ -905,6 +912,7 @@ class _ResourcePageState extends State<_ResourcePage>
   }
 
   Future<void> _load({bool quiet = false}) async {
+    if (_detail != null) return _loadDetail(quiet: quiet);
     final key = _key;
     if (!quiet && _loadedFor != key) setState(() => _items = const []);
     final output = await _run(listCommand(_kind, _namespace), quiet: quiet);
@@ -918,6 +926,34 @@ class _ResourcePageState extends State<_ResourcePage>
     } on Object {
       setState(() => _error = 'Unexpected kubectl output:\n$output');
     }
+  }
+
+  Future<void> _loadDetail({bool quiet = false}) async {
+    final open = _detail!;
+    final output = await _run(detailCommand(_kind, open), quiet: quiet);
+    if (output == null || !mounted || _detail != open) return;
+    try {
+      setState(() => _detailData = parseDetail(output));
+    } on Object {
+      setState(() => _error = 'Unexpected kubectl output:\n$output');
+    }
+  }
+
+  void _openDetail(Json item) {
+    setState(() {
+      _detail = item;
+      _detailData = null;
+    });
+    unawaited(_load());
+  }
+
+  void _closeDetail() {
+    setState(() {
+      _detail = null;
+      _detailData = null;
+      _error = null;
+    });
+    unawaited(_load(quiet: true));
   }
 
   List<KubeColumn> get _columns => [
@@ -956,27 +992,32 @@ class _ResourcePageState extends State<_ResourcePage>
     return shown;
   }
 
-  /// Runs an action's [command], tells its outcome and reloads.
-  Future<void> _apply(String command) async {
+  /// Runs an action's [command], tells its outcome and reloads; false
+  /// when it failed.
+  Future<bool> _apply(String command) async {
     final output = await _run(command);
-    if (output == null || !mounted) return;
+    if (output == null || !mounted) return false;
     final said = output.trim();
     _toast(said.isEmpty ? 'Done.' : said.split('\n').last);
     await _load();
+    return true;
   }
 
-  Future<void> _describe(Json item) async {
-    final output = await _run(describeCommand(_kind, item));
+  // The handlers below act on [kind] items: this page's own, or the pods
+  // listed in a workload's detail.
+
+  Future<void> _describe(Json item, KubeKind kind) async {
+    final output = await _run(describeCommand(kind, item));
     if (output == null || !mounted) return;
     await showDialog<void>(
       context: context,
       builder: (_) =>
-          _TextDialog(title: '${_kind.label} · ${nameOf(item)}', text: output),
+          _TextDialog(title: '${kind.label} · ${nameOf(item)}', text: output),
     );
   }
 
-  Future<void> _editYaml(Json item) async {
-    final yaml = await _run(yamlCommand(_kind, item));
+  Future<void> _editYaml(Json item, KubeKind kind) async {
+    final yaml = await _run(yamlCommand(kind, item));
     if (yaml == null || !mounted) return;
     await _openYaml('Edit ${nameOf(item)}', yaml);
   }
@@ -995,21 +1036,27 @@ class _ResourcePageState extends State<_ResourcePage>
     await _load();
   }
 
-  Future<void> _delete(Json item) async {
+  Future<bool> _delete(Json item, KubeKind kind) async {
     final ns = namespaceOf(item);
-    if (await _confirm(
-      context,
-      title: 'Delete ${nameOf(item)}?',
-      message:
-          'Deletes this ${_kind.label} entry${ns == null ? '' : ' in $ns'}. '
-          'This cannot be undone.',
-      action: 'Delete',
-    )) {
-      await _apply(deleteCommand(_kind, item));
-    }
+    return await _confirm(
+          context,
+          title: 'Delete ${nameOf(item)}?',
+          message:
+              'Deletes this ${kind.label} entry${ns == null ? '' : ' in $ns'}. '
+              'This cannot be undone.',
+          action: 'Delete',
+        ) &&
+        await _apply(deleteCommand(kind, item));
   }
 
-  Future<void> _action(KubeAction action, Json item) async {
+  Future<void> _common(_Common common, Json item, KubeKind kind) =>
+      switch (common) {
+        _Common.yaml => _editYaml(item, kind),
+        _Common.describe => _describe(item, kind),
+        _Common.delete => _delete(item, kind),
+      };
+
+  Future<void> _action(KubeAction action, Json item, KubeKind kind) async {
     final name = nameOf(item);
     switch (action) {
       case KubeAction.logs:
@@ -1033,11 +1080,17 @@ class _ResourcePageState extends State<_ResourcePage>
           );
           if (container == null) return;
         }
-        if (!mounted) return;
-        _openShell(
-          context,
-          kube.profileId!,
-          shellCommand(namespaceOf(item)!, name, container),
+        final profile = _profile();
+        if (!mounted || profile == null) return;
+        await showDialog<void>(
+          context: context,
+          // Esc and stray clicks belong to the shell (vim, less…).
+          barrierDismissible: false,
+          builder: (_) => _PodShellDialog(
+            profile: profile,
+            command: shellCommand(namespaceOf(item)!, name, container),
+            title: [name, ?container].join(' · '),
+          ),
         );
       case KubeAction.scale:
         final replicas = await showDialog<int>(
@@ -1048,7 +1101,7 @@ class _ResourcePageState extends State<_ResourcePage>
           ),
         );
         if (replicas != null) {
-          await _apply(scaleCommand(_kind, item, replicas));
+          await _apply(scaleCommand(kind, item, replicas));
         }
       case KubeAction.drain || KubeAction.rollback:
         if (await _confirm(
@@ -1060,15 +1113,66 @@ class _ResourcePageState extends State<_ResourcePage>
               : 'Rolls back to the previous revision.',
           action: action.label,
         )) {
-          await _apply(actionCommand(action, _kind, item)!);
+          await _apply(actionCommand(action, kind, item)!);
         }
       default:
-        await _apply(actionCommand(action, _kind, item)!);
+        await _apply(actionCommand(action, kind, item)!);
     }
+  }
+
+  Widget _buildDetail(Json opened) {
+    final data = _detailData;
+    final item = data?.item ?? opened;
+    return _ClusterFrame(
+      toolbar: [
+        TextButton.icon(
+          onPressed: _closeDetail,
+          icon: const Icon(Icons.arrow_back_rounded, size: 16),
+          label: Text(_kind.label),
+        ),
+        Text(' / ', style: portixMuted(13)),
+        Expanded(
+          child: Text(
+            nameOf(item),
+            overflow: TextOverflow.ellipsis,
+            style: portixTitle(14),
+          ),
+        ),
+      ],
+      loading: _loading,
+      error: _error,
+      onRefresh: _load,
+      onDismissError: () => setState(() => _error = null),
+      child: data == null
+          ? _Empty(
+              Icons.account_tree_outlined,
+              _loading ? 'Loading ${nameOf(item)}…' : 'No data yet.',
+            )
+          : _WorkloadDetail(
+              kind: _kind,
+              detail: data,
+              enabled: !_loading,
+              onScale: (replicas) =>
+                  _apply(scaleCommand(_kind, item, replicas)),
+              onAction: (action) => _action(action, item, _kind),
+              onCommon: (common) async {
+                if (common == _Common.delete) {
+                  if (await _delete(item, _kind)) _closeDetail();
+                } else {
+                  await _common(common, item, _kind);
+                }
+              },
+              onPodAction: (action, pod) =>
+                  _action(action, pod, kubeKinds['pods']!),
+              onPodCommon: (common, pod) =>
+                  _common(common, pod, kubeKinds['pods']!),
+            ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_detail case final opened?) return _buildDetail(opened);
     final columns = _columns;
     final shown = _shown(columns);
     final where = _kind.namespaced && kube.namespace != null
@@ -1141,13 +1245,13 @@ class _ResourcePageState extends State<_ResourcePage>
                             odd: i.isOdd,
                             enabled: !_loading,
                             actions: _kind.actions(shown[i]),
-                            onDescribe: () => _describe(shown[i]),
-                            onAction: (action) => _action(action, shown[i]),
-                            onCommon: (common) => switch (common) {
-                              _Common.yaml => _editYaml(shown[i]),
-                              _Common.describe => _describe(shown[i]),
-                              _Common.delete => _delete(shown[i]),
-                            },
+                            onDescribe: () => _kind.ownsPods
+                                ? _openDetail(shown[i])
+                                : _describe(shown[i], _kind),
+                            onAction: (action) =>
+                                _action(action, shown[i], _kind),
+                            onCommon: (common) =>
+                                _common(common, shown[i], _kind),
                           ),
                         ),
                 ),
@@ -1157,44 +1261,539 @@ class _ResourcePageState extends State<_ResourcePage>
   }
 }
 
-/// Opens a terminal on [profileId] and types [command] once it connects.
-void _openShell(BuildContext context, String profileId, String command) {
-  final profile = context
-      .read<SshWorkspaceBloc>()
-      .state
-      .profiles
-      .where((p) => p.id == profileId)
-      .firstOrNull;
-  if (profile == null) return;
-  final manager = sl<ConnectionManager>();
-  final before = {for (final s in manager.sessions) s.id};
-  Timer? timeout;
-  late final VoidCallback listener;
-  void stop() {
-    manager.removeListener(listener);
-    timeout?.cancel();
-  }
+/// A workload at a glance, Rancher-style: its state, a replica stepper,
+/// the pods it runs (with their actions), conditions and events.
+class _WorkloadDetail extends StatelessWidget {
+  const _WorkloadDetail({
+    required this.kind,
+    required this.detail,
+    required this.enabled,
+    required this.onScale,
+    required this.onAction,
+    required this.onCommon,
+    required this.onPodAction,
+    required this.onPodCommon,
+  });
 
-  listener = () {
-    final session = manager.sessions
-        .where((s) => s.profileId == profileId && !before.contains(s.id))
-        .firstOrNull;
-    if (session == null ||
-        session.status != session_models.ConnectionStatus.connected) {
-      return;
-    }
-    stop();
-    unawaited(manager.sendTerminalInput(session.id, '$command\r'));
-  };
-  manager.addListener(listener);
-  // Long enough for a host-key or OTP prompt in the terminal.
-  timeout = Timer(const Duration(minutes: 2), stop);
-  context.read<SshSessionBloc>().add(
-    SshSessionOpenRequested(
-      profile: profile,
-      target: SshSessionTarget.remoteFolder,
+  final KubeKind kind;
+  final KubeDetail detail;
+  final bool enabled;
+  final ValueChanged<int> onScale;
+  final ValueChanged<KubeAction> onAction;
+  final ValueChanged<_Common> onCommon;
+  final void Function(KubeAction action, Json pod) onPodAction;
+  final void Function(_Common common, Json pod) onPodCommon;
+
+  @override
+  Widget build(BuildContext context) {
+    final item = detail.item;
+    final pods = kubeKinds['pods']!;
+    final actions = kind.actions(item);
+    final replicas = (field(item, 'spec.replicas') as num?)?.toInt();
+    final conditions = conditionsOf(item);
+    Widget heading(String text) => Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+      child: Text(text, style: portixMuted(12)),
+    );
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 16),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Row(
+            children: [
+              if (kind.health case final health?)
+                SizedBox(width: 18, child: _PodDot(health(item))),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  [
+                    kind.label.replaceFirst(RegExp(r's$'), ''),
+                    if (namespaceOf(item) case final ns?) 'namespace $ns',
+                    'age ${formatAge('${field(item, 'metadata.creationTimestamp')}')}',
+                  ].join(' · '),
+                  style: portixMuted(13),
+                ),
+              ),
+              for (final action in actions)
+                if (action != KubeAction.scale)
+                  _HeaderButton(
+                    label: action.label,
+                    icon: _TableRow._actionIcon(action),
+                    onPressed: enabled ? () => onAction(action) : null,
+                  ),
+              _HeaderButton(
+                label: 'Edit YAML',
+                icon: Icons.edit_note_rounded,
+                onPressed: enabled ? () => onCommon(_Common.yaml) : null,
+              ),
+              _HeaderButton(
+                label: 'Describe',
+                icon: Icons.info_outline_rounded,
+                onPressed: enabled ? () => onCommon(_Common.describe) : null,
+              ),
+              _HeaderButton(
+                label: 'Delete',
+                icon: Icons.delete_outline_rounded,
+                danger: true,
+                onPressed: enabled ? () => onCommon(_Common.delete) : null,
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (replicas != null && actions.contains(KubeAction.scale))
+                _ReplicaStepper(
+                  replicas: replicas,
+                  enabled: enabled,
+                  onScale: onScale,
+                ),
+              for (final column in kind.columns.skip(1))
+                if (column.header != 'Age' && column.cell(item).isNotEmpty)
+                  _InfoChip(label: column.header, value: column.cell(item)),
+            ],
+          ),
+        ),
+        heading('Pods (${detail.pods.length})'),
+        if (detail.pods.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              replicas == 0
+                  ? 'Scaled to 0: no pods run.'
+                  : 'No pods match its selector yet.',
+              style: portixMuted(13),
+            ),
+          )
+        else
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              children: [
+                _TableHeader(
+                  columns: pods.columns,
+                  dot: true,
+                  sortColumn: null,
+                  ascending: true,
+                  onSort: (_) {},
+                ),
+                for (final (i, pod) in detail.pods.indexed)
+                  _TableRow(
+                    item: pod,
+                    columns: pods.columns,
+                    health: podHealthOf(pod),
+                    odd: i.isOdd,
+                    enabled: enabled,
+                    actions: pods.actions(pod),
+                    onDescribe: () => onPodCommon(_Common.describe, pod),
+                    onAction: (action) => onPodAction(action, pod),
+                    onCommon: (common) => onPodCommon(common, pod),
+                  ),
+              ],
+            ),
+          ),
+        if (conditions.isNotEmpty) ...[
+          heading('Conditions'),
+          for (final c in conditions)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    c.ok
+                        ? Icons.check_circle_outline_rounded
+                        : Icons.cancel_outlined,
+                    size: 16,
+                    color: c.ok ? AppColors.green : AppColors.danger,
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 180,
+                    child: Text(
+                      c.type,
+                      style: TextStyle(fontSize: 13, color: AppColors.text),
+                    ),
+                  ),
+                  Expanded(
+                    child: SelectableText(
+                      [
+                        c.reason,
+                        c.message,
+                      ].where((t) => t.isNotEmpty).join(' · '),
+                      style: portixMuted(12.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+        heading('Events (${detail.events.length})'),
+        if (detail.events.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'No recent events (Kubernetes keeps them for about an hour).',
+              style: portixMuted(13),
+            ),
+          )
+        else
+          for (final e in detail.events.take(30))
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _EventLine(e),
+            ),
+      ],
+    );
+  }
+}
+
+class _HeaderButton extends StatelessWidget {
+  const _HeaderButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    this.danger = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(left: 6),
+    child: OutlinedButton.icon(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: danger ? AppColors.danger : AppColors.text,
+        visualDensity: VisualDensity.compact,
+        textStyle: const TextStyle(fontSize: 12),
+      ),
+      icon: Icon(icon, size: 15),
+      label: Text(label),
     ),
   );
+}
+
+/// One fact about a workload, e.g. "Ready 2/3".
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => ConstrainedBox(
+    constraints: const BoxConstraints(maxWidth: 640),
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: portixMuted(12)),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Tooltip(
+              message: value,
+              waitDuration: const Duration(milliseconds: 600),
+              child: Text(
+                value,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12.5, color: AppColors.text),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Replicas as − n +; each press scales right away, as in Rancher.
+class _ReplicaStepper extends StatelessWidget {
+  const _ReplicaStepper({
+    required this.replicas,
+    required this.enabled,
+    required this.onScale,
+  });
+
+  final int replicas;
+  final bool enabled;
+  final ValueChanged<int> onScale;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(6),
+      border: Border.all(color: AppColors.accent.withValues(alpha: .6)),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 10),
+          child: Text('Replicas', style: portixMuted(12)),
+        ),
+        IconButton(
+          tooltip: 'Scale down',
+          iconSize: 16,
+          visualDensity: VisualDensity.compact,
+          onPressed: enabled && replicas > 0
+              ? () => onScale(replicas - 1)
+              : null,
+          icon: const Icon(Icons.remove_rounded),
+        ),
+        Text(
+          '$replicas',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: AppColors.text,
+          ),
+        ),
+        IconButton(
+          tooltip: 'Scale up',
+          iconSize: 16,
+          visualDensity: VisualDensity.compact,
+          onPressed: enabled ? () => onScale(replicas + 1) : null,
+          icon: const Icon(Icons.add_rounded),
+        ),
+      ],
+    ),
+  );
+}
+
+/// A pod shell in a modal of its own. `kubectl exec` runs as the SSH
+/// command (no login shell reads it), so it never lands in the server's
+/// shell history, and it stays out of the terminal tabs.
+class _PodShellDialog extends StatefulWidget {
+  const _PodShellDialog({
+    required this.profile,
+    required this.command,
+    required this.title,
+  });
+
+  final manager_profile.SshProfile profile;
+  final String command;
+  final String title;
+
+  @override
+  State<_PodShellDialog> createState() => _PodShellDialogState();
+}
+
+enum _ShellState { connecting, open, ended, failed }
+
+class _PodShellDialogState extends State<_PodShellDialog> {
+  final _manager = sl<ConnectionManager>();
+  late final _terminal = Terminal(
+    maxLines: 5000,
+    onOutput: (data) {
+      if (_sessionId case final id?) {
+        unawaited(_manager.sendTerminalInput(id, data));
+      }
+    },
+    onResize: (cols, rows, _, _) {
+      _size = (cols, rows);
+      if (_sessionId case final id?) {
+        unawaited(_manager.resizeTerminal(id, cols, rows));
+      }
+    },
+  );
+  final _subscriptions = <StreamSubscription<Object>>[];
+  String? _sessionId;
+  (int, int)? _size;
+  _ShellState _state = _ShellState.connecting;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscriptions.addAll([
+      _manager.terminalOutputStream.listen((event) {
+        if (event.sessionId == _sessionId) _terminal.write(event.data);
+      }),
+      _manager.commandStatusStream.listen((event) {
+        if (event.sessionId != _sessionId || !mounted) return;
+        setState(() {
+          _state = switch (event.status) {
+            session_models.ConnectionStatus.connected => _ShellState.open,
+            session_models.ConnectionStatus.connecting => _state,
+            _ =>
+              _state == _ShellState.failed
+                  ? _ShellState.failed
+                  : _ShellState.ended,
+          };
+        });
+      }),
+      _manager.errorEventStream.listen((event) {
+        if (event.sessionId != _sessionId || !mounted) return;
+        setState(() {
+          _state = _ShellState.failed;
+          _error = event.message;
+        });
+      }),
+    ]);
+    unawaited(_open());
+  }
+
+  Future<void> _open() async {
+    setState(() {
+      _state = _ShellState.connecting;
+      _error = null;
+    });
+    final result = await _manager.openCommandSession(
+      widget.profile,
+      widget.command,
+    );
+    if (!mounted) {
+      result.fold((_) {}, (id) => unawaited(_manager.disconnect(id)));
+      return;
+    }
+    result.fold(
+      (failure) => setState(() {
+        _state = _ShellState.failed;
+        _error = '$failure';
+      }),
+      (id) {
+        _sessionId = id;
+        if (_size case (final cols, final rows)) {
+          unawaited(_manager.resizeTerminal(id, cols, rows));
+        }
+      },
+    );
+  }
+
+  /// Answers a host-key or OTP prompt if that is what failed, then opens
+  /// a fresh shell.
+  Future<void> _retry() async {
+    final hostKey = await resolveRefusedHostKey(
+      context,
+      _manager,
+      widget.profile,
+    );
+    if (hostKey == false || !mounted) return;
+    if (hostKey == null) {
+      await resolveAuthPrompts(context, _manager, widget.profile);
+      if (!mounted) return;
+    }
+    _close();
+    _terminal.write('\r\n');
+    await _open();
+  }
+
+  void _close() {
+    if (_sessionId case final id?) unawaited(_manager.disconnect(id));
+    _sessionId = null;
+  }
+
+  @override
+  void dispose() {
+    for (final subscription in _subscriptions) {
+      unawaited(subscription.cancel());
+    }
+    _close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final desktop =
+        !kIsWeb &&
+        defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.iOS;
+    final (statusText, statusColor) = switch (_state) {
+      _ShellState.connecting => ('Connecting…', AppColors.muted),
+      _ShellState.open => ('Connected', AppColors.green),
+      _ShellState.ended => ('Shell ended', AppColors.muted),
+      _ShellState.failed => ('Failed', AppColors.danger),
+    };
+    return _BigDialog(
+      title: 'Shell · ${widget.title}',
+      actions: [
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: Text(
+            statusText,
+            style: portixMuted(12).copyWith(color: statusColor),
+          ),
+        ),
+      ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: ColoredBox(
+              color: portixBuiltinTheme.background,
+              child: TerminalView(
+                _terminal,
+                autofocus: true,
+                hardwareKeyboardOnly: desktop,
+                padding: const EdgeInsets.all(12),
+                readOnly: _state != _ShellState.open,
+                textStyle: TerminalStyle(
+                  fontSize: 13,
+                  height: 1.28,
+                  fontFamily: _mono.fontFamily!,
+                  fontFamilyFallback: _mono.fontFamilyFallback!,
+                ),
+                theme: portixBuiltinTheme,
+                cursorType: TerminalCursorType.block,
+              ),
+            ),
+          ),
+          if (_state == _ShellState.failed || _state == _ShellState.ended)
+            Container(
+              padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: AppColors.border)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _state == _ShellState.ended
+                          ? 'The shell exited.'
+                          : describeKubeError(_error ?? '').title,
+                      style: portixMuted(12.5),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _state == _ShellState.ended ? _open : _retry,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: Text(
+                      _state == _ShellState.ended ? 'Reconnect' : 'Retry',
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 const _dotWidth = 26.0;
@@ -1739,7 +2338,7 @@ typedef _Overview = ({
   List<Json> warnings,
 });
 
-const _sep = '---portix---';
+const _sep = kubeSeparator;
 
 /// One round trip for everything the overview shows; `top` and `version`
 /// may fail without failing the rest.
@@ -1939,60 +2538,72 @@ class _OverviewPageState extends State<_OverviewPage>
                 if (data.warnings.isEmpty)
                   Text('No warning events.', style: portixMuted(13))
                 else
-                  for (final e in data.warnings) _WarningLine(e),
+                  for (final e in data.warnings) _EventLine(e),
               ],
             ),
     );
   }
 }
 
-class _WarningLine extends StatelessWidget {
-  const _WarningLine(this.event);
+class _EventLine extends StatelessWidget {
+  const _EventLine(this.event);
 
   final Json event;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 2),
-          child: Icon(
-            Icons.warning_amber_rounded,
-            size: 15,
-            color: AppColors.amber,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: SelectableText.rich(
-            TextSpan(
-              children: [
-                TextSpan(
-                  text:
-                      '${field(event, 'reason')} · '
-                      '${field(event, 'involvedObject.kind')}/'
-                      '${field(event, 'involvedObject.name')}'
-                      '${namespaceOf(event) == null ? '' : ' (${namespaceOf(event)})'}  ',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.text,
-                  ),
-                ),
-                TextSpan(
-                  text: '${field(event, 'message') ?? ''}',
-                  style: portixMuted(12.5),
-                ),
-              ],
+  Widget build(BuildContext context) {
+    final warning = field(event, 'type') == 'Warning';
+    final seen = formatAge(
+      (field(event, 'lastTimestamp') ??
+              field(event, 'eventTime') ??
+              field(event, 'metadata.creationTimestamp'))
+          as String?,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(
+              warning
+                  ? Icons.warning_amber_rounded
+                  : Icons.info_outline_rounded,
+              size: 15,
+              color: warning ? AppColors.amber : AppColors.muted,
             ),
           ),
-        ),
-      ],
-    ),
-  );
+          const SizedBox(width: 8),
+          Expanded(
+            child: SelectableText.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text:
+                        '${field(event, 'reason')} · '
+                        '${field(event, 'involvedObject.kind')}/'
+                        '${field(event, 'involvedObject.name')}'
+                        '${namespaceOf(event) == null ? '' : ' (${namespaceOf(event)})'}  ',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.text,
+                    ),
+                  ),
+                  TextSpan(
+                    text: '${field(event, 'message') ?? ''}',
+                    style: portixMuted(12.5),
+                  ),
+                  TextSpan(text: '  · $seen ago', style: portixMuted(11.5)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _StatCard extends StatelessWidget {
