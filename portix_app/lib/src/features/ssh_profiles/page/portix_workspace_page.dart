@@ -142,9 +142,11 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
       title: 'Groups',
       child: RdpGroupsPanel(),
     ),
-    // Sections mean nothing until the tab has its server.
-    WorkspaceView.kubernetes when kubeTabs.current.profileId != null =>
-      const SidePanel(title: 'Kubernetes', child: KubeSectionsPanel()),
+    // Sections mean nothing until the tab has connected to its cluster.
+    WorkspaceView.kubernetes when kubeTabs.current.connected => const SidePanel(
+      title: 'Kubernetes',
+      child: KubeSectionsPanel(),
+    ),
     _ => null,
   };
 

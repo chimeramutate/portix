@@ -28,6 +28,28 @@ final _node = _json('''{
 }''');
 
 void main() {
+  test('connect steps say what they found', () {
+    expect(kubeConnectSteps.map((s) => s.label), [
+      'Server',
+      'kubectl',
+      'Cluster',
+    ]);
+    expect(describeConnectStep(0, 'portix-connected\n'), 'SSH session open');
+    expect(
+      describeConnectStep(1, '{"clientVersion": {"gitVersion": "v1.29.3"}}'),
+      'kubectl v1.29.3',
+    );
+    expect(
+      describeConnectStep(
+        2,
+        'rke2-sit\n{"clientVersion": {"gitVersion": "v1.29.3"}, '
+        '"serverVersion": {"gitVersion": "v1.28.9+rke2r1"}}',
+      ),
+      'context rke2-sit · server v1.28.9+rke2r1',
+    );
+    expect(describeConnectStep(1, 'not json'), 'kubectl found');
+  });
+
   test('pod status, readiness and health read like kubectl', () {
     expect(podStatus(_pod), 'CrashLoopBackOff');
     expect(podRestarts(_pod), 3);

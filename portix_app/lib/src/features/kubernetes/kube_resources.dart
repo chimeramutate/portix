@@ -1185,3 +1185,38 @@ List<({String type, bool ok, String reason, String message})> conditionsOf(
       message: '${c['message'] ?? ''}',
     ),
 ];
+
+/// What opening a cluster checks first, in order: the SSH connection, the
+/// server's kubectl, then the cluster through its kubeconfig.
+const kubeConnectSteps = <({String label, String command})>[
+  (label: 'Server', command: 'echo portix-connected'),
+  (label: 'kubectl', command: 'kubectl version --client -o json'),
+  (
+    label: 'Cluster',
+    command:
+        'kubectl config current-context && '
+        'kubectl version -o json --request-timeout=10s',
+  ),
+];
+
+/// One line on what [kubeConnectSteps]`[step]` found, from its [output].
+String describeConnectStep(int step, String output) {
+  String? version(String key) {
+    final start = output.indexOf('{');
+    if (start < 0) return null;
+    try {
+      return field(jsonDecode(output.substring(start)) as Json, key) as String?;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  return switch (step) {
+    0 => 'SSH session open',
+    1 => 'kubectl ${version('clientVersion.gitVersion') ?? 'found'}',
+    _ => [
+      'context ${output.split('\n').first.trim()}',
+      if (version('serverVersion.gitVersion') case final v?) 'server $v',
+    ].join(' · '),
+  };
+}

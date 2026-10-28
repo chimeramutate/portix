@@ -119,6 +119,10 @@ class KubeCluster extends ChangeNotifier {
   }
 
   String? profileId;
+
+  /// The connect checks passed for [profileId]; until then the tab shows
+  /// them instead of the sections.
+  bool connected = false;
   List<String> namespaces = const [];
 
   /// The namespaces picked; empty = all of them.
@@ -136,9 +140,22 @@ class KubeCluster extends ChangeNotifier {
 
   void pickServer(String id) {
     profileId = id;
+    connected = false;
     namespaces = const [];
     picked.clear();
     generation++;
+    notifyListeners();
+  }
+
+  void markConnected() {
+    connected = true;
+    notifyListeners();
+  }
+
+  /// Back to picking a server, e.g. when the checks failed.
+  void leaveServer() {
+    profileId = null;
+    connected = false;
     notifyListeners();
   }
 
@@ -624,6 +641,421 @@ class _ServerPickPageState extends State<_ServerPickPage> {
       ),
     );
   }
+}
+
+/// What a tab shows right after its server is picked: the
+/// [kubeConnectSteps] run one by one, each ticking off with what it found.
+/// All passing opens the cluster; one failing stops with its error, Retry
+/// and a way back to the servers.
+class _ConnectPage extends StatefulWidget {
+  const _ConnectPage({super.key});
+
+  @override
+  State<_ConnectPage> createState() => _ConnectPageState();
+}
+
+class _ConnectPageState extends State<_ConnectPage>
+    with _KubeExec<_ConnectPage> {
+  /// What each step found; a step past the end has not run yet.
+  final _found = <String>[];
+
+  /// The step that failed, with its error.
+  (int, String)? _failed;
+
+  /// Set while a password the connection needs is not saved: whose it is
+  /// (the server's, or a jump host's).
+  ({String id, String name})? _needsPassword;
+  final _password = TextEditingController();
+  bool _savingPassword = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_check());
+    });
+  }
+
+  @override
+  void dispose() {
+    _password.dispose();
+    super.dispose();
+  }
+
+  Future<void> _check() async {
+    setState(() {
+      _found.clear();
+      _failed = null;
+      _needsPassword = null;
+    });
+    // A password that was never saved (or the keychain lost) is asked for
+    // here, before any connect; an unknown host key is asked by _exec.
+    if (_profile() case final profile?) {
+      try {
+        await _manager.credentials.resolve(profile);
+      } on PasswordUnavailableException catch (e) {
+        if (mounted) {
+          setState(
+            () => _needsPassword = (id: e.profileId, name: e.profileName),
+          );
+        }
+        return;
+      } on Object {
+        // A broken jump host chain fails the first step with its message.
+      }
+    }
+    for (final (i, step) in kubeConnectSteps.indexed) {
+      final (output, error) = await _exec(step.command);
+      if (!mounted) return;
+      if (output == null) {
+        setState(() => _failed = (i, error ?? 'No output.'));
+        return;
+      }
+      setState(() => _found.add(describeConnectStep(i, output)));
+    }
+    // A beat with every step ticked, so the checks read as done.
+    if (!mounted) return;
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    if (mounted) kube.markConnected();
+  }
+
+  /// Saves the typed password in the keychain, where connects read it,
+  /// then runs the checks again.
+  Future<void> _submitPassword() async {
+    final need = _needsPassword;
+    final password = _password.text;
+    if (need == null || password.isEmpty || _savingPassword) return;
+    setState(() => _savingPassword = true);
+    try {
+      await _manager.credentials.savePassword(need.id, password);
+    } on Object catch (e) {
+      if (mounted) {
+        setState(() {
+          _savingPassword = false;
+          _needsPassword = null;
+          _failed = (0, 'Could not save the password in the keychain: $e');
+        });
+      }
+      return;
+    }
+    if (!mounted) return;
+    _password.clear();
+    setState(() => _savingPassword = false);
+    await _check();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = context
+        .select((SshWorkspaceBloc bloc) => bloc.state.profiles)
+        .where((p) => p.id == kube.profileId)
+        .firstOrNull;
+    final failed = _failed;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  if (profile != null)
+                    ProfileOsIcon(profile: profile, size: 34),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          profile?.name ?? 'Unknown server',
+                          overflow: TextOverflow.ellipsis,
+                          style: portixTitle(16),
+                        ),
+                        Text(
+                          _needsPassword != null
+                              ? 'Password needed'
+                              : failed == null
+                              ? 'Connecting to the cluster…'
+                              : 'Could not open the cluster',
+                          style: portixMuted(12.5),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              _ConnectStepper(
+                found: _found.length,
+                failed: failed?.$1,
+                waitingForPassword: _needsPassword != null,
+              ),
+              if (_needsPassword case final need?) ...[
+                const SizedBox(height: 12),
+                _PasswordForm(
+                  name: need.name,
+                  controller: _password,
+                  saving: _savingPassword,
+                  onSubmit: _submitPassword,
+                  onCancel: kube.leaveServer,
+                ),
+              ],
+              const SizedBox(height: 8),
+              for (final (i, found) in _found.indexed)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.check_rounded,
+                        size: 14,
+                        color: AppColors.green,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${kubeConnectSteps[i].label}: $found',
+                          overflow: TextOverflow.ellipsis,
+                          style: portixMuted(12.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (failed != null) ...[
+                const SizedBox(height: 12),
+                _ConnectError(describeKubeError(failed.$2)),
+                const SizedBox(height: 12),
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    TextButton(
+                      onPressed: kube.leaveServer,
+                      child: const Text('Choose another server'),
+                    ),
+                    // A rejected or stale saved password: type it again.
+                    if (failed.$1 == 0 &&
+                        profile?.authMethod == domain.AuthMethod.password)
+                      OutlinedButton.icon(
+                        onPressed: () => setState(() {
+                          _failed = null;
+                          _needsPassword = (
+                            id: profile!.id,
+                            name: profile.name,
+                          );
+                        }),
+                        icon: const Icon(Icons.key_rounded, size: 16),
+                        label: const Text('Enter password'),
+                      ),
+                    FilledButton.icon(
+                      onPressed: _check,
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Why a connect step failed: the plain-words title and hint, with the
+/// raw message under them to copy.
+class _ConnectError extends StatelessWidget {
+  const _ConnectError(this.error);
+
+  final KubeError error;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+    decoration: BoxDecoration(
+      color: AppColors.dangerTint,
+      borderRadius: BorderRadius.circular(8),
+      border: Border(left: BorderSide(color: AppColors.danger, width: 3)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          error.title,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: AppColors.text,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(error.hint, style: portixMuted(12)),
+        if (error.detail.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          SelectableText(
+            error.detail,
+            maxLines: 6,
+            style: _mono.copyWith(fontSize: 11.5, color: AppColors.muted),
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+/// The [kubeConnectSteps] as an [EasyStepper], styled like SFTP's connect
+/// steps: [found] steps done, the next one running, or [failed] in red.
+class _ConnectStepper extends StatelessWidget {
+  const _ConnectStepper({
+    required this.found,
+    required this.failed,
+    this.waitingForPassword = false,
+  });
+
+  final int found;
+  final int? failed;
+
+  /// The first step waits on a password the user has to type.
+  final bool waitingForPassword;
+
+  static const _icons = [
+    Icons.dns_outlined,
+    Icons.terminal_rounded,
+    Icons.view_in_ar_outlined,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final failed = this.failed;
+    final finishIcon = Icon(
+      Icons.check_rounded,
+      size: 16,
+      color: AppColors.accent,
+    );
+    return EasyStepper(
+      activeStep: failed ?? found,
+      reachedSteps: {for (var i = 0; i <= found; i++) i},
+      direction: Axis.horizontal,
+      enableStepTapping: false,
+      disableScroll: true,
+      showTitle: true,
+      showLoadingAnimation:
+          failed == null &&
+          !waitingForPassword &&
+          found < kubeConnectSteps.length,
+      stepRadius: 24,
+      internalPadding: 12,
+      borderThickness: 0,
+      showStepBorder: false,
+      activeStepBackgroundColor: AppColors.surfaceDark,
+      finishedStepBackgroundColor: Colors.transparent,
+      unreachedStepBackgroundColor: Colors.transparent,
+      unreachedStepBorderColor: AppColors.border,
+      activeStepBorderColor: failed == null
+          ? AppColors.accent
+          : AppColors.danger,
+      finishedStepBorderColor: AppColors.accent,
+      finishedStepIconColor: AppColors.accent,
+      unreachedStepIconColor: AppColors.muted,
+      activeStepIconColor: failed == null ? AppColors.accent : AppColors.danger,
+      unreachedStepTextColor: AppColors.muted,
+      activeStepTextColor: failed == null ? AppColors.accent : AppColors.danger,
+      finishedStepTextColor: AppColors.accent,
+      lineStyle: LineStyle(
+        lineLength: 56,
+        lineThickness: 1,
+        defaultLineColor: AppColors.border,
+        activeLineColor: AppColors.accent,
+        finishedLineColor: AppColors.accent,
+        unreachedLineColor: AppColors.border,
+        lineType: LineType.normal,
+      ),
+      maxTitleLines: 1,
+      steps: [
+        for (final (i, step) in kubeConnectSteps.indexed)
+          EasyStep(
+            title: step.label,
+            icon: Icon(
+              i == failed
+                  ? Icons.close_rounded
+                  : i == 0 && waitingForPassword
+                  ? Icons.key_rounded
+                  : _icons[i],
+              size: 16,
+            ),
+            finishIcon: finishIcon,
+          ),
+      ],
+    );
+  }
+}
+
+/// The password for [name], typed into the connect page and saved in the
+/// keychain, as SFTP asks for an unsaved one.
+class _PasswordForm extends StatelessWidget {
+  const _PasswordForm({
+    required this.name,
+    required this.controller,
+    required this.saving,
+    required this.onSubmit,
+    required this.onCancel,
+  });
+
+  final String name;
+  final TextEditingController controller;
+  final bool saving;
+  final VoidCallback onSubmit;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text('Password for $name', style: portixTitle(13)),
+      const SizedBox(height: 2),
+      Text(
+        'No saved password on this device. It is kept in the system '
+        'keychain for the next connect.',
+        style: portixMuted(12),
+      ),
+      const SizedBox(height: 10),
+      TextField(
+        controller: controller,
+        autofocus: true,
+        obscureText: true,
+        enabled: !saving,
+        style: appFieldTextStyle(),
+        decoration: const InputDecoration(
+          isDense: true,
+          hintText: 'Password',
+          prefixIcon: Icon(Icons.key_rounded, size: 16),
+        ),
+        onSubmitted: (_) => onSubmit(),
+      ),
+      const SizedBox(height: 10),
+      Wrap(
+        alignment: WrapAlignment.end,
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          TextButton(
+            onPressed: saving ? null : onCancel,
+            child: const Text('Choose another server'),
+          ),
+          FilledButton(
+            onPressed: saving ? null : onSubmit,
+            child: Text(saving ? 'Saving…' : 'Connect'),
+          ),
+        ],
+      ),
+    ],
+  );
 }
 
 class _ServerCard extends StatelessWidget {

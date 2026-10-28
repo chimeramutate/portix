@@ -59,7 +59,9 @@ void main() {
     );
     expect(find.text('Open a cluster'), findsOneWidget);
     // An id with no saved profile: sections render, kubectl never runs.
-    kubeTabs.current.pickServer('missing');
+    kubeTabs.current
+      ..pickServer('missing')
+      ..markConnected();
     await tester.pump();
     for (final section in KubeSection.values) {
       kubeTabs.current.section = section;
@@ -90,6 +92,37 @@ void main() {
     await tester.pump();
     expect(kubeTabs.current.section, KubeSection.pods);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('picking a server checks the connection before the '
+      'sections', (tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BlocProvider(
+            create: (_) => SshWorkspaceBloc(repository: SshProfileRepository()),
+            child: const KubernetesPage(),
+          ),
+        ),
+      ),
+    );
+    // No saved profile behind the id: the first step fails.
+    kubeTabs.current.pickServer('missing');
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Server'), findsOneWidget);
+    expect(find.text('Cluster'), findsOneWidget);
+    expect(find.text('Could not open the cluster'), findsOneWidget);
+    expect(kubeTabs.current.connected, isFalse);
+    expect(find.text('Overview'), findsNothing);
+
+    await tester.tap(find.text('Choose another server'));
+    await tester.pump();
+    expect(kubeTabs.current.profileId, isNull);
+    expect(find.text('Open a cluster'), findsOneWidget);
   });
 
   testWidgets('a group header folds its sections', (tester) async {

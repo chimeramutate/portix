@@ -4,8 +4,11 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:easy_stepper/easy_stepper.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
+import 'package:portix/src/connection_manager/profile_credentials.dart'
+    show PasswordUnavailableException;
 import 'package:portix/src/connection_manager/session_models.dart'
     as session_models;
 import 'package:portix/src/connection_manager/ssh_profile.dart'
@@ -138,6 +141,9 @@ class _ClusterViewState extends State<_ClusterView> {
         builder: (context, _) {
           if (widget.cluster.profileId == null) {
             return _ServerPickPage(onPicked: widget.cluster.pickServer);
+          }
+          if (!widget.cluster.connected) {
+            return _ConnectPage(key: ValueKey(widget.cluster.generation));
           }
           final current = widget.cluster.section;
           _opened.add(current);
