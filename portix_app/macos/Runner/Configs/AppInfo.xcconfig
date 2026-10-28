@@ -12,3 +12,7 @@ PRODUCT_BUNDLE_IDENTIFIER = portix.app
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 Portix. All rights reserved.
+
+// Sparkle's EdDSA public key (from Sparkle's generate_keys). Updates are
+// verified against it; while it is empty the updater stays off.
+SPARKLE_PUBLIC_ED_KEY =

@@ -30,6 +30,8 @@ target 'Runner' do
   use_frameworks!
 
   flutter_install_all_macos_pods File.dirname(File.realpath(__FILE__))
+  # App updates (Sparkle 2); see AppDelegate.swift.
+  pod 'Sparkle', '~> 2.6'
   target 'RunnerTests' do
     inherit! :search_paths
   end

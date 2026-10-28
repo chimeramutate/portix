@@ -143,3 +143,47 @@ Workflow menghasilkan:
 - [ ] Checksum dibuat (`.sha256`)
 - [ ] Release notes ditulis
 - [ ] Verifikasi instalasi
+## macOS updates (Sparkle 2)
+
+Portix on macOS updates itself through [Sparkle 2](https://sparkle-project.org). Users can wait for the scheduled check or choose **Portix → Check for Updates…**.
+
+### How it works
+
+- **Update feed.** `SUFeedURL` in `portix_app/macos/Runner/Info.plist` points at `https://github.com/chimeramutate/portix/releases/latest/download/appcast.xml`.
+  - GitHub serves that URL from the newest release that is not a prerelease.
+  - So only stable releases are offered as updates.
+- **Signing in CI.** For a stable tag, `.github/workflows/portix.yml` does three things:
+  1. It signs `portix-macos-<tag>.zip` with Sparkle's `sign_update`.
+  2. It writes `appcast.xml`.
+  3. It attaches `appcast.xml` to the release.
+- **Verification.** The app checks every update against `SUPublicEDKey`, which comes from `SPARKLE_PUBLIC_ED_KEY`.
+  - While that key is empty, the updater stays off. This covers local, debug and beta builds.
+  - In those builds, **Check for Updates…** explains why it is off.
+- **Version comparison.** Sparkle compares `CFBundleVersion`, which is the `+build` number in `pubspec.yaml`. Raise the build number with every release, for example `1.0.9+9` then `1.0.10+10`.
+
+### One-time key setup
+
+1. Download Sparkle 2.9.6 from <https://github.com/sparkle-project/Sparkle/releases>. Keep it at the same version as `Sparkle` in `portix_app/macos/Podfile.lock`.
+2. Generate the key pair:
+
+   ```bash
+   ./bin/generate_keys
+   ```
+
+   This stores the private key in your login Keychain and prints the public key.
+3. Export the private key:
+
+   ```bash
+   ./bin/generate_keys -x sparkle_private_key
+   ```
+
+4. Add these to the repository settings:
+
+   | Name | Kind | Value |
+   | --- | --- | --- |
+   | `SPARKLE_ED_PRIVATE_KEY` | Actions **secret** | Contents of `sparkle_private_key` |
+   | `SPARKLE_PUBLIC_ED_KEY` | Actions **variable** | The printed public key |
+
+5. Delete the exported `sparkle_private_key` file.
+   - Keep the key in your Keychain, or in a password manager.
+   - **If the private key is lost, installed copies can never be updated again.** They only trust that one key.

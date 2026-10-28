@@ -7,6 +7,7 @@ import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/domain/repositories/settings/settings_repository.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/terminal_settings.dart';
 
+import 'app_updater.dart';
 import 'keyboard_shortcuts_dialog.dart';
 
 /// Writes one setting ([value] null restores the default) and tells open
@@ -90,10 +91,14 @@ class _AppMenusState extends State<AppMenus> with _TerminalPrefs {
         PlatformMenu(
           label: 'Portix',
           menus: [
-            const PlatformMenuItemGroup(
+            PlatformMenuItemGroup(
               members: [
-                PlatformProvidedMenuItem(
+                const PlatformProvidedMenuItem(
                   type: PlatformProvidedMenuItemType.about,
+                ),
+                PlatformMenuItem(
+                  label: 'Check for Updates…',
+                  onSelected: () => unawaited(checkForUpdates()),
                 ),
               ],
             ),
