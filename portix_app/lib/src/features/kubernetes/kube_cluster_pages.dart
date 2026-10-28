@@ -121,8 +121,11 @@ class KubeCluster extends ChangeNotifier {
   String? profileId;
   List<String> namespaces = const [];
 
-  /// Null = all namespaces.
-  String? namespace;
+  /// The namespaces picked; empty = all of them.
+  final picked = <String>{};
+
+  /// The one namespace picked, for `-n`; null when all or several are.
+  String? get namespace => picked.length == 1 ? picked.single : null;
 
   /// Bumped when the server or its kubeconfig context changes, so every
   /// section reloads.
@@ -134,19 +137,24 @@ class KubeCluster extends ChangeNotifier {
   void pickServer(String id) {
     profileId = id;
     namespaces = const [];
-    namespace = null;
+    picked.clear();
     generation++;
     notifyListeners();
   }
 
-  void pickNamespace(String? value) {
-    namespace = value;
+  /// Adds or drops [value]; null goes back to all namespaces.
+  void toggleNamespace(String? value) {
+    if (value == null) {
+      picked.clear();
+    } else if (!picked.remove(value)) {
+      picked.add(value);
+    }
     notifyListeners();
   }
 
   void setNamespaces(List<String> value) {
     namespaces = value;
-    if (namespace != null && !value.contains(namespace)) namespace = null;
+    picked.retainAll(value);
     notifyListeners();
   }
 
@@ -347,7 +355,9 @@ class _KubeHeaderState extends State<_KubeHeader> with _KubeExec<_KubeHeader> {
                 child: _SelectButton<String?>(
                   icon: Icons.folder_outlined,
                   label: 'Namespace',
-                  value: kube.namespace ?? 'All namespaces',
+                  value: kube.picked.isEmpty
+                      ? 'All namespaces'
+                      : (kube.picked.toList()..sort()).join(', '),
                   placeholder: 'Loading namespaces…',
                   enabled: !_loading && kube.namespaces.isNotEmpty,
                   noun: 'namespaces',
@@ -372,8 +382,11 @@ class _KubeHeaderState extends State<_KubeHeader> with _KubeExec<_KubeHeader> {
                         section: 'Namespaces',
                       ),
                   ],
-                  selected: kube.namespace,
-                  onSelected: kube.pickNamespace,
+                  selected: null,
+                  isSelected: (ns) => ns == null
+                      ? kube.picked.isEmpty
+                      : kube.picked.contains(ns),
+                  onSelected: kube.toggleNamespace,
                 ),
               ),
             ),
@@ -861,15 +874,24 @@ class _ResourcePageState extends State<_ResourcePage>
   Object? _loadedFor;
   int? _sortColumn;
   bool _ascending = true;
+
+  /// Namespace groups folded shut while all namespaces are listed.
+  final _foldedNamespaces = <String>{};
   Timer? _timer;
 
-  /// The workload whose detail is open (as clicked), and its latest read.
-  Json? _detail;
+  /// The details opened, each as clicked (a workload, then one of its
+  /// pods); the last is shown, with its latest read.
+  final _trail = <(KubeKind, Json)>[];
   KubeDetail? _detailData;
+  (KubeKind, Json)? get _detail => _trail.lastOrNull;
 
   KubeKind get _kind => widget.kind;
   String? get _namespace => _kind.namespaced ? kube.namespace : null;
-  Object get _key => (kube.profileId, _namespace, kube.generation);
+  Object get _key => (
+    kube.profileId,
+    _kind.namespaced ? (kube.picked.toList()..sort()).join(',') : null,
+    kube.generation,
+  );
 
   @override
   void initState() {
@@ -900,7 +922,7 @@ class _ResourcePageState extends State<_ResourcePage>
     if (!widget.visible || kube.profileId == null) return;
     if (_loadedFor != _key) {
       // Another server or namespace: back to the list.
-      _detail = null;
+      _trail.clear();
       _detailData = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _loadedFor != _key) unawaited(_load());
@@ -918,7 +940,13 @@ class _ResourcePageState extends State<_ResourcePage>
     final output = await _run(listCommand(_kind, _namespace), quiet: quiet);
     if (output == null || !mounted || _key != key) return;
     try {
-      final items = parseItems(output);
+      // kubectl takes one -n, so several namespaces are listed with -A
+      // and narrowed here.
+      final several = _kind.namespaced && kube.picked.length > 1;
+      final items = [
+        for (final item in parseItems(output))
+          if (!several || kube.picked.contains(namespaceOf(item))) item,
+      ];
       setState(() {
         _items = items;
         _loadedFor = key;
@@ -930,7 +958,7 @@ class _ResourcePageState extends State<_ResourcePage>
 
   Future<void> _loadDetail({bool quiet = false}) async {
     final open = _detail!;
-    final output = await _run(detailCommand(_kind, open), quiet: quiet);
+    final output = await _run(detailCommand(open.$1, open.$2), quiet: quiet);
     if (output == null || !mounted || _detail != open) return;
     try {
       setState(() => _detailData = parseDetail(output));
@@ -939,36 +967,47 @@ class _ResourcePageState extends State<_ResourcePage>
     }
   }
 
-  void _openDetail(Json item) {
+  void _openDetail(Json item, KubeKind kind) {
     setState(() {
-      _detail = item;
+      _trail.add((kind, item));
       _detailData = null;
     });
     unawaited(_load());
   }
 
+  /// Back one step: to the previous detail, or to the list.
   void _closeDetail() {
     setState(() {
-      _detail = null;
+      _trail.removeLast();
       _detailData = null;
       _error = null;
     });
-    unawaited(_load(quiet: true));
+    unawaited(_load(quiet: _trail.isEmpty));
   }
 
-  List<KubeColumn> get _columns => [
-    _kind.columns.first,
-    if (_kind.namespaced && kube.namespace == null)
-      (header: 'Namespace', flex: 2, cell: (i) => namespaceOf(i) ?? ''),
-    ..._kind.columns.skip(1),
-  ];
+  List<KubeColumn> get _columns => _kind.columns;
+
+  /// All namespaces listed: rows go under a header per namespace.
+  bool get _grouped => _kind.namespaced && kube.namespace == null;
+
+  /// [shown] under namespace headers (a String entry), alphabetically,
+  /// keeping the sort within each; folded groups keep only their header.
+  List<Object> _rows(List<Json> shown) {
+    if (!_grouped) return shown;
+    return [
+      for (final MapEntry(key: ns, value: items) in groupByNamespace(
+        shown,
+      ).entries) ...[ns, if (!_foldedNamespaces.contains(ns)) ...items],
+    ];
+  }
 
   List<Json> _shown(List<KubeColumn> columns) {
     final query = _search.text.trim().toLowerCase();
     final shown = [
       for (final item in _items)
         if (query.isEmpty ||
-            columns.any((c) => c.cell(item).toLowerCase().contains(query)))
+            columns.any((c) => c.cell(item).toLowerCase().contains(query)) ||
+            (_grouped && (namespaceOf(item) ?? '').contains(query)))
           item,
     ];
     final sort = _sortColumn;
@@ -1120,15 +1159,19 @@ class _ResourcePageState extends State<_ResourcePage>
     }
   }
 
-  Widget _buildDetail(Json opened) {
+  Widget _buildDetail((KubeKind, Json) opened) {
+    final (kind, _) = opened;
     final data = _detailData;
-    final item = data?.item ?? opened;
+    final item = data?.item ?? opened.$2;
+    final back = _trail.length > 1
+        ? nameOf(_trail[_trail.length - 2].$2)
+        : _kind.label;
     return _ClusterFrame(
       toolbar: [
         TextButton.icon(
           onPressed: _closeDetail,
           icon: const Icon(Icons.arrow_back_rounded, size: 16),
-          label: Text(_kind.label),
+          label: Text(back),
         ),
         Text(' / ', style: portixMuted(13)),
         Expanded(
@@ -1148,24 +1191,22 @@ class _ResourcePageState extends State<_ResourcePage>
               Icons.account_tree_outlined,
               _loading ? 'Loading ${nameOf(item)}…' : 'No data yet.',
             )
-          : _WorkloadDetail(
-              kind: _kind,
+          : _ResourceDetail(
+              kind: kind,
               detail: data,
               enabled: !_loading,
-              onScale: (replicas) =>
-                  _apply(scaleCommand(_kind, item, replicas)),
-              onAction: (action) => _action(action, item, _kind),
+              onScale: (replicas) => _apply(scaleCommand(kind, item, replicas)),
+              onAction: (action) => _action(action, item, kind),
               onCommon: (common) async {
                 if (common == _Common.delete) {
-                  if (await _delete(item, _kind)) _closeDetail();
+                  if (await _delete(item, kind)) _closeDetail();
                 } else {
-                  await _common(common, item, _kind);
+                  await _common(common, item, kind);
                 }
               },
-              onPodAction: (action, pod) =>
-                  _action(action, pod, kubeKinds['pods']!),
-              onPodCommon: (common, pod) =>
-                  _common(common, pod, kubeKinds['pods']!),
+              onOpen: (kind, item) => _openDetail(item, kind),
+              onRelatedAction: _action,
+              onRelatedCommon: _common,
             ),
     );
   }
@@ -1175,9 +1216,12 @@ class _ResourcePageState extends State<_ResourcePage>
     if (_detail case final opened?) return _buildDetail(opened);
     final columns = _columns;
     final shown = _shown(columns);
-    final where = _kind.namespaced && kube.namespace != null
+    final rows = _rows(shown);
+    final where = !_kind.namespaced || kube.picked.isEmpty
+        ? ''
+        : kube.namespace != null
         ? ' in ${kube.namespace}'
-        : '';
+        : ' in ${kube.picked.length} namespaces';
     return _ClusterFrame(
       toolbar: [
         Expanded(
@@ -1237,22 +1281,32 @@ class _ResourcePageState extends State<_ResourcePage>
                           'Nothing matches the filter.',
                         )
                       : ListView.builder(
-                          itemCount: shown.length,
-                          itemBuilder: (_, i) => _TableRow(
-                            item: shown[i],
-                            columns: columns,
-                            health: _kind.health?.call(shown[i]),
-                            odd: i.isOdd,
-                            enabled: !_loading,
-                            actions: _kind.actions(shown[i]),
-                            onDescribe: () => _kind.ownsPods
-                                ? _openDetail(shown[i])
-                                : _describe(shown[i], _kind),
-                            onAction: (action) =>
-                                _action(action, shown[i], _kind),
-                            onCommon: (common) =>
-                                _common(common, shown[i], _kind),
-                          ),
+                          itemCount: rows.length,
+                          itemBuilder: (_, i) => switch (rows[i]) {
+                            final String ns => _NamespaceHeader(
+                              namespace: ns,
+                              count: shown
+                                  .where((s) => (namespaceOf(s) ?? '') == ns)
+                                  .length,
+                              folded: _foldedNamespaces.contains(ns),
+                              onTap: () => setState(
+                                () => _foldedNamespaces.contains(ns)
+                                    ? _foldedNamespaces.remove(ns)
+                                    : _foldedNamespaces.add(ns),
+                              ),
+                            ),
+                            final row as Json => _TableRow(
+                              item: row,
+                              columns: columns,
+                              health: _kind.health?.call(row),
+                              odd: i.isOdd,
+                              enabled: !_loading,
+                              actions: _kind.actions(row),
+                              onDescribe: () => _openDetail(row, _kind),
+                              onAction: (action) => _action(action, row, _kind),
+                              onCommon: (common) => _common(common, row, _kind),
+                            ),
+                          },
                         ),
                 ),
               ],
@@ -1261,18 +1315,74 @@ class _ResourcePageState extends State<_ResourcePage>
   }
 }
 
-/// A workload at a glance, Rancher-style: its state, a replica stepper,
-/// the pods it runs (with their actions), conditions and events.
-class _WorkloadDetail extends StatelessWidget {
-  const _WorkloadDetail({
+/// A namespace's group in a list of all namespaces; a tap folds it.
+class _NamespaceHeader extends StatelessWidget {
+  const _NamespaceHeader({
+    required this.namespace,
+    required this.count,
+    required this.folded,
+    required this.onTap,
+  });
+
+  final String namespace;
+  final int count;
+  final bool folded;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    expanded: !folded,
+    child: InkWell(
+      onTap: onTap,
+      child: Container(
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          border: Border(bottom: BorderSide(color: AppColors.border)),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              folded ? Icons.chevron_right_rounded : Icons.expand_more_rounded,
+              size: 18,
+              color: AppColors.muted,
+            ),
+            const SizedBox(width: 6),
+            Text('Namespace: ', style: portixMuted(12.5)),
+            Text(
+              namespace,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: AppColors.text,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text('$count', style: portixMuted(12)),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// An item at a glance, Rancher-style: title and state, its facts beside
+/// its labels and annotations, cards for its pods and health, then tabs
+/// for pods, what its kind has (containers, ports, data…), conditions and
+/// events.
+class _ResourceDetail extends StatefulWidget {
+  const _ResourceDetail({
     required this.kind,
     required this.detail,
     required this.enabled,
     required this.onScale,
     required this.onAction,
     required this.onCommon,
-    required this.onPodAction,
-    required this.onPodCommon,
+    required this.onRelatedAction,
+    required this.onRelatedCommon,
+    required this.onOpen,
   });
 
   final KubeKind kind;
@@ -1281,250 +1391,740 @@ class _WorkloadDetail extends StatelessWidget {
   final ValueChanged<int> onScale;
   final ValueChanged<KubeAction> onAction;
   final ValueChanged<_Common> onCommon;
-  final void Function(KubeAction action, Json pod) onPodAction;
-  final void Function(_Common common, Json pod) onPodCommon;
+
+  /// For the pods and services listed in the detail.
+  final void Function(KubeAction action, Json item, KubeKind kind)
+  onRelatedAction;
+  final void Function(_Common common, Json item, KubeKind kind) onRelatedCommon;
+  final void Function(KubeKind kind, Json item) onOpen;
+
+  @override
+  State<_ResourceDetail> createState() => _ResourceDetailState();
+}
+
+class _ResourceDetailState extends State<_ResourceDetail> {
+  /// The open tab, by title, so a refresh keeps it.
+  String? _tab;
+
+  KubeKind get kind => widget.kind;
+  KubeDetail get detail => widget.detail;
+  bool get enabled => widget.enabled;
 
   @override
   Widget build(BuildContext context) {
     final item = detail.item;
-    final pods = kubeKinds['pods']!;
     final actions = kind.actions(item);
     final replicas = (field(item, 'spec.replicas') as num?)?.toInt();
     final conditions = conditionsOf(item);
-    Widget heading(String text) => Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-      child: Text(text, style: portixMuted(12)),
-    );
+    final sections = detailSections(kind, item);
+    Map<String, String> meta(String title) => {
+      for (final s in sections)
+        if (s.title == title)
+          for (final (k, v) in s.rows) k: v,
+    };
+    final tabs = <(String, Widget Function())>[
+      if (detailHasPods(kind))
+        ('Pods (${detail.pods.length})', () => _podsTab(replicas)),
+      if (kind.ownsPods)
+        (
+          'Services (${detail.services.length})',
+          () => detail.services.isEmpty
+              ? Text('No service selects its pods.', style: portixMuted(13))
+              : _relatedTable(kubeKinds['services']!, detail.services),
+        ),
+      for (final s in sections)
+        if (s.title != 'Labels' && s.title != 'Annotations')
+          (s.title, () => _FactTable(s)),
+      if (conditions.isNotEmpty)
+        ('Conditions (${conditions.length})', () => _conditionsTab(conditions)),
+      ('Recent Events (${detail.events.length})', _eventsTab),
+    ];
+    // Tabs keep their place by name, whatever their count says now.
+    String base(String title) => title.replaceFirst(RegExp(r' \(\d+\)$'), '');
+    final open =
+        tabs.where((t) => base(t.$1) == _tab).firstOrNull ?? tabs.first;
+    final facts = <(String, String)>[
+      if (namespaceOf(item) case final ns?) ('Namespace', ns),
+      ('Age', formatAge('${field(item, 'metadata.creationTimestamp')}')),
+      for (final column in kind.columns.skip(1))
+        if (column.header != 'Age' && column.cell(item).isNotEmpty)
+          (column.header, column.cell(item)),
+      if (workloadPorts(kind, item) case final ports when ports.isNotEmpty)
+        ('Ports', ports),
+      if ({
+            ...publicEndpoints(item),
+            for (final s in detail.services) ...serviceEndpoints(s),
+          }.join(', ')
+          case final endpoints when endpoints.isNotEmpty)
+        ('Endpoints', endpoints),
+    ];
     return ListView(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-          child: Row(
-            children: [
-              if (kind.health case final health?)
-                SizedBox(width: 18, child: _PodDot(health(item))),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  [
-                    kind.label.replaceFirst(RegExp(r's$'), ''),
-                    if (namespaceOf(item) case final ns?) 'namespace $ns',
-                    'age ${formatAge('${field(item, 'metadata.creationTimestamp')}')}',
-                  ].join(' · '),
-                  style: portixMuted(13),
-                ),
-              ),
-              for (final action in actions)
-                if (action != KubeAction.scale)
-                  _HeaderButton(
-                    label: action.label,
-                    icon: _TableRow._actionIcon(action),
-                    onPressed: enabled ? () => onAction(action) : null,
-                  ),
-              _HeaderButton(
-                label: 'Edit YAML',
-                icon: Icons.edit_note_rounded,
-                onPressed: enabled ? () => onCommon(_Common.yaml) : null,
-              ),
-              _HeaderButton(
-                label: 'Describe',
-                icon: Icons.info_outline_rounded,
-                onPressed: enabled ? () => onCommon(_Common.describe) : null,
-              ),
-              _HeaderButton(
-                label: 'Delete',
-                icon: Icons.delete_outline_rounded,
-                danger: true,
-                onPressed: enabled ? () => onCommon(_Common.delete) : null,
-              ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              if (replicas != null && actions.contains(KubeAction.scale))
-                _ReplicaStepper(
-                  replicas: replicas,
-                  enabled: enabled,
-                  onScale: onScale,
-                ),
-              for (final column in kind.columns.skip(1))
-                if (column.header != 'Age' && column.cell(item).isNotEmpty)
-                  _InfoChip(label: column.header, value: column.cell(item)),
-            ],
-          ),
-        ),
-        heading('Pods (${detail.pods.length})'),
-        if (detail.pods.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              replicas == 0
-                  ? 'Scaled to 0: no pods run.'
-                  : 'No pods match its selector yet.',
-              style: portixMuted(13),
-            ),
-          )
-        else
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Column(
+        _title(item, actions),
+        const SizedBox(height: 18),
+        LayoutBuilder(
+          builder: (context, box) {
+            final columns = [
+              _FactList(facts),
+              _ChipList('Labels', meta('Labels')),
+              _ChipList('Annotations', meta('Annotations')),
+            ];
+            if (box.maxWidth < 900) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final c in columns)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: c,
+                    ),
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _TableHeader(
-                  columns: pods.columns,
-                  dot: true,
-                  sortColumn: null,
-                  ascending: true,
-                  onSort: (_) {},
-                ),
-                for (final (i, pod) in detail.pods.indexed)
-                  _TableRow(
-                    item: pod,
-                    columns: pods.columns,
-                    health: podHealthOf(pod),
-                    odd: i.isOdd,
-                    enabled: enabled,
-                    actions: pods.actions(pod),
-                    onDescribe: () => onPodCommon(_Common.describe, pod),
-                    onAction: (action) => onPodAction(action, pod),
-                    onCommon: (common) => onPodCommon(common, pod),
+                for (final (i, c) in columns.indexed) ...[
+                  if (i > 0) const SizedBox(width: 24),
+                  Expanded(child: c),
+                ],
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 18),
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (detailHasPods(kind)) ...[
+                Expanded(child: _podsCard(replicas, actions)),
+                const SizedBox(width: 16),
+              ],
+              Expanded(child: _insightsCard(conditions)),
+              if (detailHasPods(kind))
+                const Spacer()
+              else
+                const Spacer(flex: 2),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        Container(
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: AppColors.border)),
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final (title, _) in tabs)
+                  _DetailTab(
+                    label: title,
+                    selected: title == open.$1,
+                    onTap: () => setState(() => _tab = base(title)),
                   ),
               ],
             ),
           ),
-        if (conditions.isNotEmpty) ...[
-          heading('Conditions'),
-          for (final c in conditions)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        ),
+        const SizedBox(height: 14),
+        open.$2(),
+      ],
+    );
+  }
+
+  Widget _title(Json item, List<KubeAction> actions) {
+    final health = kind.health?.call(item);
+    final state = switch (kind.type) {
+      'pods' => podStatus(item),
+      'nodes' => kind.columns[1].cell(item),
+      _ => switch (health) {
+        PodHealth.pending => 'Updating',
+        PodHealth.failing => 'Error',
+        PodHealth.done => 'Completed',
+        _ => 'Active',
+      },
+    };
+    return Row(
+      children: [
+        Flexible(
+          child: Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: '${_singular(kind.label)}: ',
+                  style: TextStyle(color: AppColors.accent),
+                ),
+                TextSpan(text: nameOf(item)),
+              ],
+            ),
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: AppColors.text,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        _StateBadge(state, health ?? PodHealth.ok),
+        const Spacer(),
+        FilledButton.icon(
+          onPressed: enabled ? () => widget.onCommon(_Common.yaml) : null,
+          icon: const Icon(Icons.description_outlined, size: 16),
+          label: const Text('Show Configuration'),
+        ),
+        const SizedBox(width: 6),
+        PopupMenuButton<Object>(
+          enabled: enabled,
+          tooltip: 'More actions',
+          icon: Icon(Icons.more_vert_rounded, color: AppColors.muted),
+          onSelected: (choice) => switch (choice) {
+            final KubeAction action => widget.onAction(action),
+            final _Common common => widget.onCommon(common),
+            _ => null,
+          },
+          itemBuilder: (_) => [
+            for (final action in actions)
+              if (action != KubeAction.scale)
+                _TableRow._menuItem(
+                  action,
+                  action.label,
+                  _TableRow._actionIcon(action),
+                ),
+            _TableRow._menuItem(
+              _Common.describe,
+              'Describe',
+              Icons.info_outline_rounded,
+            ),
+            const PopupMenuDivider(),
+            _TableRow._menuItem(
+              _Common.delete,
+              'Delete',
+              Icons.delete_outline_rounded,
+              danger: true,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Pods by state as one bar, with a line per state, as Rancher's card.
+  Widget _podsCard(int? replicas, List<KubeAction> actions) {
+    final states = <String, (PodHealth, int)>{};
+    for (final pod in detail.pods) {
+      final (health, n) = states[podStatus(pod)] ?? (podHealthOf(pod), 0);
+      states[podStatus(pod)] = (health, n + 1);
+    }
+    final total = detail.pods.length;
+    return _DetailCard(
+      title: 'Pods',
+      trailing: replicas != null && actions.contains(KubeAction.scale)
+          ? _ReplicaStepper(
+              replicas: replicas,
+              enabled: enabled,
+              onScale: widget.onScale,
+            )
+          : null,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(3),
+          child: SizedBox(
+            height: 6,
+            child: total == 0
+                ? ColoredBox(color: AppColors.border)
+                : Row(
+                    children: [
+                      for (final (health, n) in states.values)
+                        Expanded(
+                          flex: n,
+                          child: ColoredBox(color: _healthColor(health)),
+                        ),
+                    ],
+                  ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        if (total == 0)
+          Text(
+            replicas == 0 ? 'Scaled to 0: no pods run.' : 'No pods.',
+            style: portixMuted(13),
+          ),
+        for (final MapEntry(key: state, value: (health, n)) in states.entries)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                Container(width: 14, height: 3, color: _healthColor(health)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    state,
+                    style: TextStyle(fontSize: 13, color: AppColors.text),
+                  ),
+                ),
+                Text(
+                  '$n',
+                  style: TextStyle(fontSize: 13, color: AppColors.text),
+                ),
+                SizedBox(
+                  width: 64,
+                  child: Text(
+                    '${(n * 100 / total).toStringAsFixed(1)}%',
+                    textAlign: TextAlign.right,
+                    style: portixMuted(13),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _insightsCard(
+    List<({String type, bool ok, String reason, String message})> conditions,
+  ) {
+    final ok = [
+      for (final c in conditions)
+        if (c.ok) c.type.toLowerCase(),
+    ];
+    final failing = conditions.where((c) => !c.ok).length;
+    Widget line(
+      String label,
+      String value, {
+      VoidCallback? onTap,
+      Color? dot,
+    }) => Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          InkWell(
+            onTap: onTap,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                color: AppColors.text,
+                decoration: onTap == null ? null : TextDecoration.underline,
+              ),
+            ),
+          ),
+          const Spacer(),
+          if (dot != null) ...[
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Flexible(
+            child: Text(
+              value,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13, color: AppColors.text),
+            ),
+          ),
+        ],
+      ),
+    );
+    return _DetailCard(
+      title: 'Insights',
+      children: [
+        line(
+          'Conditions',
+          conditions.isEmpty
+              ? '—'
+              : [
+                  if (ok.isNotEmpty) ok.join(' + '),
+                  if (failing > 0) '$failing not met',
+                ].join(', '),
+          dot: conditions.isEmpty
+              ? null
+              : failing > 0
+              ? AppColors.amber
+              : AppColors.green,
+          onTap: conditions.isEmpty
+              ? null
+              : () => setState(() => _tab = 'Conditions'),
+        ),
+        line(
+          'Events',
+          '${detail.events.length}',
+          onTap: () => setState(() => _tab = 'Recent Events'),
+        ),
+        if (detail.events.where((e) => e['type'] == 'Warning').length
+            case final warnings when warnings > 0)
+          line('Warnings', '$warnings', dot: AppColors.amber),
+      ],
+    );
+  }
+
+  Widget _podsTab(int? replicas) {
+    if (detail.pods.isEmpty) {
+      return Text(
+        replicas == 0
+            ? 'Scaled to 0: no pods run.'
+            : kind.type == 'nodes'
+            ? 'No pods run on this node.'
+            : 'No pods match its selector yet.',
+        style: portixMuted(13),
+      );
+    }
+    return _relatedTable(kubeKinds['pods']!, detail.pods);
+  }
+
+  /// Pods or services this item relates to, each opening its own detail.
+  Widget _relatedTable(KubeKind related, List<Json> items) => Container(
+    clipBehavior: Clip.antiAlias,
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: AppColors.border),
+    ),
+    child: Column(
+      children: [
+        _TableHeader(
+          columns: related.columns,
+          dot: related.health != null,
+          sortColumn: null,
+          ascending: true,
+          onSort: (_) {},
+        ),
+        for (final (i, item) in items.indexed)
+          _TableRow(
+            item: item,
+            columns: related.columns,
+            health: related.health?.call(item),
+            odd: i.isOdd,
+            enabled: enabled,
+            actions: related.actions(item),
+            onDescribe: () => widget.onOpen(related, item),
+            onAction: (action) => widget.onRelatedAction(action, item, related),
+            onCommon: (common) => widget.onRelatedCommon(common, item, related),
+          ),
+      ],
+    ),
+  );
+
+  Widget _conditionsTab(
+    List<({String type, bool ok, String reason, String message})> conditions,
+  ) => Column(
+    children: [
+      for (final c in conditions)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                c.ok
+                    ? Icons.check_circle_outline_rounded
+                    : Icons.cancel_outlined,
+                size: 16,
+                color: c.ok ? AppColors.green : AppColors.danger,
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 180,
+                child: Text(
+                  c.type,
+                  style: TextStyle(fontSize: 13, color: AppColors.text),
+                ),
+              ),
+              Expanded(
+                child: SelectableText(
+                  [c.reason, c.message].where((t) => t.isNotEmpty).join(' · '),
+                  style: portixMuted(12.5),
+                ),
+              ),
+            ],
+          ),
+        ),
+    ],
+  );
+
+  Widget _eventsTab() => detail.events.isEmpty
+      ? Text(
+          'No recent events (Kubernetes keeps them for about an hour).',
+          style: portixMuted(13),
+        )
+      : Column(
+          children: [for (final e in detail.events.take(30)) _EventLine(e)],
+        );
+}
+
+/// "Deployments" → "Deployment", "Ingresses" → "Ingress",
+/// "Network Policies" → "Network Policy".
+String _singular(String label) => label.endsWith('sses')
+    ? label.substring(0, label.length - 2)
+    : label.endsWith('ies')
+    ? '${label.substring(0, label.length - 3)}y'
+    : label.replaceFirst(RegExp(r's$'), '');
+
+class _StateBadge extends StatelessWidget {
+  const _StateBadge(this.state, this.health);
+
+  final String state;
+  final PodHealth health;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _healthColor(health);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        state,
+        style: TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w500,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+/// Key/value lines beside the labels, e.g. "Namespace  mgate-sit".
+class _FactList extends StatelessWidget {
+  const _FactList(this.facts);
+
+  final List<(String, String)> facts;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      for (final (key, value) in facts)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: 120, child: Text(key, style: portixMuted(13))),
+              Expanded(
+                child: Tooltip(
+                  message: value,
+                  waitDuration: const Duration(milliseconds: 600),
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13, color: AppColors.text),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+    ],
+  );
+}
+
+/// Labels or annotations as `key: value` chips under a counted title.
+class _ChipList extends StatelessWidget {
+  const _ChipList(this.title, this.entries);
+
+  final String title;
+  final Map<String, String> entries;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Text(title, style: portixMuted(13)),
+          const SizedBox(width: 12),
+          Text(
+            '${entries.length}',
+            style: TextStyle(fontSize: 13, color: AppColors.text),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (final MapEntry(:key, :value) in entries.entries)
+            Container(
+              constraints: const BoxConstraints(maxWidth: 420),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(5),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Tooltip(
+                message: value.isEmpty ? key : '$key: $value',
+                waitDuration: const Duration(milliseconds: 600),
+                child: Text(
+                  value.isEmpty ? key : '$key: $value',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: AppColors.text),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ],
+  );
+}
+
+class _DetailCard extends StatelessWidget {
+  const _DetailCard({
+    required this.title,
+    required this.children,
+    this.trailing,
+  });
+
+  final String title;
+  final Widget? trailing;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: AppColors.border),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 34,
+          child: Row(
+            children: [
+              Expanded(child: Text(title, style: portixTitle(15))),
+              ?trailing,
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        ...children,
+      ],
+    ),
+  );
+}
+
+class _DetailTab extends StatelessWidget {
+  const _DetailTab({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: selected ? AppColors.accent : Colors.transparent,
+            width: 2,
+          ),
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+          color: selected ? AppColors.accent : AppColors.text,
+        ),
+      ),
+    ),
+  );
+}
+
+/// A detail section as key/value rows; a Secret's values stay masked
+/// until revealed.
+class _FactTable extends StatefulWidget {
+  const _FactTable(this.facts);
+
+  final KubeFacts facts;
+
+  @override
+  State<_FactTable> createState() => _FactTableState();
+}
+
+class _FactTableState extends State<_FactTable> {
+  bool _revealed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final masked = widget.facts.secret && !_revealed;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (i, (key, value)) in widget.facts.rows.indexed)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                border: i == 0
+                    ? null
+                    : Border(top: BorderSide(color: AppColors.border)),
+              ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    c.ok
-                        ? Icons.check_circle_outline_rounded
-                        : Icons.cancel_outlined,
-                    size: 16,
-                    color: c.ok ? AppColors.green : AppColors.danger,
-                  ),
-                  const SizedBox(width: 8),
                   SizedBox(
-                    width: 180,
-                    child: Text(
-                      c.type,
-                      style: TextStyle(fontSize: 13, color: AppColors.text),
-                    ),
+                    width: 240,
+                    child: SelectableText(key, style: portixMuted(12.5)),
                   ),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: SelectableText(
-                      [
-                        c.reason,
-                        c.message,
-                      ].where((t) => t.isNotEmpty).join(' · '),
-                      style: portixMuted(12.5),
+                      masked ? '••••••••' : value,
+                      maxLines: 12,
+                      style: _mono.copyWith(
+                        fontSize: 12.5,
+                        color: AppColors.text,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-        ],
-        heading('Events (${detail.events.length})'),
-        if (detail.events.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              'No recent events (Kubernetes keeps them for about an hour).',
-              style: portixMuted(13),
-            ),
-          )
-        else
-          for (final e in detail.events.take(30))
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: _EventLine(e),
-            ),
-      ],
-    );
-  }
-}
-
-class _HeaderButton extends StatelessWidget {
-  const _HeaderButton({
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-    this.danger = false,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback? onPressed;
-  final bool danger;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(left: 6),
-    child: OutlinedButton.icon(
-      onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        foregroundColor: danger ? AppColors.danger : AppColors.text,
-        visualDensity: VisualDensity.compact,
-        textStyle: const TextStyle(fontSize: 12),
-      ),
-      icon: Icon(icon, size: 15),
-      label: Text(label),
-    ),
-  );
-}
-
-/// One fact about a workload, e.g. "Ready 2/3".
-class _InfoChip extends StatelessWidget {
-  const _InfoChip({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => ConstrainedBox(
-    constraints: const BoxConstraints(maxWidth: 640),
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label, style: portixMuted(12)),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Tooltip(
-              message: value,
-              waitDuration: const Duration(milliseconds: 600),
-              child: Text(
-                value,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 12.5, color: AppColors.text),
+          if (widget.facts.secret)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => setState(() => _revealed = !_revealed),
+                icon: Icon(
+                  masked
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                  size: 15,
+                ),
+                label: Text(masked ? 'Reveal values' : 'Hide values'),
               ),
             ),
-          ),
         ],
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// Replicas as − n +; each press scales right away, as in Rancher.
@@ -1989,7 +2589,7 @@ class _TableRow extends StatelessWidget {
     KubeAction.logs => Icons.article_outlined,
   };
 
-  PopupMenuItem<Object> _menuItem(
+  static PopupMenuItem<Object> _menuItem(
     Object value,
     String label,
     IconData icon, {

@@ -2014,6 +2014,13 @@ class _ErrorBannerState extends State<_ErrorBanner> {
 }
 
 /// A pod's health as a small colored dot with a soft halo.
+Color _healthColor(PodHealth health) => switch (health) {
+  PodHealth.ok => AppColors.green,
+  PodHealth.pending => AppColors.amber,
+  PodHealth.failing => AppColors.danger,
+  PodHealth.done => AppColors.muted,
+};
+
 class _PodDot extends StatelessWidget {
   const _PodDot(this.health);
 
@@ -2021,12 +2028,7 @@ class _PodDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = switch (health) {
-      PodHealth.ok => AppColors.green,
-      PodHealth.pending => AppColors.amber,
-      PodHealth.failing => AppColors.danger,
-      PodHealth.done => AppColors.muted,
-    };
+    final color = _healthColor(health);
     return Center(
       child: Container(
         width: 9,
@@ -2142,6 +2144,7 @@ class _SelectButton<T> extends StatelessWidget {
     required this.onSelected,
     this.leading,
     this.noun = 'items',
+    this.isSelected,
   });
 
   final IconData icon;
@@ -2159,6 +2162,10 @@ class _SelectButton<T> extends StatelessWidget {
   /// Plural for the popup's count, e.g. "servers".
   final String noun;
 
+  /// Makes it a multi-select: the popup stays open and each tap hands
+  /// the option to [onSelected] to toggle; this tells what is ticked.
+  final bool Function(T value)? isSelected;
+
   Future<void> _open(BuildContext context) async {
     final picked = await _showAnchored<_Picked<T>>(
       context,
@@ -2169,6 +2176,8 @@ class _SelectButton<T> extends StatelessWidget {
         selected: selected,
         noun: noun,
         maxHeight: maxHeight,
+        isSelected: isSelected,
+        onToggle: onSelected,
       ),
     );
     if (picked != null) onSelected(picked.value);
@@ -2226,12 +2235,16 @@ class _PickerPanel<T> extends StatefulWidget {
     required this.selected,
     required this.noun,
     required this.maxHeight,
+    this.isSelected,
+    this.onToggle,
   });
 
   final List<_Option<T>> options;
   final T? selected;
   final String noun;
   final double maxHeight;
+  final bool Function(T value)? isSelected;
+  final ValueChanged<T>? onToggle;
 
   @override
   State<_PickerPanel<T>> createState() => _PickerPanelState<T>();
@@ -2257,8 +2270,14 @@ class _PickerPanelState<T> extends State<_PickerPanel<T>> {
     ];
   }
 
-  void _pick(_Option<T> option) =>
+  void _pick(_Option<T> option) {
+    if (widget.isSelected == null) {
       Navigator.of(context).pop(_Picked<T>(option.value));
+    } else {
+      widget.onToggle!(option.value);
+      setState(() {});
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2326,7 +2345,9 @@ class _PickerPanelState<T> extends State<_PickerPanel<T>> {
                         final section = filtered[i].section;
                         final row = _PickerRow(
                           option: filtered[i],
-                          selected: filtered[i].value == widget.selected,
+                          selected:
+                              widget.isSelected?.call(filtered[i].value) ??
+                              filtered[i].value == widget.selected,
                           onTap: () => _pick(filtered[i]),
                         );
                         if (section == null ||

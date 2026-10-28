@@ -189,8 +189,8 @@ class KubeKind {
   /// Extra actions beside Edit YAML, Describe and Delete.
   final List<KubeAction> Function(Json item) actions;
 
-  /// Runs pods picked by `spec.selector`, so a click opens its detail
-  /// with those pods instead of plain describe output.
+  /// Runs pods picked by `spec.selector`: its detail lists them and can
+  /// scale.
   final bool ownsPods;
 }
 
@@ -822,45 +822,354 @@ String formatBytes(double bytes) {
   return rows == 0 ? null : (cpu: cpu, memory: memory);
 }
 
+/// [items] per namespace, namespaces alphabetically, each keeping the
+/// order it had in [items].
+Map<String, List<Json>> groupByNamespace(List<Json> items) {
+  final groups = <String, List<Json>>{};
+  for (final item in items) {
+    (groups[namespaceOf(item) ?? ''] ??= []).add(item);
+  }
+  return {for (final ns in groups.keys.toList()..sort()) ns: groups[ns]!};
+}
+
 /// Separates the parts of a command that runs several kubectl calls.
 const kubeSeparator = '---portix---';
 
-/// `spec.selector.matchLabels` as a `-l` selector; null when there is none.
+/// `spec.selector` (a Service's) or `spec.selector.matchLabels` (a
+/// workload's) as a `-l` selector; null when there is none.
 // ponytail: matchExpressions are left out; every built-in controller sets
 // matchLabels, add them if a CRD-made workload needs it.
 String? podSelector(Json item) {
-  final labels = _map(item, 'spec.selector.matchLabels');
+  final selector = _map(item, 'spec.selector');
+  // A Service selects with a plain label map.
+  final labels = selector.values.every((v) => v is String)
+      ? selector
+      : _map(item, 'spec.selector.matchLabels');
   if (labels.isEmpty) return null;
   return [
     for (final MapEntry(:key, :value) in labels.entries) '$key=$value',
   ].join(',');
 }
 
-/// A workload's latest state, its pods and its events, in one round trip.
+/// An item's latest state, its pods (a workload's or service's, or those
+/// on a node) and its events, in one round trip.
 String detailCommand(KubeKind kind, Json item) {
   final ns = _nsFlag(namespaceOf(item));
   final selector = podSelector(item);
+  final pods = kind.type == 'nodes'
+      ? 'kubectl get pods -A --field-selector '
+            '${shellQuote('spec.nodeName=${nameOf(item)}')} -o json'
+      : selector != null && (kind.ownsPods || kind.type == 'services')
+      ? 'kubectl get pods$ns -l ${shellQuote(selector)} -o json'
+      : _none;
   return [
     'kubectl get ${_target(kind, item)} -o json',
-    selector == null
-        ? "echo '{\"items\":[]}'"
-        : 'kubectl get pods$ns -l ${shellQuote(selector)} -o json',
-    'kubectl get events$ns --field-selector '
+    pods,
+    // Events of cluster-scoped items land in some namespace, usually default.
+    'kubectl get events${kind.namespaced ? ns : ' -A'} --field-selector '
         '${shellQuote('involvedObject.name=${nameOf(item)}')} -o json',
+    // A workload's services are picked out by [parseDetail].
+    if (kind.ownsPods) 'kubectl get services$ns -o json' else _none,
   ].join(" && echo '$kubeSeparator' && ");
 }
 
-typedef KubeDetail = ({Json item, List<Json> pods, List<Json> events});
+const _none = "echo '{\"items\":[]}'";
 
-/// Parses [detailCommand]'s output; events newest first.
+/// Where a workload kind keeps its pod template; null for other kinds.
+String? _podTemplate(KubeKind kind) => switch (kind.type) {
+  'cronjobs' => 'spec.jobTemplate.spec.template',
+  _ when kind.ownsPods => 'spec.template',
+  _ => null,
+};
+
+String _containerPorts(Json container) => [
+  for (final p in _list(container, 'ports'))
+    [
+      if (p['name'] != null) '${p['name']} ',
+      '${p['containerPort']}/${p['protocol'] ?? 'TCP'}',
+    ].join(),
+].join(', ');
+
+/// A workload's container ports, e.g. `http 8080/TCP`; empty for other
+/// kinds.
+String workloadPorts(KubeKind kind, Json item) => switch (_podTemplate(kind)) {
+  final template? => [
+    for (final c in _list(item, '$template.spec.containers'))
+      if (_containerPorts(c) case final ports when ports.isNotEmpty) ports,
+  ].join(', '),
+  null => '',
+};
+
+/// Rancher's own record of where an item is reached from outside
+/// (`field.cattle.io/publicEndpoints`), e.g. `[Any Node]:19001`.
+List<String> publicEndpoints(Json item) {
+  final raw = _map(item, 'metadata.annotations')[_publicEndpoints];
+  if (raw is! String) return const [];
+  try {
+    return [
+      for (final e in (jsonDecode(raw) as List).cast<Map>())
+        if (e['hostname'] != null)
+          '${e['hostname']}${e['path'] ?? ''}'
+        else if (e['allNodes'] == true)
+          '[Any Node]:${e['port']}'
+        else
+          for (final address in (e['addresses'] as List?) ?? const [])
+            '$address:${e['port']}',
+    ];
+  } on Object {
+    return const [];
+  }
+}
+
+const _publicEndpoints = 'field.cattle.io/publicEndpoints';
+
+/// Where [service] is reached from outside, as Rancher shows it:
+/// `[Any Node]:30080` for a node port, `ip:port` for a load balancer.
+List<String> serviceEndpoints(Json service) => [
+  for (final p in _list(service, 'spec.ports')) ...[
+    if (p['nodePort'] != null) '[Any Node]:${p['nodePort']}',
+    for (final address in _lbAddress(service).split(', '))
+      if (address.isNotEmpty) '$address:${p['port']}',
+  ],
+];
+
+/// Whether [detailCommand] reads pods for [kind].
+bool detailHasPods(KubeKind kind) =>
+    kind.ownsPods || kind.type == 'services' || kind.type == 'nodes';
+
+typedef KubeFacts = ({String title, List<(String, String)> rows, bool secret});
+
+/// Rows with no value are left out, unless [keepEmpty] (a label's value
+/// may be empty on purpose).
+KubeFacts _facts(
+  String title,
+  List<(String, String)> rows, {
+  bool keepEmpty = false,
+}) => (
+  title: title,
+  rows: [
+    for (final r in rows)
+      if (keepEmpty || r.$2.isNotEmpty) r,
+  ],
+  secret: false,
+);
+
+String _owner(Json item) => [
+  for (final o in _list(item, 'metadata.ownerReferences'))
+    '${o['kind']}/${o['name']}',
+].join(', ');
+
+String _containerState(Json status) {
+  final state = _map(status, 'state');
+  if (state.isEmpty) return '';
+  final MapEntry(:key, :value) = state.entries.first;
+  final reason = (value as Map?)?['reason'];
+  return reason == null ? key : '$key ($reason)';
+}
+
+String _quantities(Json node, String key) => [
+  _str(node, 'status.allocatable.$key'),
+  _str(node, 'status.capacity.$key'),
+].where((q) => q.isNotEmpty).join(' of ');
+
+/// What a detail page shows about [item] beyond its table columns, per kind;
+/// sections without rows are left out.
+List<KubeFacts> detailSections(KubeKind kind, Json item) {
+  final sections = <KubeFacts>[
+    switch (kind.type) {
+      'pods' => _facts('Pod', [
+        ('Node', _str(item, 'spec.nodeName')),
+        ('Pod IP', _str(item, 'status.podIP')),
+        ('Host IP', _str(item, 'status.hostIP')),
+        ('QoS class', _str(item, 'status.qosClass')),
+        ('Service account', _str(item, 'spec.serviceAccountName')),
+        ('Restart policy', _str(item, 'spec.restartPolicy')),
+        ('Controlled by', _owner(item)),
+      ]),
+      'nodes' => _facts('System', [
+        ('Internal IP', _nodeAddress(item, 'InternalIP')),
+        ('External IP', _nodeAddress(item, 'ExternalIP')),
+        ('OS image', _str(item, 'status.nodeInfo.osImage')),
+        ('Kernel', _str(item, 'status.nodeInfo.kernelVersion')),
+        (
+          'Container runtime',
+          _str(item, 'status.nodeInfo.containerRuntimeVersion'),
+        ),
+        ('Kubelet', _str(item, 'status.nodeInfo.kubeletVersion')),
+        ('Architecture', _str(item, 'status.nodeInfo.architecture')),
+        ('Pod CIDR', _str(item, 'spec.podCIDR')),
+      ]),
+      'services' => _facts('Service', [
+        ('Type', _str(item, 'spec.type')),
+        ('Cluster IP', _str(item, 'spec.clusterIP')),
+        ('External', _lbAddress(item)),
+        ('Selector', _selector(item, 'spec.selector')),
+        ('Session affinity', _str(item, 'spec.sessionAffinity')),
+      ]),
+      _ => _facts('Controlled by', [('Owner', _owner(item))]),
+    },
+  ];
+  if (_podTemplate(kind) case final template?) {
+    sections.add(
+      _facts('Containers', [
+        for (final c in _list(item, '$template.spec.containers'))
+          (
+            '${c['name']}',
+            [
+              '${c['image'] ?? ''}',
+              _containerPorts(c),
+            ].where((t) => t.isNotEmpty).join(' · '),
+          ),
+      ]),
+    );
+  }
+  switch (kind.type) {
+    case 'pods':
+      final statuses = {
+        for (final c in _list(item, 'status.containerStatuses')) c['name']: c,
+      };
+      sections.add(
+        _facts('Containers', [
+          for (final c in _list(item, 'spec.containers'))
+            (
+              '${c['name']}',
+              [
+                '${c['image'] ?? ''}',
+                _containerPorts(c),
+                if (statuses[c['name']] case final Json s) ...[
+                  _containerState(s),
+                  s['ready'] == true ? 'ready' : 'not ready',
+                  'restarts ${s['restartCount'] ?? 0}',
+                ],
+              ].where((t) => t.isNotEmpty).join(' · '),
+            ),
+        ]),
+      );
+    case 'nodes':
+      sections.add(
+        _facts('Allocatable of capacity', [
+          ('CPU', _quantities(item, 'cpu')),
+          ('Memory', _quantities(item, 'memory')),
+          ('Pods', _quantities(item, 'pods')),
+          ('Ephemeral storage', _quantities(item, 'ephemeral-storage')),
+        ]),
+      );
+      sections.add(
+        _facts('Taints', [
+          for (final t in _list(item, 'spec.taints'))
+            ('${t['key']}', '${t['value'] ?? ''}:${t['effect']}'),
+        ]),
+      );
+    case 'services':
+      sections.add(
+        _facts('Ports', [
+          for (final p in _list(item, 'spec.ports'))
+            (
+              '${p['name'] ?? p['port']}',
+              [
+                '${p['port']} → ${p['targetPort'] ?? p['port']}/${p['protocol'] ?? 'TCP'}',
+                if (p['nodePort'] != null) 'node port ${p['nodePort']}',
+              ].join(' · '),
+            ),
+        ]),
+      );
+    case 'ingresses':
+      sections.add(
+        _facts('Rules', [
+          for (final r in _list(item, 'spec.rules'))
+            for (final p in _list(r, 'http.paths'))
+              (
+                '${r['host'] ?? '*'}${p['path'] ?? '/'}',
+                '${field(p, 'backend.service.name') ?? ''}:'
+                    '${field(p, 'backend.service.port.number') ?? field(p, 'backend.service.port.name') ?? ''}',
+              ),
+        ]),
+      );
+    case 'configmaps':
+      sections.add(
+        _facts('Data', [
+          for (final MapEntry(:key, :value) in _map(item, 'data').entries)
+            (key, '$value'),
+        ]),
+      );
+    case 'secrets':
+      sections.add((
+        title: 'Data',
+        rows: [
+          for (final MapEntry(:key, :value) in _map(item, 'data').entries)
+            (key, _decode('$value')),
+        ],
+        secret: true,
+      ));
+  }
+  sections.add(
+    _facts('Labels', keepEmpty: true, [
+      for (final MapEntry(:key, :value) in _map(
+        item,
+        'metadata.labels',
+      ).entries)
+        (key, '$value'),
+    ]),
+  );
+  sections.add(
+    _facts('Annotations', keepEmpty: true, [
+      for (final MapEntry(:key, :value) in _map(
+        item,
+        'metadata.annotations',
+      ).entries)
+        // kubectl's copy of the last applied spec is just noise here.
+        // Rancher's endpoints show as Endpoints, not as raw JSON.
+        if (key != 'kubectl.kubernetes.io/last-applied-configuration' &&
+            key != _publicEndpoints)
+          (key, '$value'),
+    ]),
+  );
+  return [
+    for (final s in sections)
+      if (s.rows.isNotEmpty) s,
+  ];
+}
+
+String _decode(String base64) {
+  try {
+    return utf8.decode(base64Decode(base64));
+  } on FormatException {
+    return '<binary, ${base64.length * 3 ~/ 4} bytes>';
+  }
+}
+
+typedef KubeDetail = ({
+  Json item,
+  List<Json> pods,
+  List<Json> events,
+  List<Json> services,
+});
+
+/// Parses [detailCommand]'s output; events newest first, and only the
+/// services whose selector matches the workload's pod template.
 KubeDetail parseDetail(String output) {
-  final [item, pods, events] = output.split('$kubeSeparator\n');
+  final [item, pods, events, services] = output.split('$kubeSeparator\n');
+  final json = jsonDecode(item) as Json;
+  final labels = {
+    ..._map(json, 'spec.template.metadata.labels'),
+    ..._map(json, 'spec.jobTemplate.spec.template.metadata.labels'),
+  };
+  bool selects(Json service) {
+    final selector = _map(service, 'spec.selector');
+    return selector.isNotEmpty &&
+        selector.entries.every((e) => labels[e.key] == e.value);
+  }
+
   String stamp(Json e) =>
       '${field(e, 'lastTimestamp') ?? field(e, 'eventTime') ?? field(e, 'metadata.creationTimestamp')}';
   return (
-    item: jsonDecode(item) as Json,
+    item: json,
     pods: parseItems(pods)..sort((a, b) => nameOf(a).compareTo(nameOf(b))),
     events: parseItems(events)..sort((a, b) => stamp(b).compareTo(stamp(a))),
+    services: [
+      for (final s in parseItems(services))
+        if (selects(s)) s,
+    ],
   );
 }
 

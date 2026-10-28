@@ -137,11 +137,27 @@ void main() {
     expect(data.version, '');
   });
 
+  test('all namespaces group by namespace, keeping the sort', () {
+    Json item(String ns, String name) => {
+      'metadata': {'name': name, 'namespace': ns},
+    };
+    final groups = groupByNamespace([
+      item('prod', 'b'),
+      item('dev', 'z'),
+      item('prod', 'a'),
+    ]);
+    expect(groups.keys, ['dev', 'prod']);
+    expect(groups['prod']!.map(nameOf), ['b', 'a']);
+  });
+
   group('workload detail', () {
     final deployment = _json('''{
       "metadata": {"name": "api", "namespace": "prod"},
       "spec": {"replicas": 3,
-               "selector": {"matchLabels": {"app": "api", "tier": "web"}}},
+               "selector": {"matchLabels": {"app": "api", "tier": "web"}},
+               "template": {"metadata": {"labels": {"app": "api", "tier": "web"}},
+                 "spec": {"containers": [{"name": "api", "image": "api:1",
+                   "ports": [{"name": "http", "containerPort": 8080}]}]}}},
       "status": {"readyReplicas": 2, "conditions": [
         {"type": "Available", "status": "True", "reason": "MinimumReplicasAvailable"},
         {"type": "Progressing", "status": "False", "reason": "ProgressDeadlineExceeded",
@@ -162,6 +178,7 @@ void main() {
         contains("kubectl get pods -n 'prod' -l 'app=api,tier=web'"),
       );
       expect(command, contains("--field-selector 'involvedObject.name=api'"));
+      expect(command, endsWith("kubectl get services -n 'prod' -o json"));
     });
 
     test('parseDetail splits item, pods and newest-first events', () {
@@ -183,18 +200,116 @@ void main() {
             {'lastTimestamp': '2026-10-27T11:00:00Z', 'reason': 'new'},
           ],
         }),
+        jsonEncode({
+          'items': [
+            {
+              'metadata': {'name': 'api-svc'},
+              'spec': {
+                'selector': {'app': 'api'},
+                'type': 'NodePort',
+                'ports': [
+                  {'port': 80, 'nodePort': 18000},
+                ],
+              },
+            },
+            {
+              'metadata': {'name': 'other'},
+              'spec': {
+                'selector': {'app': 'web'},
+              },
+            },
+          ],
+        }),
       ].join('\n$kubeSeparator\n');
       final detail = parseDetail(output);
       expect(nameOf(detail.item), 'api');
       expect(detail.pods.map(nameOf), ['api-a', 'api-b']);
       expect(detail.events.map((e) => e['reason']), ['new', 'old']);
+      expect(detail.services.map(nameOf), ['api-svc']);
+      expect(serviceEndpoints(detail.services.single), ['[Any Node]:18000']);
+      expect(
+        workloadPorts(kubeKinds['deployments']!, detail.item),
+        'http 8080/TCP',
+      );
       expect(conditionsOf(detail.item).map((c) => (c.type, c.ok)), [
         ('Available', true),
         ('Progressing', false),
       ]);
     });
 
-    test('only workloads open a detail', () {
+    test("Rancher's publicEndpoints become endpoints, not annotations", () {
+      final item = {
+        'metadata': {
+          'name': 'core',
+          'annotations': {
+            'field.cattle.io/publicEndpoints':
+                '[{"port":19001,"protocol":"TCP","allNodes":true},'
+                '{"port":443,"addresses":["10.0.0.1"]},'
+                '{"hostname":"api.example.com","path":"/v1","port":80}]',
+            'a': 'b',
+          },
+        },
+      };
+      expect(publicEndpoints(item), [
+        '[Any Node]:19001',
+        '10.0.0.1:443',
+        'api.example.com/v1',
+      ]);
+      expect(detailSections(kubeKinds['deployments']!, item).last.rows, [
+        ('a', 'b'),
+      ]);
+      expect(publicEndpoints({'metadata': {}}), isEmpty);
+    });
+
+    test('a service and a node list their pods too', () {
+      final service = _json('''{
+        "metadata": {"name": "api", "namespace": "prod"},
+        "spec": {"selector": {"app": "api"}, "ports": [
+          {"name": "http", "port": 80, "targetPort": 8080, "protocol": "TCP"}]}
+      }''');
+      expect(podSelector(service), 'app=api');
+      expect(
+        detailCommand(kubeKinds['services']!, service),
+        contains("kubectl get pods -n 'prod' -l 'app=api'"),
+      );
+      final node = detailCommand(kubeKinds['nodes']!, _node);
+      expect(
+        node,
+        contains("get pods -A --field-selector 'spec.nodeName=w-1'"),
+      );
+      expect(node, contains("get events -A --field-selector"));
+      expect(
+        detailCommand(kubeKinds['configmaps']!, _pod),
+        contains("echo '{\"items\":[]}'"),
+      );
+      expect(
+        detailSections(
+          kubeKinds['services']!,
+          service,
+        ).firstWhere((s) => s.title == 'Ports').rows,
+        [('http', '80 → 8080/TCP')],
+      );
+    });
+
+    test('detail sections per kind skip empty ones', () {
+      final pod = detailSections(kubeKinds['pods']!, _pod);
+      expect(pod.map((s) => s.title), ['Pod', 'Containers']);
+      expect(pod.first.rows, [('Node', 'w-1'), ('Pod IP', '10.0.0.7')]);
+      expect(pod.last.rows.last, (
+        'proxy',
+        'waiting (CrashLoopBackOff) · not ready · restarts 1',
+      ));
+      final node = detailSections(kubeKinds['nodes']!, _node);
+      expect(node.map((s) => s.title), ['Allocatable of capacity', 'Labels']);
+      final secret = detailSections(
+        kubeKinds['secrets']!,
+        _json('{"metadata": {"name": "s"}, "data": {"pw": "aHVudGVyMg=="}}'),
+      ).single;
+      expect(secret.secret, isTrue);
+      expect(secret.rows, [('pw', 'hunter2')]);
+    });
+
+    test('only workloads own pods', () {
       expect(
         [
           for (final kind in kubeKinds.values)

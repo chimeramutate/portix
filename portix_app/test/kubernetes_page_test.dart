@@ -20,6 +20,22 @@ void main() {
     await sl.reset();
   });
 
+  test('several namespaces can be picked; null goes back to all', () {
+    final kube = kubeTabs.current
+      ..toggleNamespace('prod')
+      ..toggleNamespace('dev');
+    expect(kube.picked, {'prod', 'dev'});
+    expect(kube.namespace, isNull, reason: 'several: no single -n');
+    kube.toggleNamespace('dev');
+    expect(kube.namespace, 'prod');
+    kube.setNamespaces(['dev']);
+    expect(kube.picked, isEmpty, reason: 'gone namespaces drop out');
+    kube
+      ..toggleNamespace('dev')
+      ..toggleNamespace(null);
+    expect(kube.picked, isEmpty);
+  });
+
   testWidgets('every side panel section opens without a server', (
     tester,
   ) async {
