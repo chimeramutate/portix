@@ -49,6 +49,7 @@ class WorkspaceTopBar extends StatelessWidget {
         const <Widget>[],
       ),
       WorkspaceView.rdp => (const _Title('Remote Desktop'), const <Widget>[]),
+      WorkspaceView.kibana => (const _Title('Kibana'), const <Widget>[]),
       WorkspaceView.kubernetes => (
         ListenableBuilder(
           listenable: kubeTabs,

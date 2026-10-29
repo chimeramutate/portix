@@ -2,7 +2,15 @@ part of 'ssh_workspace_bloc.dart';
 
 enum WorkspaceStatus { initial, loading, ready, failure }
 
-enum WorkspaceView { gallery, form, remoteFolder, sftp, rdp, kubernetes }
+enum WorkspaceView {
+  gallery,
+  form,
+  remoteFolder,
+  sftp,
+  rdp,
+  kubernetes,
+  kibana,
+}
 
 class SshWorkspaceState extends Equatable {
   const SshWorkspaceState({

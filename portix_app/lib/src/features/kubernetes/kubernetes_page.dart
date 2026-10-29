@@ -937,12 +937,10 @@ class _KubeLogViewState extends State<_KubeLogView>
 
   Future<void> _pickAbsolute() async {
     final now = DateTime.now();
-    final range = await showDialog<(DateTime, DateTime)>(
-      context: context,
-      builder: (_) => _AbsoluteRangeDialog(
-        from: _from ?? now.subtract(const Duration(hours: 1)),
-        to: _to ?? now,
-      ),
+    final range = await showAbsoluteRangeDialog(
+      context,
+      from: _from ?? now.subtract(const Duration(hours: 1)),
+      to: _to ?? now,
     );
     if (range == null) return;
     setState(() {
@@ -2064,6 +2062,14 @@ class _NamespaceIcon extends StatelessWidget {
   );
 }
 
+/// [_showAnchored] for other views (the Kibana time picker).
+Future<R?> showAnchoredPanel<R>(
+  BuildContext context, {
+  required String label,
+  required double Function(Rect anchor) width,
+  required Widget Function(double maxHeight) builder,
+}) => _showAnchored(context, label: label, width: width, builder: builder);
+
 /// Opens [builder]'s panel just under the widget of [context] (a button),
 /// kept on screen; returns what the panel pops with.
 Future<R?> _showAnchored<R>(
@@ -2823,6 +2829,17 @@ class _ControlShell extends StatelessWidget {
     );
   }
 }
+
+/// Asks for an absolute range starting at [from]..[to]; null when
+/// cancelled. Shared with the Kibana view's time picker.
+Future<(DateTime, DateTime)?> showAbsoluteRangeDialog(
+  BuildContext context, {
+  required DateTime from,
+  required DateTime to,
+}) => showDialog<(DateTime, DateTime)>(
+  context: context,
+  builder: (_) => _AbsoluteRangeDialog(from: from, to: to),
+);
 
 /// Kibana-style absolute range: pick the start or end card, then its day on
 /// the calendar and its time (typed or from the half-hour list).

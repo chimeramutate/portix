@@ -69,6 +69,7 @@ class WorkspaceRail extends StatelessWidget {
             Icons.view_in_ar_outlined,
             'Kubernetes',
           ),
+          item(WorkspaceView.kibana, Icons.manage_search_rounded, 'Kibana'),
         ],
       ),
     );
