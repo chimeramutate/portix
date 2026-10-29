@@ -51,6 +51,11 @@ class ConnectionManager extends ChangeNotifier {
   final _terminalOutput = StreamController<TerminalOutputEvent>.broadcast();
   final _errors = StreamController<ConnectionErrorEvent>.broadcast();
   final _sessionLost = StreamController<String>.broadcast();
+
+  /// Sessions from [openCommandSession]: not terminal tabs, so their status
+  /// goes to [commandStatusStream] only.
+  final Set<String> _commandSessions = {};
+  final _commandStatus = StreamController<ConnectionStatusEvent>.broadcast();
   // Open session logs, keyed by UI session id.
   final Map<String, ({String path, IOSink sink})> _recordings = {};
 
@@ -168,6 +173,32 @@ class ConnectionManager extends ChangeNotifier {
   }
 
   Future<void> disconnect(String sessionId) => _backend.disconnect(sessionId);
+
+  /// Runs [command] in a PTY of its own on [profile] (`ssh -t host cmd`),
+  /// outside the terminal tabs. No shell reads it, so it stays out of the
+  /// server's shell history. The id works with [sendTerminalInput],
+  /// [resizeTerminal], [disconnect] and [terminalOutputStream]; its status
+  /// arrives on [commandStatusStream].
+  Future<Result<String>> openCommandSession(
+    SshProfile profile,
+    String command,
+  ) async {
+    try {
+      final resolved = await credentials.resolve(profile);
+      final id = await _backend
+          .connect(resolved.copyWith(command: command))
+          .timeout(const Duration(seconds: 40));
+      _commandSessions.add(id);
+      return Right(id);
+    } catch (error) {
+      return Left(
+        AppFailure('Failed to connect to ${profile.name}', cause: error),
+      );
+    }
+  }
+
+  Stream<ConnectionStatusEvent> get commandStatusStream =>
+      _commandStatus.stream;
 
   /// Renames a tab; a blank [title] is ignored.
   void renameSession(String sessionId, String title) {
@@ -336,7 +367,10 @@ class ConnectionManager extends ChangeNotifier {
   ) async {
     try {
       return Right(
-        await _backend.execOnProfile(await credentials.resolve(profile), command),
+        await _backend.execOnProfile(
+          await credentials.resolve(profile),
+          command,
+        ),
       );
     } catch (error) {
       return Left(AppFailure('Remote command failed', cause: error));
@@ -422,6 +456,14 @@ class ConnectionManager extends ChangeNotifier {
   }
 
   void _handleStatus(ConnectionStatusEvent event) {
+    if (_commandSessions.contains(event.sessionId)) {
+      if (event.status == ConnectionStatus.disconnected ||
+          event.status == ConnectionStatus.error) {
+        _commandSessions.remove(event.sessionId);
+      }
+      _commandStatus.add(event);
+      return;
+    }
     final sessionId =
         _backendToUiSessionIds[event.sessionId] ?? event.sessionId;
     final index = _sessions.indexWhere((session) => session.id == sessionId);
@@ -508,6 +550,7 @@ class ConnectionManager extends ChangeNotifier {
     _terminalOutput.close();
     _errors.close();
     _sessionLost.close();
+    _commandStatus.close();
     if (_backend case MockConnectionBackend mock) {
       mock.dispose();
     }

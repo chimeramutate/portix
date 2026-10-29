@@ -156,6 +156,7 @@ class SshProfileRepository {
       'osIconAsset': profile.osIconAsset,
       'jumpProfileId': profile.jumpProfileId,
       'forwardAgent': profile.forwardAgent,
+      'runsKubernetes': profile.runsKubernetes,
     };
   }
 
@@ -197,6 +198,7 @@ class SshProfileRepository {
       osIconAsset: json['osIconAsset']?.toString() ?? '',
       jumpProfileId: json['jumpProfileId']?.toString() ?? '',
       forwardAgent: json['forwardAgent'] == true,
+      runsKubernetes: json['runsKubernetes'] == true,
     );
   }
 }

@@ -158,7 +158,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
         return;
       }
       _activeTabClosed = false;
-      _connect();
+      // After the frame, as in initState: connecting notifies the
+      // ConnectionManager at once, and its listeners above this panel
+      // cannot rebuild in the middle of this build.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _connect();
+      });
     }
   }
 

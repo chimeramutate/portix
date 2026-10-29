@@ -167,7 +167,10 @@ impl SshRuntime {
         if self.profile.forward_agent {
             channel.agent_forward(false).await?;
         }
-        channel.request_shell(true).await?;
+        match &self.profile.command {
+            Some(command) => channel.exec(true, command.as_bytes()).await?,
+            None => channel.request_shell(true).await?,
+        }
         let (exec_tx, exec_rx) = mpsc::channel::<ExecRequest>(64);
         tokio::spawn(run_exec_worker(self.profile.clone(), exec_rx));
         self.emit_status(ConnectionStatus::Connected, Some("connected"));

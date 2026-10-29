@@ -103,7 +103,7 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
             return BlocProvider.value(
               value: _sftpWorkspaceBloc,
               child: ListenableBuilder(
-                listenable: _connectionManager,
+                listenable: Listenable.merge([_connectionManager, kubeTabs]),
                 builder: (context, child) => WorkspaceShell(
                   state: state,
                   panel: _panelFor(state),
@@ -141,6 +141,11 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
     WorkspaceView.rdp => const SidePanel(
       title: 'Groups',
       child: RdpGroupsPanel(),
+    ),
+    // Sections mean nothing until the tab has connected to its cluster.
+    WorkspaceView.kubernetes when kubeTabs.current.connected => const SidePanel(
+      title: 'Kubernetes',
+      child: KubeSectionsPanel(),
     ),
     _ => null,
   };

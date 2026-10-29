@@ -256,6 +256,7 @@ fn profile(port: u16) -> SshProfile {
         key_passphrase: None,
         jump_host: None,
         forward_agent: false,
+        command: None,
     }
 }
 
