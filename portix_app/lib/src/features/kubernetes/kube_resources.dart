@@ -701,6 +701,15 @@ String applyCommand(String yaml, [String? namespace]) =>
     "printf '%s' ${base64.encode(utf8.encode(yaml))} | base64 -d | "
     'kubectl apply${_nsFlag(namespace)} -f -';
 
+String itemCommand(KubeKind kind, Json item) =>
+    'kubectl get ${_target(kind, item)} -o json';
+
+/// `kubectl replace` of a whole [item]. Unlike apply it drops what was
+/// removed from it, and its resourceVersion refuses a stale write.
+String replaceCommand(Json item) =>
+    "printf '%s' ${base64.encode(utf8.encode(jsonEncode(item)))} | "
+    'base64 -d | kubectl replace -f -';
+
 String scaleCommand(KubeKind kind, Json item, int replicas) =>
     'kubectl scale ${_target(kind, item)} --replicas=$replicas';
 
@@ -881,6 +890,107 @@ String? _podTemplate(KubeKind kind) => switch (kind.type) {
   _ when kind.ownsPods => 'spec.template',
   _ => null,
 };
+
+/// Where [kind] keeps the pod spec the form edits; null for kinds without
+/// a form. A Job's template can't change once created.
+String? kubeFormSpec(KubeKind kind) => switch (kind.type) {
+  'pods' => 'spec',
+  'jobs' => null,
+  _ => switch (_podTemplate(kind)) {
+    final template? => '$template.spec',
+    null => null,
+  },
+};
+
+/// A running pod takes a new image and nothing else from the form.
+bool kubeFormImageOnly(KubeKind kind) => kind.type == 'pods';
+
+bool kubeFormHasReplicas(KubeKind kind) =>
+    kind.type == 'deployments' || kind.type == 'statefulsets';
+
+/// An env var; [source] names a secret or config map value, which the form
+/// shows but leaves alone.
+typedef KubeEnvVar = ({String name, String value, String? source});
+
+typedef KubeContainerEdit = ({
+  String name,
+  String image,
+  List<KubeEnvVar> env,
+  String cpuRequest,
+  String memoryRequest,
+  String cpuLimit,
+  String memoryLimit,
+});
+
+String? _envSource(Json env) => switch (env['valueFrom']) {
+  {'secretKeyRef': {'name': final name, 'key': final key}} =>
+    'secret $name/$key',
+  {'configMapKeyRef': {'name': final name, 'key': final key}} =>
+    'configmap $name/$key',
+  {'fieldRef': {'fieldPath': final path}} => 'field $path',
+  final Map<String, dynamic> from => from.keys.join(', '),
+  _ => null,
+};
+
+/// [item]'s containers as the form shows them.
+List<KubeContainerEdit> containerEdits(KubeKind kind, Json item) => [
+  for (final c in _list(item, '${kubeFormSpec(kind)}.containers'))
+    (
+      name: _str(c, 'name'),
+      image: _str(c, 'image'),
+      env: [
+        for (final env in _list(c, 'env'))
+          (
+            name: _str(env, 'name'),
+            value: _str(env, 'value'),
+            source: _envSource(env),
+          ),
+      ],
+      cpuRequest: _str(c, 'resources.requests.cpu'),
+      memoryRequest: _str(c, 'resources.requests.memory'),
+      cpuLimit: _str(c, 'resources.limits.cpu'),
+      memoryLimit: _str(c, 'resources.limits.memory'),
+    ),
+];
+
+void _setQuantity(Json container, String section, String key, String value) {
+  final resources = (container['resources'] ??= <String, dynamic>{}) as Map;
+  final quantities = (resources[section] ??= <String, dynamic>{}) as Map;
+  value.isEmpty ? quantities.remove(key) : quantities[key] = value;
+  if (quantities.isEmpty) resources.remove(section);
+  if (resources.isEmpty) container.remove('resources');
+}
+
+/// A copy of [item] with the form's [containers] and [replicas] in it;
+/// everything the form doesn't show stays as it was.
+Json withFormEdits(
+  KubeKind kind,
+  Json item, {
+  required List<KubeContainerEdit> containers,
+  int? replicas,
+}) {
+  final copy = jsonDecode(jsonEncode(item)) as Json;
+  if (replicas != null) (copy['spec'] as Map)['replicas'] = replicas;
+  for (final c in _list(copy, '${kubeFormSpec(kind)}.containers')) {
+    final edit = containers.where((e) => e.name == c['name']).firstOrNull;
+    if (edit == null) continue;
+    c['image'] = edit.image;
+    if (kubeFormImageOnly(kind)) continue;
+    final env = [
+      for (final e in edit.env)
+        if (e.source == null)
+          {'name': e.name, 'value': e.value}
+        else
+          _list(c, 'env').firstWhere((old) => old['name'] == e.name),
+    ];
+    env.isEmpty ? c.remove('env') : c['env'] = env;
+    _setQuantity(c, 'requests', 'cpu', edit.cpuRequest);
+    _setQuantity(c, 'requests', 'memory', edit.memoryRequest);
+    _setQuantity(c, 'limits', 'cpu', edit.cpuLimit);
+    _setQuantity(c, 'limits', 'memory', edit.memoryLimit);
+  }
+  return copy;
+}
 
 String _containerPorts(Json container) => [
   for (final p in _list(container, 'ports'))

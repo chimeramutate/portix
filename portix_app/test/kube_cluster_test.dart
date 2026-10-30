@@ -28,6 +28,141 @@ final _node = _json('''{
 }''');
 
 void main() {
+  group('edit form', () {
+    final deployment = _json('''{
+      "apiVersion": "apps/v1", "kind": "Deployment",
+      "metadata": {"name": "api", "namespace": "prod", "resourceVersion": "42"},
+      "spec": {"replicas": 2, "selector": {"matchLabels": {"app": "api"}},
+        "template": {"spec": {"nodeSelector": {"zone": "a"},
+          "containers": [
+            {"name": "api", "image": "api:1", "ports": [{"containerPort": 80}],
+             "resources": {"requests": {"cpu": "100m", "ephemeral-storage": "1Gi"},
+                           "limits": {"memory": "1Gi"}},
+             "env": [
+               {"name": "MODE", "value": "prod"},
+               {"name": "OLD", "value": "x"},
+               {"name": "PASSWORD", "valueFrom": {
+                 "secretKeyRef": {"name": "db", "key": "password"}}}
+             ]},
+            {"name": "proxy", "image": "proxy:1"}
+          ]}}}
+    }''');
+    final kind = kubeKinds['deployments']!;
+
+    test('reads containers, showing secrets by source only', () {
+      final [api, proxy] = containerEdits(kind, deployment);
+      expect(api.image, 'api:1');
+      expect(api.cpuRequest, '100m');
+      expect(api.memoryLimit, '1Gi');
+      expect(api.env.last, (
+        name: 'PASSWORD',
+        value: '',
+        source: 'secret db/password',
+      ));
+      expect(proxy.env, isEmpty);
+    });
+
+    test('edits only what the form shows', () {
+      final [api, proxy] = containerEdits(kind, deployment);
+      final edited = withFormEdits(
+        kind,
+        deployment,
+        replicas: 3,
+        containers: [
+          (
+            name: 'api',
+            image: 'api:2',
+            env: [api.env.last, (name: 'NEW', value: 'y', source: null)],
+            cpuRequest: '',
+            memoryRequest: '64Mi',
+            cpuLimit: '',
+            memoryLimit: '',
+          ),
+          proxy,
+        ],
+      );
+      final containers = field(edited, 'spec.template.spec.containers') as List;
+      final c = (containers.first as Map).cast<String, dynamic>();
+      expect(c['image'], 'api:2');
+      expect(c['env'], [
+        {
+          'name': 'PASSWORD',
+          'valueFrom': {
+            'secretKeyRef': {'name': 'db', 'key': 'password'},
+          },
+        },
+        {'name': 'NEW', 'value': 'y'},
+      ]);
+      expect(c['resources'], {
+        'requests': {'ephemeral-storage': '1Gi', 'memory': '64Mi'},
+      });
+      expect(c['ports'], [
+        {'containerPort': 80},
+      ]);
+      expect(containers.last, {'name': 'proxy', 'image': 'proxy:1'});
+      expect(field(edited, 'spec.replicas'), 3);
+      expect(field(edited, 'metadata.resourceVersion'), '42');
+      expect(field(edited, 'spec.template.spec.nodeSelector.zone'), 'a');
+      expect(
+        field(deployment, 'spec.replicas'),
+        2,
+        reason: 'the original is left alone',
+      );
+    });
+
+    test('a pod takes a new image and nothing else', () {
+      final pods = kubeKinds['pods']!;
+      final pod = _json('''{"metadata": {"name": "p"}, "spec": {"containers": [
+        {"name": "a", "image": "a:1", "env": [{"name": "X", "value": "1"}]}
+      ]}}''');
+      final [edit] = containerEdits(pods, pod);
+      final edited = withFormEdits(
+        pods,
+        pod,
+        containers: [
+          (
+            name: 'a',
+            image: 'a:2',
+            env: const [],
+            cpuRequest: '1',
+            memoryRequest: '',
+            cpuLimit: '',
+            memoryLimit: '',
+          ),
+        ],
+      );
+      expect(edit.image, 'a:1');
+      expect(field(edited, 'spec.containers'), [
+        {
+          'name': 'a',
+          'image': 'a:2',
+          'env': [
+            {'name': 'X', 'value': '1'},
+          ],
+        },
+      ]);
+    });
+
+    test('which kinds get a form', () {
+      for (final type in ['deployments', 'statefulsets', 'daemonsets']) {
+        expect(kubeFormSpec(kubeKinds[type]!), 'spec.template.spec');
+      }
+      expect(
+        kubeFormSpec(kubeKinds['cronjobs']!),
+        'spec.jobTemplate.spec.template.spec',
+      );
+      expect(kubeFormSpec(kubeKinds['pods']!), 'spec');
+      expect(kubeFormSpec(kubeKinds['jobs']!), isNull, reason: 'immutable');
+      expect(kubeFormSpec(kubeKinds['services']!), isNull);
+    });
+
+    test('replace carries the whole item', () {
+      final command = replaceCommand({'kind': 'Pod'});
+      expect(command, endsWith('| base64 -d | kubectl replace -f -'));
+      expect(command, contains(base64.encode(utf8.encode('{"kind":"Pod"}'))));
+    });
+  });
+
   test('connect steps say what they found', () {
     expect(kubeConnectSteps.map((s) => s.label), [
       'Server',
