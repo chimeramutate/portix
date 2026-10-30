@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
+import 'package:portix/src/connection_manager/profile_secret_store.dart';
 import 'package:portix/src/connection_manager/ssh_profile.dart'
     as manager_profile;
 import 'package:portix/src/core/di/injection.dart';
@@ -21,6 +22,9 @@ import 'package:portix/src/features/ssh_sessions/widget/remote/host_key_dialog.d
 import 'kibana_query.dart';
 
 const _controlHeight = 32.0;
+
+/// The keychain entry holding the saved Kibana profiles.
+const _loginKey = 'kibana-login';
 
 const _mono = TextStyle(
   fontFamily: 'JetBrains Mono',
@@ -76,15 +80,19 @@ class _KibanaPageState extends State<KibanaPage> {
   final _url = TextEditingController(text: 'http://localhost:9200');
   final _index = TextEditingController(text: '*');
   final _query = TextEditingController();
-  final _kibanaUrl = TextEditingController(text: 'http://localhost:5601');
 
   /// Straight to Kibana's API from this machine instead of curl on a
   /// saved server.
   bool _direct = false;
 
-  /// The Kibana sign-in, in memory only: gone when Portix quits.
-  KibanaAuth? _auth;
+  /// Saved profiles, newest first, and the one being searched; none
+  /// shows the list.
+  var _logins = <KibanaLogin>[];
+  KibanaLogin? _login;
   String? _profileId;
+
+  /// Past the SSH form, searching through [_profileId].
+  bool _sshConnected = false;
 
   /// Kibana's data views once listed, and the one picked (direct only).
   List<KibanaDataView>? _dataViews;
@@ -119,13 +127,21 @@ class _KibanaPageState extends State<KibanaPage> {
   bool _loading = false;
 
   @override
+  void initState() {
+    super.initState();
+    _restoreLogins();
+  }
+
+  @override
   void dispose() {
     _url.dispose();
     _index.dispose();
     _query.dispose();
-    _kibanaUrl.dispose();
     super.dispose();
   }
+
+  String get _kibanaUrl => _login?.url ?? '';
+  KibanaAuth? get _auth => _login?.auth;
 
   KibanaSearch _searchFor(KibanaRange range) => (
     index: _direct ? (_dataView?.pattern ?? '*') : _index.text,
@@ -141,7 +157,7 @@ class _KibanaPageState extends State<KibanaPage> {
   Future<void> _search() async {
     final now = DateTime.now();
     final range = _absolute ?? (from: now.subtract(_last), to: now);
-    if (_direct) return _searchDirect(range);
+    if (_direct) return _login == null ? null : _searchDirect(range);
     final picked = context
         .read<SshWorkspaceBloc>()
         .state
@@ -193,14 +209,13 @@ class _KibanaPageState extends State<KibanaPage> {
   }
 
   Future<void> _searchDirect(KibanaRange range) async {
-    if (_kibanaUrl.text.trim().isEmpty) return;
     setState(() {
       _loading = true;
       _error = null;
     });
     final (output, error) = await _kibana(() async {
       final output = await kibanaDirectSearch(
-        _kibanaUrl.text,
+        _kibanaUrl,
         _searchFor(range),
         _auth,
       );
@@ -217,7 +232,7 @@ class _KibanaPageState extends State<KibanaPage> {
       _error = null;
     });
     final (views, error) = await _kibana(
-      () => kibanaDataViews(_kibanaUrl.text, _auth),
+      () => kibanaDataViews(_kibanaUrl, _auth),
     );
     if (!mounted) return;
     setState(() {
@@ -230,26 +245,152 @@ class _KibanaPageState extends State<KibanaPage> {
   Future<void> _pickDataView(KibanaDataView view) async {
     setState(() => _dataView = view);
     final (field, _) = await _kibana(
-      () => kibanaTimeField(_kibanaUrl.text, view.id, _auth),
+      () => kibanaTimeField(_kibanaUrl, view.id, _auth),
     );
     if (!mounted) return;
     setState(() => _timeField = field ?? '@timestamp');
     await _search();
   }
 
-  /// Asks for the Kibana login; null when cancelled.
-  Future<KibanaAuth?> _signIn() async {
-    final auth = await showDialog<KibanaAuth>(
-      context: context,
-      builder: (_) => _SignInDialog(initial: _auth, url: _kibanaUrl.text),
-    );
-    if (auth != null && mounted) {
-      setState(() {
-        _auth = auth;
-        _dataViews = null; // another user may see other views
-      });
+  /// Opens on Kibana when profiles are saved, to pick one.
+  Future<void> _restoreLogins() async {
+    List<KibanaLogin> saved;
+    try {
+      saved = decodeKibanaLogins(
+        await sl<ProfileSecretStore>().readPassword(_loginKey),
+      );
+    } catch (_) {
+      return; // no keychain: the form asks
     }
-    return auth;
+    if (saved.isEmpty || !mounted) return;
+    setState(() {
+      _logins = saved;
+      _direct = true;
+    });
+  }
+
+  Future<void> _writeLogins() async {
+    final store = sl<ProfileSecretStore>();
+    try {
+      if (_logins.isEmpty) {
+        await store.deletePassword(_loginKey);
+      } else {
+        await store.savePassword(_loginKey, encodeKibanaLogins(_logins));
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Login not saved: $e');
+    }
+  }
+
+  /// Puts [login] on top of the list, in place of [old].
+  Future<void> _saveLogin(KibanaLogin? old, KibanaLogin login) async {
+    setState(() {
+      _logins = [login, ..._logins.where((l) => l != old && l != login)];
+    });
+    await _writeLogins();
+  }
+
+  Future<void> _deleteLogin(KibanaLogin login) async {
+    if (login == _login) _disconnect();
+    setState(() => _logins = _logins.where((l) => l != login).toList());
+    await _writeLogins();
+  }
+
+  /// Searches [login], which moves to the top as the latest used.
+  Future<void> _connect(KibanaLogin login) async {
+    _clearSelection();
+    setState(() {
+      _login = login;
+      _dataViews = null; // another user may see other views
+      _dataView = null;
+      _timeField = '@timestamp';
+      _result = null;
+      _error = null;
+      _expanded.clear();
+    });
+    await _saveLogin(login, login);
+    await _search();
+  }
+
+  /// Back to the saved profiles.
+  void _disconnect() {
+    _clearSelection();
+    setState(() {
+      _login = null;
+      _result = null;
+      _error = null;
+      _dataViews = null;
+      _dataView = null;
+      _expanded.clear();
+    });
+  }
+
+  /// The profile form in a dialog; null when cancelled.
+  Future<KibanaLogin?> _loginDialog(
+    String title,
+    KibanaLogin? initial, {
+    bool needsLogin = false,
+  }) => showDialog<KibanaLogin>(
+    context: context,
+    builder: (dialog) => Dialog(
+      child: SizedBox(
+        width: 420,
+        child: _LoginForm(
+          title: title,
+          initial: initial,
+          needsLogin: needsLogin,
+          onSubmit: (login) => Navigator.pop(dialog, login),
+          onCancel: () => Navigator.pop(dialog),
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _newLogin() async {
+    final login = await _loginDialog('New Kibana profile', null);
+    if (login != null && mounted) await _saveLogin(null, login);
+  }
+
+  Future<void> _editLogin(KibanaLogin old) async {
+    final login = await _loginDialog('Edit profile', old);
+    if (login == null || !mounted) return;
+    await _saveLogin(old, login);
+    if (old == _login) await _connect(login);
+  }
+
+  /// Asks for the Kibana login after a 401; null when cancelled.
+  Future<KibanaAuth?> _signIn() async {
+    final old = _login;
+    final login = await _loginDialog(
+      'Sign in to Kibana',
+      old,
+      needsLogin: true,
+    );
+    if (login == null || !mounted) return null;
+    setState(() {
+      _login = login;
+      _dataViews = null; // another user may see other views
+    });
+    await _saveLogin(old, login);
+    return login.auth;
+  }
+
+  /// The SSH form's submit: runs the first search.
+  void _connectSsh() {
+    if (_profileId == null) return;
+    setState(() => _sshConnected = true);
+    _search();
+  }
+
+  /// Back to the SSH form.
+  void _disconnectSsh() {
+    _clearSelection();
+    setState(() {
+      _sshConnected = false;
+      _result = null;
+      _error = null;
+      _expanded.clear();
+    });
   }
 
   void _setDirect(bool direct) {
@@ -418,74 +559,37 @@ class _KibanaPageState extends State<KibanaPage> {
     final server = profiles.where((p) => p.id == _profileId).firstOrNull;
     final result = _result;
     final searched = _searched;
+    final ready = _direct ? _login != null : _sshConnected && server != null;
+    final compact = MediaQuery.sizeOf(context).width < 1200;
+    final source = SizedBox(
+      width: 220,
+      child: _Segments(
+        label: 'Search source',
+        value: _direct,
+        onChanged: _setDirect,
+        segments: const [
+          (false, 'SSH', Icons.dns_outlined, 'curl on a saved SSH server'),
+          (
+            true,
+            'Kibana',
+            Icons.public_rounded,
+            "Kibana's API, straight from this machine",
+          ),
+        ],
+      ),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceDark,
-            border: Border(bottom: BorderSide(color: AppColors.border)),
-          ),
-          child: Row(
-            children: [
-              _SourceToggle(direct: _direct, onChanged: _setDirect),
-              const SizedBox(width: 8),
-              if (_direct) ...[
-                SizedBox(
-                  width: 240,
-                  child: _DataViewButton(
-                    views: _dataViews,
-                    picked: _dataView,
-                    onLoad: _loadDataViews,
-                    onPicked: _pickDataView,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _Field(
-                    label: 'Kibana',
-                    controller: _kibanaUrl,
-                    hint: 'https://kibana.example.com',
-                    onSubmit: _search,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 170,
-                  child: _Shell(
-                    onTap: _signIn,
-                    child: Row(
-                      children: [
-                        Icon(
-                          _auth == null
-                              ? Icons.login_rounded
-                              : Icons.person_outline_rounded,
-                          size: 16,
-                          color: AppColors.muted,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            switch (_auth) {
-                              null => 'Sign in',
-                              (apiKey: true, user: _, secret: _) => 'API key',
-                              final auth => auth.user,
-                            },
-                            overflow: TextOverflow.ellipsis,
-                            style: appFieldTextStyle().copyWith(
-                              fontWeight: FontWeight.w500,
-                              color: _auth == null
-                                  ? AppColors.muted
-                                  : AppColors.text,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ] else ...[
+        if (ready && !_direct)
+          Container(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceDark,
+              border: Border(bottom: BorderSide(color: AppColors.border)),
+            ),
+            child: Row(
+              children: [
                 SizedBox(
                   width: 220,
                   child: _ServerButton(
@@ -517,70 +621,104 @@ class _KibanaPageState extends State<KibanaPage> {
                     onSubmit: _search,
                   ),
                 ),
-              ],
-            ],
-          ),
-        ),
-        Container(
-          height: 40,
-          padding: const EdgeInsets.only(left: 12, right: 8),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            border: Border(bottom: BorderSide(color: AppColors.border)),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.search_rounded, size: 16, color: AppColors.muted),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  controller: _query,
-                  onSubmitted: (_) => _search(),
-                  style: _mono.copyWith(fontSize: 13, color: AppColors.text),
-                  decoration: _bare(
-                    'Filter with Lucene, e.g. level:error AND service:api',
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              TextButton.icon(
-                onPressed: _openAddFilter,
-                style: TextButton.styleFrom(
-                  foregroundColor: AppColors.text,
+                const SizedBox(width: 4),
+                IconButton(
+                  tooltip: 'Disconnect',
                   visualDensity: VisualDensity.compact,
-                  textStyle: const TextStyle(fontSize: 12.5),
+                  icon: const Icon(Icons.logout_rounded, size: 18),
+                  color: AppColors.muted,
+                  onPressed: _disconnectSsh,
                 ),
-                icon: const Icon(Icons.add_rounded, size: 16),
-                label: const Text('Add filter'),
-              ),
-              const SizedBox(width: 4),
-              _TimeButton(
-                last: _last,
-                absolute: _absolute,
-                onLast: _setLast,
-                onAbsolute: _zoom,
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                height: 30,
-                child: FilledButton.icon(
-                  onPressed: (!_direct && server == null) || _loading
-                      ? null
-                      : _search,
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+              ],
+            ),
+          ),
+        if (ready)
+          Container(
+            height: _direct ? 48 : 40,
+            padding: const EdgeInsets.only(left: 12, right: 12),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              border: Border(bottom: BorderSide(color: AppColors.border)),
+            ),
+            child: Row(
+              children: [
+                if (_direct) ...[
+                  SizedBox(
+                    width: compact ? 160 : 220,
+                    child: _DataViewButton(
+                      views: _dataViews,
+                      picked: _dataView,
+                      onLoad: _loadDataViews,
+                      onPicked: _pickDataView,
                     ),
                   ),
-                  icon: const Icon(Icons.refresh_rounded, size: 16),
-                  label: Text(_loading ? 'Searching…' : 'Refresh'),
+                  const SizedBox(width: 12),
+                ],
+                Icon(Icons.search_rounded, size: 16, color: AppColors.muted),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _query,
+                    onSubmitted: (_) => _search(),
+                    style: _mono.copyWith(fontSize: 13, color: AppColors.text),
+                    decoration: _bare(
+                      'Filter with Lucene, e.g. level:error AND service:api',
+                    ),
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: _openAddFilter,
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.text,
+                    visualDensity: VisualDensity.compact,
+                    textStyle: const TextStyle(fontSize: 12.5),
+                  ),
+                  icon: const Icon(Icons.add_rounded, size: 16),
+                  label: const Text('Add filter'),
+                ),
+                const SizedBox(width: 4),
+                _TimeButton(
+                  last: _last,
+                  absolute: _absolute,
+                  onLast: _setLast,
+                  onAbsolute: _zoom,
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  height: 30,
+                  child: FilledButton.icon(
+                    onPressed: _loading ? null : _search,
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: Text(_loading ? 'Searching…' : 'Refresh'),
+                  ),
+                ),
+                if (_direct) ...[
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: compact ? 64 : 200,
+                    child: _AccountButton(
+                      name: _login?.name ?? '',
+                      auth: _auth,
+                      compact: compact,
+                      others: _logins.where((l) => l != _login).toList(),
+                      onPick: _connect,
+                      onDisconnect: _disconnect,
+                      onEdit: () => _editLogin(_login!),
+                      onDelete: () => _deleteLogin(_login!),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
-        ),
-        if (_filters.isNotEmpty)
+        if (ready && _filters.isNotEmpty)
           Container(
             padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
             decoration: BoxDecoration(
@@ -636,12 +774,46 @@ class _KibanaPageState extends State<KibanaPage> {
           ),
         Expanded(
           child: switch (result) {
-            _ when !_direct && server == null => const _Empty(
-              icon: Icons.dns_outlined,
-              title: 'Pick a server to search from',
-              hint:
-                  'Its curl queries Elasticsearch, so internal clusters work '
-                  'without a tunnel. Credentials come from ~/.netrc there.',
+            _ when !ready => Padding(
+              padding: const EdgeInsets.all(20),
+              child: _direct
+                  ? _ProfileGallery(
+                      source: source,
+                      logins: _logins,
+                      onConnect: _connect,
+                      onEdit: _editLogin,
+                      onDelete: _deleteLogin,
+                      onNew: _newLogin,
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        source,
+                        Expanded(
+                          child: Center(
+                            child: SingleChildScrollView(
+                              child: Container(
+                                width: 440,
+                                decoration: BoxDecoration(
+                                  color: AppColors.surface,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: AppColors.border),
+                                ),
+                                child: _SshForm(
+                                  server: server,
+                                  profiles: profiles,
+                                  url: _url,
+                                  index: _index,
+                                  onPicked: (id) =>
+                                      setState(() => _profileId = id),
+                                  onSubmit: _connectSsh,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
             ),
             null => _Empty(
               icon: Icons.manage_search_rounded,
@@ -652,8 +824,7 @@ class _KibanaPageState extends State<KibanaPage> {
                   : 'Search ${server!.name}',
               hint: _direct
                   ? 'Goes from this machine straight to Kibana, no SSH '
-                        'server. The sign-in stays in memory until Portix '
-                        'quits.'
+                        'server.'
                   : 'Press Enter in any field to run the search.',
             ),
             final result => Row(
@@ -780,160 +951,661 @@ InputDecoration _bare(String hint) => InputDecoration(
   hintText: hint,
 );
 
-/// Where searches go: curl on a saved SSH server, or Kibana's API from
-/// this machine.
-class _SourceToggle extends StatelessWidget {
-  const _SourceToggle({required this.direct, required this.onChanged});
+/// A two-way choice, each segment taking half the width.
+class _Segments<T> extends StatelessWidget {
+  const _Segments({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    required this.segments,
+  });
 
-  final bool direct;
-  final ValueChanged<bool> onChanged;
+  final String label;
+  final T value;
+  final ValueChanged<T> onChanged;
+  final List<(T, String, IconData?, String?)> segments;
 
   @override
   Widget build(BuildContext context) {
-    Widget segment(String label, IconData icon, bool value) {
-      final selected = direct == value;
-      return Tooltip(
-        message: value
-            ? "Kibana's API, straight from this machine"
-            : 'curl on a saved SSH server',
-        waitDuration: const Duration(milliseconds: 400),
-        child: InkWell(
-          onTap: () => onChanged(value),
+    Widget segment((T, String, IconData?, String?) item) {
+      final (itemValue, text, icon, tooltip) = item;
+      final selected = value == itemValue;
+      final color = selected ? AppColors.text : AppColors.muted;
+      final button = Material(
+        color: selected ? AppColors.surfaceCard : Colors.transparent,
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(6),
-          child: Container(
-            height: _controlHeight - 6,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: selected ? AppColors.surfaceCard : null,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  icon,
-                  size: 15,
-                  color: selected ? AppColors.text : AppColors.muted,
-                ),
+          side: selected
+              ? BorderSide(color: AppColors.inputBorder)
+              : BorderSide.none,
+        ),
+        child: InkWell(
+          onTap: () => onChanged(itemValue),
+          borderRadius: BorderRadius.circular(6),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 15, color: color),
                 const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
-                    color: selected ? AppColors.text : AppColors.muted,
-                  ),
-                ),
               ],
-            ),
+              Text(
+                text,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+                  color: color,
+                ),
+              ),
+            ],
           ),
+        ),
+      );
+      return Expanded(
+        child: Semantics(
+          button: true,
+          selected: selected,
+          child: tooltip == null
+              ? button
+              : Tooltip(
+                  message: tooltip,
+                  waitDuration: const Duration(milliseconds: 400),
+                  child: button,
+                ),
         ),
       );
     }
 
     return Semantics(
-      label: 'Search source',
+      label: label,
       child: Container(
         height: _controlHeight,
         padding: const EdgeInsets.all(2),
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: AppColors.surfaceDark,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.inputBorder),
         ),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            segment('SSH', Icons.dns_outlined, false),
-            segment('Kibana', Icons.public_rounded, true),
-          ],
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: segments.map(segment).toList(),
         ),
       ),
     );
   }
 }
 
-/// The Kibana login: username and password, or an API key.
-class _SignInDialog extends StatefulWidget {
-  const _SignInDialog({required this.initial, required this.url});
+/// Searching through a saved SSH server: which one, and the cluster it
+/// reaches.
+class _SshForm extends StatelessWidget {
+  const _SshForm({
+    required this.server,
+    required this.profiles,
+    required this.url,
+    required this.index,
+    required this.onPicked,
+    required this.onSubmit,
+  });
 
-  final KibanaAuth? initial;
-  final String url;
+  final domain.SshProfile? server;
+  final List<domain.SshProfile> profiles;
+  final TextEditingController url;
+  final TextEditingController index;
+  final ValueChanged<String> onPicked;
+  final VoidCallback onSubmit;
 
   @override
-  State<_SignInDialog> createState() => _SignInDialogState();
+  Widget build(BuildContext context) => CallbackShortcuts(
+    bindings: {const SingleActivator(LogicalKeyboardKey.enter): onSubmit},
+    child: Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Connect through SSH', style: portixTitle(16)),
+          const SizedBox(height: 4),
+          Text(
+            'curl on a saved server queries Elasticsearch, no tunnel needed.',
+            style: portixMuted(12),
+          ),
+          const SizedBox(height: 18),
+          _labeled(
+            'Server',
+            _ServerButton(
+              server: server,
+              profiles: profiles,
+              onPicked: onPicked,
+              inlineLabel: false,
+            ),
+          ),
+          const SizedBox(height: 14),
+          AppTextField(
+            controller: url,
+            label: 'Elasticsearch',
+            hint: 'http://localhost:9200',
+            keyboardType: TextInputType.url,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Credentials come from ~/.netrc on that server.',
+            style: portixMuted(11.5),
+          ),
+          const SizedBox(height: 14),
+          AppTextField(controller: index, label: 'Index', hint: 'logs-*'),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: server == null ? null : onSubmit,
+            child: const Text('Connect'),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
-class _SignInDialogState extends State<_SignInDialog> {
-  late bool _apiKey = widget.initial?.apiKey ?? false;
-  late final _user = TextEditingController(
-    text: widget.initial?.apiKey == false ? widget.initial!.user : '',
-  );
-  final _secret = TextEditingController();
+/// The saved Kibana profiles, laid out like the SSH gallery: new ones are
+/// added from the toolbar, each card connects, edits or deletes.
+class _ProfileGallery extends StatefulWidget {
+  const _ProfileGallery({
+    required this.source,
+    required this.logins,
+    required this.onConnect,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onNew,
+  });
+
+  /// The SSH/Kibana choice, first in the toolbar.
+  final Widget source;
+  final List<KibanaLogin> logins;
+  final ValueChanged<KibanaLogin> onConnect;
+  final ValueChanged<KibanaLogin> onEdit;
+  final ValueChanged<KibanaLogin> onDelete;
+  final VoidCallback onNew;
+
+  @override
+  State<_ProfileGallery> createState() => _ProfileGalleryState();
+}
+
+class _ProfileGalleryState extends State<_ProfileGallery> {
+  static const _searchFrom = 6;
+
+  final _search = TextEditingController();
 
   @override
   void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final logins = widget.logins;
+    final searching = logins.length >= _searchFrom;
+    final query = searching ? _search.text.trim().toLowerCase() : '';
+    final shown = [
+      for (final login in logins)
+        if (login.name.toLowerCase().contains(query)) login,
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            widget.source,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: searching
+                    ? ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 240),
+                        child: AppTextField(
+                          controller: _search,
+                          label: '',
+                          icon: Icons.search_rounded,
+                          hint: 'Search profiles',
+                          onChanged: (_) => setState(() {}),
+                        ),
+                      )
+                    : null,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              logins.length == 1 ? '1 profile' : '${logins.length} profiles',
+              style: portixMuted(12),
+            ),
+            const SizedBox(width: 12),
+            AppButton(
+              icon: Icons.add_rounded,
+              label: 'New Profile',
+              primary: true,
+              onPressed: widget.onNew,
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        Expanded(
+          child: switch (shown) {
+            [] when logins.isEmpty => const _Empty(
+              icon: Icons.public_rounded,
+              title: 'No Kibana profiles yet',
+              hint: 'Add one with New Profile to search its logs.',
+            ),
+            [] => _Empty(
+              icon: Icons.search_off_rounded,
+              title: 'No profile matches "${_search.text.trim()}"',
+              hint: 'Try another name.',
+            ),
+            _ => LayoutBuilder(
+              builder: (context, box) => GridView.builder(
+                itemCount: shown.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  // Cards stay roughly 300-400 px wide, as in the SSH gallery.
+                  crossAxisCount: (box.maxWidth / 320).floor().clamp(1, 6),
+                  mainAxisExtent: 108,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                ),
+                itemBuilder: (_, i) => _ProfileCard(
+                  login: shown[i],
+                  onConnect: () => widget.onConnect(shown[i]),
+                  onEdit: () => widget.onEdit(shown[i]),
+                  onDelete: () => widget.onDelete(shown[i]),
+                ),
+              ),
+            ),
+          },
+        ),
+      ],
+    );
+  }
+}
+
+enum _ProfileAction { edit, delete }
+
+class _ProfileCard extends StatelessWidget {
+  const _ProfileCard({
+    required this.login,
+    required this.onConnect,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final KibanaLogin login;
+  final VoidCallback onConnect;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  PopupMenuItem<_ProfileAction> _item(
+    _ProfileAction value,
+    IconData icon,
+    String label, {
+    bool danger = false,
+  }) {
+    final color = danger ? AppColors.danger : AppColors.text;
+    return PopupMenuItem(
+      value: value,
+      height: 32,
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 10),
+          Text(label, style: TextStyle(fontSize: 13, color: color)),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onConnect,
+    borderRadius: BorderRadius.circular(10),
+    child: AppPanel(
+      padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceCard.withValues(alpha: .55),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Icon(
+                  Icons.public_rounded,
+                  size: 18,
+                  color: AppColors.muted,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  login.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              PopupMenuButton<_ProfileAction>(
+                tooltip: 'Profile actions',
+                menuPadding: const EdgeInsets.symmetric(vertical: 4),
+                constraints: const BoxConstraints(minWidth: 170),
+                icon: Icon(
+                  Icons.more_horiz_rounded,
+                  size: 18,
+                  color: AppColors.muted,
+                ),
+                onSelected: (action) => switch (action) {
+                  _ProfileAction.edit => onEdit(),
+                  _ProfileAction.delete => onDelete(),
+                },
+                itemBuilder: (_) => [
+                  _item(_ProfileAction.edit, Icons.edit_outlined, 'Edit'),
+                  PopupMenuDivider(height: 9, color: AppColors.border),
+                  _item(
+                    _ProfileAction.delete,
+                    Icons.delete_outline_rounded,
+                    'Delete',
+                    danger: true,
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const Spacer(),
+          Row(
+            children: [
+              AppPill(
+                label: switch (login.auth) {
+                  null => 'No login',
+                  (apiKey: true, user: _, secret: _) => 'API key',
+                  _ => 'Password',
+                },
+                color: AppColors.muted,
+              ),
+              const Spacer(),
+              AppButton(
+                icon: Icons.link_rounded,
+                label: 'Connect',
+                onPressed: onConnect,
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// A Kibana profile's form: name and URL, then a username and password or
+/// an API key. Kibana without security takes no credentials unless
+/// [needsLogin], which is the sign-in after a 401 and hides the name.
+class _LoginForm extends StatefulWidget {
+  const _LoginForm({
+    required this.title,
+    required this.initial,
+    required this.onSubmit,
+    required this.onCancel,
+    this.needsLogin = false,
+  });
+
+  final String title;
+  final KibanaLogin? initial;
+  final bool needsLogin;
+  final ValueChanged<KibanaLogin> onSubmit;
+  final VoidCallback onCancel;
+
+  @override
+  State<_LoginForm> createState() => _LoginFormState();
+}
+
+class _LoginFormState extends State<_LoginForm> {
+  late final _name = TextEditingController(text: widget.initial?.name);
+  late final _url = TextEditingController(
+    text: widget.initial?.url ?? 'http://localhost:5601',
+  );
+  late bool _apiKey = widget.initial?.auth?.apiKey ?? false;
+  late final _user = TextEditingController(
+    text: widget.initial?.auth?.apiKey == false
+        ? widget.initial!.auth!.user
+        : '',
+  );
+  late final _secret = TextEditingController(
+    text: widget.initial?.auth?.secret,
+  );
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _url.dispose();
     _user.dispose();
     _secret.dispose();
     super.dispose();
   }
 
+  /// The name typed, else Kibana's host.
+  String get _profileName {
+    final name = _name.text.trim();
+    if (name.isNotEmpty) return name;
+    final url = _url.text.trim();
+    final host = Uri.tryParse(url)?.host;
+    return host == null || host.isEmpty ? url : host;
+  }
+
+  bool get _valid {
+    if (_url.text.trim().isEmpty) return false;
+    final empty =
+        _secret.text.isEmpty && (_apiKey || _user.text.trim().isEmpty);
+    if (empty) return !widget.needsLogin;
+    return _secret.text.isNotEmpty && (_apiKey || _user.text.trim().isNotEmpty);
+  }
+
   void _submit() {
-    if (_secret.text.isEmpty || (!_apiKey && _user.text.trim().isEmpty)) {
-      return;
-    }
-    Navigator.pop<KibanaAuth>(context, (
-      apiKey: _apiKey,
-      user: _apiKey ? '' : _user.text.trim(),
-      secret: _secret.text,
+    if (!_valid) return;
+    widget.onSubmit((
+      name: _profileName,
+      url: _url.text.trim(),
+      auth: _secret.text.isEmpty
+          ? null
+          : (
+              apiKey: _apiKey,
+              user: _apiKey ? '' : _user.text.trim(),
+              secret: _secret.text,
+            ),
     ));
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Sign in to Kibana'),
-    content: SizedBox(
-      width: 380,
+  Widget build(BuildContext context) => CallbackShortcuts(
+    bindings: {const SingleActivator(LogicalKeyboardKey.enter): _submit},
+    child: Padding(
+      padding: const EdgeInsets.all(20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(widget.url.trim(), style: portixMuted(12)),
-          const SizedBox(height: 12),
-          SegmentedButton<bool>(
-            segments: const [
-              ButtonSegment(value: false, label: Text('Username')),
-              ButtonSegment(value: true, label: Text('API key')),
-            ],
-            selected: {_apiKey},
-            showSelectedIcon: false,
-            onSelectionChanged: (v) => setState(() => _apiKey = v.first),
+          Text(widget.title, style: portixTitle(16)),
+          const SizedBox(height: 4),
+          Text(
+            'Straight from this machine to Kibana, no SSH server.',
+            style: portixMuted(12),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 18),
+          if (!widget.needsLogin) ...[
+            AppTextField(
+              controller: _name,
+              label: 'Name (optional)',
+              hint: 'Production logs',
+            ),
+            const SizedBox(height: 14),
+          ],
+          AppTextField(
+            controller: _url,
+            label: 'Kibana URL',
+            hint: 'https://kibana.example.com',
+            keyboardType: TextInputType.url,
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 14),
+          _Segments(
+            label: 'Sign in with',
+            value: _apiKey,
+            onChanged: (v) => setState(() => _apiKey = v),
+            segments: const [
+              (false, 'Username', null, null),
+              (true, 'API key', null, null),
+            ],
+          ),
+          const SizedBox(height: 14),
           if (!_apiKey) ...[
-            AppTextField(controller: _user, label: 'Username', hint: 'elastic'),
-            const SizedBox(height: 10),
+            AppTextField(
+              controller: _user,
+              label: 'Username',
+              hint: 'elastic',
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 14),
           ],
           AppTextField(
             controller: _secret,
             label: _apiKey ? 'API key (encoded)' : 'Password',
             obscureText: true,
+            onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           Text(
-            'Kept in memory until Portix quits; never written to disk.',
-            style: portixMuted(12),
+            widget.needsLogin
+                ? 'Saved in the system keychain, encrypted.'
+                : 'Leave empty when Kibana has no security turned on. '
+                      'Saved in the system keychain, encrypted.',
+            style: portixMuted(11.5),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: widget.onCancel,
+                style: TextButton.styleFrom(foregroundColor: AppColors.text),
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: _valid ? _submit : null,
+                child: Text(widget.needsLogin ? 'Sign in' : 'Save profile'),
+              ),
+            ],
           ),
         ],
       ),
     ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(onPressed: _submit, child: const Text('Sign in')),
-    ],
   );
+}
+
+/// Who is signed in to which Kibana profile; a click jumps to another
+/// saved profile, or disconnects, edits or deletes this one.
+/// [compact] leaves only the icon on narrow windows.
+class _AccountButton extends StatelessWidget {
+  const _AccountButton({
+    required this.name,
+    required this.auth,
+    required this.compact,
+    required this.others,
+    required this.onPick,
+    required this.onDisconnect,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final String name;
+  final KibanaAuth? auth;
+  final bool compact;
+  final List<KibanaLogin> others;
+  final ValueChanged<KibanaLogin> onPick;
+  final VoidCallback onDisconnect;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final who = switch (auth) {
+      null => 'No login',
+      (apiKey: true, user: _, secret: _) => 'API key',
+      final auth => auth.user,
+    };
+    Widget item(IconData icon, String label, VoidCallback onPressed) =>
+        MenuItemButton(
+          leadingIcon: Icon(icon, size: 16, color: AppColors.muted),
+          onPressed: onPressed,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 160, maxWidth: 280),
+            child: Text(label, overflow: TextOverflow.ellipsis),
+          ),
+        );
+    return MenuAnchor(
+      alignmentOffset: const Offset(0, 4),
+      menuChildren: [
+        for (final login in others)
+          item(Icons.public_rounded, login.name, () => onPick(login)),
+        if (others.isNotEmpty) Divider(height: 9, color: AppColors.border),
+        item(Icons.link_off_rounded, 'Disconnect', onDisconnect),
+        item(Icons.edit_outlined, 'Edit profile', onEdit),
+        item(Icons.delete_outline_rounded, 'Delete profile', onDelete),
+      ],
+      builder: (context, menu, _) => Tooltip(
+        message: '$who · $name',
+        waitDuration: const Duration(milliseconds: 400),
+        child: _Shell(
+          onTap: () => menu.isOpen ? menu.close() : menu.open(),
+          child: Row(
+            children: [
+              Icon(
+                Icons.person_outline_rounded,
+                size: 16,
+                color: AppColors.muted,
+              ),
+              if (compact)
+                const Spacer()
+              else ...[
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    who,
+                    overflow: TextOverflow.ellipsis,
+                    style: appFieldTextStyle().copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    name,
+                    overflow: TextOverflow.ellipsis,
+                    style: _mono.copyWith(
+                      fontSize: 12.5,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ),
+              ],
+              Icon(Icons.expand_more_rounded, size: 18, color: AppColors.muted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// The bordered 32 px frame every header control sits in.
@@ -1000,11 +1672,15 @@ class _ServerButton extends StatelessWidget {
     required this.server,
     required this.profiles,
     required this.onPicked,
+    this.inlineLabel = true,
   });
 
   final domain.SshProfile? server;
   final List<domain.SshProfile> profiles;
   final ValueChanged<String> onPicked;
+
+  /// False under a form's own "Server" label.
+  final bool inlineLabel;
 
   @override
   Widget build(BuildContext context) => MenuAnchor(
@@ -1036,8 +1712,10 @@ class _ServerButton extends StatelessWidget {
                 : ProfileOsIcon(profile: server!, size: 18),
           ),
           const SizedBox(width: 8),
-          Text('Server', style: portixMuted(12)),
-          const SizedBox(width: 8),
+          if (inlineLabel) ...[
+            Text('Server', style: portixMuted(12)),
+            const SizedBox(width: 8),
+          ],
           Expanded(
             child: Text(
               server?.name ?? 'Pick one',
