@@ -11,9 +11,11 @@ import 'package:portix/src/connection_manager/profile_credentials.dart';
 import 'package:portix/src/connection_manager/profile_secret_store.dart';
 import 'package:portix/src/connection_manager/ssh_profile.dart' as manager;
 import 'package:portix/src/core/di/injection.dart';
+import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/domain/entities/ssh/ssh_profile.dart';
 import 'package:portix/src/domain/repositories/ssh/ssh_profile_repository.dart';
 import 'package:portix/src/features/kibana/kibana_page.dart';
+import 'package:portix/src/features/kibana/kibana_query.dart';
 import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 
 /// Answers every search with one document and records the commands.
@@ -44,6 +46,22 @@ class _MemorySecrets extends ProfileSecretStore {
   Future<String?> readPassword(String profileId) async => 'pw';
 }
 
+/// The keychain, as a map.
+class _Keychain extends ProfileSecretStore {
+  final saved = <String, String>{};
+
+  @override
+  Future<String?> readPassword(String profileId) async => saved[profileId];
+
+  @override
+  Future<void> savePassword(String profileId, String password) async =>
+      saved[profileId] = password;
+
+  @override
+  Future<void> deletePassword(String profileId) async =>
+      saved.remove(profileId);
+}
+
 const _box = SshProfile(
   id: 'es',
   name: 'logs-box',
@@ -59,10 +77,17 @@ const _box = SshProfile(
   color: ProfileColor.cyan,
 );
 
+final _queryHint = find.text(
+  'Filter with Lucene, e.g. level:error AND service:api',
+);
+
 void main() {
   late _FakeEs backend;
+  late _Keychain keychain;
   setUp(() {
     backend = _FakeEs();
+    keychain = _Keychain();
+    sl.registerSingleton<ProfileSecretStore>(keychain);
     sl.registerSingleton(
       ConnectionManager(
         backend: backend,
@@ -102,6 +127,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('logs-box').last);
     await tester.pumpAndSettle();
+    expect(_queryHint, findsNothing, reason: 'still on the form');
+    expect(backend.commands, isEmpty, reason: 'nothing runs before Connect');
+    await tester.tap(find.widgetWithText(FilledButton, 'Connect'));
+    await tester.pumpAndSettle();
+    expect(_queryHint, findsOneWidget);
+    expect(find.text('Connect through SSH'), findsNothing);
+    expect(find.text('Kibana'), findsNothing, reason: 'source is in the form');
     final summary = find.textContaining('boom', findRichText: true);
     expect(summary, findsOneWidget);
     expect(find.text('Documents (1)'), findsOneWidget);
@@ -292,7 +324,9 @@ void main() {
           ),
         ),
       );
-      expect(find.text('Pick a server to search from'), findsOneWidget);
+      expect(find.text('Connect through SSH'), findsOneWidget);
+      expect(find.text('Elasticsearch'), findsOneWidget);
+      expect(_queryHint, findsNothing);
       await tester.tap(find.text('Pick one'));
       await tester.pumpAndSettle();
       expect(find.text('No saved servers'), findsOneWidget);
@@ -337,6 +371,8 @@ void main() {
     await tester.tap(find.text('Pick one'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('logs-box').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Connect'));
     await tester.pumpAndSettle();
 
     // Add filter: service is one of api, web, with a label.
@@ -452,7 +488,7 @@ void main() {
             auth == null
                 ? '{"statusCode":401,"error":"Unauthorized","message":"no"}'
                 : '{"took":2,"hits":{"total":{"value":1},"hits":[{"_source":'
-                      '{"@timestamp":"2026-10-29T10:00:00Z","message":"hi"}}]}}',
+                      '{"@timestamp":"2026-10-29T10:00:00Z","message":"kibana-hit"}}]}}',
           );
           await request.response.close();
         });
@@ -471,32 +507,213 @@ void main() {
       );
       await tester.tap(find.text('Kibana'));
       await tester.pump();
+      expect(find.text('No Kibana profiles yet'), findsOneWidget);
+      expect(_queryHint, findsNothing, reason: 'nothing to search yet');
+      await tester.tap(find.text('New Profile'));
+      await tester.pumpAndSettle();
+      // No credentials: this Kibana turns out to want them.
       await tester.enterText(
-        find.widgetWithText(TextField, 'http://localhost:5601'),
+        find.descendant(
+          of: find.widgetWithText(AppTextField, 'Kibana URL'),
+          matching: find.byType(TextField),
+        ),
         'http://127.0.0.1:${server.port}',
       );
+      await tester.pump();
+      await tester.tap(find.text('Save profile'));
+      await tester.pumpAndSettle();
+      expect(auths, isEmpty, reason: 'saving does not connect');
       await tester.runAsync(() async {
-        await tester.tap(find.text('Refresh'));
+        await tester.tap(find.text('127.0.0.1'));
+        await tester.pump();
         await Future<void>.delayed(const Duration(milliseconds: 300));
       });
       await tester.pumpAndSettle();
       expect(find.text('Sign in to Kibana'), findsOneWidget);
       final fields = find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byType(Dialog),
         matching: find.byType(TextField),
       );
-      await tester.enterText(fields.at(0), 'elastic');
-      await tester.enterText(fields.at(1), 'pw');
+      await tester.enterText(fields.at(1), 'elastic');
+      await tester.enterText(fields.at(2), 'pw');
+      await tester.pump();
       await tester.runAsync(() async {
         await tester.tap(find.widgetWithText(FilledButton, 'Sign in'));
         await tester.pump();
         await Future<void>.delayed(const Duration(milliseconds: 300));
       });
       await tester.pumpAndSettle();
-      expect(find.textContaining('hi', findRichText: true), findsOneWidget);
+      expect(
+        find.textContaining('kibana-hit', findRichText: true),
+        findsOneWidget,
+      );
       expect(find.text('elastic'), findsOneWidget, reason: 'signed-in user');
       expect(auths, [null, startsWith('Basic ')]);
+      expect(
+        decodeKibanaLogins(keychain.saved['kibana-login']),
+        [
+          (
+            name: '127.0.0.1',
+            url: 'http://127.0.0.1:${server.port}',
+            auth: (apiKey: false, user: 'elastic', secret: 'pw'),
+          ),
+        ],
+        reason: 'remembered in the keychain',
+      );
       expect(tester.takeException(), isNull);
     }, _RealHttp()),
   );
+
+  testWidgets(
+    'saved Kibana profiles are listed, connected, edited and deleted',
+    (tester) => HttpOverrides.runWithHttpOverrides(() async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      late HttpServer server;
+      final auths = <String?>[];
+      await tester.runAsync(() async {
+        server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        server.listen((request) async {
+          auths.add(request.headers.value('authorization'));
+          request.response.write(
+            '{"took":2,"hits":{"total":{"value":1},"hits":[{"_source":'
+            '{"@timestamp":"2026-10-29T10:00:00Z","message":"kibana-hit"}}]}}',
+          );
+          await request.response.close();
+        });
+      });
+      addTearDown(() => tester.runAsync(server.close));
+      keychain.saved['kibana-login'] = encodeKibanaLogins([
+        (
+          name: 'Production',
+          url: 'http://127.0.0.1:${server.port}',
+          auth: (apiKey: true, user: '', secret: 'k3y'),
+        ),
+        (name: 'Staging', url: 'http://staging.test', auth: null),
+      ]);
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: BlocProvider(
+                create: (_) =>
+                    SshWorkspaceBloc(repository: SshProfileRepository()),
+                child: const KibanaPage(),
+              ),
+            ),
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Production'), findsOneWidget);
+      expect(find.text('Staging'), findsOneWidget);
+      expect(find.text('2 profiles'), findsOneWidget);
+      expect(_queryHint, findsNothing);
+      expect(auths, isEmpty, reason: 'nothing runs before a pick');
+
+      await tester.tap(find.text('New Profile'));
+      await tester.pumpAndSettle();
+      expect(find.text('New Kibana profile'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      Future<void> open(String name) => tester.runAsync(() async {
+        await tester.tap(find.text(name));
+        await tester.pump();
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      });
+      await open('Production');
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('kibana-hit', findRichText: true),
+        findsOneWidget,
+      );
+      expect(_queryHint, findsOneWidget);
+      expect(auths, ['ApiKey k3y']);
+
+      await tester.tap(find.text('API key'));
+      await tester.pumpAndSettle();
+      expect(find.text('Staging'), findsOneWidget, reason: 'quick switch');
+      await tester.tap(find.text('Disconnect'));
+      await tester.pumpAndSettle();
+
+      // Edit from the card: Production moved to the top as the latest used.
+      await tester.tap(find.byTooltip('Profile actions').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find
+            .descendant(
+              of: find.byType(Dialog),
+              matching: find.byType(TextField),
+            )
+            .first,
+        'QA',
+      );
+      await tester.pump();
+      await tester.tap(find.text('Save profile'));
+      await tester.pumpAndSettle();
+      expect(find.text('Staging'), findsNothing);
+      List<String> saved() => [
+        for (final login in decodeKibanaLogins(keychain.saved['kibana-login']))
+          login.name,
+      ];
+      expect(saved(), ['QA', 'Production']);
+
+      await open('Production');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('API key'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete profile'));
+      await tester.pumpAndSettle();
+      expect(find.text('Production'), findsNothing);
+      expect(saved(), ['QA']);
+
+      await tester.tap(find.byTooltip('Profile actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(find.text('No Kibana profiles yet'), findsOneWidget);
+      expect(keychain.saved, isEmpty);
+      expect(tester.takeException(), isNull);
+    }, _RealHttp()),
+  );
+
+  testWidgets('many Kibana profiles can be searched', (tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    keychain.saved['kibana-login'] = encodeKibanaLogins([
+      for (var i = 0; i < 20; i++)
+        (name: 'cluster-$i', url: 'http://$i.test', auth: null),
+    ]);
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BlocProvider(
+              create: (_) =>
+                  SshWorkspaceBloc(repository: SshProfileRepository()),
+              child: const KibanaPage(),
+            ),
+          ),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('20 profiles'), findsOneWidget);
+    expect(find.text('New Profile'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'ER-19');
+    await tester.pump();
+    expect(find.text('cluster-19'), findsOneWidget);
+    expect(find.text('cluster-0'), findsNothing);
+    await tester.enterText(find.byType(TextField), 'nope');
+    await tester.pump();
+    expect(find.text('No profile matches "nope"'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

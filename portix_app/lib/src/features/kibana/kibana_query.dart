@@ -349,6 +349,52 @@ String kibanaAuthHeader(KibanaAuth auth) => auth.apiKey
     ? 'ApiKey ${auth.secret.trim()}'
     : 'Basic ${base64Encode(utf8.encode('${auth.user}:${auth.secret}'))}';
 
+/// A saved Kibana profile: its name, the URL and, when Kibana asks for
+/// one, the credentials.
+typedef KibanaLogin = ({String name, String url, KibanaAuth? auth});
+
+/// All saved profiles as one keychain secret.
+String encodeKibanaLogins(List<KibanaLogin> logins) => jsonEncode([
+  for (final login in logins)
+    {
+      'name': login.name,
+      'url': login.url,
+      if (login.auth case final auth?) ...{
+        'apiKey': auth.apiKey,
+        'user': auth.user,
+        'secret': auth.secret,
+      },
+    },
+]);
+
+/// Empty for anything [encodeKibanaLogins] didn't write.
+List<KibanaLogin> decodeKibanaLogins(String? raw) {
+  try {
+    if (jsonDecode(raw ?? '') case final List<Object?> items) {
+      return [
+        for (final item in items)
+          if (item case {'name': final String name, 'url': final String url})
+            (
+              name: name,
+              url: url,
+              auth: switch (item) {
+                {
+                  'apiKey': final bool apiKey,
+                  'user': final String user,
+                  'secret': final String secret,
+                } =>
+                  (apiKey: apiKey, user: user, secret: secret),
+                _ => null,
+              },
+            ),
+      ];
+    }
+  } on FormatException {
+    // not saved logins
+  }
+  return [];
+}
+
 /// A Kibana data view: what the picker shows and the index pattern it
 /// searches.
 typedef KibanaDataView = ({String id, String name, String pattern});
