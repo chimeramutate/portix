@@ -9,6 +9,7 @@ class TerminalPane extends StatefulWidget {
     required this.terminalViewKey,
     this.sessionId,
     this.status = session_models.ConnectionStatus.connected,
+    this.failure,
     this.profile,
     this.broadcastTyping = false,
     this.solo = false,
@@ -38,6 +39,7 @@ class TerminalPane extends StatefulWidget {
   final FocusNode focusNode;
   final GlobalKey<TerminalViewState> terminalViewKey;
   final session_models.ConnectionStatus status;
+  final String? failure;
   final domain.SshProfile? profile;
   final bool broadcastTyping;
   final bool solo;
@@ -177,6 +179,7 @@ class _TerminalPaneState extends State<TerminalPane>
                   child: TerminalConnectionOverlay(
                     profile: widget.profile,
                     connecting: connecting,
+                    failure: widget.failure,
                     onReconnect: connecting ? null : widget.onReconnect,
                   ),
                 ),

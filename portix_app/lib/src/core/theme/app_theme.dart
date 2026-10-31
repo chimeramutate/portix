@@ -266,6 +266,18 @@ ThemeData buildAppTheme(AppPalette p) {
         fontWeight: FontWeight.w400,
       ),
     ),
+    // Set here, not per call: Material's default text color assumes its own
+    // inverse fill and vanishes on the fills call sites pass.
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: p.menu,
+      contentTextStyle: TextStyle(color: p.text, fontSize: 13),
+      actionTextColor: p.accent,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: p.border),
+      ),
+    ),
     dividerTheme: DividerThemeData(color: p.border, thickness: 1, space: 1),
     tooltipTheme: TooltipThemeData(
       decoration: BoxDecoration(
