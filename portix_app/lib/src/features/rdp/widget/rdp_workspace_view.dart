@@ -436,7 +436,7 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.green,
+        backgroundColor: AppColors.greenTint,
         duration: const Duration(seconds: 2),
       ),
     );
@@ -448,7 +448,7 @@ class _RdpWorkspaceViewState extends State<RdpWorkspaceView> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.red,
+        backgroundColor: AppColors.dangerTint,
         duration: const Duration(seconds: 3),
       ),
     );
@@ -953,9 +953,9 @@ class _RdpEditViewState extends State<_RdpEditView> {
           });
 
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('RDP profile updated successfully.'),
-              backgroundColor: Colors.green,
+            SnackBar(
+              content: const Text('RDP profile updated successfully.'),
+              backgroundColor: AppColors.greenTint,
             ),
           );
         },
@@ -995,7 +995,7 @@ class _RdpEditViewState extends State<_RdpEditView> {
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.danger),
+      SnackBar(content: Text(message), backgroundColor: AppColors.dangerTint),
     );
   }
 }
