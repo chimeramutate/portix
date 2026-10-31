@@ -66,6 +66,7 @@ Future<void> _pumpWorkspaceView(
             showPaneControls: true,
             terminalForSession: (sessionId) => terminals[sessionId]!,
             statusForSession: (_) => session_models.ConnectionStatus.connected,
+            failureForSession: (_) => null,
             profileForSession: (_) => null,
             idleTerminal: Terminal(),
             controllerForSession: (sessionId) => controllers[sessionId]!,
