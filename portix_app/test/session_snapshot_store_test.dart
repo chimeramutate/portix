@@ -76,4 +76,23 @@ void main() {
     manager.renameSession(id, '   ');
     expect(manager.sessions.single.title, 'logs');
   });
+
+  test('saved snapshots are readable by their owner only', () async {
+    final dir = await Directory.systemTemp.createTemp('portix-snapshots');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = File('${dir.path}/snapshots.json')..writeAsStringSync('[]');
+    await Process.run('chmod', ['644', file.path]);
+
+    await SessionSnapshotStore(file: () async => file).save(
+      SessionSnapshot(
+        id: 's',
+        profileId: 'p1',
+        title: 'tab',
+        savedAt: DateTime.utc(2026),
+        output: 'secret',
+      ),
+    );
+
+    expect(file.statSync().mode & 0x1FF, 0x180);
+  }, skip: Platform.isWindows);
 }

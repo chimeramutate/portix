@@ -86,6 +86,39 @@ void main() {
       },
     );
 
+    test('a folder symlink pointing back up stops the download', () async {
+      final looping = _LoopingSftpBackend()
+        ..remoteFiles['/srv/app/a.txt'] = utf8.encode('a');
+      final manager = _manager(looping);
+      final ctrl = SftpWorkspaceController(
+        sftpManager: manager,
+        localFileBrowser: _FakeLocalFileBrowser(),
+        localEditorService: _FakeLocalEditorService(),
+      );
+      addTearDown(() {
+        ctrl.dispose();
+        manager.dispose();
+      });
+      final dir = await Directory.systemTemp.createTemp('portix-loop');
+      addTearDown(() => dir.delete(recursive: true));
+      await _attachRemoteProfile(ctrl);
+
+      await ctrl.downloadRemoteEntry(
+        SftpFileEntry(
+          name: 'app',
+          path: '/srv/app',
+          size: '-',
+          modified: '-',
+          folder: true,
+        ),
+        '${dir.path}/app',
+      );
+
+      expect(File('${dir.path}/app/a.txt').readAsStringSync(), 'a');
+      expect(Directory('${dir.path}/app/loop').existsSync(), isFalse);
+      expect(looping.lists, lessThan(3));
+    });
+
     test('rewrite uploads only to the server the copy came from', () async {
       await _attachRemoteProfile(controller);
       const remotePath = '/srv/app/config.json';
@@ -726,6 +759,35 @@ Future<String> _attachRemoteProfile(SftpWorkspaceController controller) async {
 }
 
 String pathBasename(String path) => path.split(Platform.pathSeparator).last;
+
+/// `/srv/app` holds `a.txt` and `loop`, a symlink back to itself.
+class _LoopingSftpBackend extends FakeSftpBackend {
+  int lists = 0;
+
+  @override
+  Future<String> resolve(String sessionId, String path) async =>
+      path.startsWith('/srv/app') ? '/srv/app' : path;
+
+  @override
+  Future<List<RemoteFileEntry>> list(String sessionId, String path) async {
+    if (!path.startsWith('/srv/app')) return const [];
+    if (++lists > 30) throw StateError('download never ends');
+    return [
+      const RemoteFileEntry(
+        name: 'a.txt',
+        path: '/srv/app/a.txt',
+        isDirectory: false,
+        sizeBytes: 1,
+      ),
+      RemoteFileEntry(
+        name: 'loop',
+        path: '$path/loop',
+        isDirectory: true,
+        sizeBytes: 0,
+      ),
+    ];
+  }
+}
 
 class _FakeLocalEditorService extends LocalEditorService {}
 

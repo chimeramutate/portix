@@ -20,14 +20,19 @@ import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 /// deleting [refused] fails.
 class _FakeKube extends MockConnectionBackend {
   final commands = <String>[];
+
+  /// What each command got on stdin.
+  final inputs = <String, String>{};
   String? refused;
 
   @override
   Future<String> execOnProfile(
     manager.SshProfile profile,
-    String command,
-  ) async {
+    String command, {
+    String? input,
+  }) async {
     commands.add(command);
+    if (input != null) inputs[command] = input;
     if (command == "kubectl get deployments 'api' -n 'prod' -o json") {
       return jsonEncode({
         'kind': 'Deployment',
@@ -415,12 +420,16 @@ void main() {
     await settle();
     expect(find.text('Edit api'), findsNothing);
 
-    final replace = backend.commands.singleWhere(
-      (c) => c.contains('kubectl replace'),
+    expect(backend.commands, contains('kubectl replace -f -'));
+    final stdin = backend.inputs['kubectl replace -f -']!;
+    expect(
+      backend.commands.where(
+        (c) => c.contains(base64.encode(utf8.encode(stdin))),
+      ),
+      isEmpty,
+      reason: 'the manifest stays off the command line',
     );
-    final sent =
-        jsonDecode(utf8.decode(base64.decode(replace.split(' ')[2])))
-            as Map<String, dynamic>;
+    final sent = jsonDecode(stdin) as Map<String, dynamic>;
     expect(sent['spec']['replicas'], 5);
     expect(sent['spec']['template']['spec']['containers'], [
       {

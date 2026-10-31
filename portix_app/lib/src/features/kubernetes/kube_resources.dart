@@ -695,20 +695,18 @@ String describeCommand(KubeKind kind, Json item) =>
 String deleteCommand(KubeKind kind, Json item) =>
     'kubectl delete ${_target(kind, item)} --wait=false';
 
-/// `kubectl apply` of [yaml] (into [namespace] when given), passed as
-/// base64 so no quoting can break it.
-String applyCommand(String yaml, [String? namespace]) =>
-    "printf '%s' ${base64.encode(utf8.encode(yaml))} | base64 -d | "
+/// `kubectl apply` (into [namespace] when given) of the YAML on stdin, which
+/// keeps a Secret's values off the server's process list.
+String applyCommand([String? namespace]) =>
     'kubectl apply${_nsFlag(namespace)} -f -';
 
 String itemCommand(KubeKind kind, Json item) =>
     'kubectl get ${_target(kind, item)} -o json';
 
-/// `kubectl replace` of a whole [item]. Unlike apply it drops what was
-/// removed from it, and its resourceVersion refuses a stale write.
-String replaceCommand(Json item) =>
-    "printf '%s' ${base64.encode(utf8.encode(jsonEncode(item)))} | "
-    'base64 -d | kubectl replace -f -';
+/// `kubectl replace` of the whole item on stdin, as JSON. Unlike apply it
+/// drops what was removed from it, and its resourceVersion refuses a stale
+/// write.
+const replaceCommand = 'kubectl replace -f -';
 
 String scaleCommand(KubeKind kind, Json item, int replicas) =>
     'kubectl scale ${_target(kind, item)} --replicas=$replicas';

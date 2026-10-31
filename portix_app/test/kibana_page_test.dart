@@ -25,8 +25,9 @@ class _FakeEs extends MockConnectionBackend {
   @override
   Future<String> execOnProfile(
     manager.SshProfile profile,
-    String command,
-  ) async {
+    String command, {
+    String? input,
+  }) async {
     commands.add(command);
     return '{"took":3,"hits":{"total":{"value":1},"hits":[{"_source":'
         '{"@timestamp":"2026-10-29T10:00:00Z","message":"boom${'!' * commands.length}",'
@@ -82,6 +83,27 @@ final _queryHint = find.text(
 );
 
 void main() {
+  test('only http to another machine counts as cleartext', () {
+    for (final url in [
+      'http://kibana.example.com',
+      ' HTTP://10.0.0.5:5601 ',
+      'http://localhost.example.com',
+      'http://127.example.com',
+    ]) {
+      expect(kibanaUrlIsCleartext(url), isTrue, reason: url);
+    }
+    for (final url in [
+      'https://kibana.example.com',
+      'http://localhost:5601',
+      'http://127.0.0.1:5601',
+      'http://[::1]:5601',
+      '',
+      'not a url',
+    ]) {
+      expect(kibanaUrlIsCleartext(url), isFalse, reason: url);
+    }
+  });
+
   late _FakeEs backend;
   late _Keychain keychain;
   setUp(() {
@@ -616,6 +638,13 @@ void main() {
       await tester.tap(find.text('New Profile'));
       await tester.pumpAndSettle();
       expect(find.text('New Kibana profile'), findsOneWidget);
+      final url = find.byType(TextField).at(1);
+      await tester.enterText(url, 'http://kibana.example.com');
+      await tester.pump();
+      expect(find.textContaining('not encrypted'), findsOneWidget);
+      await tester.enterText(url, 'https://kibana.example.com');
+      await tester.pump();
+      expect(find.textContaining('not encrypted'), findsNothing);
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 

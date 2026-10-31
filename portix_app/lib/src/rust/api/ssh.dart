@@ -49,13 +49,16 @@ Future<RemoteSystemSnapshot> remoteSystemSnapshot({
 
 /// Runs [command] on [profile]'s server over a background connection that is
 /// reused across calls; returns stdout+stderr. Fails with the last output
-/// line when the command exits non-zero.
+/// line when the command exits non-zero. `input` goes to the command's
+/// stdin, for anything that must stay off the server's process list.
 Future<String> execOnProfile({
   required SshProfile profile,
   required String command,
+  String? input,
 }) => RustLib.instance.api.crateApiSshExecOnProfile(
   profile: profile,
   command: command,
+  input: input,
 );
 
 /// Generates an unencrypted ed25519 keypair: the private key at `path` (0600

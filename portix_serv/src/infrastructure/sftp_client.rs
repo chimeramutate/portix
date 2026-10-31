@@ -35,6 +35,19 @@ pub fn remote_path(path: &str) -> String {
     }
 }
 
+/// Whether `name`, as sent by the server, is one path component. Callers
+/// build local paths from it, so a hostile server must not be able to step
+/// out of the download folder with `../../.zshrc`. `windows` adds the
+/// separators only that platform reads, which are ordinary name characters
+/// on a POSIX server.
+fn is_safe_entry_name(name: &str, windows: bool) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\0'])
+        && !(windows && name.contains(['\\', ':']))
+}
+
 fn join(dir: &str, name: &str) -> String {
     if dir.ends_with('/') {
         format!("{dir}{name}")
@@ -88,7 +101,7 @@ impl SftpConnection {
         let mut entries = Vec::new();
         for entry in self.sftp.read_dir(dir.clone()).await.map_err(sftp_error)? {
             let name = entry.file_name();
-            if name == "." || name == ".." {
+            if !is_safe_entry_name(&name, cfg!(windows)) {
                 continue;
             }
             let path = join(&dir, &name);
@@ -368,6 +381,39 @@ where
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn entry_names_that_leave_the_folder_are_refused() {
+        for name in [
+            "",
+            ".",
+            "..",
+            "../.zshrc",
+            "../../x",
+            "/etc/passwd",
+            "a/b",
+            "a\0b",
+        ] {
+            assert!(!is_safe_entry_name(name, false), "{name:?}");
+            assert!(!is_safe_entry_name(name, true), "{name:?}");
+        }
+    }
+
+    #[test]
+    fn windows_also_refuses_its_own_separators() {
+        for name in ["..\\..\\x", "C:\\x", "file.txt:stream"] {
+            assert!(is_safe_entry_name(name, false), "{name:?}");
+            assert!(!is_safe_entry_name(name, true), "{name:?}");
+        }
+    }
+
+    #[test]
+    fn ordinary_names_are_kept() {
+        for name in ["report.pdf", ".bashrc", "..hidden", "a b (1).txt", "résumé"] {
+            assert!(is_safe_entry_name(name, false), "{name:?}");
+            assert!(is_safe_entry_name(name, true), "{name:?}");
+        }
+    }
+
     use super::*;
 
     #[test]

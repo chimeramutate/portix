@@ -74,3 +74,51 @@ bool isCodeFileName(String fileName) {
   }
   return kCodeFileExtensions.contains(extension);
 }
+
+/// Extensions the OS would run rather than show, across the platforms.
+const Set<String> kRunnableFileExtensions = {
+  'app',
+  'appimage',
+  'bat',
+  'cmd',
+  'com',
+  'command',
+  'cpl',
+  'deb',
+  'desktop',
+  'dmg',
+  'exe',
+  'hta',
+  'jar',
+  'js',
+  'jse',
+  'lnk',
+  'mpkg',
+  'msc',
+  'msi',
+  'msp',
+  'pif',
+  'pkg',
+  'ps1',
+  'reg',
+  'rpm',
+  'run',
+  'scpt',
+  'scr',
+  'sh',
+  'terminal',
+  'tool',
+  'url',
+  'vb',
+  'vbe',
+  'vbs',
+  'workflow',
+  'wsf',
+  'wsh',
+};
+
+/// Whether opening [fileName] with the OS default could run it. Windows
+/// ignores trailing dots and spaces, so `setup.exe.` still counts.
+bool isRunnableFileName(String fileName) => kRunnableFileExtensions.contains(
+  fileExtension(fileName.replaceFirst(RegExp(r'[. ]+$'), '')),
+);

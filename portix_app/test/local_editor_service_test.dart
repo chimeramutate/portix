@@ -151,4 +151,42 @@ void main() {
       },
     );
   });
+
+  test('remote temp names keep nothing a local shell would run', () {
+    for (final name in [
+      r'$(calc).txt',
+      'a;calc.txt',
+      'a&calc.txt',
+      'a|calc.txt',
+      '`calc`.txt',
+      "it's.txt",
+      '%PATH%.txt',
+      'a^b(1)!.txt',
+    ]) {
+      final safe = LocalEditorService.buildRemoteTempFileName(
+        name,
+        remotePath: '/srv/$name',
+        now: DateTime.utc(2026),
+      );
+      expect(safe, isNot(contains(RegExp(r"[$;&|`'%^()!]"))), reason: name);
+      expect(safe, endsWith('.txt'), reason: name);
+    }
+  });
+
+  test('remote temp names keep letters, spaces and the extension', () {
+    final safe = LocalEditorService.buildRemoteTempFileName(
+      'Laporan résumé 2026.docx',
+      remotePath: '/srv/a',
+      now: DateTime.utc(2026),
+    );
+    expect(safe, startsWith('Laporan résumé 2026__'));
+    expect(safe, endsWith('.docx'));
+  });
+
+  test('Invoke-Item paths cannot close their quotes', () {
+    expect(
+      powerShellLiteral(r"C:\tmp\it's;calc.txt"),
+      r"'C:\tmp\it''s;calc.txt'",
+    );
+  });
 }
