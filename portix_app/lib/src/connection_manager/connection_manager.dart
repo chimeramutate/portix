@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/result/either.dart';
+import '../core/utils/owner_only.dart';
 import 'connection_backend.dart';
 import 'mock_backend.dart';
 import 'profile_credentials.dart';
@@ -302,7 +303,9 @@ class ConnectionManager extends ChangeNotifier {
   /// [path] until [stopRecording] or the session closes.
   void startRecording(String sessionId, String path) {
     if (_recordings.containsKey(sessionId)) return;
-    final file = File(path)..parent.createSync(recursive: true);
+    final file = File(path)..createSync(recursive: true);
+    restrictToOwner(file.parent.path, directory: true);
+    restrictToOwner(path);
     _recordings[sessionId] = (
       path: path,
       sink: file.openWrite(mode: FileMode.append),
@@ -363,13 +366,15 @@ class ConnectionManager extends ChangeNotifier {
 
   Future<Result<String>> execOnProfile(
     SshProfile profile,
-    String command,
-  ) async {
+    String command, {
+    String? input,
+  }) async {
     try {
       return Right(
         await _backend.execOnProfile(
           await credentials.resolve(profile),
           command,
+          input: input,
         ),
       );
     } catch (error) {

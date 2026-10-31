@@ -345,6 +345,17 @@ Map<String, Object?> flattenSource(Map<String, dynamic> source) {
 /// encoded API key in [secret].
 typedef KibanaAuth = ({bool apiKey, String user, String secret});
 
+/// Whether [url] would send a login across the network unencrypted. Loopback
+/// stays on this machine, as through an SSH tunnel.
+bool kibanaUrlIsCleartext(String url) {
+  final uri = Uri.tryParse(url.trim());
+  if (uri == null || uri.scheme != 'http' || uri.host.isEmpty) return false;
+  final host = uri.host.toLowerCase();
+  return host != 'localhost' &&
+      host != '::1' &&
+      !RegExp(r'^127\.\d+\.\d+\.\d+$').hasMatch(host);
+}
+
 String kibanaAuthHeader(KibanaAuth auth) => auth.apiKey
     ? 'ApiKey ${auth.secret.trim()}'
     : 'Basic ${base64Encode(utf8.encode('${auth.user}:${auth.secret}'))}';

@@ -156,10 +156,8 @@ void main() {
       expect(kubeFormSpec(kubeKinds['services']!), isNull);
     });
 
-    test('replace carries the whole item', () {
-      final command = replaceCommand({'kind': 'Pod'});
-      expect(command, endsWith('| base64 -d | kubectl replace -f -'));
-      expect(command, contains(base64.encode(utf8.encode('{"kind":"Pod"}'))));
+    test('replace reads the item from stdin', () {
+      expect(replaceCommand, 'kubectl replace -f -');
     });
   });
 
@@ -238,11 +236,9 @@ void main() {
     );
   });
 
-  test('apply sends the YAML as base64', () {
-    const yaml = "kind: ConfigMap\ndata:\n  a: \"it's\"\n";
-    final command = applyCommand(yaml, 'prod');
-    expect(command, contains(base64.encode(utf8.encode(yaml))));
-    expect(command, endsWith("kubectl apply -n 'prod' -f -"));
+  test('apply reads the YAML from stdin', () {
+    expect(applyCommand('prod'), "kubectl apply -n 'prod' -f -");
+    expect(applyCommand(), 'kubectl apply -f -');
   });
 
   test('manual cronjob runs stay within 63 characters', () {

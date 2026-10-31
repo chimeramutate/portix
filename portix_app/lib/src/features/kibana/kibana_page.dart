@@ -1456,6 +1456,14 @@ class _LoginFormState extends State<_LoginForm> {
             keyboardType: TextInputType.url,
             onChanged: (_) => setState(() {}),
           ),
+          if (kibanaUrlIsCleartext(_url.text)) ...[
+            const SizedBox(height: 6),
+            Text(
+              'http is not encrypted: your login and results can be read on '
+              'the network. Use https if this Kibana has it.',
+              style: portixMuted(12).copyWith(color: AppColors.amber),
+            ),
+          ],
           const SizedBox(height: 14),
           _Segments(
             label: 'Sign in with',

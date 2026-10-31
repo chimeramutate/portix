@@ -103,6 +103,7 @@ abstract class RustLibApi extends BaseApi {
   Future<String> crateApiSshExecOnProfile({
     required SshProfile profile,
     required String command,
+    String? input,
   });
 
   Future<String> crateApiSshGenerateEd25519Key({
@@ -422,6 +423,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Future<String> crateApiSshExecOnProfile({
     required SshProfile profile,
     required String command,
+    String? input,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -429,6 +431,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_box_autoadd_ssh_profile(profile, serializer);
           sse_encode_String(command, serializer);
+          sse_encode_opt_String(input, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -441,7 +444,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiSshExecOnProfileConstMeta,
-        argValues: [profile, command],
+        argValues: [profile, command, input],
         apiImpl: this,
       ),
     );
@@ -449,7 +452,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiSshExecOnProfileConstMeta => const TaskConstMeta(
     debugName: "exec_on_profile",
-    argNames: ["profile", "command"],
+    argNames: ["profile", "command", "input"],
   );
 
   @override

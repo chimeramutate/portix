@@ -261,12 +261,14 @@ fn wire__crate__api__ssh__exec_on_profile_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_profile = <crate::domain::profile::SshProfile>::sse_decode(&mut deserializer);
             let api_command = <String>::sse_decode(&mut deserializer);
+            let api_input = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok =
-                            crate::api::ssh::exec_on_profile(api_profile, api_command).await?;
+                            crate::api::ssh::exec_on_profile(api_profile, api_command, api_input)
+                                .await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,

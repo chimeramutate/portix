@@ -45,4 +45,20 @@ void main() {
     await pumpEventQueue();
     expect(File(path).readAsStringSync(), 'ls\n\$ ');
   });
+
+  test('session logs are readable by their owner only', () async {
+    final dir = await Directory.systemTemp.createTemp('portix-log');
+    addTearDown(() => dir.delete(recursive: true));
+    final manager = ConnectionManager(backend: MockConnectionBackend());
+    addTearDown(manager.dispose);
+    expect((await manager.connect(_profile)).isRight, isTrue);
+    final sessionId = manager.sessions.single.id;
+    final path = '${dir.path}/logs/box.log';
+
+    manager.startRecording(sessionId, path);
+    await manager.stopRecording(sessionId);
+
+    expect(File(path).statSync().mode & 0x1FF, 0x180);
+    expect(Directory('${dir.path}/logs').statSync().mode & 0x1FF, 0x1C0);
+  }, skip: Platform.isWindows);
 }

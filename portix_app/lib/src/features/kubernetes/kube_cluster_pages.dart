@@ -264,12 +264,17 @@ mixin _KubeExec<T extends StatefulWidget> on State<T> {
 
   /// Output or error of [command], answering a host-key or OTP prompt
   /// once if the connection needs it (never when [quiet]).
-  Future<(String?, String?)> _exec(String command, {bool quiet = false}) async {
+  Future<(String?, String?)> _exec(
+    String command, {
+    bool quiet = false,
+    String? input,
+  }) async {
     final profile = _profile();
     if (profile == null) return (null, 'Pick a server first.');
     Future<(String?, String?)> attempt() async => (await _manager.execOnProfile(
       profile,
       command,
+      input: input,
     )).fold((failure) => (null, '$failure'), (output) => (output, null));
 
     var (output, error) = await attempt();
@@ -1680,7 +1685,7 @@ class _ResourcePageState extends State<_ResourcePage>
       builder: (_) => _EditFormDialog(
         kind: kind,
         item: fresh,
-        onSave: (edited) => _exec(replaceCommand(edited)),
+        onSave: (edited) => _exec(replaceCommand, input: jsonEncode(edited)),
       ),
     );
     if (said == null || !mounted) return;
@@ -1694,7 +1699,7 @@ class _ResourcePageState extends State<_ResourcePage>
       builder: (_) => _YamlDialog(
         title: title,
         yaml: yaml,
-        onApply: (text) => _exec(applyCommand(text, namespace)),
+        onApply: (text) => _exec(applyCommand(namespace), input: text),
       ),
     );
     if (said == null || !mounted) return;
