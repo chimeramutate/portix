@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
+import 'package:portix/src/core/utils/owner_only.dart';
 import 'package:xterm/xterm.dart';
 
 /// Most terminal lines kept in a snapshot.
@@ -103,9 +104,9 @@ class SessionSnapshotStore {
 
   Future<void> _write(List<SessionSnapshot> snapshots) async {
     final file = await _file();
-    await file.parent.create(recursive: true);
-    // Terminal output can hold secrets; it stays in the per-user app
-    // support folder, like settings.json.
+    await file.create(recursive: true);
+    // Terminal output can hold secrets: owner-only before it is written.
+    restrictToOwner(file.path);
     await file.writeAsString(
       jsonEncode([for (final s in snapshots) s.toJson()]),
     );

@@ -42,9 +42,14 @@ pub async fn remote_system_snapshot(session_id: String) -> anyhow::Result<Remote
 
 /// Runs [command] on [profile]'s server over a background connection that is
 /// reused across calls; returns stdout+stderr. Fails with the last output
-/// line when the command exits non-zero.
-pub async fn exec_on_profile(profile: SshProfile, command: String) -> anyhow::Result<String> {
-    Ok(ssh_client::exec_on_profile(profile, command).await?)
+/// line when the command exits non-zero. `input` goes to the command's
+/// stdin, for anything that must stay off the server's process list.
+pub async fn exec_on_profile(
+    profile: SshProfile,
+    command: String,
+    input: Option<String>,
+) -> anyhow::Result<String> {
+    Ok(ssh_client::exec_on_profile(profile, command, input).await?)
 }
 
 /// Generates an unencrypted ed25519 keypair: the private key at `path` (0600

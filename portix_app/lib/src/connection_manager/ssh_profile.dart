@@ -20,6 +20,7 @@ class SshProfile {
     this.tags = const <String>[],
     this.startupCommand,
     this.forwardAgent = false,
+    this.command,
   });
 
   final String id;
@@ -51,6 +52,10 @@ class SshProfile {
 
   /// Let the server use the local ssh-agent (`ssh -A`).
   final bool forwardAgent;
+
+  /// Run in the PTY instead of the login shell (`ssh -t host cmd`); see
+  /// [ConnectionManager.openCommandSession].
+  final String? command;
 
   /// Connection view of a saved profile. The domain stores either the key
   /// path or the password in `credentialLabel`, depending on `authMethod`;
@@ -99,6 +104,7 @@ class SshProfile {
     SshProfile? jumpHost,
     String? group,
     List<String>? tags,
+    String? command,
   }) {
     return SshProfile(
       id: id ?? this.id,
@@ -118,6 +124,7 @@ class SshProfile {
       tags: tags ?? this.tags,
       startupCommand: startupCommand,
       forwardAgent: forwardAgent,
+      command: command ?? this.command,
     );
   }
 

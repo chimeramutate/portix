@@ -27,6 +27,7 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
     on<ProfileColorChanged>(_onProfileColorChanged);
     on<JumpProfileChanged>(_onJumpProfileChanged);
     on<ForwardAgentChanged>(_onForwardAgentChanged);
+    on<RunsKubernetesChanged>(_onRunsKubernetesChanged);
     on<ProfileTestRequested>(_onProfileTestRequested);
     on<ProfileSaved>(_onProfileSaved);
     on<ProfilesImported>(_onProfilesImported);
@@ -252,6 +253,20 @@ class SshWorkspaceBloc extends Bloc<SshWorkspaceEvent, SshWorkspaceState> {
     emit(
       state.copyWith(
         editingProfile: current.copyWith(forwardAgent: event.forwardAgent),
+        message: '',
+      ),
+    );
+  }
+
+  void _onRunsKubernetesChanged(
+    RunsKubernetesChanged event,
+    Emitter<SshWorkspaceState> emit,
+  ) {
+    final current = state.editingProfile;
+    if (current == null) return;
+    emit(
+      state.copyWith(
+        editingProfile: current.copyWith(runsKubernetes: event.runsKubernetes),
         message: '',
       ),
     );

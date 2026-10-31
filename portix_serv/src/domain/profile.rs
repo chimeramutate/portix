@@ -19,6 +19,10 @@ pub struct SshProfile {
     /// you trust: their root can use your keys while you are connected.
     #[serde(default)]
     pub forward_agent: bool,
+    /// Run this in the PTY instead of the login shell (`ssh -t host cmd`).
+    /// The shell never reads it, so it stays out of the server's history.
+    #[serde(default)]
+    pub command: Option<String>,
 }
 
 impl SshProfile {
@@ -66,6 +70,7 @@ mod tests {
             key_passphrase: None,
             jump_host: None,
             forward_agent: false,
+            command: None,
         }
     }
 

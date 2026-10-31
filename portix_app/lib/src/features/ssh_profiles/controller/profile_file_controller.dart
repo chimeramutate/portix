@@ -207,7 +207,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.
       'lastUsedLabel': profile.lastUsedLabel,
       'osIconAsset': profile.osIconAsset,
       'jumpProfileId': profile.jumpProfileId,
-      'forwardAgent': profile.forwardAgent,
+      'runsKubernetes': profile.runsKubernetes,
     };
   }
 
@@ -249,7 +249,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.
       lastUsedLabel: json['lastUsedLabel']?.toString() ?? 'recently',
       osIconAsset: json['osIconAsset']?.toString() ?? '',
       jumpProfileId: json['jumpProfileId']?.toString() ?? '',
-      forwardAgent: json['forwardAgent'] == true,
+      // Lends the local agent's keys to the server: the user's own choice,
+      // never something a file someone sent can switch on.
+      forwardAgent: false,
+      runsKubernetes: json['runsKubernetes'] == true,
     );
   }
 }

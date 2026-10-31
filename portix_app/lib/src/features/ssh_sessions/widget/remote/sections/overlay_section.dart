@@ -5,12 +5,16 @@ class TerminalConnectionOverlay extends StatefulWidget {
     required this.profile,
     required this.connecting,
     required this.onReconnect,
+    this.failure,
     this.onBack,
   });
 
   final domain.SshProfile? profile;
   final bool connecting;
   final VoidCallback? onReconnect;
+
+  /// Why the session went down, when the backend said.
+  final String? failure;
   final VoidCallback? onBack;
 
   @override
@@ -121,52 +125,56 @@ class _TerminalConnectionOverlayState extends State<TerminalConnectionOverlay> {
       ),
       child: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(10),
-          child: AppPanel(
-            padding: const EdgeInsets.all(16),
-            color: AppColors.surfaceDark.withValues(alpha: .96),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 380),
+          padding: const EdgeInsets.all(12),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 340),
+            child: AppPanel(
+              padding: const EdgeInsets.all(20),
+              color: AppColors.surface,
+              radius: 10,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (widget.connecting)
-                    Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        SizedBox.square(
-                          dimension: 36,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: slowConnection ? AppColors.amber : null,
-                          ),
-                        ),
-                        if (elapsed.isNotEmpty)
-                          Text(
-                            elapsed,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: slowConnection
-                                  ? AppColors.amber
-                                  : AppColors.muted,
-                              fontWeight: FontWeight.w500,
+                    SizedBox.square(
+                      dimension: ConnectionStatusIcon.size,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          SizedBox.square(
+                            dimension: 36,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: slowConnection ? AppColors.amber : null,
                             ),
                           ),
-                      ],
+                          if (elapsed.isNotEmpty)
+                            Text(
+                              elapsed,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: slowConnection
+                                    ? AppColors.amber
+                                    : AppColors.muted,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                        ],
+                      ),
                     )
                   else if (noNetwork)
-                    Icon(
-                      Icons.wifi_off_rounded,
+                    ConnectionStatusIcon(
+                      icon: Icons.wifi_off_rounded,
                       color: AppColors.danger,
-                      size: 30,
+                      tint: AppColors.dangerTint,
                     )
                   else
-                    Icon(
-                      Icons.link_off_rounded,
+                    ConnectionStatusIcon(
+                      icon: Icons.link_off_rounded,
                       color: AppColors.amber,
-                      size: 30,
+                      tint: AppColors.amberTint,
                     ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 14),
                   FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Text(
@@ -184,63 +192,65 @@ class _TerminalConnectionOverlayState extends State<TerminalConnectionOverlay> {
                   Text(
                     widget.connecting
                         ? _connectingSubtitle()
+                        : widget.failure != null
+                        ? widget.failure!
                         : noNetwork
                         ? 'Check your internet connection and try again.'
                         : label,
                     textAlign: TextAlign.center,
-                    style: portixMuted(12),
+                    style: portixMuted(12).copyWith(height: 1.4),
                   ),
                   if (!widget.connecting) ...[
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                     Row(
-                      mainAxisSize: MainAxisSize.min,
                       children: [
                         if (widget.onBack != null) ...[
-                          SizedBox(
-                            height: 34,
-                            child: OutlinedButton.icon(
+                          Expanded(
+                            child: AppButton(
+                              icon: Icons.arrow_back_rounded,
+                              label: 'Back',
                               onPressed: widget.onBack,
-                              icon: const Icon(
-                                Icons.arrow_back_rounded,
-                                size: 16,
-                              ),
-                              label: const Text('Back'),
                             ),
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 8),
                         ],
                         if (widget.onReconnect != null)
-                          SizedBox(
-                            height: 34,
-                            child: FilledButton.icon(
-                              onPressed: _checkingNetwork
-                                  ? null
-                                  : () {
-                                      // Re-check connectivity before reconnecting.
-                                      _checkConnectivity();
-                                      if (_hasNetwork != false) {
-                                        widget.onReconnect?.call();
-                                      }
-                                    },
-                              icon: Icon(
-                                noNetwork
-                                    ? Icons
-                                          .signal_wifi_statusbar_connected_no_internet_4_rounded
-                                    : Icons.refresh_rounded,
-                                size: 16,
+                          Expanded(
+                            child: SizedBox(
+                              height: 34,
+                              child: FilledButton.icon(
+                                onPressed: _checkingNetwork
+                                    ? null
+                                    : () {
+                                        // Re-check connectivity before reconnecting.
+                                        _checkConnectivity();
+                                        if (_hasNetwork != false) {
+                                          widget.onReconnect?.call();
+                                        }
+                                      },
+                                // The spinner lives in the button so the card
+                                // keeps its height while the check runs.
+                                icon: _checkingNetwork
+                                    ? SizedBox.square(
+                                        dimension: 14,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: AppColors.muted,
+                                        ),
+                                      )
+                                    : Icon(
+                                        noNetwork
+                                            ? Icons
+                                                  .signal_wifi_statusbar_connected_no_internet_4_rounded
+                                            : Icons.refresh_rounded,
+                                        size: 16,
+                                      ),
+                                label: Text(noNetwork ? 'Retry' : 'Connect'),
                               ),
-                              label: Text(noNetwork ? 'Retry' : 'Connect'),
                             ),
                           ),
                       ],
                     ),
-                    if (_checkingNetwork) ...[
-                      const SizedBox(height: 10),
-                      const SizedBox.square(
-                        dimension: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ],
                   ],
                 ],
               ),
@@ -248,6 +258,34 @@ class _TerminalConnectionOverlayState extends State<TerminalConnectionOverlay> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Status glyph on a soft tile, shared by the terminal's connection cards.
+class ConnectionStatusIcon extends StatelessWidget {
+  const ConnectionStatusIcon({
+    required this.icon,
+    required this.color,
+    required this.tint,
+  });
+
+  static const size = 44.0;
+
+  final IconData icon;
+  final Color color;
+  final Color tint;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: tint,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(icon, color: color, size: 22),
     );
   }
 }

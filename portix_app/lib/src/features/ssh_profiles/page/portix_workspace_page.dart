@@ -4,6 +4,7 @@ import 'package:portix/src/connection_manager/connection_manager.dart';
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/side_panel.dart';
+import 'package:portix/src/features/kibana/kibana_page.dart';
 import 'package:portix/src/features/kubernetes/kubernetes_page.dart';
 import 'package:portix/src/features/rdp/widget/rdp_groups_panel.dart';
 import 'package:portix/src/features/rdp/widget/rdp_workspace_view.dart';
@@ -103,7 +104,7 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
             return BlocProvider.value(
               value: _sftpWorkspaceBloc,
               child: ListenableBuilder(
-                listenable: _connectionManager,
+                listenable: Listenable.merge([_connectionManager, kubeTabs]),
                 builder: (context, child) => WorkspaceShell(
                   state: state,
                   panel: _panelFor(state),
@@ -122,6 +123,7 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
                     _lazyView(WorkspaceView.sftp, const SftpWorkspacePage()),
                     _lazyView(WorkspaceView.rdp, const RdpWorkspaceView()),
                     _lazyView(WorkspaceView.kubernetes, const KubernetesPage()),
+                    _lazyView(WorkspaceView.kibana, const KibanaPage()),
                   ],
                 ),
               ),
@@ -141,6 +143,11 @@ class _PortixWorkspacePageState extends State<PortixWorkspacePage> {
     WorkspaceView.rdp => const SidePanel(
       title: 'Groups',
       child: RdpGroupsPanel(),
+    ),
+    // Sections mean nothing until the tab has connected to its cluster.
+    WorkspaceView.kubernetes when kubeTabs.current.connected => const SidePanel(
+      title: 'Kubernetes',
+      child: KubeSectionsPanel(),
     ),
     _ => null,
   };

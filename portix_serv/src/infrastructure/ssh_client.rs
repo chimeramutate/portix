@@ -56,7 +56,7 @@ pub(crate) struct Client {
     forward_agent: bool,
 }
 
-type ExecRequest = (String, oneshot::Sender<Result<String>>);
+type ExecRequest = (String, Option<String>, oneshot::Sender<Result<String>>);
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const AUTH_TIMEOUT: Duration = Duration::from_secs(15);
@@ -167,7 +167,10 @@ impl SshRuntime {
         if self.profile.forward_agent {
             channel.agent_forward(false).await?;
         }
-        channel.request_shell(true).await?;
+        match &self.profile.command {
+            Some(command) => channel.exec(true, command.as_bytes()).await?,
+            None => channel.request_shell(true).await?,
+        }
         let (exec_tx, exec_rx) = mpsc::channel::<ExecRequest>(64);
         tokio::spawn(run_exec_worker(self.profile.clone(), exec_rx));
         self.emit_status(ConnectionStatus::Connected, Some("connected"));
@@ -186,7 +189,7 @@ impl SshRuntime {
                         },
                         Some(SshCommand::Exec { command, response_tx }) => {
                             exec_tx
-                                .send((command, response_tx))
+                                .send((command, None, response_tx))
                                 .await
                                 .map_err(|_| PortixError::SessionNotFound(self.session_id.clone()))?;
                         }
@@ -247,9 +250,19 @@ impl SshRuntime {
     }
 }
 
-async fn run_exec(session: &client::Handle<Client>, command: String) -> Result<String> {
+/// Runs `command`, feeding it `input` on stdin: unlike the command line,
+/// stdin doesn't show up in the server's process list.
+async fn run_exec(
+    session: &client::Handle<Client>,
+    command: String,
+    input: Option<String>,
+) -> Result<String> {
     let mut channel = session.channel_open_session().await?;
     channel.exec(true, command).await?;
+    if let Some(input) = input {
+        channel.data(input.as_bytes()).await?;
+        channel.eof().await?;
+    }
     let mut output = Vec::new();
     let mut exit_status = None;
 
@@ -294,7 +307,11 @@ static PROFILE_EXEC: std::sync::LazyLock<
     std::sync::Mutex<std::collections::HashMap<String, mpsc::Sender<ExecRequest>>>,
 > = std::sync::LazyLock::new(Default::default);
 
-pub(crate) async fn exec_on_profile(profile: SshProfile, command: String) -> Result<String> {
+pub(crate) async fn exec_on_profile(
+    profile: SshProfile,
+    command: String,
+    input: Option<String>,
+) -> Result<String> {
     let worker = PROFILE_EXEC
         .lock()
         .unwrap()
@@ -307,7 +324,7 @@ pub(crate) async fn exec_on_profile(profile: SshProfile, command: String) -> Res
         .clone();
     let (response_tx, response_rx) = oneshot::channel();
     worker
-        .send((command, response_tx))
+        .send((command, input, response_tx))
         .await
         .map_err(|_| PortixError::ConnectionTimeout)?;
     response_rx.await.map_err(|_| PortixError::ConnectionTimeout)?
@@ -328,7 +345,7 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
     loop {
         tokio::select! {
             msg = rx.recv() => {
-                let Some((command, response_tx)) = msg else {
+                let Some((command, input, response_tx)) = msg else {
                     // Channel closed: no more exec requests will arrive.
                     break;
                 };
@@ -348,7 +365,7 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
                 }
 
                 let result = if let Some(handle) = session.as_ref() {
-                    let result = run_exec(handle, command.clone()).await;
+                    let result = run_exec(handle, command.clone(), input.clone()).await;
                     // A command that ran and exited non-zero is the answer; only a
                     // broken connection is worth reconnecting (and re-running) for.
                     if matches!(&result, Err(e) if !matches!(e, PortixError::InvalidRequest(_))) {
@@ -358,7 +375,7 @@ async fn run_exec_worker(profile: SshProfile, mut rx: mpsc::Receiver<ExecRequest
                         match connect().await {
                             Ok(new_handle) => {
                                 session = Some(new_handle);
-                                run_exec(session.as_ref().unwrap(), command).await
+                                run_exec(session.as_ref().unwrap(), command, input).await
                             }
                             // Why we can't get back in (host key, auth, network) says
                             // more than the dead channel's "Channel send error".

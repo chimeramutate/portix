@@ -1,25 +1,39 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:easy_stepper/easy_stepper.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:portix/src/connection_manager/connection_manager.dart';
+import 'package:portix/src/connection_manager/profile_credentials.dart'
+    show PasswordUnavailableException;
+import 'package:portix/src/connection_manager/session_models.dart'
+    as session_models;
 import 'package:portix/src/connection_manager/ssh_profile.dart'
     as manager_profile;
 import 'package:portix/src/core/di/injection.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
+import 'package:portix/src/domain/entities/ssh/ssh_profile.dart' as domain;
 import 'package:portix/src/features/ssh_profiles/bloc/ssh_workspace_bloc.dart';
 import 'package:portix/src/features/ssh_profiles/widget/gallery/profile_card.dart'
     show ProfileOsIcon;
 import 'package:portix/src/features/ssh_sessions/widget/remote/auth_prompt_dialog.dart';
 import 'package:portix/src/features/ssh_sessions/widget/remote/host_key_dialog.dart';
+import 'package:portix/src/features/ssh_sessions/widget/remote/terminal_themes.dart'
+    show portixBuiltinTheme;
+import 'package:xterm/xterm.dart';
 
 import 'kube_logs.dart';
+import 'kube_resources.dart';
 
-/// Pod logs through a saved SSH server's kubectl and kubeconfig, in tabs:
-/// each tab picks its own server, namespace and pod (or all pods), a time
-/// range like Kibana's (relative or absolute) and a search query.
+part 'kube_cluster_pages.dart';
+
+/// Kubernetes through a saved SSH server's kubectl and kubeconfig, laid
+/// out like Rancher's cluster explorer: the server and namespace on top,
+/// the [KubeSection] the side panel picked below.
 class KubernetesPage extends StatefulWidget {
   const KubernetesPage({super.key});
 
@@ -27,17 +41,214 @@ class KubernetesPage extends StatefulWidget {
   State<KubernetesPage> createState() => _KubernetesPageState();
 }
 
+class _KubernetesPageState extends State<KubernetesPage> {
+  @override
+  Widget build(BuildContext context) {
+    final shown = context.select(
+      (SshWorkspaceBloc bloc) =>
+          bloc.state.activeView == WorkspaceView.kubernetes,
+    );
+    final profiles = context.select(
+      (SshWorkspaceBloc bloc) => bloc.state.profiles,
+    );
+    return ListenableBuilder(
+      listenable: kubeTabs,
+      builder: (context, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            height: 34,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceDark,
+              border: Border(bottom: BorderSide(color: AppColors.border)),
+            ),
+            child: Row(
+              children: [
+                Flexible(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final (i, cluster) in kubeTabs.tabs.indexed)
+                          _TabChip(
+                            title:
+                                profiles
+                                    .where((p) => p.id == cluster.profileId)
+                                    .firstOrNull
+                                    ?.name ??
+                                'New cluster',
+                            selected: i == kubeTabs.active,
+                            onTap: () => kubeTabs.select(i),
+                            onClose: () => kubeTabs.close(i),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                AppIconButton(
+                  tooltip: 'Open another cluster',
+                  icon: Icons.add_rounded,
+                  outlined: false,
+                  onPressed: kubeTabs.add,
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: IndexedStack(
+              index: kubeTabs.active,
+              children: [
+                for (final (i, cluster) in kubeTabs.tabs.indexed)
+                  _ClusterView(
+                    key: ObjectKey(cluster),
+                    cluster: cluster,
+                    shown: shown && i == kubeTabs.active,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One cluster tab: its server and namespace on top, the [KubeSection]
+/// the side panel picked below.
+class _ClusterView extends StatefulWidget {
+  const _ClusterView({required this.cluster, required this.shown, super.key});
+
+  final KubeCluster cluster;
+
+  /// This tab is the one on screen.
+  final bool shown;
+
+  @override
+  State<_ClusterView> createState() => _ClusterViewState();
+}
+
+class _ClusterViewState extends State<_ClusterView> {
+  /// Sections opened so far; the rest aren't built.
+  final _opened = <KubeSection>{};
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = widget.shown;
+    return _KubeScope(
+      cluster: widget.cluster,
+      child: ListenableBuilder(
+        listenable: widget.cluster,
+        builder: (context, _) {
+          if (widget.cluster.profileId == null) {
+            return _ServerPickPage(onPicked: widget.cluster.pickServer);
+          }
+          if (!widget.cluster.connected) {
+            return _ConnectPage(key: ValueKey(widget.cluster.generation));
+          }
+          final current = widget.cluster.section;
+          _opened.add(current);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _KubeHeader(),
+              Expanded(
+                child: IndexedStack(
+                  index: current.index,
+                  children: [
+                    for (final section in KubeSection.values)
+                      if (!_opened.contains(section))
+                        const SizedBox.shrink()
+                      else
+                        switch (section) {
+                          KubeSection.overview => _OverviewPage(
+                            visible: shown && current == section,
+                          ),
+                          KubeSection.contexts => _ContextsPage(
+                            visible: shown && current == section,
+                          ),
+                          KubeSection.logs => _KubeLogTabs(
+                            visible: shown && current == section,
+                          ),
+                          _ => _ResourcePage(
+                            key: ValueKey(section),
+                            kind: section.kind!,
+                            visible: shown && current == section,
+                          ),
+                        },
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Pod logs in tabs: each tab picks its own namespace and pod (or all
+/// pods), a time range like Kibana's (relative or absolute) and a search
+/// query, on the server picked above.
+class _KubeLogTabs extends StatefulWidget {
+  const _KubeLogTabs({required this.visible});
+
+  /// The Logs section is the one on screen.
+  final bool visible;
+
+  @override
+  State<_KubeLogTabs> createState() => _KubeLogTabsState();
+}
+
 class _Tab {
-  _Tab(this.id);
+  _Tab(this.id, {this.namespace, this.pod});
 
   final int id;
+
+  /// What "View logs" opened it on.
+  final String? namespace;
+  final String? pod;
   String title = 'New tab';
 }
 
-class _KubernetesPageState extends State<KubernetesPage> {
+class _KubeLogTabsState extends State<_KubeLogTabs> {
   final List<_Tab> _tabs = [_Tab(0)];
   int _nextId = 1;
   int _active = 0;
+  int _handledRequest = 0;
+  late final kube = _KubeScope.of(context);
+
+  @override
+  void initState() {
+    super.initState();
+    kube.addListener(_onCluster);
+    _onCluster();
+  }
+
+  @override
+  void dispose() {
+    kube.removeListener(_onCluster);
+    super.dispose();
+  }
+
+  /// A "View logs" from a table opens its pod in a new tab.
+  void _onCluster() {
+    final request = kube.logRequest;
+    if (request == null || request.serial == _handledRequest) return;
+    _handledRequest = request.serial;
+    final tab = _Tab(_nextId++, namespace: request.namespace, pod: request.pod);
+    void add() {
+      // Replace an untouched first tab instead of piling up.
+      if (_tabs.length == 1 && _tabs.first.title == 'New tab') _tabs.clear();
+      _tabs.add(tab);
+      _active = _tabs.length - 1;
+    }
+
+    if (mounted) {
+      setState(add);
+    } else {
+      add();
+    }
+  }
 
   void _add() => setState(() {
     _tabs.add(_Tab(_nextId++));
@@ -54,18 +265,14 @@ class _KubernetesPageState extends State<KubernetesPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Only the visible tab of the visible page auto-refreshes.
-    final pageVisible = context.select(
-      (SshWorkspaceBloc bloc) =>
-          bloc.state.activeView == WorkspaceView.kubernetes,
-    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Secondary to the cluster tabs above: smaller, no strip fill.
         Container(
-          height: 34,
+          height: 30,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
-            color: AppColors.surfaceDark,
             border: Border(bottom: BorderSide(color: AppColors.border)),
           ),
           child: Row(
@@ -79,6 +286,7 @@ class _KubernetesPageState extends State<KubernetesPage> {
                         _TabChip(
                           title: tab.title,
                           selected: i == _active,
+                          secondary: true,
                           onTap: () => setState(() => _active = i),
                           onClose: () => _close(i),
                         ),
@@ -86,11 +294,15 @@ class _KubernetesPageState extends State<KubernetesPage> {
                   ),
                 ),
               ),
-              AppIconButton(
-                tooltip: 'New log tab',
-                icon: Icons.add_rounded,
-                outlined: false,
+              TextButton.icon(
                 onPressed: _add,
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.muted,
+                  visualDensity: VisualDensity.compact,
+                  textStyle: const TextStyle(fontSize: 12),
+                ),
+                icon: const Icon(Icons.add_rounded, size: 15),
+                label: const Text('New log tab'),
               ),
             ],
           ),
@@ -102,7 +314,9 @@ class _KubernetesPageState extends State<KubernetesPage> {
               for (final (i, tab) in _tabs.indexed)
                 _KubeLogView(
                   key: ValueKey(tab.id),
-                  active: pageVisible && i == _active,
+                  active: widget.visible && i == _active,
+                  initialNamespace: tab.namespace,
+                  initialPod: tab.pod,
                   onTitle: (title) => setState(() => tab.title = title),
                 ),
             ],
@@ -119,6 +333,7 @@ class _TabChip extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.onClose,
+    this.secondary = false,
   });
 
   final String title;
@@ -126,22 +341,29 @@ class _TabChip extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onClose;
 
+  /// A tab inside a cluster tab (logs): smaller, marked by an underline
+  /// instead of the filled, top-lit primary tab.
+  final bool secondary;
+
   @override
   Widget build(BuildContext context) {
+    final mark = BorderSide(
+      color: selected ? AppColors.accent : Colors.transparent,
+      width: 2,
+    );
     return InkWell(
       onTap: onTap,
       child: Container(
-        height: 34,
-        padding: const EdgeInsets.only(left: 12, right: 4),
+        height: secondary ? 30 : 34,
+        padding: EdgeInsets.only(left: secondary ? 10 : 12, right: 2),
         decoration: BoxDecoration(
-          color: selected ? AppColors.surface : null,
-          border: Border(
-            right: BorderSide(color: AppColors.border),
-            top: BorderSide(
-              color: selected ? AppColors.accent : Colors.transparent,
-              width: 2,
-            ),
-          ),
+          color: selected && !secondary ? AppColors.surface : null,
+          border: secondary
+              ? Border(bottom: mark)
+              : Border(
+                  right: BorderSide(color: AppColors.border),
+                  top: mark,
+                ),
         ),
         child: Row(
           children: [
@@ -157,8 +379,8 @@ class _TabChip extends StatelessWidget {
               ),
             ),
             IconButton(
-              tooltip: 'Close tab',
-              iconSize: 14,
+              tooltip: secondary ? 'Close log tab' : 'Close cluster tab',
+              iconSize: secondary ? 13 : 14,
               visualDensity: VisualDensity.compact,
               onPressed: onClose,
               icon: const Icon(Icons.close_rounded),
@@ -214,18 +436,28 @@ String _formatShort(DateTime time) =>
 const _controlHeight = 32.0;
 
 class _KubeLogView extends StatefulWidget {
-  const _KubeLogView({required this.active, required this.onTitle, super.key});
+  const _KubeLogView({
+    required this.active,
+    required this.onTitle,
+    this.initialNamespace,
+    this.initialPod,
+    super.key,
+  });
 
   /// On screen; auto-refresh only runs while true.
   final bool active;
   final ValueChanged<String> onTitle;
 
+  /// Opened by "View logs": start on this pod and load right away.
+  final String? initialNamespace;
+  final String? initialPod;
+
   @override
   State<_KubeLogView> createState() => _KubeLogViewState();
 }
 
-class _KubeLogViewState extends State<_KubeLogView> {
-  final _manager = sl<ConnectionManager>();
+class _KubeLogViewState extends State<_KubeLogView>
+    with _KubeExec<_KubeLogView> {
   final _search = TextEditingController();
   final _searchFocus = FocusNode(debugLabel: 'Log search');
   final _scroll = ScrollController();
@@ -241,7 +473,6 @@ class _KubeLogViewState extends State<_KubeLogView> {
   int? _targetIndex;
   final _targetKey = GlobalKey();
 
-  String? _profileId;
   List<KubeNamespace> _namespaces = const [];
   List<KubePod> _pods = const [];
   String? _namespace;
@@ -262,8 +493,6 @@ class _KubeLogViewState extends State<_KubeLogView> {
   DateTime? _from;
   DateTime? _to;
   List<LogLine> _lines = const [];
-  String? _error;
-  bool _loading = false;
 
   Duration? _refreshEvery;
   Timer? _timer;
@@ -283,10 +512,32 @@ class _KubeLogViewState extends State<_KubeLogView> {
   /// Long lines the user opened past the first 2,000 characters.
   final _expanded = <LogLine>{};
 
+  /// [KubeCluster.generation] the namespaces were read for.
+  int? _clusterGeneration;
+
   @override
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    kube.addListener(_onCluster);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _onCluster();
+    });
+  }
+
+  /// Follows the server picked above (and its context switches).
+  void _onCluster() {
+    final id = kube.profileId;
+    if (id == null || kube.generation == _clusterGeneration) return;
+    final first = _clusterGeneration == null;
+    _clusterGeneration = kube.generation;
+    unawaited(
+      _selectProfile(
+        id,
+        namespace: first ? widget.initialNamespace : null,
+        pod: first ? widget.initialPod : null,
+      ),
+    );
   }
 
   void _onScroll() {
@@ -337,6 +588,7 @@ class _KubeLogViewState extends State<_KubeLogView> {
 
   @override
   void dispose() {
+    kube.removeListener(_onCluster);
     _timer?.cancel();
     _search.dispose();
     _searchFocus.dispose();
@@ -344,56 +596,15 @@ class _KubeLogViewState extends State<_KubeLogView> {
     super.dispose();
   }
 
-  manager_profile.SshProfile? _profile() {
-    final profile = context
-        .read<SshWorkspaceBloc>()
-        .state
-        .profiles
-        .where((p) => p.id == _profileId)
-        .firstOrNull;
-    return profile == null
-        ? null
-        : manager_profile.SshProfile.fromDomain(profile);
-  }
-
-  /// Runs [command] on the picked server, answering a host-key or OTP prompt
-  /// once if the connection needs it. Shows the error and returns null on
-  /// failure.
-  Future<String?> _run(String command) async {
-    final profile = _profile();
-    if (profile == null) return null;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    Future<(String?, String?)> attempt() async => (await _manager.execOnProfile(
-      profile,
-      command,
-    )).fold((failure) => (null, '$failure'), (output) => (output, null));
-
-    var (output, error) = await attempt();
-    if (error != null && mounted) {
-      final hostKey = await resolveRefusedHostKey(context, _manager, profile);
-      if (hostKey == true) (output, error) = await attempt();
-      if (hostKey == false) error = 'Host key not trusted.';
-    }
-    while (error != null && mounted) {
-      final prompts = await resolveAuthPrompts(context, _manager, profile);
-      if (prompts != true) break;
-      (output, error) = await attempt();
-    }
-    if (!mounted) return null;
-    setState(() {
-      _loading = false;
-      _error = error;
-    });
-    return output;
-  }
-
-  Future<void> _selectProfile(String id) async {
+  /// Reads [id]'s namespaces and opens [namespace] (else `default`), and
+  /// [pod]'s logs when given.
+  Future<void> _selectProfile(
+    String id, {
+    String? namespace,
+    String? pod,
+  }) async {
     _generation++;
     setState(() {
-      _profileId = id;
       _current = null;
       _lines = const [];
       _namespaces = const [];
@@ -407,12 +618,19 @@ class _KubeLogViewState extends State<_KubeLogView> {
     if (output == null || _profileId != id) return;
     final namespaces = parseNamespaces(output);
     setState(() => _namespaces = namespaces);
-    if (namespaces.isNotEmpty) {
-      await _selectNamespace(
-        namespaces.any((ns) => ns.name == 'default')
-            ? 'default'
-            : namespaces.first.name,
-      );
+    if (namespaces.isEmpty) return;
+    final names = namespaces.map((ns) => ns.name);
+    final picked = names.contains(namespace)
+        ? namespace!
+        : names.contains('default')
+        ? 'default'
+        : names.first;
+    await _selectNamespace(picked);
+    if (pod != null &&
+        _namespace == picked &&
+        _pods.any((p) => p.name == pod)) {
+      _setTarget(pod: pod);
+      await _loadLogs();
     }
   }
 
@@ -719,12 +937,10 @@ class _KubeLogViewState extends State<_KubeLogView> {
 
   Future<void> _pickAbsolute() async {
     final now = DateTime.now();
-    final range = await showDialog<(DateTime, DateTime)>(
-      context: context,
-      builder: (_) => _AbsoluteRangeDialog(
-        from: _from ?? now.subtract(const Duration(hours: 1)),
-        to: _to ?? now,
-      ),
+    final range = await showAbsoluteRangeDialog(
+      context,
+      from: _from ?? now.subtract(const Duration(hours: 1)),
+      to: _to ?? now,
     );
     if (range == null) return;
     setState(() {
@@ -756,10 +972,6 @@ class _KubeLogViewState extends State<_KubeLogView> {
 
   @override
   Widget build(BuildContext context) {
-    final profiles = context.select(
-      (SshWorkspaceBloc bloc) => bloc.state.profiles,
-    );
-    final profile = profiles.where((p) => p.id == _profileId).firstOrNull;
     final query = LogQuery(_search.text);
     final (:shown, :matches) = _view();
     final cursor = _cursorIn(shown, matches);
@@ -773,39 +985,12 @@ class _KubeLogViewState extends State<_KubeLogView> {
             builder: (context, constraints) {
               final pickers = [
                 Expanded(
-                  flex: 4,
-                  child: _SelectButton<String>(
-                    icon: Icons.dns_outlined,
-                    label: 'Server',
-                    value: profile?.name,
-                    placeholder: 'Select a server with kubectl',
-                    enabled: !_loading,
-                    leading: profile == null
-                        ? null
-                        : ProfileOsIcon(profile: profile, size: 18),
-                    noun: 'servers',
-                    options: [
-                      for (final p in profiles)
-                        (
-                          value: p.id,
-                          label: p.name,
-                          subtitle: p.group,
-                          leading: ProfileOsIcon(profile: p, size: 24),
-                          section: null,
-                        ),
-                    ],
-                    selected: _profileId,
-                    onSelected: _selectProfile,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
                   flex: 3,
                   child: _SelectButton<String>(
                     icon: Icons.folder_outlined,
                     label: 'Namespace',
                     value: _namespace,
-                    placeholder: 'Pick a server first',
+                    placeholder: 'Pick a server above',
                     enabled: !_loading && _namespaces.isNotEmpty,
                     noun: 'namespaces',
                     options: [
@@ -1064,7 +1249,7 @@ class _KubeLogViewState extends State<_KubeLogView> {
       final (icon, message) = _lines.isNotEmpty
           ? (Icons.filter_alt_off_outlined, 'No lines match the search.')
           : _profileId == null
-          ? (Icons.dns_outlined, 'Select a server that has kubectl.')
+          ? (Icons.dns_outlined, _pickServer)
           : (Icons.article_outlined, 'Pick a pod and time range, then Load.');
       return Center(
         child: Column(
@@ -1833,6 +2018,13 @@ class _ErrorBannerState extends State<_ErrorBanner> {
 }
 
 /// A pod's health as a small colored dot with a soft halo.
+Color _healthColor(PodHealth health) => switch (health) {
+  PodHealth.ok => AppColors.green,
+  PodHealth.pending => AppColors.amber,
+  PodHealth.failing => AppColors.danger,
+  PodHealth.done => AppColors.muted,
+};
+
 class _PodDot extends StatelessWidget {
   const _PodDot(this.health);
 
@@ -1840,12 +2032,7 @@ class _PodDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = switch (health) {
-      PodHealth.ok => AppColors.green,
-      PodHealth.pending => AppColors.amber,
-      PodHealth.failing => AppColors.danger,
-      PodHealth.done => AppColors.muted,
-    };
+    final color = _healthColor(health);
     return Center(
       child: Container(
         width: 9,
@@ -1874,6 +2061,14 @@ class _NamespaceIcon extends StatelessWidget {
     color: system ? AppColors.muted : AppColors.accent,
   );
 }
+
+/// [_showAnchored] for other views (the Kibana time picker).
+Future<R?> showAnchoredPanel<R>(
+  BuildContext context, {
+  required String label,
+  required double Function(Rect anchor) width,
+  required Widget Function(double maxHeight) builder,
+}) => _showAnchored(context, label: label, width: width, builder: builder);
 
 /// Opens [builder]'s panel just under the widget of [context] (a button),
 /// kept on screen; returns what the panel pops with.
@@ -1961,6 +2156,7 @@ class _SelectButton<T> extends StatelessWidget {
     required this.onSelected,
     this.leading,
     this.noun = 'items',
+    this.isSelected,
   });
 
   final IconData icon;
@@ -1978,6 +2174,10 @@ class _SelectButton<T> extends StatelessWidget {
   /// Plural for the popup's count, e.g. "servers".
   final String noun;
 
+  /// Makes it a multi-select: the popup stays open and each tap hands
+  /// the option to [onSelected] to toggle; this tells what is ticked.
+  final bool Function(T value)? isSelected;
+
   Future<void> _open(BuildContext context) async {
     final picked = await _showAnchored<_Picked<T>>(
       context,
@@ -1988,6 +2188,8 @@ class _SelectButton<T> extends StatelessWidget {
         selected: selected,
         noun: noun,
         maxHeight: maxHeight,
+        isSelected: isSelected,
+        onToggle: onSelected,
       ),
     );
     if (picked != null) onSelected(picked.value);
@@ -2045,12 +2247,16 @@ class _PickerPanel<T> extends StatefulWidget {
     required this.selected,
     required this.noun,
     required this.maxHeight,
+    this.isSelected,
+    this.onToggle,
   });
 
   final List<_Option<T>> options;
   final T? selected;
   final String noun;
   final double maxHeight;
+  final bool Function(T value)? isSelected;
+  final ValueChanged<T>? onToggle;
 
   @override
   State<_PickerPanel<T>> createState() => _PickerPanelState<T>();
@@ -2076,8 +2282,14 @@ class _PickerPanelState<T> extends State<_PickerPanel<T>> {
     ];
   }
 
-  void _pick(_Option<T> option) =>
+  void _pick(_Option<T> option) {
+    if (widget.isSelected == null) {
       Navigator.of(context).pop(_Picked<T>(option.value));
+    } else {
+      widget.onToggle!(option.value);
+      setState(() {});
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2145,7 +2357,9 @@ class _PickerPanelState<T> extends State<_PickerPanel<T>> {
                         final section = filtered[i].section;
                         final row = _PickerRow(
                           option: filtered[i],
-                          selected: filtered[i].value == widget.selected,
+                          selected:
+                              widget.isSelected?.call(filtered[i].value) ??
+                              filtered[i].value == widget.selected,
                           onTap: () => _pick(filtered[i]),
                         );
                         if (section == null ||
@@ -2615,6 +2829,17 @@ class _ControlShell extends StatelessWidget {
     );
   }
 }
+
+/// Asks for an absolute range starting at [from]..[to]; null when
+/// cancelled. Shared with the Kibana view's time picker.
+Future<(DateTime, DateTime)?> showAbsoluteRangeDialog(
+  BuildContext context, {
+  required DateTime from,
+  required DateTime to,
+}) => showDialog<(DateTime, DateTime)>(
+  context: context,
+  builder: (_) => _AbsoluteRangeDialog(from: from, to: to),
+);
 
 /// Kibana-style absolute range: pick the start or end card, then its day on
 /// the calendar and its time (typed or from the half-hour list).

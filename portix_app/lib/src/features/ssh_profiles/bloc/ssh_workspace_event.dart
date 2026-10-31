@@ -152,6 +152,15 @@ class ForwardAgentChanged extends SshWorkspaceEvent {
   List<Object?> get props => [forwardAgent];
 }
 
+class RunsKubernetesChanged extends SshWorkspaceEvent {
+  const RunsKubernetesChanged(this.runsKubernetes);
+
+  final bool runsKubernetes;
+
+  @override
+  List<Object?> get props => [runsKubernetes];
+}
+
 class ProfileTestRequested extends SshWorkspaceEvent {
   const ProfileTestRequested();
 }

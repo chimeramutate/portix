@@ -106,8 +106,15 @@ class RustBridgeBackend implements ConnectionBackend {
   }
 
   @override
-  Future<String> execOnProfile(SshProfile profile, String command) =>
-      rust_api.execOnProfile(profile: toRustProfile(profile), command: command);
+  Future<String> execOnProfile(
+    SshProfile profile,
+    String command, {
+    String? input,
+  }) => rust_api.execOnProfile(
+    profile: toRustProfile(profile),
+    command: command,
+    input: input,
+  );
 
   void dispose() {
     RustLib.dispose();
@@ -220,6 +227,7 @@ rust_profile.SshProfile toRustProfile(SshProfile profile) {
     keyPassphrase: _blankToNull(profile.keyPassphrase),
     jumpHost: jumpHost == null ? null : toRustProfile(jumpHost),
     forwardAgent: profile.forwardAgent,
+    command: profile.command,
   );
 }
 

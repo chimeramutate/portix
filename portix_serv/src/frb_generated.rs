@@ -261,12 +261,14 @@ fn wire__crate__api__ssh__exec_on_profile_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_profile = <crate::domain::profile::SshProfile>::sse_decode(&mut deserializer);
             let api_command = <String>::sse_decode(&mut deserializer);
+            let api_input = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok =
-                            crate::api::ssh::exec_on_profile(api_profile, api_command).await?;
+                            crate::api::ssh::exec_on_profile(api_profile, api_command, api_input)
+                                .await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1747,6 +1749,7 @@ impl SseDecode for crate::domain::profile::SshProfile {
         let mut var_jumpHost =
             <Option<Box<crate::domain::profile::SshProfile>>>::sse_decode(deserializer);
         let mut var_forwardAgent = <bool>::sse_decode(deserializer);
+        let mut var_command = <Option<String>>::sse_decode(deserializer);
         return crate::domain::profile::SshProfile {
             id: var_id,
             name: var_name,
@@ -1758,6 +1761,7 @@ impl SseDecode for crate::domain::profile::SshProfile {
             key_passphrase: var_keyPassphrase,
             jump_host: var_jumpHost,
             forward_agent: var_forwardAgent,
+            command: var_command,
         };
     }
 }
@@ -2067,6 +2071,7 @@ impl flutter_rust_bridge::IntoDart for crate::domain::profile::SshProfile {
             self.key_passphrase.into_into_dart().into_dart(),
             self.jump_host.into_into_dart().into_dart(),
             self.forward_agent.into_into_dart().into_dart(),
+            self.command.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2373,6 +2378,7 @@ impl SseEncode for crate::domain::profile::SshProfile {
         <Option<String>>::sse_encode(self.key_passphrase, serializer);
         <Option<Box<crate::domain::profile::SshProfile>>>::sse_encode(self.jump_host, serializer);
         <bool>::sse_encode(self.forward_agent, serializer);
+        <Option<String>>::sse_encode(self.command, serializer);
     }
 }
 

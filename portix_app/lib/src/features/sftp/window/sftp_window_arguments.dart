@@ -78,6 +78,7 @@ class SftpWindowArguments {
       osIconAsset: map['osIconAsset']?.toString() ?? '',
       jumpProfileId: map['jumpProfileId']?.toString() ?? '',
       forwardAgent: map['forwardAgent'] == true,
+      runsKubernetes: map['runsKubernetes'] == true,
     );
   }
 
@@ -101,6 +102,7 @@ class SftpWindowArguments {
       'osIconAsset': profile.osIconAsset,
       'jumpProfileId': profile.jumpProfileId,
       'forwardAgent': profile.forwardAgent,
+      'runsKubernetes': profile.runsKubernetes,
     };
   }
 }

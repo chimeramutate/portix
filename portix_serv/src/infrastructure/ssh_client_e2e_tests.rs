@@ -106,6 +106,26 @@ impl server::Handler for TestServer {
         Ok(())
     }
 
+    /// `cat`: echoes stdin back until the client's EOF.
+    async fn exec_request(
+        &mut self,
+        id: ChannelId,
+        command: &[u8],
+        session: &mut Session,
+    ) -> std::result::Result<(), Self::Error> {
+        let (Some(channel), b"cat") = (self.channels.remove(&id), command) else {
+            return Ok(session.channel_failure(id)?);
+        };
+        session.channel_success(id)?;
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let (mut from_client, mut to_client) = tokio::io::split(channel.into_stream());
+            let _ = tokio::io::copy(&mut from_client, &mut to_client).await;
+            let _ = to_client.shutdown().await;
+        });
+        Ok(())
+    }
+
     async fn subsystem_request(
         &mut self,
         id: ChannelId,
@@ -256,6 +276,7 @@ fn profile(port: u16) -> SshProfile {
         key_passphrase: None,
         jump_host: None,
         forward_agent: false,
+        command: None,
     }
 }
 
@@ -628,6 +649,24 @@ async fn socks_proxy_reaches_a_target_through_the_ssh_server() {
     client.read_exact(&mut echoed).await.unwrap();
     assert_eq!(&echoed, b"hello");
     assert_eq!(forwards.load(Ordering::SeqCst), 1, "went through SSH");
+}
+
+#[tokio::test]
+async fn exec_input_reaches_the_command_on_stdin() {
+    let dir = tempfile::tempdir().unwrap();
+    let known_hosts = dir.path().join("known_hosts");
+    let (port, key) = start_server(Arc::new(AtomicUsize::new(0))).await;
+    trust(&known_hosts, port, &key);
+    let ssh = connect_forwarding_to(&profile(port), &known_hosts, None)
+        .await
+        .unwrap();
+
+    let manifest = "kind: Secret\ndata:\n  password: \"it's\"\n";
+    let output = run_exec(&ssh, "cat".to_owned(), Some(manifest.to_owned()))
+        .await
+        .unwrap();
+
+    assert_eq!(output, manifest);
 }
 
 #[tokio::test]

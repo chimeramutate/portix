@@ -1177,8 +1177,18 @@ class SftpWorkspaceController extends ChangeNotifier {
   Future<void> _downloadRemoteDirectory(
     String sessionId,
     String remotePath,
-    String localPath,
-  ) async {
+    String localPath, [
+    Set<String>? visited,
+  ]) async {
+    // A symlink back up the tree would otherwise recurse until the disk fills.
+    // ponytail: a folder reached twice is copied once, whichever path came first.
+    final seen = visited ?? <String>{};
+    final resolved = await _sftp.resolve(sessionId, remotePath);
+    final canonical = resolved.fold<String>(
+      (failure) => throw StateError(failure.message),
+      (path) => path,
+    );
+    if (!seen.add(canonical)) return;
     await Directory(localPath).create(recursive: true);
     final result = await _sftp.list(sessionId, remotePath);
     final entries = result.fold<List<RemoteFileEntry>>(
@@ -1188,7 +1198,7 @@ class SftpWorkspaceController extends ChangeNotifier {
     for (final entry in entries) {
       final childPath = '$localPath${Platform.pathSeparator}${entry.name}';
       if (entry.isDirectory) {
-        await _downloadRemoteDirectory(sessionId, entry.path, childPath);
+        await _downloadRemoteDirectory(sessionId, entry.path, childPath, seen);
       } else {
         await _downloadRemoteFile(sessionId, entry.path, childPath);
       }

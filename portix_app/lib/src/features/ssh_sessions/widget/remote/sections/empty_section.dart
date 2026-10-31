@@ -17,57 +17,53 @@ class NoTerminalConnection extends StatelessWidget {
       alignment: Alignment.center,
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(12),
-        child: AppPanel(
-          padding: const EdgeInsets.all(18),
-          color: AppColors.surfaceDark,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 340),
+          child: AppPanel(
+            padding: const EdgeInsets.all(20),
+            color: AppColors.surface,
+            radius: 10,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.power_settings_new_rounded,
+                ConnectionStatusIcon(
+                  icon: Icons.power_settings_new_rounded,
                   color: AppColors.muted,
-                  size: 36,
+                  tint: AppColors.selectedSoft,
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
                 FittedBox(
                   fit: BoxFit.scaleDown,
-                  child: Text('No terminal connection', style: portixTitle(16)),
+                  child: Text('No terminal connection', style: portixTitle(15)),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
                   profile == null
                       ? 'Select an SSH profile to start a terminal session.'
                       : '${profile!.username}@${profile!.name} is not connected.',
                   textAlign: TextAlign.center,
-                  style: portixMuted(12),
+                  style: portixMuted(12).copyWith(height: 1.4),
                 ),
-                const SizedBox(height: 14),
-                Column(
-                  children: [
-                    if (onConnect != null) ...[
-                      SizedBox(
-                        width: double.infinity,
-                        height: 34,
-                        child: OutlinedButton.icon(
-                          onPressed: onConnect,
-                          icon: const Icon(Icons.refresh_rounded, size: 16),
-                          label: const Text('Connect'),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-                    SizedBox(
-                      width: double.infinity,
-                      height: 34,
-                      child: AppButton(
-                        icon: Icons.list_rounded,
-                        label: 'View Profiles',
-                        onPressed: onViewProfiles,
-                      ),
+                const SizedBox(height: 16),
+                if (onConnect != null) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: AppButton(
+                      icon: Icons.refresh_rounded,
+                      label: 'Connect',
+                      primary: true,
+                      onPressed: onConnect,
                     ),
-                  ],
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                SizedBox(
+                  width: double.infinity,
+                  child: AppButton(
+                    icon: Icons.list_rounded,
+                    label: 'View Profiles',
+                    onPressed: onViewProfiles,
+                  ),
                 ),
               ],
             ),

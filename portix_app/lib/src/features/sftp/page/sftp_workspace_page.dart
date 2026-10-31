@@ -732,6 +732,24 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
     }
   }
 
+  /// Editors that hand the file to the OS rather than show it.
+  static const _systemLaunchers = {
+    '_system_default_',
+    'cmd.exe',
+    'open',
+    'xdg-open',
+  };
+
+  /// Local files are the user's own; a server's program needs a yes first.
+  Future<bool> _mayOpenWithSystem(
+    BuildContext context,
+    SftpFileEntry file,
+    bool isRemote,
+  ) async =>
+      !isRemote ||
+      !isRunnableFileName(file.name) ||
+      await confirmOpenRunnable(context, file.name);
+
   Future<void> _openFileWithEditor(
     BuildContext context,
     SftpFileEntry file,
@@ -749,6 +767,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
     // Non-code files open in the OS default app (Word for .docx, etc.).
     if (!isCodeFile && preferredDefault) {
+      if (!await _mayOpenWithSystem(context, file, isRemote)) return;
       final path = await controller.editablePathFor(file, isRemote);
       try {
         await controller.openWithSystemDefault(path);
@@ -775,6 +794,7 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
 
     if (editors.isEmpty) {
       // No apps found — use system default directly.
+      if (!await _mayOpenWithSystem(context, file, isRemote)) return;
       final path = await controller.editablePathFor(file, isRemote);
       try {
         await controller.openWithSystemDefault(path);
@@ -795,6 +815,11 @@ class _SftpWorkspacePageState extends State<SftpWorkspacePage> {
           );
 
     if (editor == null || !mounted) return;
+    if (_systemLaunchers.contains(editor.command) &&
+        !await _mayOpenWithSystem(context, file, isRemote)) {
+      return;
+    }
+    if (!mounted) return;
 
     // Handle system default pseudo-command.
     if (editor.command == '_system_default_') {

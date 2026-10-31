@@ -9,6 +9,7 @@ class TerminalWorkspaceView extends StatelessWidget {
     required this.showPaneControls,
     required this.terminalForSession,
     required this.statusForSession,
+    required this.failureForSession,
     required this.profileForSession,
     required this.idleTerminal,
     required this.controllerForSession,
@@ -44,6 +45,7 @@ class TerminalWorkspaceView extends StatelessWidget {
   final Terminal Function(String sessionId) terminalForSession;
   final session_models.ConnectionStatus Function(String sessionId)
   statusForSession;
+  final String? Function(String sessionId) failureForSession;
   final domain.SshProfile? Function(String sessionId) profileForSession;
   final Terminal idleTerminal;
   final TerminalController Function(String sessionId) controllerForSession;
@@ -107,6 +109,7 @@ class TerminalWorkspaceView extends StatelessWidget {
         showPaneControls: showPaneControls,
         terminalForSession: terminalForSession,
         statusForSession: statusForSession,
+        failureForSession: failureForSession,
         profileForSession: profileForSession,
         controllerForSession: controllerForSession,
         scrollControllerForSession: scrollControllerForSession,
@@ -142,6 +145,7 @@ class SplitTreeView extends StatelessWidget {
     required this.showPaneControls,
     required this.terminalForSession,
     required this.statusForSession,
+    required this.failureForSession,
     required this.profileForSession,
     required this.controllerForSession,
     required this.scrollControllerForSession,
@@ -173,6 +177,7 @@ class SplitTreeView extends StatelessWidget {
   final Terminal Function(String sessionId) terminalForSession;
   final session_models.ConnectionStatus Function(String sessionId)
   statusForSession;
+  final String? Function(String sessionId) failureForSession;
   final domain.SshProfile? Function(String sessionId) profileForSession;
   final TerminalController Function(String sessionId) controllerForSession;
   final ScrollController Function(String sessionId) scrollControllerForSession;
@@ -215,6 +220,7 @@ class SplitTreeView extends StatelessWidget {
         focusNode: focusNode,
         terminalViewKey: viewKeyForSession(node.sessionId),
         status: statusForSession(node.sessionId),
+        failure: failureForSession(node.sessionId),
         profile: profileForSession(node.sessionId),
         broadcastTyping: broadcastTyping,
         solo: soloSessionId == node.sessionId,
@@ -257,6 +263,7 @@ class SplitTreeView extends StatelessWidget {
             showPaneControls: showPaneControls,
             terminalForSession: terminalForSession,
             statusForSession: statusForSession,
+            failureForSession: failureForSession,
             profileForSession: profileForSession,
             controllerForSession: controllerForSession,
             scrollControllerForSession: scrollControllerForSession,

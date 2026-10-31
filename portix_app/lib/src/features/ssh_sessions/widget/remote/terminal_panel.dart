@@ -91,6 +91,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
   StreamSubscription<String>? _sessionLostSubscription;
   // Sessions with an auto-reconnect loop running.
   final Set<String> _autoReconnecting = {};
+  // Why each session went down, shown on its connection card.
+  final Map<String, String> _sessionFailures = {};
   // Last cwd each shell reported, so a new tab can start where this one is.
   final Map<String, String> _sessionDirectories = {};
   // A new tab told to `cd` somewhere: its shell's first prompt still reports
@@ -158,7 +160,12 @@ class _TerminalPanelState extends State<TerminalPanel> {
         return;
       }
       _activeTabClosed = false;
-      _connect();
+      // After the frame, as in initState: connecting notifies the
+      // ConnectionManager at once, and its listeners above this panel
+      // cannot rebuild in the middle of this build.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _connect();
+      });
     }
   }
 
@@ -491,13 +498,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
           .where((profile) => profile.id == profileId)
           .firstOrNull;
       if (profile == null) return;
-      final total = _autoReconnectDelaysSeconds.length;
-      for (var attempt = 0; attempt < total; attempt++) {
-        final delay = _autoReconnectDelaysSeconds[attempt];
-        _terminalForSession(sessionId).write(
-          '\r\n\x1b[33m[portix] Reconnecting in ${delay}s '
-          '(attempt ${attempt + 1}/$total)...\x1b[0m\r\n',
-        );
+      for (final delay in _autoReconnectDelaysSeconds) {
         await Future<void>.delayed(Duration(seconds: delay));
         if (!mounted ||
             _sessionById(sessionId) == null ||
@@ -512,12 +513,6 @@ class _TerminalPanelState extends State<TerminalPanel> {
           await reconnect;
           return;
         }
-      }
-      if (mounted && _sessionById(sessionId) != null) {
-        _terminalForSession(sessionId).write(
-          '\r\n\x1b[31m[portix] Host still unreachable. '
-          'Use Reconnect to try again.\x1b[0m\r\n',
-        );
       }
     } finally {
       _autoReconnecting.remove(sessionId);
@@ -589,9 +584,9 @@ class _TerminalPanelState extends State<TerminalPanel> {
   void _handleBackendError(session_models.ConnectionErrorEvent error) {
     final sessionId = error.sessionId;
     if (sessionId != null && _sessionById(sessionId) != null) {
-      _terminalForSession(
-        sessionId,
-      ).write('\r\n\x1b[31m${error.message}\x1b[0m\r\n');
+      if (mounted) {
+        setState(() => _sessionFailures[sessionId] = error.message);
+      }
       unawaited(_resolveSessionFailure(sessionId, error.message));
       return;
     }
@@ -752,6 +747,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
     _scrollListenersRegistered.remove(sessionId);
     _sessionDirectories.remove(sessionId);
     _pendingDirectories.remove(sessionId);
+    _sessionFailures.remove(sessionId);
     _terminalUi.disposeSession(sessionId);
   }
 
@@ -2560,6 +2556,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
       showPaneControls: showPaneControls,
       terminalForSession: _terminalForSession,
       statusForSession: _statusForSession,
+      failureForSession: (sessionId) => _sessionFailures[sessionId],
       profileForSession: _profileForSession,
       idleTerminal: _idleTerminal,
       controllerForSession: _controllerForSession,

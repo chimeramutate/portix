@@ -644,6 +644,8 @@ jobs:
       - name: Build Flutter macOS
         working-directory: ${{ env.APP_DIR }}
         shell: bash
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
         run: |
           set -euo pipefail
 
@@ -652,6 +654,13 @@ jobs:
               macos/Runner/Configs/AppInfo.xcconfig
           fi
           grep '^PRODUCT_BUNDLE_IDENTIFIER' macos/Runner/Configs/AppInfo.xcconfig
+
+          # Sparkle updates: stable builds carry the EdDSA public key, so
+          # they check the appcast; beta and local builds leave it empty.
+          if [ "$IS_BETA" != "true" ] && [ -n "$SPARKLE_PUBLIC_ED_KEY" ]; then
+            sed -i '' "s|^SPARKLE_PUBLIC_ED_KEY =.*|SPARKLE_PUBLIC_ED_KEY = ${SPARKLE_PUBLIC_ED_KEY}|" \
+              macos/Runner/Configs/AppInfo.xcconfig
+          fi
 
           flutter build macos \
             --release \
@@ -760,6 +769,62 @@ jobs:
 
           ls -lah "portix-macos-${RELEASE_NAME}.zip"
 
+      - name: Sign update and write appcast (Sparkle)
+        if: env.IS_RELEASE == 'true' && env.IS_BETA != 'true'
+        shell: bash
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          # Keep in step with Sparkle in portix_app/macos/Podfile.lock.
+          SPARKLE_VERSION: "2.9.6"
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SPARKLE_ED_PRIVATE_KEY:-}" ]; then
+            echo "SPARKLE_ED_PRIVATE_KEY is not set: no appcast for this release"
+            exit 0
+          fi
+
+          curl -fsSL -o sparkle.tar.xz \
+            "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
+          mkdir -p sparkle
+          tar -xf sparkle.tar.xz -C sparkle
+
+          RELEASE_NAME="${{ github.ref_name }}"
+          ZIP="portix-macos-${RELEASE_NAME}.zip"
+          VERSION="${{ steps.version.outputs.version }}"
+          BUILD="$(sed -nE 's/^version:[[:space:]]*[^+]+\+([0-9]+).*/\1/p' "${APP_DIR}/pubspec.yaml" | head -n 1)"
+          if [ -z "$BUILD" ]; then
+            echo "ERROR: pubspec.yaml version needs a +build number for Sparkle"
+            exit 1
+          fi
+
+          # The key only ever lives in this file, readable by this user.
+          KEY_FILE="$(mktemp)"
+          chmod 600 "$KEY_FILE"
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > "$KEY_FILE"
+          # Prints: sparkle:edSignature="…" length="…"
+          SIGNATURE="$(./sparkle/bin/sign_update --ed-key-file "$KEY_FILE" "$ZIP")"
+          rm -f "$KEY_FILE"
+
+          cat > appcast.xml <<XML
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>Portix</title>
+              <item>
+                <title>Portix ${VERSION}</title>
+                <pubDate>$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>
+                <sparkle:version>${BUILD}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>10.15</sparkle:minimumSystemVersion>
+                <sparkle:releaseNotesLink>https://github.com/${{ github.repository }}/releases/tag/${RELEASE_NAME}</sparkle:releaseNotesLink>
+                <enclosure url="https://github.com/${{ github.repository }}/releases/download/${RELEASE_NAME}/${ZIP}" type="application/octet-stream" ${SIGNATURE} />
+              </item>
+            </channel>
+          </rss>
+          XML
+          cat appcast.xml
+
       - name: Package macOS DMG
         shell: bash
         run: |
@@ -824,6 +889,7 @@ jobs:
           path: |
             portix-macos-${{ github.ref_name }}.zip
             portix-macos-${{ github.ref_name }}.dmg
+            appcast.xml
           if-no-files-found: error
 
   # ==========================================================================
@@ -923,7 +989,7 @@ jobs:
             libatk1.0-dev \
             libpango1.0-dev \
             libcairo2-dev \
-            libgdk-pixbuf2.0-dev
+            libgdk-pixbuf-2.0-dev
           sudo ldconfig
 
       - name: Flutter pub get
@@ -1706,6 +1772,7 @@ jobs:
             artifacts/**/*.dmg
             artifacts/**/*.AppImage
             artifacts/**/*.exe
+            artifacts/**/appcast.xml
           fail_on_unmatched_files: false
 
   # ==========================================================================

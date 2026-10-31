@@ -13,6 +13,7 @@ The project is organized as a **monorepo**, containing the application, backend,
 - Built-in SFTP file manager
 - Remote file browsing
 - Command autocomplete
+- Kubernetes explorer over SSH (kubectl): overview, nodes, workloads, services, storage, RBAC, YAML edit, shell and pod logs
 - Native Rust SSH engine
 - Cross-platform support (Linux, macOS, Windows)
 

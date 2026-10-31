@@ -6,6 +6,8 @@ import 'package:flutter_svg/svg.dart';
 import 'package:portix/src/core/theme/app_theme.dart';
 import 'package:portix/src/core/widgets/index.dart';
 import 'package:portix/src/features/app_menu/app_menu.dart';
+import 'package:portix/src/features/kubernetes/kubernetes_page.dart'
+    show kubeTabs;
 import 'package:portix/src/features/sftp/bloc/sftp_workspace_bloc.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -47,8 +49,13 @@ class WorkspaceTopBar extends StatelessWidget {
         const <Widget>[],
       ),
       WorkspaceView.rdp => (const _Title('Remote Desktop'), const <Widget>[]),
+      WorkspaceView.kibana => (const _Title('Kibana'), const <Widget>[]),
       WorkspaceView.kubernetes => (
-        const _Title('Kubernetes logs'),
+        ListenableBuilder(
+          listenable: kubeTabs,
+          builder: (_, _) =>
+              _Title('Kubernetes · ${kubeTabs.current.section.label}'),
+        ),
         const <Widget>[],
       ),
       _ => (_GallerySearch(state: state), const <Widget>[_NewProfileButton()]),
