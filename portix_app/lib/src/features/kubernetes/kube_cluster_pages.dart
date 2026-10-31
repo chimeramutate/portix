@@ -1135,6 +1135,170 @@ Future<bool> _confirm(
     ) ??
     false;
 
+/// Confirms an action on several rows, listing them under their
+/// namespaces with their current health; pops true to go ahead.
+class _BulkConfirmDialog extends StatelessWidget {
+  const _BulkConfirmDialog({
+    required this.title,
+    required this.message,
+    required this.action,
+    required this.icon,
+    required this.items,
+    required this.health,
+    required this.danger,
+  });
+
+  final String title;
+  final String message;
+  final String action;
+  final IconData icon;
+  final List<Json> items;
+  final PodHealth Function(Json item)? health;
+  final bool danger;
+
+  Widget _row(Json item) {
+    final health = this.health;
+    return SizedBox(
+      height: 30,
+      child: Row(
+        children: [
+          SizedBox(
+            width: 22,
+            child: health == null ? null : _PodDot(health(item)),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              nameOf(item),
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12.5, color: AppColors.text),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _namespace(String name, int count) => Padding(
+    padding: const EdgeInsets.only(top: 6, bottom: 2),
+    child: Row(
+      children: [
+        Flexible(
+          child: Text(
+            name,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.muted,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text('$count', style: portixMuted(12)),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final tone = danger ? AppColors.danger : AppColors.accent;
+    return Dialog(
+      child: SizedBox(
+        width: 460,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: tone.withValues(alpha: .14),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(icon, size: 19, color: tone),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          overflow: TextOverflow.ellipsis,
+                          style: portixTitle(15),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          message,
+                          style: danger
+                              ? TextStyle(fontSize: 12, color: AppColors.danger)
+                              : portixMuted(12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 264),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceDark,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  children: [
+                    for (final MapEntry(key: ns, value: group)
+                        in groupByNamespace(items).entries) ...[
+                      if (ns.isNotEmpty) _namespace(ns, group.length),
+                      ...group.map(_row),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.text,
+                    ),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    style: danger
+                        ? FilledButton.styleFrom(
+                            backgroundColor: AppColors.danger,
+                          )
+                        : null,
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: Text('$action ${items.length}'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Toolbar on top, then a bordered box holding the error (if any) and
 /// [child].
 class _ClusterFrame extends StatelessWidget {
@@ -1283,7 +1447,7 @@ class _FilterField extends StatelessWidget {
   );
 }
 
-enum _Common { yaml, describe, delete }
+enum _Common { form, yaml, describe, delete }
 
 /// One [KubeKind] as a sortable, searchable table, Rancher-style: the dot
 /// shows health, a click describes, the menu holds the actions.
@@ -1309,6 +1473,10 @@ class _ResourcePageState extends State<_ResourcePage>
 
   /// Namespace groups folded shut while all namespaces are listed.
   final _foldedNamespaces = <String>{};
+
+  /// Rows ticked for a bulk action, by [_pickKey]: they stay ticked through
+  /// the 10 s refresh.
+  final _picked = <String>{};
   Timer? _timer;
 
   /// The details opened, each as clicked (a workload, then one of its
@@ -1318,6 +1486,13 @@ class _ResourcePageState extends State<_ResourcePage>
   (KubeKind, Json)? get _detail => _trail.lastOrNull;
 
   KubeKind get _kind => widget.kind;
+
+  String _pickKey(Json item) => '${namespaceOf(item) ?? ''}/${nameOf(item)}';
+
+  List<Json> get _pickedItems => [
+    for (final item in _items)
+      if (_picked.contains(_pickKey(item))) item,
+  ];
   String? get _namespace => _kind.namespaced ? kube.namespace : null;
   Object get _key => (
     kube.profileId,
@@ -1382,6 +1557,7 @@ class _ResourcePageState extends State<_ResourcePage>
       setState(() {
         _items = items;
         _loadedFor = key;
+        _picked.retainAll(items.map(_pickKey));
       });
     } on Object {
       setState(() => _error = 'Unexpected kubectl output:\n$output');
@@ -1493,6 +1669,25 @@ class _ResourcePageState extends State<_ResourcePage>
     await _openYaml('Edit ${nameOf(item)}', yaml);
   }
 
+  /// The form works on a fresh read: the row may be up to 10 s old, and
+  /// the save carries this read's resourceVersion.
+  Future<void> _editForm(Json item, KubeKind kind) async {
+    final output = await _run(itemCommand(kind, item));
+    if (output == null || !mounted) return;
+    final fresh = jsonDecode(output) as Json;
+    final said = await showDialog<String>(
+      context: context,
+      builder: (_) => _EditFormDialog(
+        kind: kind,
+        item: fresh,
+        onSave: (edited) => _exec(replaceCommand(edited)),
+      ),
+    );
+    if (said == null || !mounted) return;
+    _toast(said.trim().isEmpty ? 'Saved.' : said.trim());
+    await _load();
+  }
+
   Future<void> _openYaml(String title, String yaml, {String? namespace}) async {
     final said = await showDialog<String>(
       context: context,
@@ -1520,8 +1715,60 @@ class _ResourcePageState extends State<_ResourcePage>
         await _apply(deleteCommand(kind, item));
   }
 
+  /// Asks about the ticked rows, then runs [command] on each in turn:
+  /// what worked is unticked, what failed stays ticked to try again.
+  Future<void> _applyPicked({
+    required String action,
+    required String message,
+    required IconData icon,
+    required String Function(Json) command,
+    bool danger = false,
+  }) async {
+    final items = _pickedItems;
+    final what = items.length == 1
+        ? nameOf(items.single)
+        : '${items.length} ${_kind.label}';
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (_) => _BulkConfirmDialog(
+        title: '$action $what?',
+        message: message,
+        action: action,
+        icon: icon,
+        items: items,
+        health: _kind.health,
+        danger: danger,
+      ),
+    );
+    if (sure != true || !mounted) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final failed = <String>[];
+    for (final item in items) {
+      final (_, error) = await _exec(command(item));
+      if (!mounted) return;
+      if (error == null) {
+        setState(() => _picked.remove(_pickKey(item)));
+      } else {
+        failed.add('${nameOf(item)}: $error');
+      }
+    }
+    setState(() => _loading = false);
+    await _load(quiet: true);
+    if (!mounted) return;
+    if (failed.isEmpty) {
+      _toast('$action: ${items.length} done.');
+    } else {
+      // After the reload, which clears the banner.
+      setState(() => _error = failed.join('\n'));
+    }
+  }
+
   Future<void> _common(_Common common, Json item, KubeKind kind) =>
       switch (common) {
+        _Common.form => _editForm(item, kind),
         _Common.yaml => _editYaml(item, kind),
         _Common.describe => _describe(item, kind),
         _Common.delete => _delete(item, kind),
@@ -1649,6 +1896,11 @@ class _ResourcePageState extends State<_ResourcePage>
     final columns = _columns;
     final shown = _shown(columns);
     final rows = _rows(shown);
+    final visible = rows.whereType<Json>().toList();
+    final picked = _pickedItems;
+    final allPicked =
+        visible.isNotEmpty &&
+        visible.every((i) => _picked.contains(_pickKey(i)));
     final where = !_kind.namespaced || kube.picked.isEmpty
         ? ''
         : kube.namespace != null
@@ -1663,12 +1915,57 @@ class _ResourcePageState extends State<_ResourcePage>
           ),
         ),
         const SizedBox(width: 12),
-        Text(
-          _search.text.isEmpty
-              ? '${_items.length}'
-              : '${shown.length} of ${_items.length}',
-          style: portixMuted(12),
-        ),
+        if (picked.isEmpty)
+          Text(
+            _search.text.isEmpty
+                ? '${_items.length}'
+                : '${shown.length} of ${_items.length}',
+            style: portixMuted(12),
+          ),
+        if (picked.isNotEmpty) ...[
+          Text('${picked.length} selected', style: portixTitle(12.5)),
+          const SizedBox(width: 8),
+          if (picked.every(
+            (i) => _kind.actions(i).contains(KubeAction.restart),
+          )) ...[
+            SizedBox(
+              height: _controlHeight,
+              child: OutlinedButton.icon(
+                onPressed: _loading
+                    ? null
+                    : () => _applyPicked(
+                        action: KubeAction.restart.label,
+                        message: 'Restarts their pods with a rolling update.',
+                        icon: Icons.restart_alt_rounded,
+                        command: (item) =>
+                            actionCommand(KubeAction.restart, _kind, item)!,
+                      ),
+                icon: const Icon(Icons.restart_alt_rounded, size: 16),
+                label: Text(KubeAction.restart.label),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          SizedBox(
+            height: _controlHeight,
+            child: OutlinedButton.icon(
+              onPressed: _loading
+                  ? null
+                  : () => _applyPicked(
+                      action: 'Delete',
+                      message: 'This cannot be undone.',
+                      icon: Icons.delete_outline_rounded,
+                      danger: true,
+                      command: (item) => deleteCommand(_kind, item),
+                    ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.danger,
+              ),
+              icon: const Icon(Icons.delete_outline_rounded, size: 16),
+              label: const Text('Delete'),
+            ),
+          ),
+        ],
         const SizedBox(width: 8),
         SizedBox(
           height: _controlHeight,
@@ -1699,6 +1996,16 @@ class _ResourcePageState extends State<_ResourcePage>
                 _TableHeader(
                   columns: columns,
                   dot: _kind.health != null,
+                  picked: allPicked
+                      ? true
+                      : visible.any((i) => _picked.contains(_pickKey(i)))
+                      ? null
+                      : false,
+                  onPickAll: () => setState(
+                    () => allPicked
+                        ? _picked.removeAll(visible.map(_pickKey))
+                        : _picked.addAll(visible.map(_pickKey)),
+                  ),
                   sortColumn: _sortColumn,
                   ascending: _ascending,
                   onSort: (i) => setState(() {
@@ -1733,7 +2040,14 @@ class _ResourcePageState extends State<_ResourcePage>
                               health: _kind.health?.call(row),
                               odd: i.isOdd,
                               enabled: !_loading,
+                              picked: _picked.contains(_pickKey(row)),
+                              onPicked: () => setState(
+                                () => _picked.contains(_pickKey(row))
+                                    ? _picked.remove(_pickKey(row))
+                                    : _picked.add(_pickKey(row)),
+                              ),
                               actions: _kind.actions(row),
+                              hasForm: kubeFormSpec(_kind) != null,
                               onDescribe: () => _openDetail(row, _kind),
                               onAction: (action) => _action(action, row, _kind),
                               onCommon: (common) => _common(common, row, _kind),
@@ -2019,6 +2333,12 @@ class _ResourceDetailState extends State<_ResourceDetail> {
             _ => null,
           },
           itemBuilder: (_) => [
+            if (kubeFormSpec(kind) != null)
+              _TableRow._menuItem(
+                _Common.form,
+                'Edit config',
+                Icons.tune_rounded,
+              ),
             for (final action in actions)
               if (action != KubeAction.scale)
                 _TableRow._menuItem(
@@ -2828,8 +3148,48 @@ class _PodShellDialogState extends State<_PodShellDialog> {
   }
 }
 
+const _pickWidth = 26.0;
 const _dotWidth = 26.0;
 const _menuWidth = 40.0;
+
+/// A table's tick box: small and quiet so it doesn't outweigh the rows.
+/// A null [value] is the header's "some ticked".
+class _TickBox extends StatelessWidget {
+  const _TickBox({
+    required this.value,
+    required this.label,
+    required this.onTap,
+  });
+
+  final bool? value;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: _pickWidth,
+    child: Transform.scale(
+      scale: .78,
+      child: Checkbox(
+        value: value,
+        tristate: true,
+        semanticLabel: label,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+        side: WidgetStateBorderSide.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? BorderSide.none
+              : BorderSide(
+                  width: 1.5,
+                  color: states.contains(WidgetState.hovered)
+                      ? AppColors.muted
+                      : AppColors.inputBorder,
+                ),
+        ),
+        onChanged: (_) => onTap(),
+      ),
+    ),
+  );
+}
 
 class _TableHeader extends StatelessWidget {
   const _TableHeader({
@@ -2838,10 +3198,16 @@ class _TableHeader extends StatelessWidget {
     required this.sortColumn,
     required this.ascending,
     required this.onSort,
+    this.picked = false,
+    this.onPickAll,
   });
 
   final List<KubeColumn> columns;
   final bool dot;
+
+  /// All rows ticked, some (null) or none; no [onPickAll], no tick column.
+  final bool? picked;
+  final VoidCallback? onPickAll;
   final int? sortColumn;
   final bool ascending;
   final ValueChanged<int> onSort;
@@ -2856,6 +3222,8 @@ class _TableHeader extends StatelessWidget {
     ),
     child: Row(
       children: [
+        if (onPickAll case final pickAll?)
+          _TickBox(value: picked, label: 'Select all', onTap: pickAll),
         if (dot) const SizedBox(width: _dotWidth),
         for (final (i, column) in columns.indexed)
           Expanded(
@@ -2906,6 +3274,9 @@ class _TableRow extends StatelessWidget {
     required this.onDescribe,
     required this.onAction,
     required this.onCommon,
+    this.picked = false,
+    this.onPicked,
+    this.hasForm = false,
   });
 
   final Json item;
@@ -2913,6 +3284,13 @@ class _TableRow extends StatelessWidget {
   final PodHealth? health;
   final bool odd;
   final bool enabled;
+  final bool picked;
+
+  /// Null leaves the row without a tick box.
+  final VoidCallback? onPicked;
+
+  /// Offers Edit config beside Edit YAML.
+  final bool hasForm;
   final List<KubeAction> actions;
   final VoidCallback onDescribe;
   final ValueChanged<KubeAction> onAction;
@@ -2922,7 +3300,9 @@ class _TableRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final health = this.health;
     return Material(
-      color: odd
+      color: picked
+          ? AppColors.selectedSoft
+          : odd
           ? AppColors.surface.withValues(alpha: .35)
           : Colors.transparent,
       child: InkWell(
@@ -2937,6 +3317,12 @@ class _TableRow extends StatelessWidget {
           ),
           child: Row(
             children: [
+              if (onPicked case final pick?)
+                _TickBox(
+                  value: picked,
+                  label: 'Select ${nameOf(item)}',
+                  onTap: pick,
+                ),
               if (health != null)
                 SizedBox(width: _dotWidth, child: _PodDot(health)),
               for (final (i, column) in columns.indexed)
@@ -2980,6 +3366,12 @@ class _TableRow extends StatelessWidget {
                     for (final action in actions)
                       _menuItem(action, action.label, _actionIcon(action)),
                     if (actions.isNotEmpty) const PopupMenuDivider(),
+                    if (hasForm)
+                      _menuItem(
+                        _Common.form,
+                        'Edit config',
+                        Icons.tune_rounded,
+                      ),
                     _menuItem(
                       _Common.yaml,
                       'Edit YAML',
@@ -3086,11 +3478,13 @@ class _BigDialog extends StatelessWidget {
     required this.title,
     required this.child,
     this.actions = const [],
+    this.maxWidth = 1100,
   });
 
   final String title;
   final List<Widget> actions;
   final Widget child;
+  final double maxWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -3098,7 +3492,7 @@ class _BigDialog extends StatelessWidget {
     return Dialog(
       clipBehavior: Clip.antiAlias,
       child: SizedBox(
-        width: (size.width * .8).clamp(360.0, 1100.0),
+        width: (size.width * .8).clamp(360.0, maxWidth),
         height: size.height * .85,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3224,38 +3618,369 @@ class _YamlDialogState extends State<_YamlDialog> {
             ),
           ),
         ),
-        if (_error case final error?)
-          _ErrorBanner(
-            error: describeKubeError(error),
-            retrying: _applying,
-            onRetry: _save,
-            onDismiss: () => setState(() => _error = null),
+        _SaveFooter(
+          error: _error,
+          saving: _applying,
+          label: 'Apply',
+          onSave: _save,
+          onDismiss: () => setState(() => _error = null),
+        ),
+      ],
+    ),
+  );
+}
+
+/// A dialog's foot: what went wrong, then Cancel and the save button.
+class _SaveFooter extends StatelessWidget {
+  const _SaveFooter({
+    required this.error,
+    required this.saving,
+    required this.label,
+    required this.onSave,
+    required this.onDismiss,
+    this.canSave = true,
+  });
+
+  final String? error;
+  final bool saving;
+  final String label;
+  final VoidCallback onSave;
+  final VoidCallback onDismiss;
+  final bool canSave;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      if (error case final error?)
+        _ErrorBanner(
+          error: describeKubeError(error),
+          retrying: saving,
+          onRetry: onSave,
+          onDismiss: onDismiss,
+        ),
+      Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.icon(
+              onPressed: saving || !canSave ? null : onSave,
+              icon: saving
+                  ? SizedBox.square(
+                      dimension: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.onAccent,
+                      ),
+                    )
+                  : const Icon(Icons.check_rounded, size: 16),
+              label: Text(label),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+/// An env var's row in the form; [source] marks one that can only be seen.
+class _EnvRow {
+  _EnvRow(String name, String value, this.source)
+    : name = TextEditingController(text: name),
+      value = TextEditingController(text: value);
+
+  final TextEditingController name;
+  final TextEditingController value;
+  final String? source;
+
+  void dispose() {
+    name.dispose();
+    value.dispose();
+  }
+}
+
+/// One container's fields in the form.
+class _ContainerFields {
+  _ContainerFields(KubeContainerEdit edit)
+    : name = edit.name,
+      image = TextEditingController(text: edit.image),
+      cpuRequest = TextEditingController(text: edit.cpuRequest),
+      memoryRequest = TextEditingController(text: edit.memoryRequest),
+      cpuLimit = TextEditingController(text: edit.cpuLimit),
+      memoryLimit = TextEditingController(text: edit.memoryLimit),
+      env = [for (final e in edit.env) _EnvRow(e.name, e.value, e.source)];
+
+  final String name;
+  final TextEditingController image;
+  final TextEditingController cpuRequest;
+  final TextEditingController memoryRequest;
+  final TextEditingController cpuLimit;
+  final TextEditingController memoryLimit;
+  final List<_EnvRow> env;
+
+  /// Rows left empty are not variables.
+  List<_EnvRow> get _filled => [
+    for (final row in env)
+      if (row.name.text.trim().isNotEmpty || row.value.text.isNotEmpty) row,
+  ];
+
+  bool get valid =>
+      image.text.trim().isNotEmpty &&
+      _filled.every((row) => row.name.text.trim().isNotEmpty);
+
+  KubeContainerEdit get edit => (
+    name: name,
+    image: image.text.trim(),
+    env: [
+      for (final row in _filled)
+        (name: row.name.text.trim(), value: row.value.text, source: row.source),
+    ],
+    cpuRequest: cpuRequest.text.trim(),
+    memoryRequest: memoryRequest.text.trim(),
+    cpuLimit: cpuLimit.text.trim(),
+    memoryLimit: memoryLimit.text.trim(),
+  );
+
+  void dispose() {
+    image.dispose();
+    cpuRequest.dispose();
+    memoryRequest.dispose();
+    cpuLimit.dispose();
+    memoryLimit.dispose();
+    for (final row in env) {
+      row.dispose();
+    }
+  }
+}
+
+/// Edits a workload's common settings without touching YAML: replicas,
+/// and each container's image, resources and env. A pod takes only images.
+class _EditFormDialog extends StatefulWidget {
+  const _EditFormDialog({
+    required this.kind,
+    required this.item,
+    required this.onSave,
+  });
+
+  final KubeKind kind;
+  final Json item;
+
+  /// kubectl's output, or the error.
+  final Future<(String?, String?)> Function(Json edited) onSave;
+
+  @override
+  State<_EditFormDialog> createState() => _EditFormDialogState();
+}
+
+class _EditFormDialogState extends State<_EditFormDialog> {
+  late final _containers = [
+    for (final edit in containerEdits(widget.kind, widget.item))
+      _ContainerFields(edit),
+  ];
+  late final _replicas = TextEditingController(
+    text: '${field(widget.item, 'spec.replicas') ?? 1}',
+  );
+  bool _saving = false;
+  String? _error;
+
+  KubeKind get _kind => widget.kind;
+  bool get _hasReplicas => kubeFormHasReplicas(_kind);
+
+  @override
+  void dispose() {
+    _replicas.dispose();
+    for (final c in _containers) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  bool get _valid =>
+      (!_hasReplicas || int.tryParse(_replicas.text) != null) &&
+      _containers.every((c) => c.valid);
+
+  Future<void> _save() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final (output, error) = await widget.onSave(
+      withFormEdits(
+        _kind,
+        widget.item,
+        containers: [for (final c in _containers) c.edit],
+        replicas: _hasReplicas ? int.parse(_replicas.text) : null,
+      ),
+    );
+    if (!mounted) return;
+    if (error == null) return Navigator.of(context).pop(output ?? '');
+    setState(() {
+      _saving = false;
+      _error = error;
+    });
+  }
+
+  void _changed(String _) => setState(() {});
+
+  Widget _quantity(
+    TextEditingController controller,
+    String label,
+    String hint,
+  ) => Expanded(
+    child: AppTextField(
+      controller: controller,
+      label: label,
+      hint: hint,
+      onChanged: _changed,
+    ),
+  );
+
+  Widget _envRow(_ContainerFields container, _EnvRow row) => Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Row(
+      children: [
+        Expanded(
+          flex: 2,
+          child: AppTextField(
+            controller: row.name,
+            label: '',
+            hint: 'NAME',
+            readOnly: row.source != null,
+            onChanged: _changed,
           ),
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          flex: 3,
+          child: row.source != null
+              ? Text(
+                  'from ${row.source}',
+                  overflow: TextOverflow.ellipsis,
+                  style: portixMuted(12),
+                )
+              : AppTextField(
+                  controller: row.value,
+                  label: '',
+                  hint: 'value',
+                  onChanged: _changed,
+                ),
+        ),
+        IconButton(
+          tooltip: 'Remove ${row.name.text}',
+          visualDensity: VisualDensity.compact,
+          icon: Icon(Icons.close_rounded, size: 16, color: AppColors.muted),
+          onPressed: () => setState(() {
+            container.env.remove(row);
+            row.dispose();
+          }),
+        ),
+      ],
+    ),
+  );
+
+  Widget _container(_ContainerFields c) => AppPanel(
+    margin: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.all(14),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(c.name, style: portixTitle(13.5)),
+        const SizedBox(height: 12),
+        AppTextField(
+          controller: c.image,
+          label: 'Image',
+          hint: 'registry.example.com/app:1.0',
+          onChanged: _changed,
+        ),
+        if (!kubeFormImageOnly(_kind)) ...[
+          const SizedBox(height: 14),
+          Row(
             children: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Cancel'),
-              ),
+              _quantity(c.cpuRequest, 'CPU request', '100m'),
               const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: _applying ? null : _save,
-                icon: _applying
-                    ? SizedBox.square(
-                        dimension: 14,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: AppColors.onAccent,
-                        ),
-                      )
-                    : const Icon(Icons.check_rounded, size: 16),
-                label: const Text('Apply'),
-              ),
+              _quantity(c.cpuLimit, 'CPU limit', '500m'),
+              const SizedBox(width: 8),
+              _quantity(c.memoryRequest, 'Memory request', '128Mi'),
+              const SizedBox(width: 8),
+              _quantity(c.memoryLimit, 'Memory limit', '512Mi'),
             ],
           ),
+          const SizedBox(height: 14),
+          Text('Environment variables', style: appFieldLabelStyle()),
+          const SizedBox(height: 6),
+          for (final row in c.env) _envRow(c, row),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => setState(() => c.env.add(_EnvRow('', '', null))),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.text,
+                visualDensity: VisualDensity.compact,
+              ),
+              icon: const Icon(Icons.add_rounded, size: 16),
+              label: const Text('Add variable'),
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => _BigDialog(
+    title: 'Edit ${nameOf(widget.item)}',
+    maxWidth: 720,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
+            children: [
+              Text(
+                kubeFormImageOnly(_kind)
+                    ? 'A running pod can only change its images. The container '
+                          'restarts, and a pod owned by a workload goes back '
+                          "to the workload's image when it is recreated."
+                    : '${_kind.type == 'cronjobs' ? 'Changes apply from the next run.' : 'Image, resource and variable changes roll out new pods.'} '
+                          'Other settings stay as they are; change them with '
+                          'Edit YAML.',
+                style: portixMuted(12),
+              ),
+              const SizedBox(height: 14),
+              if (_hasReplicas) ...[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: SizedBox(
+                    width: 140,
+                    child: AppTextField(
+                      controller: _replicas,
+                      label: 'Replicas',
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      onChanged: _changed,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ],
+              ..._containers.map(_container),
+            ],
+          ),
+        ),
+        _SaveFooter(
+          error: _error,
+          saving: _saving,
+          label: 'Save',
+          canSave: _valid,
+          onSave: _save,
+          onDismiss: () => setState(() => _error = null),
         ),
       ],
     ),
