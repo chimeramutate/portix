@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:portix/src/domain/entities/sftp/index.dart';
 
+/// [text] as a single-quoted PowerShell string.
+String powerShellLiteral(String text) => "'${text.replaceAll("'", "''")}'";
+
 class LocalEditorService {
   Future<List<LocalEditor>> detectEditors() async {
     final candidates = <LocalEditor>[
@@ -263,7 +266,7 @@ class LocalEditorService {
         '-NoProfile',
         '-NonInteractive',
         '-Command',
-        'Invoke-Item -LiteralPath \'$escaped\'',
+        'Invoke-Item -LiteralPath ${powerShellLiteral(escaped)}',
       ]);
       return;
     }
@@ -372,7 +375,11 @@ class LocalEditorService {
   }
 
   static String _sanitizeRemoteTempBaseName(String name) {
-    final safe = name.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_').trim();
+    // Allowlist, not a list of bad characters: this name reaches shells
+    // (`runInShell` for .cmd editors) from a server we don't control.
+    final safe = name
+        .replaceAll(RegExp(r'[^\p{L}\p{M}\p{N} ._-]', unicode: true), '_')
+        .trim();
     return safe.isEmpty ? 'remote-file' : safe;
   }
 
@@ -736,39 +743,12 @@ class LocalEditorService {
       final needsShell =
           editor.command.endsWith('.cmd') || editor.command.endsWith('.bat');
 
-      // "Default Windows app": open with pwsh, powershell or cmd, whichever exists.
+      // "Default Windows app". rundll32 takes the path as one argument; a
+      // PowerShell -Command line would run a crafted file name as code.
       if (editor.command == 'cmd.exe' && editor.arguments.contains('start')) {
-        final escaped = path.replaceAll('/', '\\');
-
-        // Try pwsh (PowerShell Core) first.
-        if (await _commandExists('pwsh')) {
-          await Process.run('pwsh', [
-            '-NoProfile',
-            '-Command',
-            'Start-Process',
-            '-FilePath',
-            escaped,
-          ]);
-          return;
-        }
-
-        // Try Windows PowerShell (powershell.exe).
-        if (await _commandExists('powershell')) {
-          await Process.run('powershell', [
-            '-NoProfile',
-            '-Command',
-            'Start-Process',
-            '-FilePath',
-            escaped,
-          ]);
-          return;
-        }
-
-        // Fallback: cmd.exe with properly constructed command.
-        // Using rundll32 avoids the quoting issues of `start`.
         await Process.run('rundll32.exe', [
           'url.dll,FileProtocolHandler',
-          escaped,
+          path.replaceAll('/', '\\'),
         ]);
         return;
       }
